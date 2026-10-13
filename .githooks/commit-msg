@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+# Checks a commit message against the Definition of Done in AGENTS.md.
+# Git runs it as the commit-msg hook; CI runs it once per pull-request commit.
+set -euo pipefail
+
+msg=$(grep -v '^#' "$1")
+subject=$(printf '%s\n' "$msg" | head -n 1)
+status=0
+
+case "$subject" in
+  Merge\ * | Revert\ * | fixup!\ * | squash!\ *) exit 0 ;;
+esac
+
+if ! printf '%s\n' "$subject" | grep -Eq '^(feat|fix|refactor|test|docs|chore)(\([^)]+\))?!?: .+'; then
+  echo "commit-msg: subject must be conventional (feat|fix|refactor|test|docs|chore): $subject" >&2
+  status=1
+fi
+
+if ! printf '%s\n' "$msg" | grep -Eq '^BFL: .+'; then
+  echo "commit-msg: body needs a 'BFL:' line, see docs/bfl-kontroll.md" >&2
+  status=1
+fi
+
+exit $status
