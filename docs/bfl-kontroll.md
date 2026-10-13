@@ -11,6 +11,7 @@ Den som gör förändringen går igenom stegen och skriver `BFL:`-raden. Granskn
 1. Gå igenom varje avsnitt nedan och avgör vilka krav förändringen **berör**: kod, schema, migrering, export/import, deployment eller ett beslut som formar något av det.
 2. Varje berört krav måste vara **uppfyllt** av förändringen, eller ha ett öppet issue som hänvisar till id:t och visar hur det uppfylls senare. För ett wayfinder-beslut räcker också ett område under **Not yet specified** på kartan, om områdets text nämner id:t. Hänvisa då till kartan: `S1 i fogen Räkenskapsårsstängning på #<karta>`.
 3. Skriv resultatet i commit-meddelandets brödtext eller i ticketets lösningskommentar: `BFL: L1, VF3 uppfyllda; A4 i #<issue>`. Om inget krav berörs: `BFL: ej berörd`.
+4. Kör `scripts/check-bfl-line <fil>` på en lösningskommentar innan den postas. Skriptet kontrollerar att varje id finns och att varje hänvisning pekar på ett öppet issue eller ett fogområde som nämner id:t. Commit-hooken och CI kör samma kontroll på commits.
 
 ## Bokföringsposter och låsning
 

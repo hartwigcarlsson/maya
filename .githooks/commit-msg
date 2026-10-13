@@ -16,19 +16,6 @@ if ! printf '%s\n' "$subject" | grep -Eq '^(feat|fix|refactor|test|docs|chore)(\
   status=1
 fi
 
-if ! printf '%s\n' "$msg" | grep -Eq '^BFL: .+'; then
-  echo "commit-msg: body needs a 'BFL:' line, see docs/bfl-kontroll.md" >&2
-  status=1
-fi
-
-# Every krav-id on the BFL line must exist in docs/bfl-kontroll.md.
-kontroll="$(git rev-parse --show-toplevel)/docs/bfl-kontroll.md"
-known=$(grep -oE '^- \*\*[^*]+\*\*' "$kontroll" | sed -E 's/^- \*\*|\*\*$//g')
-for id in $(printf '%s\n' "$msg" | grep -E '^BFL: ' | grep -oE '(Å|[A-Z]{1,2})[0-9]+'); do
-  if ! printf '%s\n' "$known" | grep -Fqx "$id"; then
-    echo "commit-msg: unknown krav-id $id on the BFL line, see docs/bfl-kontroll.md" >&2
-    status=1
-  fi
-done
+"$(git rev-parse --show-toplevel)/scripts/check-bfl-line" "$1" || status=1
 
 exit $status
