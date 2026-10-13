@@ -1,0 +1,446 @@
+<!doctype html>
+<html lang="sv">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Maya gränssnittsprototyp</title>
+<!--
+  PROTOTYP, KASTA BORT. Svarar på: Hur ska Mayas gränssnitt se ut och navigeras?
+  (https://github.com/hartwigcarlsson/maya/issues/24)
+  Tre skal som skiljer sig i grunden, valda med ?variant=A|B|C (eller ← → / knapparna längst ned).
+  A: Sidomeny   B: Inkorg först   C: Tangentbord och kommandopalett
+  Allt ligger i minnet; ladda om sidan för att börja om.
+-->
+<style>
+:root{
+  --bg:#f6f6f4;--panel:#fff;--panel2:#f0f0ec;--line:#dddcd6;--text:#1d1d1b;--muted:#6b6a64;
+  --accent:#2f5d50;--accent-text:#fff;--warn:#9a5b00;--warn-bg:#fff3dc;--bad:#a2302a;--bad-bg:#fbe7e5;--ok:#2f6b3a;--ok-bg:#e4f2e6;
+  --ai:#5b3fa0;--ai-bg:#efeafb;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#161615;--panel:#1f1f1d;--panel2:#272724;--line:#363632;--text:#ecebe6;--muted:#9c9b94;
+  --accent:#7cc0a8;--accent-text:#0f1f1a;--warn:#f0b35a;--warn-bg:#3a2c12;--bad:#f08a82;--bad-bg:#3d1c1a;--ok:#8fd49b;--ok-bg:#1b3320;
+  --ai:#c2aef5;--ai-bg:#2c2440;
+}}
+:root[data-theme="dark"]{
+  --bg:#161615;--panel:#1f1f1d;--panel2:#272724;--line:#363632;--text:#ecebe6;--muted:#9c9b94;
+  --accent:#7cc0a8;--accent-text:#0f1f1a;--warn:#f0b35a;--warn-bg:#3a2c12;--bad:#f08a82;--bad-bg:#3d1c1a;--ok:#8fd49b;--ok-bg:#1b3320;
+  --ai:#c2aef5;--ai-bg:#2c2440;
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%}
+body{background:var(--bg);color:var(--text);font:14px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+button,input,select{font:inherit;color:inherit}
+a{color:inherit}
+.num{font-variant-numeric:tabular-nums;text-align:right;white-space:nowrap}
+.muted{color:var(--muted)}
+.pill{display:inline-block;padding:1px 8px;border-radius:999px;font-size:12px;font-weight:500;white-space:nowrap}
+.pill.utkast{background:var(--warn-bg);color:var(--warn)}
+.pill.bokford{background:var(--ok-bg);color:var(--ok)}
+.pill.ai{background:var(--ai-bg);color:var(--ai)}
+.pill.rattad{background:var(--bad-bg);color:var(--bad)}
+.btn{border:1px solid var(--line);background:var(--panel);padding:6px 12px;border-radius:6px;cursor:pointer}
+.btn:hover{border-color:var(--muted)}
+.btn.primary{background:var(--accent);color:var(--accent-text);border-color:var(--accent)}
+.btn.ghost{border-color:transparent;background:transparent}
+table{border-collapse:collapse;width:100%}
+.errors{background:var(--bad-bg);color:var(--bad);border-radius:6px;padding:8px 12px;margin:8px 0}
+.errors ul{margin:4px 0 0 18px;padding:0}
+.placeholder{padding:48px;text-align:center;color:var(--muted)}
+input.cell{width:100%;border:1px solid transparent;background:transparent;padding:4px 6px;border-radius:4px}
+input.cell:focus,input.field:focus,select:focus{outline:2px solid var(--accent);outline-offset:-1px}
+input.field,select.field{border:1px solid var(--line);background:var(--panel);padding:6px 8px;border-radius:6px}
+.sumrow td{font-weight:600;border-top:2px solid var(--line)}
+.diff-bad{color:var(--bad)}
+.diff-ok{color:var(--ok)}
+
+/* ---------- Switcher (inte en del av designen) ---------- */
+#proto-switcher{position:fixed;left:50%;bottom:14px;transform:translateX(-50%);z-index:999;display:flex;align-items:center;gap:6px;
+  background:#111;color:#fff;border-radius:999px;padding:6px 8px;box-shadow:0 6px 24px rgba(0,0,0,.35);font:13px system-ui;border:2px dashed #f5c400}
+#proto-switcher button{background:#333;color:#fff;border:0;border-radius:999px;padding:4px 10px;cursor:pointer}
+#proto-switcher .lbl{padding:0 8px;white-space:nowrap}
+
+/* ---------- Variant A: Sidomeny ---------- */
+.A{display:grid;grid-template-columns:232px 1fr;height:100vh}
+.A aside{background:var(--panel);border-right:1px solid var(--line);display:flex;flex-direction:column;padding:12px 10px;gap:4px;overflow:auto}
+.A .brand{font-weight:700;font-size:16px;padding:4px 8px 10px}
+.A select.co{width:100%;margin-bottom:10px}
+.A nav a{display:flex;justify-content:space-between;align-items:center;padding:6px 10px;border-radius:6px;text-decoration:none;color:var(--text)}
+.A nav a:hover{background:var(--panel2)}
+.A nav a.on{background:var(--panel2);font-weight:600;box-shadow:inset 3px 0 0 var(--accent)}
+.A nav .grp{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);padding:12px 10px 4px}
+.A .badge{background:var(--warn-bg);color:var(--warn);border-radius:999px;font-size:12px;padding:0 7px;font-weight:600}
+.A .foot{margin-top:auto;border-top:1px solid var(--line);padding-top:10px;display:flex;justify-content:space-between;align-items:center;font-size:13px}
+.A main{overflow:auto;padding:20px 28px 80px}
+.A h1{font-size:20px;margin:0}
+.A .head{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;gap:12px}
+.A .banner{background:var(--warn-bg);color:var(--warn);padding:8px 12px;border-radius:6px;margin-bottom:14px;display:flex;justify-content:space-between;align-items:center}
+.A .tabs{display:flex;gap:4px;margin-bottom:10px}
+.A .tabs button{border:1px solid var(--line);background:var(--panel);padding:4px 12px;border-radius:999px;cursor:pointer}
+.A .tabs button.on{background:var(--text);color:var(--bg);border-color:var(--text)}
+.A .tbl{background:var(--panel);border:1px solid var(--line);border-radius:8px;overflow:hidden}
+.A .tbl th{text-align:left;font-weight:500;color:var(--muted);font-size:12px;padding:8px 12px;border-bottom:1px solid var(--line);background:var(--panel2)}
+.A .tbl td{padding:8px 12px;border-bottom:1px solid var(--line)}
+.A .tbl tr.click:hover td{background:var(--panel2);cursor:pointer}
+.A .card{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:16px;margin-bottom:14px}
+.A .grid2{display:grid;grid-template-columns:160px 1fr;gap:10px 14px;align-items:center;max-width:620px}
+.A .rows th{text-align:left;font-weight:500;color:var(--muted);font-size:12px;padding:6px}
+.A .rows td{padding:2px;border-bottom:1px solid var(--line)}
+.A .actions{display:flex;gap:8px;justify-content:flex-end;margin-top:14px}
+
+/* ---------- Variant B: Inkorg först ---------- */
+.B{display:flex;flex-direction:column;height:100vh;font-size:15px}
+.B header{display:flex;align-items:center;gap:18px;padding:0 20px;height:54px;background:var(--panel);border-bottom:1px solid var(--line)}
+.B .brand{font-family:Georgia,"Iowan Old Style",serif;font-size:20px;font-weight:700}
+.B .co{position:relative}
+.B .co>button{border:1px solid var(--line);background:var(--panel2);border-radius:8px;padding:5px 10px;cursor:pointer}
+.B .menu{position:absolute;top:110%;left:0;background:var(--panel);border:1px solid var(--line);border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.15);min-width:260px;z-index:5;padding:4px}
+.B .menu button{display:block;width:100%;text-align:left;border:0;background:transparent;padding:8px 10px;border-radius:6px;cursor:pointer}
+.B .menu button:hover{background:var(--panel2)}
+.B header nav{display:flex;gap:2px;height:100%}
+.B header nav a{display:flex;align-items:center;padding:0 12px;text-decoration:none;color:var(--muted);border-bottom:3px solid transparent}
+.B header nav a.on{color:var(--text);border-bottom-color:var(--accent);font-weight:600}
+.B header nav a .cnt{margin-left:6px;background:var(--warn);color:var(--panel);border-radius:999px;font-size:11px;padding:0 6px;font-weight:700}
+.B header .right{margin-left:auto;display:flex;gap:8px;align-items:center}
+.B .split{flex:1;display:grid;grid-template-columns:400px 1fr;min-height:0}
+.B .list{border-right:1px solid var(--line);overflow:auto;background:var(--panel)}
+.B .list h2{font-family:Georgia,serif;font-size:18px;margin:18px 18px 6px}
+.B .list .sub{margin:0 18px 12px;color:var(--muted);font-size:13px}
+.B .item{display:block;padding:12px 18px;border-top:1px solid var(--line);text-decoration:none;color:var(--text)}
+.B .item:hover{background:var(--panel2)}
+.B .item.on{background:var(--panel2);box-shadow:inset 3px 0 0 var(--accent)}
+.B .item .top{display:flex;justify-content:space-between;gap:8px}
+.B .item .meta{display:flex;gap:6px;align-items:center;margin-top:4px;font-size:13px;color:var(--muted)}
+.B .detail{overflow:auto;padding:28px 36px 90px}
+.B .detail h1{font-family:Georgia,serif;font-size:24px;margin:0 0 4px}
+.B .who{display:flex;gap:8px;align-items:center;color:var(--muted);margin-bottom:20px}
+.B .rows th{text-align:left;font-weight:500;color:var(--muted);font-size:13px;padding:8px}
+.B .rows td{padding:4px;border-bottom:1px solid var(--line)}
+.B .meta-grid{display:flex;gap:16px;margin-bottom:18px;flex-wrap:wrap}
+.B .meta-grid label{display:flex;flex-direction:column;gap:4px;font-size:13px;color:var(--muted)}
+.B .bar{display:flex;gap:10px;margin-top:20px;align-items:center}
+.B .empty{display:grid;place-items:center;height:100%;color:var(--muted);text-align:center}
+.B .sect{font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);padding:14px 18px 6px;border-top:1px solid var(--line)}
+
+/* ---------- Variant C: Tangentbord och kommandopalett ---------- */
+.C{display:flex;flex-direction:column;height:100vh;font-size:13px}
+.C .crumb{display:flex;align-items:center;gap:8px;padding:8px 16px;border-bottom:1px solid var(--line);background:var(--panel)}
+.C .crumb b{font-weight:600}
+.C .crumb .sep{color:var(--muted)}
+.C .crumb .k{margin-left:auto;display:flex;gap:8px;align-items:center}
+.C kbd{font:11px ui-monospace,SFMono-Regular,Menlo,monospace;border:1px solid var(--line);border-bottom-width:2px;border-radius:4px;padding:0 5px;background:var(--panel2);color:var(--muted)}
+.C .body{flex:1;overflow:auto;padding:12px 16px 90px}
+.C table.j{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px}
+.C table.j th{text-align:left;font-weight:500;color:var(--muted);padding:3px 8px;border-bottom:1px solid var(--line);position:sticky;top:0;background:var(--bg)}
+.C table.j td{padding:3px 8px;vertical-align:top}
+.C table.j tbody.v{border-bottom:1px solid var(--line)}
+.C table.j tbody.v:hover td{background:var(--panel2);cursor:pointer}
+.C table.j tbody.v.sel td{background:var(--ai-bg)}
+.C table.j td.r{color:var(--muted)}
+.C .status{display:flex;gap:16px;align-items:center;padding:4px 16px;border-top:1px solid var(--line);background:var(--panel);font-size:12px;color:var(--muted)}
+.C .status .warn{color:var(--warn);font-weight:600;cursor:pointer}
+.C .pal-bg{position:fixed;inset:0;background:rgba(0,0,0,.35);display:flex;justify-content:center;align-items:flex-start;padding-top:12vh;z-index:50}
+.C .pal{width:560px;max-width:92vw;background:var(--panel);border:1px solid var(--line);border-radius:10px;box-shadow:0 16px 48px rgba(0,0,0,.35);overflow:hidden}
+.C .pal input{width:100%;border:0;border-bottom:1px solid var(--line);padding:12px 14px;background:transparent;font-size:15px;outline:none}
+.C .pal .opt{padding:7px 14px;display:flex;justify-content:space-between;cursor:pointer}
+.C .pal .opt.on{background:var(--panel2)}
+.C .pal .grp{padding:6px 14px 2px;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em}
+.C .form{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px;max-width:860px}
+.C .form .hdr{display:grid;grid-template-columns:110px 1fr;gap:4px 10px;align-items:center;margin-bottom:10px}
+.C .form .hdr input{border:1px solid var(--line);background:var(--panel);padding:4px 6px;border-radius:4px}
+.C .form .rows th{text-align:left;color:var(--muted);font-weight:500;padding:3px 6px;border-bottom:1px solid var(--line)}
+.C .form .rows td{padding:0;border-bottom:1px solid var(--line)}
+.C .form .rows input.cell{border-radius:0;font-family:inherit;font-size:inherit}
+.C .hint{color:var(--muted);margin-top:10px}
+</style>
+</head>
+<body>
+<div id="app"></div>
+<div id="proto-switcher"></div>
+<script>
+/* ================= Data (i minnet) ================= */
+const IDAG = new Date('2026-10-13T10:00:00');
+const LAST_TOM = '2026-08'; // perioder t.o.m. augusti är låsta
+const KONTON = {
+  1510:'Kundfordringar',1930:'Företagskonto',2440:'Leverantörsskulder',2611:'Utgående moms 25 %',2641:'Debiterad ingående moms',
+  2710:'Personalskatt',2731:'Avräkning lagstadgade sociala avgifter',3041:'Försäljning tjänster 25 %',5010:'Lokalhyra',
+  5410:'Förbrukningsinventarier',6212:'Mobiltelefon',6540:'IT-tjänster',6570:'Bankkostnader',7210:'Löner till tjänstemän',7510:'Arbetsgivaravgifter'
+};
+const ANV = 'Anna Berg';
+const FORETAG = [
+  {id:'exempel',namn:'Exempel AB',orgnr:'559999-9991',ar:'2026-01-01 – 2026-12-31'},
+  {id:'lund',namn:'Konsultbolaget i Lund AB',orgnr:'559888-1234',ar:'2025-07-01 – 2026-06-30'},
+];
+let seq=100;
+function r(konto,d,k){return {konto:String(konto),debet:d?String(d):'',kredit:k?String(k):''}}
+function v(o){return Object.assign({id:'v'+(seq++),underlag:0,rader:[]},o)}
+const VER = {
+  exempel:[
+    v({nr:1,datum:'2026-01-02',beskrivning:'Hyra januari, Fastighets AB Kvarnen',bokford:'2026-01-03 09:12',skapatAv:ANV,kanal:'webb',underlag:1,rader:[r(5010,12000),r(2641,3000),r(1930,0,15000)]}),
+    v({nr:2,datum:'2026-01-15',beskrivning:'Kundfaktura 1001, Norrsken Design AB',bokford:'2026-01-15 14:40',skapatAv:ANV,kanal:'webb',underlag:1,rader:[r(1510,50000),r(3041,0,40000),r(2611,0,10000)]}),
+    v({nr:3,datum:'2026-09-25',beskrivning:'Lön september',bokford:'2026-09-25 08:01',skapatAv:ANV,kanal:'webb',rader:[r(7210,42000),r(7510,13196.4),r(2710,0,11340),r(2731,0,13196.4),r(1930,0,30660)]}),
+    v({nr:4,datum:'2026-09-30',beskrivning:'Bankavgift september',bokford:'2026-10-01 07:55',skapatAv:ANV,kanal:'MCP',godkandAv:ANV,underlag:1,rader:[r(6570,95),r(1930,0,95)]}),
+    v({nr:5,datum:'2026-10-02',beskrivning:'Mobilabonnemang oktober, Telia',bokford:'2026-10-03 11:20',skapatAv:ANV,kanal:'webb',underlag:1,rattadAv:6,rader:[r(6212,399),r(2641,99.75),r(2440,0,498.75)]}),
+    v({nr:6,datum:'2026-10-03',beskrivning:'Rättelse av V5, fel konto',bokford:'2026-10-03 11:31',skapatAv:ANV,kanal:'webb',rattelseAv:5,rader:[r(6212,0,399),r(2641,0,99.75),r(2440,498.75)]}),
+    v({nr:null,datum:'2026-10-08',beskrivning:'Adobe Creative Cloud, oktober',skapat:'2026-10-08',skapatAv:ANV,kanal:'MCP',underlag:1,rader:[r(6540,599),r(2641,149.75),r(1930,0,748.75)]}),
+    v({nr:null,datum:'2026-10-10',beskrivning:'Kontorsstol, IKEA',skapat:'2026-10-10',skapatAv:ANV,kanal:'MCP',underlag:1,rader:[r(5410,2396),r(2641,599),r(1930,0,2995)]}),
+    v({nr:null,datum:'2026-09-28',beskrivning:'Lunch med kund (ofullständig)',skapat:'2026-09-29',skapatAv:ANV,kanal:'webb',rader:[r(1930,0,642)]}),
+  ],
+  lund:[
+    v({nr:1,datum:'2025-07-01',beskrivning:'Ingående hyra juli',bokford:'2025-07-02 10:00',skapatAv:ANV,kanal:'webb',rader:[r(5010,8000),r(1930,0,8000)]}),
+    v({nr:null,datum:'2026-10-11',beskrivning:'Domänförnyelse, Loopia',skapat:'2026-10-11',skapatAv:ANV,kanal:'MCP',underlag:1,rader:[r(6540,180),r(2641,45),r(1930,0,225)]}),
+  ],
+};
+const MODULER = [
+  ['oversikt','Översikt'],['verifikat','Verifikat'],['underlag','Underlag'],
+  ['kundfakturor','Kundfakturor'],['leverantorsfakturor','Leverantörsfakturor'],['lon','Lön'],['moms','Moms'],
+  ['rapporter','Rapporter'],['installningar','Inställningar'],
+];
+
+/* ================= Tillstånd ================= */
+const params = new URLSearchParams(location.search);
+const S = {variant:(params.get('variant')||'A').toUpperCase(), co:'exempel', filter:'alla', errors:[], form:null, coMenu:false, pal:false, palQ:'', palI:0, sel:0, flash:''};
+const co = ()=>FORETAG.find(f=>f.id===S.co);
+const lista = ()=>VER[S.co];
+const utkast = ()=>lista().filter(x=>x.nr==null);
+function route(){const h=(location.hash||'#/verifikat').slice(2).split('/');return {mod:h[0]||'verifikat',id:h[1]||null}}
+function go(h){location.hash=h}
+
+/* ================= Hjälpare ================= */
+const fmt = new Intl.NumberFormat('sv-SE',{minimumFractionDigits:2,maximumFractionDigits:2});
+const n = s=>{const x=parseFloat(String(s).replace(/\s/g,'').replace(',','.'));return isNaN(x)?0:x};
+const kr = x=>x?fmt.format(x):'';
+const sum = (rader,f)=>rader.reduce((a,x)=>a+n(x[f]),0);
+const belopp = x=>Math.max(sum(x.rader,'debet'),sum(x.rader,'kredit'));
+const esc = s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+function alder(d){const days=Math.round((IDAG-new Date(d+'T10:00:00'))/864e5);return days<=0?'i dag':days===1?'1 dag':days+' dagar'}
+function vnr(x){return x.nr==null?'–':'V'+x.nr}
+function status(x){
+  if(x.nr==null) return '<span class="pill utkast">Utkast</span>';
+  if(x.rattadAv) return '<span class="pill rattad">Rättad av V'+x.rattadAv+'</span>';
+  if(x.rattelseAv) return '<span class="pill bokford">Rättelse av V'+x.rattelseAv+'</span>';
+  return '<span class="pill bokford">Bokförd</span>';
+}
+const aiTag = x=>x.kanal==='MCP'?'<span class="pill ai" title="Skapat av '+esc(x.skapatAv)+' via AI (MCP)">AI</span>':'';
+function filtrerad(){const l=lista().slice();const f=S.filter;
+  const out=f==='utkast'?l.filter(x=>x.nr==null):f==='bokforda'?l.filter(x=>x.nr!=null):l;
+  return out.sort((a,b)=>(a.nr==null)-(b.nr==null)||(b.nr??0)-(a.nr??0)||b.datum.localeCompare(a.datum)).sort((a,b)=>(b.nr==null)-(a.nr==null));}
+
+/* ================= Verifikatformulär (delad logik) ================= */
+function oppnaForm(id){
+  const x=id&&id!=='ny'?lista().find(y=>y.id===id):null;
+  if(S.form&&S.form._for===(id||'ny'))return;
+  S.errors=[];
+  S.form=x?{_for:id,id:x.id,nr:x.nr,datum:x.datum,beskrivning:x.beskrivning,rader:x.rader.map(y=>({...y})),kanal:x.kanal,skapatAv:x.skapatAv,underlag:x.underlag,ro:x.nr!=null,src:x}
+         :{_for:'ny',id:null,nr:null,datum:IDAG.toISOString().slice(0,10),beskrivning:'',rader:[r('',0,0),r('',0,0)],kanal:'webb',skapatAv:ANV,underlag:0,ro:false};
+}
+function setF(k,v){S.form[k]=v}
+function setR(i,k,v){S.form.rader[i][k]=v;if(k==='konto')render(true);else uppdateraSummor()}
+function laggTillRad(){S.form.rader.push(r('',0,0));render()}
+function uppdateraSummor(){
+  const d=sum(S.form.rader,'debet'),k=sum(S.form.rader,'kredit'),diff=Math.round((d-k)*100)/100;
+  document.querySelectorAll('[data-sum=d]').forEach(e=>e.textContent=fmt.format(d));
+  document.querySelectorAll('[data-sum=k]').forEach(e=>e.textContent=fmt.format(k));
+  document.querySelectorAll('[data-sum=diff]').forEach(e=>{e.textContent=diff===0?'Balanserar':'Differens '+fmt.format(diff);e.className=diff===0?'diff-ok':'diff-bad'});
+}
+function spar(){
+  const f=S.form;const rader=f.rader.filter(x=>x.konto||x.debet||x.kredit);
+  if(f.id){const x=lista().find(y=>y.id===f.id);Object.assign(x,{datum:f.datum,beskrivning:f.beskrivning,rader});return x}
+  const x=v({nr:null,datum:f.datum,beskrivning:f.beskrivning,skapat:IDAG.toISOString().slice(0,10),skapatAv:ANV,kanal:'webb',rader});
+  lista().push(x);return x;
+}
+function sparaUtkast(){const x=spar();S.form=null;S.flash='Utkastet sparades.';go('#/verifikat/'+x.id)}
+function bokfor(){
+  const f=S.form,e=[];const rader=f.rader.filter(x=>x.konto||n(x.debet)||n(x.kredit));
+  if(rader.length<2)e.push('Minst två rader behövs.');
+  if(Math.round((sum(rader,'debet')-sum(rader,'kredit'))*100)!==0)e.push('Debet och kredit balanserar inte.');
+  if(rader.some(x=>!KONTON[x.konto]))e.push('Varje rad behöver ett aktivt konto i kontoplanen.');
+  if(!f.beskrivning.trim())e.push('Beskrivning saknas.');
+  if(!f.datum)e.push('Verifikatdatum saknas.');
+  else if(f.datum.slice(0,7)<=LAST_TOM)e.push('Perioden '+f.datum.slice(0,7)+' är låst. Välj ett datum i en öppen period.');
+  S.errors=e;if(e.length){render();return}
+  const x=spar();x.nr=Math.max(0,...lista().map(y=>y.nr||0))+1;x.bokford='2026-10-13 10:'+String(10+x.nr).padStart(2,'0');x.godkandAv=x.kanal==='MCP'?ANV:undefined;
+  S.form=null;S.flash='Bokförd som V'+x.nr+'.';go('#/verifikat/'+x.id);
+}
+function radera(){const f=S.form;VER[S.co]=lista().filter(y=>y.id!==f.id);S.form=null;S.flash='Utkastet raderades.';go('#/verifikat')}
+function byt(id){S.co=id;S.form=null;S.coMenu=false;S.flash='';go('#/verifikat');render()}
+
+function radTabell(f,cls){
+  const ro=f.ro?'readonly':'';
+  return `<table class="rows ${cls||''}"><thead><tr><th style="width:90px">Konto</th><th>Kontonamn</th><th class="num" style="width:140px">Debet</th><th class="num" style="width:140px">Kredit</th></tr></thead><tbody>
+  ${f.rader.map((x,i)=>`<tr><td><input class="cell" ${ro} value="${esc(x.konto)}" oninput="setR(${i},'konto',this.value)" placeholder="____"></td>
+    <td class="muted">${esc(KONTON[x.konto]||(x.konto?'Okänt konto':''))}</td>
+    <td><input class="cell num" ${ro} value="${esc(x.debet&&kr(n(x.debet)))}" oninput="setR(${i},'debet',this.value)"></td>
+    <td><input class="cell num" ${ro} value="${esc(x.kredit&&kr(n(x.kredit)))}" oninput="setR(${i},'kredit',this.value)"></td></tr>`).join('')}
+  <tr class="sumrow"><td colspan="2"><span data-sum="diff"></span></td><td class="num" data-sum="d"></td><td class="num" data-sum="k"></td></tr></tbody></table>`;
+}
+const errBox=()=>S.errors.length?`<div class="errors"><b>Kan inte bokföra:</b><ul>${S.errors.map(e=>'<li>'+esc(e)+'</li>').join('')}</ul></div>`:'';
+function skapadRad(f){
+  if(!f.src&&!f.id)return 'Nytt verifikat';
+  const x=f.src||lista().find(y=>y.id===f.id);
+  let s='Skapat av '+esc(x.skapatAv)+(x.kanal==='MCP'?' via AI':'');
+  if(x.nr!=null)s+=' · bokfört '+esc(x.bokford)+(x.godkandAv?' av '+esc(x.godkandAv):'');
+  else s+=' · utkast i '+alder(x.skapat);
+  return s;
+}
+
+/* ================= Variant A: Sidomeny ================= */
+const A={namn:'Sidomeny',render(rt){
+  const u=utkast().length;
+  const nav=MODULER.map(([k,t],i)=>(i===3?'<div class="grp">Flöden</div>':i===7?'<div class="grp">Uppföljning</div>':'')+
+    `<a href="#/${k}" class="${rt.mod===k?'on':''}">${t}${k==='verifikat'&&u?`<span class="badge" title="${u} utkast väntar">${u}</span>`:''}</a>`).join('');
+  return `<div class="A"><aside>
+    <div class="brand">Maya</div>
+    <select class="co field" onchange="byt(this.value)">${FORETAG.map(f=>`<option value="${f.id}" ${f.id===S.co?'selected':''}>${esc(f.namn)}</option>`).join('')}</select>
+    <nav>${nav}</nav>
+    <div class="foot"><span>${ANV}</span><button class="btn ghost" onclick="tema()" title="Ljust/mörkt">◐</button></div>
+  </aside><main>${A.page(rt,u)}</main></div>`;
+},page(rt,u){
+  if(rt.mod!=='verifikat')return `<div class="head"><h1>${MODULER.find(m=>m[0]===rt.mod)?.[1]||''}</h1></div><div class="placeholder">Sidan prototypas senare på det här skalet.</div>`;
+  if(rt.id){oppnaForm(rt.id);const f=S.form;
+    return `<div class="head"><div><a href="#/verifikat" class="muted" style="text-decoration:none">← Verifikat</a><h1>${f.nr?'V'+f.nr+' ':''}${esc(f.beskrivning)||'Nytt verifikat'}</h1><div class="muted">${skapadRad(f)}</div></div><div>${f.src?status(f.src):''} ${f.src?aiTag(f.src):''}</div></div>
+    ${S.flash?`<div class="banner" style="background:var(--ok-bg);color:var(--ok)">${S.flash}</div>`:''}
+    <div class="card"><div class="grid2">
+      <label>Verifikatdatum</label><input type="date" class="field" ${f.ro?'readonly':''} value="${f.datum}" onchange="setF('datum',this.value)">
+      <label>Beskrivning</label><input class="field" ${f.ro?'readonly':''} value="${esc(f.beskrivning)}" oninput="setF('beskrivning',this.value)">
+      <label>Underlag</label><span>${f.underlag?`📎 ${f.underlag} fil`:'<span class="muted">Inget underlag</span>'} <button class="btn ghost">Lägg till…</button></span>
+    </div></div>
+    <div class="card">${radTabell(f)}${f.ro?'':`<button class="btn ghost" onclick="laggTillRad()">+ Rad</button>`}</div>
+    ${errBox()}
+    <div class="actions">${f.ro?`<button class="btn">Rätta…</button>`:`${f.id?'<button class="btn ghost" onclick="radera()">Radera utkast</button>':''}<button class="btn" onclick="sparaUtkast()">Spara utkast</button><button class="btn primary" onclick="bokfor()">Bokför</button>`}</div>`;
+  }
+  const rows=filtrerad().map(x=>`<tr class="click" onclick="go('#/verifikat/${x.id}')"><td>${vnr(x)}</td><td>${x.datum}</td><td>${esc(x.beskrivning)} ${aiTag(x)}</td><td>${status(x)}</td><td class="muted">${x.nr==null?alder(x.skapat):''}</td><td class="num">${kr(belopp(x))}</td><td>${x.underlag?'📎':''}</td></tr>`).join('');
+  return `<div class="head"><h1>Verifikat</h1><button class="btn primary" onclick="go('#/verifikat/ny')">Nytt verifikat</button></div>
+    ${u?`<div class="banner"><span><b>${u} utkast</b> väntar på att bokföras.</span><button class="btn" onclick="S.filter='utkast';render()">Visa utkast</button></div>`:''}
+    <div class="tabs">${[['alla','Alla'],['utkast','Utkast'],['bokforda','Bokförda']].map(([k,t])=>`<button class="${S.filter===k?'on':''}" onclick="S.filter='${k}';render()">${t}</button>`).join('')}</div>
+    <div class="tbl"><table><thead><tr><th>Nr</th><th>Verifikatdatum</th><th>Beskrivning</th><th>Status</th><th>Ålder</th><th class="num">Belopp</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>
+    <p class="muted" style="font-size:12px">${co().namn} · ${co().orgnr} · räkenskapsår ${co().ar} · perioder t.o.m. ${LAST_TOM} låsta</p>`;
+}};
+
+/* ================= Variant B: Inkorg först ================= */
+const B={namn:'Inkorg först',render(rt){
+  const u=utkast().length;
+  const mods=[['inkorg','Att göra'],...MODULER.filter(m=>m[0]!=='oversikt')];
+  const mod=rt.mod==='oversikt'?'inkorg':rt.mod;
+  return `<div class="B"><header>
+    <span class="brand">Maya</span>
+    <div class="co"><button onclick="S.coMenu=!S.coMenu;render()">${esc(co().namn)} ▾</button>
+      ${S.coMenu?`<div class="menu">${FORETAG.map(f=>`<button onclick="byt('${f.id}')"><b>${esc(f.namn)}</b><br><span class="muted" style="font-size:12px">${f.orgnr} · ${VER[f.id].filter(x=>x.nr==null).length} utkast</span></button>`).join('')}</div>`:''}</div>
+    <nav>${mods.slice(0,8).map(([k,t])=>`<a href="#/${k}" class="${mod===k?'on':''}">${t}${k==='inkorg'&&u?`<span class="cnt">${u}</span>`:''}</a>`).join('')}</nav>
+    <div class="right"><button class="btn ghost" title="Inställningar" onclick="go('#/installningar')">⚙</button><button class="btn ghost" onclick="tema()" title="Ljust/mörkt">◐</button></div>
+  </header>${B.page(mod,rt)}</div>`;
+},page(mod,rt){
+  if(mod!=='inkorg'&&mod!=='verifikat')return `<div class="empty">Sidan prototypas senare på det här skalet.</div>`;
+  const items=mod==='inkorg'?utkast().sort((a,b)=>a.skapat.localeCompare(b.skapat)):filtrerad();
+  const it=x=>`<a class="item ${rt.id===x.id?'on':''}" href="#/${mod}/${x.id}"><div class="top"><b>${esc(x.beskrivning)}</b><span class="num">${kr(belopp(x))}</span></div>
+     <div class="meta">${x.nr==null?status(x)+' '+aiTag(x)+' · '+alder(x.skapat):vnr(x)+' · '+x.datum+' '+(x.rattadAv||x.rattelseAv?status(x):'')}${x.underlag?' · 📎':''}</div></a>`;
+  const list=mod==='inkorg'
+    ?`<h2>Att göra</h2><p class="sub">${co().namn} · äldst först</p><div class="sect">Utkast att bokföra (${items.length})</div>${items.map(it).join('')||'<p class="sub">Inget väntar.</p>'}<div class="sect">Kommande</div><div class="item"><div class="top"><b>Momsdeklaration september</b><span class="muted">12 nov</span></div></div><div class="item"><div class="top"><b>Arbetsgivardeklaration september</b><span class="muted">12 okt</span></div><div class="meta" style="color:var(--bad)">Försenad?</div></div>`
+    :`<h2>Verifikat</h2><p class="sub"><button class="btn primary" onclick="go('#/verifikat/ny')">Nytt verifikat</button></p>${items.map(it).join('')}`;
+  let det='<div class="empty"><div>Välj något i listan<br><span style="font-size:13px">eller tryck <b>Nytt verifikat</b></span></div></div>';
+  if(rt.id){oppnaForm(rt.id);const f=S.form;
+    det=`<div class="detail">${S.flash?`<div class="errors" style="background:var(--ok-bg);color:var(--ok)">${S.flash}</div>`:''}
+      <h1>${f.nr?'V'+f.nr+' · ':''}${esc(f.beskrivning)||'Nytt verifikat'}</h1>
+      <div class="who">${f.src?status(f.src)+aiTag(f.src):''}<span>${skapadRad(f)}</span></div>
+      <div class="meta-grid"><label>Verifikatdatum<input type="date" class="field" ${f.ro?'readonly':''} value="${f.datum}" onchange="setF('datum',this.value)"></label>
+        <label style="flex:1;min-width:260px">Beskrivning<input class="field" ${f.ro?'readonly':''} value="${esc(f.beskrivning)}" oninput="setF('beskrivning',this.value)"></label>
+        <label>Underlag<span style="padding:6px 0;color:var(--text)">${f.underlag?'📎 kvitto.pdf':'–'}</span></label></div>
+      ${radTabell(f)}${f.ro?'':`<button class="btn ghost" onclick="laggTillRad()">+ Rad</button>`}
+      ${errBox()}
+      <div class="bar">${f.ro?'<button class="btn">Rätta…</button>':`<button class="btn primary" onclick="bokfor()">Bokför</button><button class="btn" onclick="sparaUtkast()">Spara utkast</button>${f.id?'<button class="btn ghost" onclick="radera()">Radera</button>':''}`}</div></div>`;
+  }
+  return `<div class="split"><div class="list">${list}</div>${det}</div>`;
+}};
+
+/* ================= Variant C: Tangentbord och kommandopalett ================= */
+const C={namn:'Tangentbord',render(rt){
+  const u=utkast().length;
+  const modNamn=MODULER.find(m=>m[0]===rt.mod)?.[1]||'';
+  return `<div class="C"><div class="crumb"><b>Maya</b><span class="sep">/</span><a href="#" onclick="palett();return false">${esc(co().namn)}</a><span class="sep">/</span><span>${modNamn}</span>${rt.id?`<span class="sep">/</span><span>${rt.id==='ny'?'Nytt':esc(vnr(lista().find(x=>x.id===rt.id)||{nr:null}))}</span>`:''}
+    <span class="k"><button class="btn ghost" onclick="palett()"><kbd>⌘K</kbd> Gå till…</button><button class="btn ghost" onclick="tema()">◐</button></span></div>
+    <div class="body">${C.page(rt)}</div>
+    <div class="status"><span>${co().orgnr}</span><span>Räkenskapsår ${co().ar}</span><span>Låst t.o.m. ${LAST_TOM}</span>
+      ${u?`<span class="warn" onclick="S.filter='utkast';go('#/verifikat')">● ${u} utkast väntar</span>`:''}
+      <span style="margin-left:auto"><kbd>N</kbd> nytt <kbd>J</kbd>/<kbd>K</kbd> flytta <kbd>↵</kbd> öppna <kbd>⌘↵</kbd> bokför</span></div>
+    ${S.pal?C.pal():''}</div>`;
+},page(rt){
+  if(rt.mod!=='verifikat')return `<div class="placeholder">Sidan prototypas senare på det här skalet.<br>Tryck <kbd>⌘K</kbd> för att byta sida.</div>`;
+  if(rt.id){oppnaForm(rt.id);const f=S.form;
+    return `<div class="form">${S.flash?`<div class="errors" style="background:var(--ok-bg);color:var(--ok)">${S.flash}</div>`:''}
+      <div class="hdr"><span class="muted">Status</span><span>${f.src?status(f.src)+' '+aiTag(f.src):'Nytt'} <span class="muted">${skapadRad(f)}</span></span>
+      <span class="muted">Verifikatdatum</span><input type="date" ${f.ro?'readonly':''} value="${f.datum}" onchange="setF('datum',this.value)">
+      <span class="muted">Beskrivning</span><input ${f.ro?'readonly':''} value="${esc(f.beskrivning)}" oninput="setF('beskrivning',this.value)">
+      <span class="muted">Underlag</span><span>${f.underlag?'kvitto.pdf':'–'}</span></div>
+      ${radTabell(f)}${errBox()}
+      <div class="hint">${f.ro?'<kbd>R</kbd> rätta · <kbd>Esc</kbd> tillbaka':'<kbd>Tab</kbd> nästa cell · <kbd>⌥↵</kbd> ny rad · <kbd>⌘S</kbd> spara utkast · <kbd>⌘↵</kbd> bokför · <kbd>Esc</kbd> tillbaka'}</div></div>`;
+  }
+  const l=filtrerad();S.sel=Math.min(S.sel,l.length-1);
+  return `<div style="margin-bottom:8px" class="muted">Grundbok · ${S.filter==='utkast'?'bara utkast <a href="#" onclick="S.filter=\'alla\';render();return false">visa alla</a>':'alla verifikat'}</div>
+  <table class="j"><thead><tr><th style="width:60px">Nr</th><th style="width:100px">Datum</th><th style="width:70px">Konto</th><th>Text</th><th class="num" style="width:120px">Debet</th><th class="num" style="width:120px">Kredit</th></tr></thead>
+  ${l.map((x,i)=>`<tbody class="v ${i===S.sel?'sel':''}" onclick="go('#/verifikat/${x.id}')">
+    <tr><td><b>${vnr(x)}</b></td><td>${x.datum}</td><td></td><td><b>${esc(x.beskrivning)}</b> ${x.nr==null?status(x)+' '+aiTag(x)+' <span class="muted">'+alder(x.skapat)+'</span>':(x.rattadAv||x.rattelseAv?status(x):'')}</td><td></td><td></td></tr>
+    ${x.rader.map(y=>`<tr><td></td><td></td><td class="r">${y.konto}</td><td class="r">${esc(KONTON[y.konto]||'')}</td><td class="num">${kr(n(y.debet))}</td><td class="num">${kr(n(y.kredit))}</td></tr>`).join('')}</tbody>`).join('')}</table>`;
+},opts(){
+  const q=S.palQ.toLowerCase();
+  const o=[...MODULER.map(([k,t])=>({g:'Gå till',t,run:()=>go('#/'+k)})),
+    {g:'Gå till',t:'Utkast att bokföra ('+utkast().length+')',run:()=>{S.filter='utkast';go('#/verifikat')}},
+    {g:'Skapa',t:'Nytt verifikat',run:()=>go('#/verifikat/ny')},
+    ...FORETAG.filter(f=>f.id!==S.co).map(f=>({g:'Byt företag',t:f.namn,run:()=>byt(f.id)})),
+    ...lista().map(x=>({g:'Verifikat',t:(x.nr?'V'+x.nr:'Utkast')+' '+x.beskrivning,run:()=>go('#/verifikat/'+x.id)}))];
+  return o.filter(x=>!q||x.t.toLowerCase().includes(q)||x.g.toLowerCase().includes(q)).slice(0,12);
+},pal(){
+  const o=C.opts();let g='';
+  return `<div class="pal-bg" onclick="if(event.target===this){S.pal=false;render()}"><div class="pal"><input id="palq" placeholder="Sök sida, företag, verifikat…" value="${esc(S.palQ)}" oninput="S.palQ=this.value;S.palI=0;render();const e=document.getElementById('palq');e.focus();e.setSelectionRange(e.value.length,e.value.length)">
+    ${o.map((x,i)=>{const h=x.g!==g?(g=x.g,`<div class="grp">${x.g}</div>`):'';return h+`<div class="opt ${i===S.palI?'on':''}" onclick="C.run(${i})"><span>${esc(x.t)}</span></div>`}).join('')}</div></div>`;
+},run(i){const o=C.opts()[i];S.pal=false;S.palQ='';o&&o.run();render()}};
+function palett(){S.pal=true;S.palQ='';S.palI=0;render();setTimeout(()=>document.getElementById('palq')?.focus())}
+
+/* ================= Render, tema, tangenter ================= */
+const VARIANTS={A,B,C};
+function render(keepFocus){
+  const a=document.activeElement,idx=keepFocus&&a?[...document.querySelectorAll('input')].indexOf(a):-1;
+  const V=VARIANTS[S.variant]||A;
+  document.getElementById('app').innerHTML=V.render(route());
+  if(S.form)uppdateraSummor();
+  if(idx>=0){const e=document.querySelectorAll('input')[idx];if(e){e.focus();e.setSelectionRange?.(e.value.length,e.value.length)}}
+  const keys=Object.keys(VARIANTS);
+  document.getElementById('proto-switcher').innerHTML=`<button onclick="cyk(-1)">←</button><span class="lbl">PROTOTYP · ${S.variant} (${V.namn}) · ${keys.indexOf(S.variant)+1}/${keys.length}</span><button onclick="cyk(1)">→</button>`;
+}
+function cyk(d){const k=Object.keys(VARIANTS);S.variant=k[(k.indexOf(S.variant)+d+k.length)%k.length];S.coMenu=false;S.pal=false;
+  const p=new URLSearchParams(location.search);p.set('variant',S.variant);history.replaceState(null,'','?'+p+location.hash);render()}
+function tema(){const r=document.documentElement,cur=r.dataset.theme||(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light');r.dataset.theme=cur==='dark'?'light':'dark'}
+window.addEventListener('hashchange',()=>{const rt=route();if(!rt.id){S.form=null;S.errors=[]}else if(S.form&&S.form._for!==rt.id){S.form=null}render();S.flash=''});
+document.addEventListener('keydown',e=>{
+  const typing=e.target.matches('input,textarea,select,[contenteditable]');
+  const mod=e.metaKey||e.ctrlKey;
+  if(S.variant==='C'){
+    if(mod&&e.key.toLowerCase()==='k'){e.preventDefault();S.pal?(S.pal=false,render()):palett();return}
+    if(S.pal){const o=C.opts();
+      if(e.key==='Escape'){S.pal=false;render()}
+      else if(e.key==='ArrowDown'){e.preventDefault();S.palI=Math.min(S.palI+1,o.length-1);render();document.getElementById('palq').focus()}
+      else if(e.key==='ArrowUp'){e.preventDefault();S.palI=Math.max(S.palI-1,0);render();document.getElementById('palq').focus()}
+      else if(e.key==='Enter'){e.preventDefault();C.run(S.palI)}
+      return}
+    const rt=route();
+    if(rt.id&&S.form&&!S.form.ro){
+      if(mod&&e.key==='Enter'){e.preventDefault();bokfor();return}
+      if(mod&&e.key.toLowerCase()==='s'){e.preventDefault();sparaUtkast();return}
+      if(e.altKey&&e.key==='Enter'){e.preventDefault();laggTillRad();return}
+    }
+    if(e.key==='Escape'&&rt.id){go('#/verifikat');return}
+    if(!typing&&!mod&&rt.mod==='verifikat'&&!rt.id){
+      const l=filtrerad();
+      if(e.key==='j'){S.sel=Math.min(S.sel+1,l.length-1);render();return}
+      if(e.key==='k'){S.sel=Math.max(S.sel-1,0);render();return}
+      if(e.key==='Enter'){go('#/verifikat/'+l[S.sel].id);return}
+      if(e.key==='n'){go('#/verifikat/ny');return}
+    }
+  }
+  if(typing)return;
+  if(e.key==='ArrowLeft')cyk(-1);
+  if(e.key==='ArrowRight')cyk(1);
+});
+render();
+</script>
+</body>
+</html>
