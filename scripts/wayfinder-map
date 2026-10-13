@@ -1,0 +1,80 @@
+#!/usr/bin/env python3
+"""Edits a wayfinder map's body on GitHub without overwriting other sessions' edits.
+
+Usage:
+  scripts/wayfinder-map <map> add <section> <line>   append a line to a section's list
+  scripts/wayfinder-map <map> replace <old> <new>     replace text that occurs exactly once
+  scripts/wayfinder-map <map> remove <old>            remove that text, and its line if it is a whole line
+
+<section> is a heading without "## ", e.g. "Decisions so far", "Not yet specified", "Out of scope".
+
+The body is fetched again right before the write and the edit reapplied if another session
+changed it in between; after the write it is read back and compared.
+"""
+import json
+import subprocess
+import sys
+
+
+def gh(*args, stdin=None):
+    return subprocess.run(["gh", *args], input=stdin, capture_output=True, text=True, check=True).stdout
+
+
+def fetch(issue):
+    return json.loads(gh("issue", "view", issue, "--json", "body"))["body"]
+
+
+def add(body, section, line):
+    lines = body.split("\n")
+    heading = f"## {section}"
+    if heading not in lines:
+        sys.exit(f"wayfinder-map: no section '{heading}'")
+    end = lines.index(heading) + 1
+    while end < len(lines) and not lines[end].startswith("## "):
+        end += 1
+    last = end
+    while lines[last - 1].strip() == "":
+        last -= 1
+    return "\n".join(lines[:last] + [line] + lines[last:])
+
+
+def replace(body, old, new):
+    count = body.count(old)
+    if count != 1:
+        sys.exit(f"wayfinder-map: the text occurs {count} times, needs exactly once: {old!r}")
+    if new == "" and f"\n{old}\n" in body:
+        old = f"{old}\n"
+    return body.replace(old, new)
+
+
+def edit(body, command, args):
+    if command == "add" and len(args) == 2:
+        return add(body, *args)
+    if command == "replace" and len(args) == 2:
+        return replace(body, *args)
+    if command == "remove" and len(args) == 1:
+        return replace(body, args[0], "")
+    sys.exit(__doc__)
+
+
+def main():
+    if len(sys.argv) < 3:
+        sys.exit(__doc__)
+    issue, command, args = sys.argv[1], sys.argv[2], sys.argv[3:]
+    body = fetch(issue)
+    for _ in range(3):
+        new = edit(body, command, args)
+        latest = fetch(issue)
+        if latest == body:
+            break
+        body = latest
+    else:
+        sys.exit("wayfinder-map: the map keeps changing; try again")
+    gh("issue", "edit", issue, "--body-file", "-", stdin=new)
+    if fetch(issue) != new:
+        sys.exit("wayfinder-map: another session edited the map during the write; check it by hand")
+    print(f"wayfinder-map: {command} applied to #{issue}")
+
+
+if __name__ == "__main__":
+    main()

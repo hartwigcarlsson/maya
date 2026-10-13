@@ -1,0 +1,82 @@
+#!/usr/bin/env bash
+# Checks the BFL: line of a commit message or a resolution comment, see docs/bfl-kontroll.md.
+# Usage: scripts/check-bfl-line <file>
+#
+# Every krav-id must exist in docs/bfl-kontroll.md. A part that defers krav elsewhere must
+# point at something that cites each id:
+#   "A4 i #12"                  open issue #12 mentions A4 in its body or comments
+#   "T2 i fogen <Område> på #1" open map #1 has a Not yet specified area **<Område>** naming T2
+set -euo pipefail
+
+kontroll="$(git rev-parse --show-toplevel)/docs/bfl-kontroll.md"
+known=$(grep -oE '^- \*\*[^*]+\*\*' "$kontroll" | sed -E 's/^- \*\*|\*\*$//g')
+line=$(grep -E '^BFL: .+' "$1" | head -n 1 || true)
+status=0
+
+if [ -z "$line" ]; then
+  echo "check-bfl-line: needs a 'BFL:' line, see docs/bfl-kontroll.md" >&2
+  exit 1
+fi
+
+fail() {
+  echo "check-bfl-line: $*" >&2
+  status=1
+}
+
+# mentions <text> <id>: the id stands as a whole word in the text.
+mentions() {
+  printf '%s\n' "$1" | grep -Eq "(^|[^A-Za-z0-9])$2([^0-9]|$)"
+}
+
+# open_issue <n>: sets $issue to the issue's body and comments, or fails if it is not open.
+open_issue() {
+  local state
+  if ! state=$(gh issue view "$1" --json state --jq .state); then
+    fail "cannot read #$1 with gh"
+    return 1
+  fi
+  if [ "$state" != "OPEN" ]; then
+    fail "#$1 is closed, so it cannot hold deferred krav"
+    return 1
+  fi
+  issue=$(gh issue view "$1" --json body,comments --jq '.body, .comments[].body')
+}
+
+IFS=';' read -ra parts <<<"${line#BFL: }"
+for part in "${parts[@]}"; do
+  part=$(printf '%s' "$part" | sed -E 's/^ +| +$//g')
+  [ "$part" = "ej berörd" ] && continue
+
+  ids=$(printf '%s\n' "${part%% i *}" | grep -oE '(Å|[A-Z]{1,2})[0-9]+' || true)
+  if [ -z "$ids" ]; then
+    fail "no krav-id in '$part'"
+    continue
+  fi
+  for id in $ids; do
+    printf '%s\n' "$known" | grep -Fqx "$id" || fail "unknown krav-id $id, see docs/bfl-kontroll.md"
+  done
+
+  [ "$part" = "${part%% i *}" ] && continue
+  ref=${part#* i }
+  if [[ $ref =~ ^fogen\ (.+)\ på\ \#([0-9]+)$ ]]; then
+    area=${BASH_REMATCH[1]} map=${BASH_REMATCH[2]}
+    open_issue "$map" || continue
+    text=$(printf '%s\n' "$issue" | awk '/^## Not yet specified/ { f = 1; next } /^## / { f = 0 } f' |
+      grep -F -- "- **$area**" || true)
+    if [ -z "$text" ]; then
+      fail "no area '**$area**' under Not yet specified on #$map"
+      continue
+    fi
+  elif [[ $ref =~ ^\#([0-9]+)$ ]]; then
+    open_issue "${BASH_REMATCH[1]}" || continue
+    text=$issue
+  else
+    fail "cannot read the reference '$ref'; write '#<n>' or 'fogen <Område> på #<n>'"
+    continue
+  fi
+  for id in $ids; do
+    mentions "$text" "$id" || fail "$id is deferred to '$ref', which does not mention it"
+  done
+done
+
+exit $status
