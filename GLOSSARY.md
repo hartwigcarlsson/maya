@@ -70,3 +70,19 @@ _Avoid_: Utgående faktura, försäljningsfaktura
 **Leverantörsfaktura**:
 En inkommande faktura från en leverantör som registreras och bokförs i Maya.
 _Avoid_: Inkommande faktura, inköpsfaktura
+
+**Kund**:
+Den som ett företag säljer till och skickar kundfakturor till; registreras per företag.
+_Avoid_: Köpare, beställare, klient
+
+**Kundreskontra**:
+Företagets register över kundfakturor och vad som återstår att betala på dem; allt i den bokförs in i huvudboken.
+_Avoid_: Kundregister, fordringslista
+
+**Utfärda**:
+Att färdigställa en kundfaktura som skapats i Maya så att den låses, får sitt fakturanummer och sin PDF; därefter ändras den bara genom en kreditfaktura.
+_Avoid_: Skicka (som samlingsnamn), godkänna, fakturera
+
+**Kreditfaktura**:
+En kundfaktura som helt eller delvis upphäver en tidigare utfärdad kundfaktura och hänvisar till den; den är en ny affärshändelse och inte en rättelse.
+_Avoid_: Kreditnota, negativ faktura, makulering
