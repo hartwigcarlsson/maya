@@ -24,8 +24,32 @@ _Avoid_: Verifikation, voucher, transaktion, journal entry
 Ett förslag till verifikat som ännu inte är bokfört och som en användare måste godkänna, t.ex. ett som AI har skapat.
 _Avoid_: Förslag, draft, preliminärt verifikat
 
+**Bokföra**:
+Att godkänna ett utkast eller registrera ett verifikat så att det låses och får sitt verifikationsnummer; först då räknas det som bokfört.
+_Avoid_: Godkänna (som samlingsnamn), låsa, posta, attestera
+
+**Verifikationsnummer**:
+Ett verifikats löpnummer inom räkenskapsåret, tilldelat utan luckor i den ordning verifikaten bokförs och skrivet med prefixet V (V1, V2 …).
+_Avoid_: Verifikatnummer, löpnummer, id
+
+**Verifikatdatum**:
+Dagen då affärshändelsen inträffade; avgör vilken period och vilket räkenskapsår verifikatet hör till.
+_Avoid_: Bokföringsdatum, transaktionsdatum, affärshändelsedatum (i UI)
+
+**Rättelse**:
+Ett verifikat som vänder samtliga rader i ett tidigare bokfört verifikat och är länkat till det; det rättade verifikatet visar att det är rättat.
+_Avoid_: Makulering, korrigering, ändring
+
+**Komplettering**:
+Ett underlag som kopplas till ett verifikat efter att det har bokförts, utan att verifikatet i övrigt förändras.
+_Avoid_: Tillägg, bilaga
+
+**Period**:
+En kalendermånad inom ett räkenskapsår; en låst period kan inte få fler verifikat.
+_Avoid_: Redovisningsperiod, månad (som term)
+
 **Underlag**:
-Den handling som styrker en affärshändelse (kvitto, faktura, avtal) och som arkiveras kopplad till sitt verifikat.
+Den handling som styrker en affärshändelse (kvitto, faktura, avtal) och som arkiveras kopplad till ett eller flera verifikat.
 _Avoid_: Bilaga, kvitto (som samlingsnamn), dokument
 
 **Bokföringsmetod**:
