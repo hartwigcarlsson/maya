@@ -29,7 +29,7 @@ Ett förslag till verifikat som ännu inte är bokfört och som en användare m�
 _Avoid_: Förslag, draft, preliminärt verifikat
 
 **Bokföra**:
-Att godkänna ett utkast eller registrera ett verifikat så att det låses och får sitt verifikationsnummer; först då räknas det som bokfört.
+Att godkänna ett utkast eller skapa ett verifikat direkt så att det låses och får sitt verifikationsnummer; först då räknas det som bokfört.
 _Avoid_: Godkänna (som samlingsnamn), låsa, posta, attestera
 
 **Verifikationsnummer**:
@@ -84,5 +84,21 @@ Att färdigställa en kundfaktura som skapats i Maya så att den låses, får si
 _Avoid_: Skicka (som samlingsnamn), godkänna, fakturera
 
 **Kreditfaktura**:
-En kundfaktura som helt eller delvis upphäver en tidigare utfärdad kundfaktura och hänvisar till den; den är en ny affärshändelse och inte en rättelse.
+En kund- eller leverantörsfaktura som helt eller delvis upphäver en tidigare faktura och hänvisar till den; den är en ny affärshändelse och inte en rättelse.
 _Avoid_: Kreditnota, negativ faktura, makulering
+
+**Leverantör**:
+Den som ett företag köper från och tar emot leverantörsfakturor från; registreras per företag.
+_Avoid_: Säljare, leverantörskund, motpart (som term)
+
+**Leverantörsreskontra**:
+Företagets register över leverantörsfakturor och vad som återstår att betala på dem; allt i den bokförs in i huvudboken.
+_Avoid_: Leverantörsregister, skuldlista
+
+**Registrera**:
+Att färdigställa en leverantörsfaktura så att den låses i leverantörsreskontran; under fakturametoden bokförs den i samma steg.
+_Avoid_: Attestera, godkänna, ta emot
+
+**Okopplat underlag**:
+Ett uppladdat och arkiverat underlag som ännu inte hör till något verifikat eller någon faktura.
+_Avoid_: Inkorgsdokument, obehandlat kvitto, lös bilaga
