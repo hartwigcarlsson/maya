@@ -102,3 +102,27 @@ _Avoid_: Attestera, godkänna, ta emot
 **Okopplat underlag**:
 Ett uppladdat och arkiverat underlag som ännu inte hör till något verifikat eller någon faktura.
 _Avoid_: Inkorgsdokument, obehandlat kvitto, lös bilaga
+
+**Anställd**:
+En person som får lön eller styrelsearvode från ett företag, även en ägare; registreras per företag.
+_Avoid_: Personal, medarbetare, löntagare
+
+**Lönekörning**:
+En utbetalning av lön till en eller flera anställda med en gemensam utbetalningsdag, som blir ett verifikat när den bokförs.
+_Avoid_: Lönebatch, löneperiod, lön (som term)
+
+**Lönespecifikation**:
+En anställds del av en lönekörning, med lönerader, skatteavdrag och nettolön; den lämnas till den anställda och arkiveras som underlag.
+_Avoid_: Lönebesked, lönespec
+
+**Lönerad**:
+En rad på en lönespecifikation av en viss löneart, t.ex. månadslön, sjukavdrag, förmån, utlägg eller retroaktivt tillägg.
+_Avoid_: Lönepost, lönetransaktion
+
+**Fastställa**:
+Att låsa en lönekörning så att dess lönespecifikationer skapas; den bokförs i ett senare steg, tidigast på utbetalningsdagen.
+_Avoid_: Attestera, godkänna, låsa
+
+**Arbetsgivardeklaration**:
+Företagets deklaration till Skatteverket av löner, förmåner, skatteavdrag och arbetsgivaravgifter för en utbetalningsmånad, med en uppgift per anställd; kallas AGI.
+_Avoid_: Arbetsgivaruppgift, månadsuppgift, skattedeklaration
