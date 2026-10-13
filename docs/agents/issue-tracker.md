@@ -49,7 +49,13 @@ Used by `/wayfinder`. The **map** is a single issue with **child** issues as tic
   ```
 
 - **Claim**: `gh issue edit <n> --add-assignee @me`, the session's first write.
-- **Resolution branch**: right after claiming, `git fetch` and add a worktree on a fresh `<type>/<issue>-<slug>` branch from `origin/main`. Read `GLOSSARY.md`, `docs/adr/` and `docs/bfl-kontroll.md` in that worktree: the session's own checkout may sit on a stale branch, and its glossary and krav-id:n with it.
+- **Resolution branch**: right after claiming, `git fetch` and add a worktree on a fresh `<type>/<issue>-<slug>` branch from `origin/main`. Read `GLOSSARY.md`, `docs/adr/` and `docs/bfl-kontroll.md` in that worktree: the session's own checkout may sit on a stale branch, and its glossary and krav-id:n with it. Then read the diff of every open PR that changes `GLOSSARY.md`: since merge is not a gate, earlier resolutions' terms may live only there.
+
+  ```sh
+  gh pr list --state open --json number,title,files --jq '.[] | select(any(.files[]; .path == "GLOSSARY.md")) | "\(.number)\t\(.title)"'
+  ```
+
+  To change a term such a PR adds, cut the branch from that PR's branch and open the PR against it; GitHub retargets it to `main` when the base PR merges and its branch is deleted.
 - **Resolve**: `gh issue comment <n> --body "<answer>"`, then `gh issue close <n>`, then append a context pointer (gist + link) to the map's Decisions-so-far. Run `scripts/check-bfl-line <file>` on the comment before posting it. Edit the map body only through `scripts/wayfinder-map` (`add`, `replace`, `remove`; `--help` for usage): other sessions edit it concurrently, and the script refetches before the write and verifies after it.
 - **Files a resolution changes** (`GLOSSARY.md`, an ADR, docs): one PR from the resolution branch, opened before the resolution comment, which links it. Close the ticket once the PR is open; merge is not a gate.
 - **Research worktree**: once the subagent has pushed its `research/<slug>` branch, `git worktree remove` its worktree; the branch on origin is the record.
