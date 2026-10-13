@@ -10,7 +10,7 @@ Den som gör förändringen går igenom stegen och skriver `BFL:`-raden. Granskn
 
 1. Gå igenom varje avsnitt nedan och avgör vilka krav förändringen **berör**: kod, schema, migrering, export/import, deployment eller ett beslut som formar något av det.
 2. Varje berört krav måste vara **uppfyllt** av förändringen, eller ha ett öppet issue som hänvisar till id:t och visar hur det uppfylls senare.
-3. Skriv resultatet i commit-meddelandets brödtext eller i ticketets lösningskommentar: `BFL: L1, V3 uppfyllda; A4 i #<issue>`. Om inget krav berörs: `BFL: ej berörd`.
+3. Skriv resultatet i commit-meddelandets brödtext eller i ticketets lösningskommentar: `BFL: L1, VF3 uppfyllda; A4 i #<issue>`. Om inget krav berörs: `BFL: ej berörd`.
 
 ## Bokföringsposter och låsning
 
@@ -24,13 +24,15 @@ Den som gör förändringen går igenom stegen och skriver `BFL:`-raden. Granskn
 
 ## Verifikationer
 
-- **V1** Varje bokföringspost har en verifikation, även bokslutstransaktioner och rättelser (BFL 5:6, 5:10; p. 2.18).
-- **V2** Verifikationen har fälten sammanställningsdatum, affärshändelsedatum, beskrivning, belopp, motpart, verifikationsnummer och referenser till underlag och var de finns. Motpart får utelämnas enligt p. 5.7 (BFL 5:7–8; p. 5.5–5.7).
-- **V3** Verifikationsnummer tilldelas obrutet inom varje serie, utan luckor. Systemet kan visa att serien är obruten (p. 5.9).
-- **V4** Serierna och deras tidsperioder är konfigurerade och dokumenterade (p. 5.10, 9.6).
-- **V5** Mottagna underlag, alltså originalfiler, kopplas till verifikationen och sparas oförändrade i originalformat (BFL 5:6, 7:1).
-- **V6** En komplettering av en verifikation loggar när den gjordes, av vem och vad som lades till. Det mottagna innehållet förändras aldrig (p. 5.8).
-- **V7** En rättad eller ersatt verifikation sparas. Ursprunget framgår, liksom vem som rättade och när (BFL 5:9; p. 5.15–5.16).
+Kraven hette V1–V7 innan [Hur ser verifikatets livscykel ut?](https://github.com/hartwigcarlsson/maya/issues/12) gav verifikationsnummer prefixet V. Äldre lösningskommentarer använder de gamla id:na.
+
+- **VF1** Varje bokföringspost har en verifikation, även bokslutstransaktioner och rättelser (BFL 5:6, 5:10; p. 2.18).
+- **VF2** Verifikationen har fälten sammanställningsdatum, affärshändelsedatum, beskrivning, belopp, motpart, verifikationsnummer och referenser till underlag och var de finns. Motpart får utelämnas enligt p. 5.7 (BFL 5:7–8; p. 5.5–5.7).
+- **VF3** Verifikationsnummer tilldelas obrutet inom varje serie, utan luckor. Systemet kan visa att serien är obruten (p. 5.9).
+- **VF4** Serierna och deras tidsperioder är konfigurerade och dokumenterade (p. 5.10, 9.6).
+- **VF5** Mottagna underlag, alltså originalfiler, kopplas till verifikationen och sparas oförändrade i originalformat (BFL 5:6, 7:1).
+- **VF6** En komplettering av en verifikation loggar när den gjordes, av vem och vad som lades till. Det mottagna innehållet förändras aldrig (p. 5.8).
+- **VF7** En rättad eller ersatt verifikation sparas. Ursprunget framgår, liksom vem som rättade och när (BFL 5:9; p. 5.15–5.16).
 
 ## Rättelser och perioder
 
