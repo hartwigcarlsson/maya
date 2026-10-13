@@ -8,6 +8,10 @@ Maya är ett self-hostat bokföringssystem för svenska aktiebolag som följer B
 En person som loggar in i Maya och har åtkomst till ett eller flera företag.
 _Avoid_: Konto, kund, medlem
 
+**Aktör**:
+Den som utför en handling i Maya: en användare genom en viss kanal (webb, AI via MCP, CLI) eller Maya självt; varje post i behandlingshistoriken anger sin aktör.
+_Avoid_: Principal, actor, utförare
+
 **Företag**:
 Ett aktiebolag vars bokföring förs i Maya; en användare kan ha åtkomst till flera, och flera användare kan ha åtkomst till samma.
 _Avoid_: Bolag, organisation, tenant, klient
