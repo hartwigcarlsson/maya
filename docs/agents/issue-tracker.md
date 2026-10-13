@@ -49,7 +49,8 @@ Used by `/wayfinder`. The **map** is a single issue with **child** issues as tic
   ```
 
 - **Claim**: `gh issue edit <n> --add-assignee @me`, the session's first write.
+- **Resolution branch**: right after claiming, `git fetch` and add a worktree on a fresh `<type>/<issue>-<slug>` branch from `origin/main`. Read `GLOSSARY.md`, `docs/adr/` and `docs/bfl-kontroll.md` in that worktree: the session's own checkout may sit on a stale branch, and its glossary and krav-id:n with it.
 - **Resolve**: `gh issue comment <n> --body "<answer>"`, then `gh issue close <n>`, then append a context pointer (gist + link) to the map's Decisions-so-far. Fetch the map body immediately before editing it: other sessions edit it concurrently, so an earlier copy overwrites their pointers.
-- **Files a resolution changes** (`GLOSSARY.md`, an ADR, docs): one PR from a fresh branch, opened before the resolution comment, which links it. Close the ticket once the PR is open; merge is not a gate.
+- **Files a resolution changes** (`GLOSSARY.md`, an ADR, docs): one PR from the resolution branch, opened before the resolution comment, which links it. Close the ticket once the PR is open; merge is not a gate.
 - **Research worktree**: once the subagent has pushed its `research/<slug>` branch, `git worktree remove` its worktree; the branch on origin is the record.
 - **Research findings**: live on unmerged `research/<slug>` branches, linked from the ticket's resolution comment. Read the headings first, then only the sections you need: `git fetch && git show origin/research/<slug>:docs/research/<slug>.md | grep -n '^#'`, then the line range with `sed -n`.
