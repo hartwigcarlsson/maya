@@ -9,7 +9,7 @@ Källhänvisningar och fullständig genomgång finns i forskningsrapporten [Vilk
 Den som gör förändringen går igenom stegen och skriver `BFL:`-raden. Granskningen (`code-review`, via `CODING_STANDARDS.md`) kontrollerar att raden stämmer med diffen.
 
 1. Gå igenom varje avsnitt nedan och avgör vilka krav förändringen **berör**: kod, schema, migrering, export/import, deployment eller ett beslut som formar något av det.
-2. Varje berört krav måste vara **uppfyllt** av förändringen, eller ha ett öppet issue som hänvisar till id:t och visar hur det uppfylls senare.
+2. Varje berört krav måste vara **uppfyllt** av förändringen, eller ha ett öppet issue som hänvisar till id:t och visar hur det uppfylls senare. För ett wayfinder-beslut räcker också ett område under **Not yet specified** på kartan, om områdets text nämner id:t. Hänvisa då till kartan: `S1 i fogen Räkenskapsårsstängning på #<karta>`.
 3. Skriv resultatet i commit-meddelandets brödtext eller i ticketets lösningskommentar: `BFL: L1, VF3 uppfyllda; A4 i #<issue>`. Om inget krav berörs: `BFL: ej berörd`.
 
 ## Bokföringsposter och låsning
