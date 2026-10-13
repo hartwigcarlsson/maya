@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "prototyp",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": ["-m", "http.server", "8724", "--directory", "prototypes"],
+      "port": 8724
+    }
+  ]
+}
