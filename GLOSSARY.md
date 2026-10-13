@@ -52,6 +52,10 @@ _Avoid_: Redovisningsperiod, månad (som term)
 Den handling som styrker en affärshändelse (kvitto, faktura, avtal) och som arkiveras kopplad till ett eller flera verifikat.
 _Avoid_: Bilaga, kvitto (som samlingsnamn), dokument
 
+**Årsarkiv**:
+Ett oföränderligt, fristående paket med ett räkenskapsårs bokföring, underlag och behandlingshistorik som skapas när året stängs och går att läsa och skriva ut utan Maya.
+_Avoid_: Bokslutsexport, årsbackup, säkerhetskopia
+
 **Bokföringsmetod**:
 Företagets val mellan fakturametoden och kontantmetoden, som styr när fakturor bokförs.
 
