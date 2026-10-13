@@ -4,8 +4,8 @@
 
 A change is done when all of these hold:
 
-1. Commit is conventional (feat:/fix:/refactor:/test:/docs:/chore:), atomic, branched from `origin/main` after a `git fetch`: a session that starts on a branch already merged there branches afresh as `feat/<issue>-<slug>`, whatever `/implement` says about the current branch.
-2. BFL check passed: every requirement in `docs/bfl-kontroll.md` the change touches is met or tracked in an open issue, and the commit body (or, for a decision ticket, its resolution comment) records the result as a `BFL:` line, following the steps in that file.
+1. Commits are conventional (feat:/fix:/refactor:/test:/docs:/chore:) and atomic, on a branch `<type>/<issue>-<slug>` cut from `origin/main` after a `git fetch`. Stay on the current branch only when it was cut for this issue and is not yet merged, whatever `/implement` says.
+2. Every commit body has a `BFL:` line, written by the steps in `docs/bfl-kontroll.md`. `.githooks/commit-msg` checks this and the conventional subject; enable it once per clone with `git config core.hooksPath .githooks`. CI runs the same check on every pull-request commit.
 
 ## Agent skills
 
