@@ -11,7 +11,7 @@
   (https://github.com/hartwigcarlsson/maya/issues/24): inkorg först, ⌘K, shadcn b1Gdz9bFY, 13 px.
   Tre varianter, ?variant=A|B|C (eller ← → / knapparna längst ned). Skalet är detsamma i alla tre;
   de skiljer sig i utkastlistan, hur spärrarna visas, och hur rättelse och komplettering nås.
-  A: Kontrollista och dialoger   B: Fel vid bokföring och egen rättelsesida   C: Underlag bredvid och allt på plats
+  C: Underlag bredvid och allt på plats (VALD, se #32)   A: Kontrollista och dialoger   B: Fel vid bokföring och egen rättelsesida
   Allt ligger i minnet; ladda om sidan för att börja om. I dag är 2026-10-13, perioder t.o.m. juni är låsta.
 -->
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -332,7 +332,7 @@ const ic=(n,extra)=>`<i data-lucide="${n}"${extra?' '+extra:''}></i>`;
 
 /* ================= Tillstånd ================= */
 const params = new URLSearchParams(location.search);
-const S = {variant:(params.get('variant')||'A').toUpperCase(), co:'exempel', filter:'alla', form:null, forsok:false, coMenu:false, pal:false, palQ:'', palI:0, flash:'', flashKopiera:null,
+const S = {variant:(params.get('variant')||'C').toUpperCase(), co:'exempel', filter:'alla', form:null, forsok:false, coMenu:false, pal:false, palQ:'', palI:0, flash:'', flashKopiera:null,
   modal:null, valt:null, ratta:{datum:IDAG_S,orsak:'',kopiera:true}, inlineRatta:null, pop:null};
 const co = ()=>FORETAG.find(f=>f.id===S.co);
 const lista = ()=>VER[S.co];
