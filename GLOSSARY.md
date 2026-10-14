@@ -158,3 +158,31 @@ _Avoid_: Attestera, godkänna, låsa
 **Arbetsgivardeklaration**:
 Företagets deklaration till Skatteverket av löner, förmåner, skatteavdrag och arbetsgivaravgifter för en utbetalningsmånad, med en uppgift per anställd; kallas AGI.
 _Avoid_: Arbetsgivaruppgift, månadsuppgift, skattedeklaration
+
+**Momsperiod**:
+Den period (månad, kvartal eller beskattningsår) som ett företag redovisar moms för; den består av en eller flera hela perioder.
+_Avoid_: Redovisningsperiod, deklarationsperiod, period (utan förled)
+
+**Momsdeklaration**:
+Företagets redovisning av moms till Skatteverket för en momsperiod, med beloppen per ruta räknade ur saldona på de konton som kopplingstabellen för moms pekar ut; den är ej deklarerad, deklarerad eller inlämnad.
+_Avoid_: Momsrapport (om själva deklarationen), skattedeklaration, momsredovisning
+
+**Deklarera**:
+Att färdigställa en momsdeklaration så att momsavräkningen bokförs och filen till Skatteverket skapas; därefter kan inget som påverkar dess rutor bokföras i momsperioden förrän någon öppnar deklarationen igen.
+_Avoid_: Lämna in (som synonym), skicka, stänga momsen
+
+**Inlämnad**:
+En momsdeklaration eller periodisk sammanställning som användaren har markerat som lämnad och signerad hos Skatteverket; Maya kan inte själv se att den är lämnad.
+_Avoid_: Skickad, signerad, rapporterad
+
+**Momsavräkning**:
+Verifikatet som en momsdeklaration bokför på momsperiodens sista dag och som för över periodens moms till redovisningskontot för moms; när deklarationen öppnas igen vänds det genom en rättelse.
+_Avoid_: Momsomföring, momsbokning, nollställning
+
+**Kopplingstabell för moms**:
+Den inbyggda tabell som anger vilken ruta i momsdeklarationen varje konto bidrar till; den är densamma för alla företag.
+_Avoid_: Momskod, momsmappning, momsattribut
+
+**Periodisk sammanställning**:
+Företagets redovisning till Skatteverket per kalenderkvartal av tjänster sålda till köpare i andra EU-länder, per köpare och momsreg-nr; den räknas ur kundreskontran och har samma statusar som momsdeklarationen.
+_Avoid_: PS, EU-rapport, EU-sammanställning
