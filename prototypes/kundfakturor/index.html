@@ -1,0 +1,1080 @@
+<!doctype html>
+<html lang="sv">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Maya kundfakturor</title>
+<!--
+  PROTOTYP, KASTA BORT. Svarar på: Hur ser kundfakturor ut i gränssnittet?
+  (https://github.com/hartwigcarlsson/maya/issues/44). Flödet är beslutat i #19.
+  Bygger på skalet i variant D av gränssnittsprototypen (#24), verifikatprototypens variant C (#32)
+  och leverantörsfakturornas variant C (#43): lista per förfallodag, betalningspanel i dokumentet, rutan "Bokförs som".
+  Tre varianter, ?variant=A|B|C (eller ← → / knapparna längst ned). Skalet är detsamma i alla tre;
+  de skiljer sig i reskontrans lista, hur utkastet redigeras och hur dokumentet och dess handlingar visas.
+  A: Fakturan är formuläret, handlingar i dialoger   B: Kunden först, steg för steg   C: Fakturan bredvid, förfallodag först
+  Allt ligger i minnet; ladda om sidan för att börja om. I dag är 2026-10-14. Perioder t.o.m. juni är låsta,
+  juli–september är momsdeklarerade. Exempel AB använder fakturametoden och OCR, Konsultbolaget i Lund
+  kontantmetoden utan OCR och har ännu inte utfärdat någon faktura i Maya.
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://unpkg.com/lucide@0.469.0/dist/umd/lucide.min.js"></script>
+<style>
+/* Tokens från presetet (Stone + Amber), ljust */
+:root{
+  --background:oklch(1 0 0);--foreground:oklch(0.147 0.004 49.25);
+  --card:oklch(1 0 0);--popover:oklch(1 0 0);
+  --primary:oklch(0.555 0.163 48.998);--primary-foreground:oklch(0.987 0.022 95.277);
+  --secondary:oklch(0.967 0.001 286.375);--secondary-foreground:oklch(0.21 0.006 285.885);
+  --muted:oklch(0.97 0.001 106.424);--muted-foreground:oklch(0.553 0.013 58.071);
+  --accent:oklch(0.97 0.001 106.424);--accent-foreground:oklch(0.216 0.006 56.043);
+  --destructive:oklch(0.577 0.245 27.325);
+  --border:oklch(0.923 0.003 48.717);--input:oklch(0.923 0.003 48.717);--ring:oklch(0.709 0.01 56.259);
+  --sidebar:oklch(0.985 0.001 106.423);--sidebar-primary:oklch(0.666 0.179 58.318);--sidebar-accent:oklch(0.97 0.001 106.424);--sidebar-border:oklch(0.923 0.003 48.717);
+  --success:oklch(0.52 0.12 150);
+  --radius:0.45rem;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --background:oklch(0.147 0.004 49.25);--foreground:oklch(0.985 0.001 106.423);
+  --card:oklch(0.216 0.006 56.043);--popover:oklch(0.216 0.006 56.043);
+  --primary:oklch(0.473 0.137 46.201);--primary-foreground:oklch(0.987 0.022 95.277);
+  --secondary:oklch(0.274 0.006 286.033);--secondary-foreground:oklch(0.985 0 0);
+  --muted:oklch(0.268 0.007 34.298);--muted-foreground:oklch(0.709 0.01 56.259);
+  --accent:oklch(0.268 0.007 34.298);--accent-foreground:oklch(0.985 0.001 106.423);
+  --destructive:oklch(0.704 0.191 22.216);
+  --border:oklch(1 0 0 / 10%);--input:oklch(1 0 0 / 15%);--ring:oklch(0.553 0.013 58.071);
+  --sidebar:oklch(0.216 0.006 56.043);--sidebar-primary:oklch(0.769 0.188 70.08);--sidebar-accent:oklch(0.268 0.007 34.298);--sidebar-border:oklch(1 0 0 / 10%);
+  --success:oklch(0.75 0.13 150);
+}}
+:root[data-theme="dark"]{
+  --background:oklch(0.147 0.004 49.25);--foreground:oklch(0.985 0.001 106.423);
+  --card:oklch(0.216 0.006 56.043);--popover:oklch(0.216 0.006 56.043);
+  --primary:oklch(0.473 0.137 46.201);--primary-foreground:oklch(0.987 0.022 95.277);
+  --secondary:oklch(0.274 0.006 286.033);--secondary-foreground:oklch(0.985 0 0);
+  --muted:oklch(0.268 0.007 34.298);--muted-foreground:oklch(0.709 0.01 56.259);
+  --accent:oklch(0.268 0.007 34.298);--accent-foreground:oklch(0.985 0.001 106.423);
+  --destructive:oklch(0.704 0.191 22.216);
+  --border:oklch(1 0 0 / 10%);--input:oklch(1 0 0 / 15%);--ring:oklch(0.553 0.013 58.071);
+  --sidebar:oklch(0.216 0.006 56.043);--sidebar-primary:oklch(0.769 0.188 70.08);--sidebar-accent:oklch(0.268 0.007 34.298);--sidebar-border:oklch(1 0 0 / 10%);
+  --success:oklch(0.75 0.13 150);
+}
+*{box-sizing:border-box;border-color:var(--border)}
+html,body{margin:0;height:100%}
+body{background:var(--background);color:var(--foreground);font:13px/1.5 Inter,system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+button,input,select{font:inherit;color:inherit}
+a{color:inherit;text-decoration:none}
+svg.lucide{width:14px;height:14px;flex-shrink:0;stroke-width:2}
+.num{font-variant-numeric:tabular-nums;text-align:right;white-space:nowrap}
+.mf{color:var(--muted-foreground)}
+h1{font-size:16px;font-weight:600;margin:0;letter-spacing:-.01em}
+h2{font-size:14px;font-weight:500;margin:0}
+
+/* Button */
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:4px;height:28px;padding:0 8px;border-radius:calc(var(--radius) * .8);font-size:13px;font-weight:500;border:1px solid transparent;cursor:pointer;white-space:nowrap;background:transparent;transition:background .1s}
+.btn-default{background:var(--primary);color:var(--primary-foreground)}
+.btn-default:hover{background:color-mix(in oklch,var(--primary) 90%,transparent)}
+.btn-outline{border-color:var(--input);background:var(--background)}
+:root[data-theme="dark"] .btn-outline{background:color-mix(in oklch,var(--input) 30%,transparent)}
+.btn-outline:hover,.btn-ghost:hover{background:var(--accent)}
+.btn-secondary{background:var(--secondary);color:var(--secondary-foreground)}
+.btn-icon{width:28px;padding:0}
+.btn-destructive-ghost{color:var(--destructive)}
+.btn-destructive-ghost:hover{background:color-mix(in oklch,var(--destructive) 10%,transparent)}
+
+/* Badge */
+.badge{display:inline-flex;align-items:center;gap:4px;height:20px;padding:2px 8px;border-radius:999px;font-size:10px;font-weight:500;white-space:nowrap;border:1px solid transparent;vertical-align:middle}
+.badge svg.lucide{width:10px;height:10px}
+.badge-utkast{border:1px dashed var(--muted-foreground);color:var(--muted-foreground)}
+.badge-bokford{background:var(--secondary);color:var(--secondary-foreground)}
+.badge-ai{border-color:var(--border);color:var(--foreground)}
+.badge-rattad{background:color-mix(in oklch,var(--destructive) 12%,transparent);color:var(--destructive)}
+.badge-count{background:var(--primary);color:var(--primary-foreground);height:18px;min-width:18px;padding:0 5px;justify-content:center}
+
+/* Card */
+.card{background:var(--card);border-radius:var(--radius);box-shadow:0 0 0 1px color-mix(in oklch,var(--foreground) 10%,transparent);display:flex;flex-direction:column;gap:16px;padding:16px 0}
+.card-header{padding:0 16px;display:flex;justify-content:space-between;align-items:flex-start;gap:12px}
+.card-title{font-size:14px;font-weight:500}
+.card-desc{color:var(--muted-foreground)}
+.card-content{padding:0 16px}
+.card-footer{padding:0 16px;display:flex;gap:8px;justify-content:flex-end;align-items:center}
+
+/* Input */
+.input{height:28px;border:1px solid var(--input);border-radius:calc(var(--radius) * .8);padding:0 8px;background:transparent;font-size:13px;width:100%}
+:root[data-theme="dark"] .input{background:color-mix(in oklch,var(--input) 30%,transparent)}
+.input:focus,.cell:focus{outline:none;border-color:var(--ring);box-shadow:0 0 0 3px color-mix(in oklch,var(--ring) 50%,transparent)}
+.input[readonly]{background:var(--muted);color:var(--muted-foreground)}
+.label{font-size:13px;font-weight:500;display:block;margin-bottom:6px}
+.field-grid{display:grid;grid-template-columns:160px 1fr 1fr;gap:16px}
+
+/* Table */
+table{border-collapse:collapse;width:100%}
+.table th{height:32px;padding:0 8px;text-align:left;font-weight:500;color:var(--muted-foreground);border-bottom:1px solid var(--border);white-space:nowrap}
+.table td{padding:6px 8px;border-bottom:1px solid var(--border);vertical-align:middle}
+.table tbody tr:last-child td{border-bottom:0}
+.table tr.click{cursor:pointer}
+.table tr.click:hover td{background:color-mix(in oklch,var(--muted) 50%,transparent)}
+.cell{width:100%;height:28px;border:1px solid transparent;border-radius:calc(var(--radius) * .8);padding:0 6px;background:transparent}
+.cell:hover:not([readonly]){border-color:var(--input)}
+.rows td{padding:2px 4px}
+.sumrow td{font-weight:600;border-top:1px solid var(--border);padding:8px}
+.diff-bad{color:var(--destructive);display:inline-flex;gap:4px;align-items:center}
+.diff-ok{color:var(--success);display:inline-flex;gap:4px;align-items:center}
+
+/* Alert */
+.alert{display:grid;grid-template-columns:auto 1fr auto;gap:2px 10px;align-items:start;border:1px solid var(--border);border-radius:var(--radius);padding:10px 12px;background:var(--card)}
+.alert .t{font-weight:500}
+.alert ul{margin:2px 0 0 16px;padding:0;color:var(--muted-foreground)}
+.alert.destructive{color:var(--destructive)}
+.alert.destructive ul{color:color-mix(in oklch,var(--destructive) 85%,var(--foreground))}
+.alert.ok{color:var(--success)}
+
+/* Tabs */
+.tabs{display:inline-flex;background:var(--muted);border-radius:var(--radius);padding:3px;gap:2px}
+.tabs button{height:22px;padding:0 10px;border:0;border-radius:calc(var(--radius) * .7);background:transparent;color:var(--muted-foreground);font-weight:500;cursor:pointer;display:inline-flex;gap:6px;align-items:center}
+.tabs button.on{background:var(--background);color:var(--foreground);box-shadow:0 1px 2px rgba(0,0,0,.08)}
+:root[data-theme="dark"] .tabs button.on{background:var(--input)}
+
+/* Dropdown */
+.dropdown{position:absolute;z-index:20;background:var(--popover);border:1px solid var(--border);border-radius:var(--radius);box-shadow:0 8px 24px rgba(0,0,0,.18);padding:4px;min-width:240px}
+.dropdown .lbl{padding:6px 8px;color:var(--muted-foreground);font-size:11px}
+.dropdown .mi{display:flex;align-items:center;gap:8px;width:100%;padding:6px 8px;border:0;background:transparent;border-radius:calc(var(--radius) * .8);cursor:pointer;text-align:left}
+.dropdown .mi:hover{background:var(--accent)}
+.dropdown .sepl{height:1px;background:var(--border);margin:4px -4px}
+.logo{width:28px;height:28px;border-radius:calc(var(--radius) * .8);background:var(--sidebar-primary);color:var(--primary-foreground);display:grid;place-items:center;font-weight:700;flex-shrink:0}
+.logo.sm{width:22px;height:22px;font-size:11px;background:var(--muted);color:var(--foreground);border:1px solid var(--border)}
+kbd{font:500 10px Inter,system-ui;border:1px solid var(--border);border-radius:4px;padding:1px 5px;background:var(--muted);color:var(--muted-foreground)}
+.placeholder{display:grid;place-items:center;gap:8px;padding:64px;color:var(--muted-foreground);text-align:center;border:1px dashed var(--border);border-radius:var(--radius)}
+
+/* ---------- Switcher (inte en del av designen) ---------- */
+#proto-switcher{position:fixed;left:50%;bottom:14px;transform:translateX(-50%);z-index:999;display:flex;align-items:center;gap:6px;
+  background:#111;color:#fff;border-radius:999px;padding:6px 8px;box-shadow:0 6px 24px rgba(0,0,0,.35);font:12px system-ui;border:2px dashed #f5c400}
+#proto-switcher button{background:#333;color:#fff;border:0;border-radius:999px;padding:4px 10px;cursor:pointer}
+#proto-switcher .lbl{padding:0 8px;white-space:nowrap}
+
+/* ---------- Variant B: Inkorg först ---------- */
+.B{display:flex;flex-direction:column;height:100vh}
+.B header{display:flex;align-items:center;gap:12px;padding:0 12px;height:48px;border-bottom:1px solid var(--border);background:var(--background)}
+.B .brand{display:flex;align-items:center;gap:8px;font-weight:600}
+.B .co{position:relative}
+.B .co .dropdown{top:34px;left:0}
+.B nav{display:flex;gap:2px}
+.B nav a{display:inline-flex;align-items:center;gap:6px;height:28px;padding:0 10px;border-radius:calc(var(--radius) * .8);color:var(--muted-foreground);font-weight:500}
+.B nav a:hover{color:var(--foreground);background:var(--accent)}
+.B nav a.on{color:var(--foreground);background:var(--accent)}
+.B header .right{margin-left:auto;display:flex;gap:4px;align-items:center}
+.B .split{flex:1;display:grid;grid-template-columns:360px 1fr;min-height:0}
+.B .list{border-right:1px solid var(--border);overflow:auto;padding:12px;display:flex;flex-direction:column;gap:6px;background:var(--sidebar)}
+.B .list .lh{display:flex;justify-content:space-between;align-items:center;padding:4px 4px 8px}
+.B .sect{display:flex;align-items:center;gap:6px;color:var(--muted-foreground);font-size:11px;font-weight:500;padding:10px 4px 2px}
+.B .item{display:flex;flex-direction:column;gap:6px;padding:10px 12px;border-radius:calc(var(--radius) * .8);border:1px solid transparent;background:color-mix(in oklch,var(--muted) 50%,transparent)}
+.B .item:hover{background:var(--muted)}
+.B .item.on{border-color:var(--ring);background:var(--card)}
+.B .item .top{display:flex;justify-content:space-between;gap:8px;font-weight:500}
+.B .item .meta{display:flex;gap:6px;align-items:center;color:var(--muted-foreground);flex-wrap:wrap}
+.B .item.plain{background:transparent;border-color:var(--border)}
+.B .detail{overflow:auto;padding:20px 28px 90px;display:flex;flex-direction:column;gap:16px}
+.B .empty{display:grid;place-items:center;height:100%;color:var(--muted-foreground);text-align:center;gap:8px}
+
+.search{display:inline-flex;align-items:center;gap:8px;height:28px;padding:0 8px;min-width:240px;border:1px solid var(--input);border-radius:calc(var(--radius) * .8);color:var(--muted-foreground);cursor:pointer;background:color-mix(in oklch,var(--muted) 50%,transparent)}
+.search kbd{margin-left:auto}
+.pal-bg{position:fixed;inset:0;background:rgba(0,0,0,.5);display:flex;justify-content:center;align-items:flex-start;padding-top:14vh;z-index:50}
+.pal{width:520px;max-width:92vw;background:var(--popover);border-radius:var(--radius);box-shadow:0 0 0 1px color-mix(in oklch,var(--foreground) 10%,transparent),0 16px 48px rgba(0,0,0,.4);overflow:hidden}
+.pal .in{display:flex;align-items:center;gap:8px;padding:0 12px;border-bottom:1px solid var(--border);color:var(--muted-foreground)}
+.pal input{flex:1;height:40px;border:0;background:transparent;outline:none;font-size:13px;color:var(--foreground)}
+.pal .ls{max-height:340px;overflow:auto;padding:4px}
+.pal .opt{display:flex;align-items:center;gap:8px;height:30px;padding:0 8px;border-radius:calc(var(--radius) * .8);cursor:pointer}
+.pal .opt.on{background:var(--accent)}
+.pal .opt kbd,.pal .opt .amt{margin-left:auto}
+.pal .opt .amt{color:var(--muted-foreground);font-variant-numeric:tabular-nums}
+.pal .opt .t{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pal .grp{padding:8px 8px 4px;font-size:11px;color:var(--muted-foreground);font-weight:500}
+.pal .ft{display:flex;gap:12px;padding:6px 12px;border-top:1px solid var(--border);color:var(--muted-foreground);font-size:11px}
+
+/* ---------- Gemensamt för verifikatprototypen ---------- */
+.B .detail{position:relative}
+.warn{color:var(--sidebar-primary)}
+.badge-warn{background:color-mix(in oklch,var(--sidebar-primary) 14%,transparent);color:var(--sidebar-primary)}
+.badge-lock{background:var(--muted);color:var(--muted-foreground);border-color:var(--border)}
+.dl{display:grid;grid-template-columns:130px 1fr;gap:6px 16px}
+.dl dt{color:var(--muted-foreground)}
+.dl dd{margin:0}
+.link{text-decoration:underline;text-underline-offset:2px;cursor:pointer}
+.sec-t{font-size:11px;font-weight:500;color:var(--muted-foreground);text-transform:uppercase;letter-spacing:.04em;margin-bottom:6px}
+.paper{background:var(--card);border-radius:var(--radius);box-shadow:0 0 0 1px color-mix(in oklch,var(--foreground) 10%,transparent),0 2px 8px rgba(0,0,0,.04);padding:24px 28px;display:flex;flex-direction:column;gap:20px;max-width:860px}
+.ro td{padding:6px 8px}
+.hist{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px}
+.hist li{display:grid;grid-template-columns:18px 130px 1fr;gap:8px;align-items:start}
+.hist li .t{color:var(--muted-foreground);font-variant-numeric:tabular-nums}
+.ufile{display:flex;align-items:center;gap:8px;padding:6px 8px;border:1px solid var(--border);border-radius:calc(var(--radius) * .8)}
+.ufile .mf{margin-left:auto;font-size:11px}
+.ufile.kompl{border-style:dashed}
+.preview{display:grid;place-items:center;gap:6px;background:var(--muted);color:var(--muted-foreground);border-radius:var(--radius);text-align:center}
+.drop{display:grid;place-items:center;gap:6px;border:1px dashed var(--ring);border-radius:var(--radius);color:var(--muted-foreground);padding:16px;text-align:center}
+.err .input,.input.err{border-color:var(--destructive)}
+tr.err td{background:color-mix(in oklch,var(--destructive) 6%,transparent)}
+.cell.err{border-color:var(--destructive)}
+.ferr{color:var(--destructive);font-size:11px;margin-top:3px;display:flex;gap:4px;align-items:center}
+.ferr svg.lucide{width:11px;height:11px}
+.btn[disabled]{opacity:.5;cursor:not-allowed}
+.dialog{width:560px;max-width:94vw;background:var(--popover);border-radius:var(--radius);box-shadow:0 0 0 1px color-mix(in oklch,var(--foreground) 10%,transparent),0 16px 48px rgba(0,0,0,.4);display:flex;flex-direction:column;gap:14px;padding:18px 20px}
+.dialog .ft{display:flex;gap:8px;justify-content:flex-end}
+.pick{display:flex;flex-direction:column;gap:4px;max-height:220px;overflow:auto}
+.pick label{display:flex;gap:8px;align-items:center;padding:6px 8px;border-radius:calc(var(--radius) * .8);border:1px solid var(--border);cursor:pointer}
+.pick label:hover{background:var(--accent)}
+.note{display:flex;gap:8px;align-items:flex-start;color:var(--muted-foreground);font-size:12px}
+.note svg.lucide{margin-top:2px}
+.flex{display:flex;gap:8px;align-items:center}
+.col{display:flex;flex-direction:column;gap:8px}
+
+/* A: kontrollista i en högerspalt */
+.A-edit{display:grid;grid-template-columns:1fr 250px;gap:24px;align-items:start}
+.rail{position:sticky;top:0;display:flex;flex-direction:column;gap:10px;padding:14px;border:1px solid var(--border);border-radius:var(--radius);background:var(--sidebar)}
+.rail .chk{display:grid;grid-template-columns:16px 1fr;gap:6px;align-items:start}
+.rail .chk.ok{color:var(--muted-foreground)}
+.rail .chk.bad{color:var(--foreground)}
+.rail .chk.bad svg.lucide{color:var(--destructive)}
+.rail .chk.ok svg.lucide{color:var(--success)}
+.rail .chk .fix{display:block;font-size:11px;color:var(--muted-foreground)}
+
+/* B: tabell som lista */
+.tlist{width:100%;border-collapse:collapse}
+.tlist td{padding:6px 6px;border-bottom:1px solid var(--border);vertical-align:top}
+.tlist tr{cursor:pointer}
+.tlist tr:hover td{background:var(--muted)}
+.tlist tr.on td{background:var(--card);box-shadow:inset 0 0 0 0 var(--ring)}
+.tlist tr.on td:first-child{box-shadow:inset 2px 0 0 var(--sidebar-primary)}
+.tlist th{font-weight:500;color:var(--muted-foreground);text-align:left;padding:4px 6px;border-bottom:1px solid var(--border);font-size:11px}
+.B .list.wide{padding:8px}
+.cmp{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.cmp .paper{padding:16px}
+
+/* C: underlag bredvid */
+.C-edit{display:grid;grid-template-columns:minmax(260px,42%) 1fr;gap:20px;align-items:start}
+.C-edit .left{position:sticky;top:0;display:flex;flex-direction:column;gap:8px}
+.C-edit .left .preview{height:420px}
+.per{display:flex;align-items:center;gap:6px;font-size:11px;font-weight:500;color:var(--muted-foreground);padding:12px 4px 2px}
+.per .badge{margin-left:auto}
+.pop{position:absolute;z-index:20;background:var(--popover);border:1px solid var(--border);border-radius:var(--radius);box-shadow:0 8px 24px rgba(0,0,0,.18);padding:8px;width:300px;display:flex;flex-direction:column;gap:6px}
+.inl{border:1px solid var(--ring);border-radius:var(--radius);padding:14px;display:flex;flex-direction:column;gap:12px;background:var(--card)}
+.bcount{background:color-mix(in oklch,var(--primary-foreground) 25%,transparent);border-radius:999px;padding:0 6px;font-size:11px}
+/* ---------- Leverantörsfakturor ---------- */
+.badge-obetald{background:var(--secondary);color:var(--secondary-foreground)}
+.badge-forfallen{background:color-mix(in oklch,var(--destructive) 12%,transparent);color:var(--destructive)}
+.badge-betald{background:color-mix(in oklch,var(--success) 14%,transparent);color:var(--success)}
+.badge-ny{background:color-mix(in oklch,var(--sidebar-primary) 14%,transparent);color:var(--sidebar-primary);border:1px dashed var(--sidebar-primary)}
+.copy{display:inline-flex;align-items:center;gap:6px;height:24px;padding:0 8px;border:1px solid var(--border);border-radius:calc(var(--radius) * .8);background:var(--background);cursor:pointer;font-variant-numeric:tabular-nums}
+.copy:hover{background:var(--accent)}
+.copy .k{color:var(--muted-foreground);font-size:11px}
+.levkort{border:1px solid var(--border);border-radius:var(--radius);padding:12px;display:flex;flex-direction:column;gap:8px}
+.levkort.ny{border:1px dashed var(--sidebar-primary);background:color-mix(in oklch,var(--sidebar-primary) 5%,transparent)}
+.g2{display:grid;grid-template-columns:1fr 1fr;gap:10px 14px}
+.g3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px 14px}
+.g4{display:grid;grid-template-columns:repeat(4,1fr);gap:10px 14px}
+.kont{border:1px solid var(--border);border-radius:var(--radius);padding:10px 12px;background:var(--sidebar)}
+.kont .table td,.kont .table th{padding:3px 8px;height:auto}
+.select{height:28px;border:1px solid var(--input);border-radius:calc(var(--radius) * .8);padding:0 6px;background:var(--background);width:100%}
+.seg{display:inline-flex;border:1px solid var(--border);border-radius:var(--radius);overflow:hidden}
+.seg button{border:0;border-right:1px solid var(--border);background:var(--background);padding:6px 12px;cursor:pointer;display:inline-flex;gap:6px;align-items:center}
+.seg button:last-child{border-right:0}
+.seg button.on{background:var(--accent);font-weight:500}
+.seg button:hover{background:var(--accent)}
+.triage{display:grid;grid-template-columns:1fr 280px;gap:20px;align-items:start}
+.tchoice{display:flex;flex-direction:column;gap:6px}
+.tchoice button{display:flex;align-items:center;gap:10px;padding:10px 12px;border:1px solid var(--border);border-radius:var(--radius);background:var(--card);cursor:pointer;text-align:left}
+.tchoice button:hover{background:var(--accent)}
+.tchoice kbd{margin-left:auto}
+.levgrp{display:flex;justify-content:space-between;align-items:center;padding:10px 6px 4px;font-weight:500;cursor:pointer}
+.levgrp:hover{color:var(--sidebar-primary)}
+.bet{display:grid;grid-template-columns:100px 1fr 120px 60px;gap:8px;padding:4px 0;border-bottom:1px solid var(--border)}
+.A-reg{display:grid;grid-template-columns:1fr minmax(240px,36%);gap:20px;align-items:start}
+.A-reg .orig{position:sticky;top:0;display:flex;flex-direction:column;gap:8px}
+.steg{display:flex;flex-direction:column;gap:10px;border:1px solid var(--border);border-radius:var(--radius);padding:12px 14px}
+.steg .st{display:flex;gap:8px;align-items:center;font-weight:500}
+.steg .st .n{width:20px;height:20px;border-radius:999px;background:var(--muted);display:grid;place-items:center;font-size:11px}
+.steg.klar .st .n{background:var(--success);color:white}
+/* ---------- Kundfakturor ---------- */
+.badge-tillgodo{background:color-mix(in oklch,var(--sidebar-primary) 14%,transparent);color:var(--sidebar-primary)}
+textarea{font:inherit;color:inherit}
+textarea.input{height:auto;padding:6px 8px;resize:vertical;line-height:1.45}
+.newmenu{position:relative}
+.newmenu .dropdown{right:0;top:32px}
+/* Fakturan som PDF: alltid ljus, den är ett papper */
+.inv{position:relative;background:#fff;color:#1c1917;border-radius:4px;box-shadow:0 0 0 1px rgba(0,0,0,.1),0 2px 10px rgba(0,0,0,.06);padding:26px 28px;font-size:10.5px;line-height:1.45;display:flex;flex-direction:column;gap:14px;overflow:hidden}
+.inv .h{display:flex;justify-content:space-between;gap:16px;align-items:flex-start}
+.inv .lg{width:42px;height:42px;border-radius:6px;background:#c2410c;color:#fff;display:grid;place-items:center;font-weight:700;font-size:14px}
+.inv .tt{font-size:19px;font-weight:600;letter-spacing:-.01em;margin-bottom:4px}
+.inv table{width:100%}
+.inv td,.inv th{padding:3px 4px;border-bottom:1px solid #e7e5e4;text-align:left;vertical-align:top}
+.inv th{font-weight:500;color:#78716c}
+.inv .r{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+.inv .kv{display:grid;grid-template-columns:auto auto;gap:1px 12px;align-content:start}
+.inv .kv>span:nth-child(odd){color:#78716c}
+.inv .adr{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.inv .lbl2{color:#78716c;font-size:9.5px;text-transform:uppercase;letter-spacing:.05em;margin-bottom:2px}
+.inv .sum{display:grid;grid-template-columns:1fr auto;gap:2px 16px;margin-left:auto;min-width:220px}
+.inv .sum .big{font-size:13px;font-weight:600;border-top:1px solid #1c1917;padding-top:4px}
+.inv .pay{display:grid;grid-template-columns:repeat(4,auto);gap:2px 18px;border:1px solid #e7e5e4;border-radius:4px;padding:8px 10px;justify-content:start}
+.inv .pay span:nth-child(-n+4){color:#78716c;font-size:9.5px}
+.inv .foot{border-top:1px solid #e7e5e4;padding-top:8px;color:#78716c;font-size:9.5px;display:flex;flex-wrap:wrap;gap:2px 14px}
+.inv .wm{position:absolute;top:42%;left:50%;transform:translate(-50%,-50%) rotate(-24deg);font-size:72px;font-weight:700;color:rgba(194,65,12,.09);pointer-events:none;letter-spacing:.12em}
+.inv .miss{background:rgba(220,38,38,.09);color:#b91c1c;border-radius:3px;padding:0 3px}
+.inv .omv{border-left:3px solid #c2410c;padding:4px 8px;background:#fff7ed}
+.inv .ed{border:1px dashed #d6d3d1;border-radius:3px;background:#fffbeb;height:20px;padding:0 4px;font:inherit;font-size:10.5px;width:100%;color:#1c1917}
+.inv .ed:focus{outline:none;border:1px solid #c2410c;background:#fff}
+.inv .ed.err{border-color:#dc2626;background:#fef2f2}
+.inv select.ed{padding:0 2px}
+.inv .addrow{color:#c2410c;cursor:pointer;font-weight:500}
+.C-edit .left .inv{padding:18px;font-size:10px;gap:10px}
+.C-edit .left .inv .tt{font-size:16px}
+.pdfmeta{display:flex;align-items:center;gap:6px;color:var(--muted-foreground);font-size:11px}
+/* A: formulär i fakturan, kontrollista i höger */
+.A-ed{display:grid;grid-template-columns:minmax(520px,1fr) 340px;gap:20px;align-items:start}
+.toolbar{display:flex;gap:6px;align-items:center;flex-wrap:wrap;padding:8px 10px;border:1px solid var(--border);border-radius:var(--radius);background:var(--sidebar);position:sticky;top:0;z-index:5}
+.A-doc{display:grid;grid-template-columns:minmax(480px,640px) 1fr;gap:20px;align-items:start}
+/* B: steg och tidslinje */
+.stepbar{display:flex;gap:6px;flex-wrap:wrap}
+.stepbar button{display:inline-flex;align-items:center;gap:8px;height:30px;padding:0 12px;border:1px solid var(--border);border-radius:999px;background:var(--background);cursor:pointer;font-weight:500;color:var(--muted-foreground)}
+.stepbar button.on{border-color:var(--ring);color:var(--foreground);background:var(--card);box-shadow:0 0 0 2px color-mix(in oklch,var(--ring) 30%,transparent)}
+.stepbar .n{width:18px;height:18px;border-radius:999px;background:var(--muted);display:grid;place-items:center;font-size:10px}
+.stepbar .klar .n{background:var(--success);color:#fff}
+.stepbar .bad .n{background:var(--destructive);color:#fff}
+.tl{display:flex;align-items:center;gap:0;flex-wrap:wrap}
+.tl .st{display:flex;flex-direction:column;gap:2px;padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius);min-width:110px}
+.tl .st.on{border-color:var(--success)}
+.tl .st.cur{border-color:var(--sidebar-primary);background:color-mix(in oklch,var(--sidebar-primary) 6%,transparent)}
+.tl .st.off{border-style:dashed;color:var(--muted-foreground)}
+.tl .st .t{font-weight:500;display:flex;gap:6px;align-items:center}
+.tl .st .d{font-size:11px;color:var(--muted-foreground)}
+.tl .ar{width:16px;height:1px;background:var(--border)}
+.kundhead{display:flex;justify-content:space-between;align-items:center;padding:10px 6px 4px;font-weight:500;cursor:pointer;border-radius:calc(var(--radius) * .8)}
+.kundhead:hover{color:var(--sidebar-primary)}
+.kundhead.on{color:var(--sidebar-primary)}
+.alloc{display:grid;grid-template-columns:70px 1fr 110px 110px;gap:6px;padding:4px 0;border-bottom:1px solid var(--border);align-items:center}
+.stat{display:flex;flex-direction:column;gap:2px;padding:10px 12px;border:1px solid var(--border);border-radius:var(--radius)}
+.stat b{font-size:16px;font-weight:600;font-variant-numeric:tabular-nums}
+.chips{display:flex;flex-wrap:wrap;gap:4px}
+.radio-list{display:flex;flex-direction:column;gap:4px}
+.radio-list label{display:flex;gap:8px;align-items:center;padding:6px 8px;border:1px solid var(--border);border-radius:calc(var(--radius) * .8);cursor:pointer}
+.radio-list label:hover{background:var(--accent)}
+</style>
+</head>
+<body>
+<div id="app"></div>
+<div id="proto-switcher"></div>
+<script>
+/* ================= Data (i minnet) ================= */
+const IDAG = new Date('2026-10-14T10:00:00');
+const IDAG_S = '2026-10-14';
+const LAST_TOM = '2026-06';                          // perioder t.o.m. juni är låsta
+const DEKL = ['2026-07','2026-08','2026-09'];        // deklarerade momsperioder (månadsmoms)
+const KONTON = {1510:'Kundfordringar',1930:'Företagskonto',2611:'Utgående moms 25 %',2621:'Utgående moms 12 %',2631:'Utgående moms 6 %',
+  3001:'Försäljning inom Sverige, 25 % moms',3002:'Försäljning inom Sverige, 12 % moms',3003:'Försäljning inom Sverige, 6 % moms',3004:'Försäljning inom Sverige, momsfri',
+  3041:'Försäljning tjänster inom Sverige, 25 % moms',3231:'Försäljning byggtjänster, omvänd skattskyldighet',3308:'Försäljning tjänster till annat EU-land',
+  3740:'Öres- och kronutjämning',6351:'Konstaterade förluster på kundfordringar'};
+const INTAKT = ['3001','3041','3002','3003','3004','3231','3308'];
+const SATS_K = {25:'3001',12:'3002',6:'3003',0:'3004'}, OMV_K = {bygg:'3231',eutj:'3308'}, MOMS_K = {25:'2611',12:'2621',6:'2631'};
+const OMV = {'':'Ingen',bygg:'Bygg inom Sverige',eutj:'EU-tjänst'};
+const OMV_TXT = {bygg:'Omvänd betalningsskyldighet för byggtjänster gäller.',eutj:'Omvänd betalningsskyldighet / Reverse charge, artikel 196 i mervärdesskattedirektivet.'};
+const kNamn = k=>KONTON[k];
+const ANV = 'Anna Berg';
+const FORETAG = [
+  {id:'exempel',namn:'Exempel AB',orgnr:'559999-9991',metod:'faktura',ocr:true,sate:'Stockholm',adress:'Storgatan 1, 111 22 Stockholm',momsnr:'SE559999999101',bg:'5555-1234',replyto:'ekonomi@exempel.se',nasta:1043,
+    meddelande:'Hej!\n\nHär kommer faktura {nr} från Exempel AB. Betala gärna senast {forfallo}.\n\nVänliga hälsningar\nAnna Berg'},
+  {id:'lund',namn:'Konsultbolaget i Lund AB',orgnr:'559888-1234',metod:'kontant',ocr:false,sate:'Lund',adress:'Stora Södergatan 8, 222 23 Lund',momsnr:'SE559888123401',bg:'',replyto:'hej@konsultlund.se',nasta:null,
+    meddelande:'Hej,\n\nBifogat finns faktura {nr}.\n\nMvh Konsultbolaget i Lund'},
+];
+const KUND = {
+  exempel:[
+    {id:'k1',namn:'Nordljus Arkitekter AB',orgnr:'556701-2233',adress:'Sveavägen 20, 113 50 Stockholm',epost:'ekonomi@nordljus.se',momsnr:'SE556701223301',villkor:30,ref:'Karin Holm'},
+    {id:'k2',namn:'Bergström Bygg AB',orgnr:'559100-4455',adress:'Industrivägen 3, 721 30 Västerås',epost:'faktura@bergstrombygg.se',momsnr:'SE559100445501',villkor:30,omvand:'bygg',ref:'Projekt 2207'},
+    {id:'k3',namn:'Kaffekompaniet Söder AB',orgnr:'559222-8899',adress:'Hornsgatan 61, 118 49 Stockholm',epost:'info@kaffesoder.se',momsnr:'SE559222889901',villkor:30},
+    {id:'k4',namn:'Hansa Software GmbH',orgnr:'',adress:'Am Sandtorkai 5, 20457 Hamburg, Tyskland',epost:'ap@hansa-software.de',momsnr:'DE811234567',villkor:14,omvand:'eutj'},
+    {id:'k5',namn:'Fjällstugan Åre AB',orgnr:'556999-1100',adress:'Årevägen 44, 837 52 Åre',epost:'bokning@fjallstugan.se',momsnr:'SE556999110001',villkor:30},
+    {id:'k6',namn:'Studio Vinter AB',orgnr:'559333-2211',adress:'',epost:'hej@studiovinter.se',momsnr:'',villkor:30,ny:{klient:'Claude Code'}},
+  ],
+  lund:[
+    {id:'k20',namn:'Lunds Tekniska Konsult AB',orgnr:'556455-7788',adress:'Ideon, Scheelevägen 17, 223 70 Lund',epost:'ekonomi@ltk.se',momsnr:'SE556455778801',villkor:30},
+    {id:'k21',namn:'Malmö Event & Möten AB',orgnr:'559444-3322',adress:'Stortorget 9, 211 22 Malmö',epost:'fakturor@malmoevent.se',momsnr:'SE559444332201',villkor:20},
+  ],
+};
+let fseq=100,kseq=30,min=10;
+const nu=()=>IDAG_S+' 10:'+String(min++).padStart(2,'0');
+const h=(tid,vem,text,ikon)=>({tid,vem,text,ikon});
+const M=(text,antal,enhet,apris,sats,konto,rabatt)=>({text,antal,enhet,apris,rabatt:rabatt||0,sats:String(sats),konto:String(konto||SATS_K[sats])});
+const E=(konto,netto,sats)=>({konto:String(konto),netto,sats:String(sats)});
+const hex=()=>Array.from({length:8},()=>Math.floor(Math.random()*16).toString(16)).join('');
+function ocr(nr){const b=String(nr)+String((String(nr).length+2)%10);let s=0;b.split('').reverse().forEach((d,i)=>{let x=+d*(i%2===0?2:1);if(x>9)x-=9;s+=x});return b+((10-s%10)%10)}
+function F(o){return Object.assign({id:'f'+(fseq++),typ:'maya',status:'utfardad',nr:'',kund:'',fdatum:'',levdatum:'',forfallo:'',ref:'',omvand:'',ocr:'',rader:[],ver:[],betalningar:[],ater:[],utskick:[],annat:null,forlust:null,forslag:[],underlag:null,pdf:null,historik:[],kanal:'webb'},o)}
+const pdf=(nr,tid)=>({namn:'faktura-'+nr+'.pdf',hash:hex(),tid});
+const ok=(tid,till)=>({tid,till,vem:ANV,res:'ok'});
+const f1036=F({kund:'k1',nr:1036,fdatum:'2026-08-20',forfallo:'2026-09-19',ref:'Karin Holm',ocr:ocr(1036),pdf:pdf(1036,'2026-08-20'),rader:[M('Konsulttjänster augusti',40,'tim',1100,25,'3041')],
+  ver:[{typ:'Utfärdande',nr:31,datum:'2026-08-20'},{typ:'Betalning',nr:38,datum:'2026-09-18'}],betalningar:[{datum:'2026-09-18',belopp:55000,konto:'1930',vnr:38}],utskick:[ok('2026-08-20 09:12','ekonomi@nordljus.se')],
+  historik:[h('2026-08-20 09:11',ANV,'Utfärdade faktura 1036, bokfördes som V31, PDF arkiverad','lock'),h('2026-08-20 09:12',ANV,'Skickade till ekonomi@nordljus.se','send'),h('2026-09-18 08:30',ANV,'Registrerade betalning 55 000,00 kr, V38','banknote'),h('2026-10-06 14:02',ANV,'Krediterades delvis av 1042','file-minus')]});
+const f1038=F({kund:'k3',nr:1038,fdatum:'2026-08-28',forfallo:'2026-09-27',ocr:ocr(1038),pdf:pdf(1038,'2026-08-28'),rader:[M('Baristaworkshop för personal, halvdag',1,'st',8000,25),M('Lunchpaket',12,'st',120,12)],
+  ver:[{typ:'Utfärdande',nr:33,datum:'2026-08-28'}],utskick:[ok('2026-08-28 15:40','info@kaffesoder.se')],
+  historik:[h('2026-08-28 15:39',ANV,'Utfärdade faktura 1038, bokfördes som V33, PDF arkiverad','lock'),h('2026-08-28 15:40',ANV,'Skickade till info@kaffesoder.se','send')]});
+const f1039=F({kund:'k2',nr:1039,fdatum:'2026-09-15',forfallo:'2026-10-15',ref:'Projekt 2207',omvand:'bygg',ocr:ocr(1039),pdf:pdf(1039,'2026-09-15'),rader:[M('Elinstallation etapp 2, kv. Linden',1,'st',62000,0,'3231')],
+  ver:[{typ:'Utfärdande',nr:44,datum:'2026-09-15'},{typ:'Betalning',nr:50,datum:'2026-10-01'}],betalningar:[{datum:'2026-10-01',belopp:30000,konto:'1930',vnr:50}],utskick:[ok('2026-09-15 11:05','faktura@bergstrombygg.se')],
+  historik:[h('2026-09-15 11:04',ANV,'Utfärdade faktura 1039, bokfördes som V44, PDF arkiverad','lock'),h('2026-09-15 11:05',ANV,'Skickade till faktura@bergstrombygg.se','send'),h('2026-10-01 09:00',ANV,'Registrerade delbetalning 30 000,00 kr, V50','banknote')]});
+const f1040=F({kund:'k4',nr:1040,fdatum:'2026-09-30',forfallo:'2026-10-14',omvand:'eutj',ocr:ocr(1040),pdf:pdf(1040,'2026-09-30'),rader:[M('Integrationsutveckling september',32,'tim',1250,0,'3308')],
+  ver:[{typ:'Utfärdande',nr:47,datum:'2026-09-30'}],utskick:[{tid:'2026-09-30 16:20',till:'ap@hansa-softwar.de',vem:ANV,res:'fel',fel:'550 5.1.1 Mailbox unavailable'}],
+  historik:[h('2026-09-30 16:19',ANV,'Utfärdade faktura 1040, bokfördes som V47, PDF arkiverad','lock'),h('2026-09-30 16:20',ANV,'Utskick till ap@hansa-softwar.de misslyckades: 550 5.1.1 Mailbox unavailable','mail-x')]});
+const f1041=F({kund:'k1',nr:1041,fdatum:'2026-10-01',forfallo:'2026-10-31',ref:'Karin Holm',ocr:ocr(1041),pdf:pdf(1041,'2026-10-01'),rader:[M('Konsulttjänster september, ombyggnad Sveavägen',24,'tim',1100,25,'3001'),M('Ritningsunderlag, tryck A1',6,'st',450,25,'3001')],
+  ver:[{typ:'Utfärdande',nr:51,datum:'2026-10-01'}],historik:[h('2026-10-01 13:30',ANV,'Utfärdade faktura 1041, bokfördes som V51, PDF arkiverad','lock')]});
+const f1042=F({kund:'k1',nr:1042,kreditAv:f1036.id,fdatum:'2026-10-06',forfallo:'2026-10-06',ref:'Karin Holm',ocr:ocr(1042),pdf:pdf(1042,'2026-10-06'),rader:[M('Kredit: 4 timmar som debiterades två gånger',-4,'tim',1100,25,'3041')],
+  ver:[{typ:'Utfärdande',nr:52,datum:'2026-10-06'}],utskick:[ok('2026-10-06 14:03','ekonomi@nordljus.se')],
+  historik:[h('2026-10-06 14:02',ANV,'Utfärdade kreditfaktura 1042 mot 1036, bokfördes som V52','lock'),h('2026-10-06 14:03',ANV,'Skickade till ekonomi@nordljus.se','send')]});
+const FAK = {
+  exempel:[f1036,f1038,f1039,f1040,f1041,f1042,
+    F({typ:'extern',status:'registrerad',kund:'k5',nr:'E-5512',fdatum:'2026-10-05',forfallo:'2026-11-04',rader:[E(3001,12000,25)],underlag:'webbshop-order-E-5512.pdf',
+      ver:[{typ:'Registrering',nr:53,datum:'2026-10-05'}],forslag:[{datum:'2026-10-13',belopp:15000,konto:'1930',kalla:'kontoutdrag-2026-10-13.pdf',klient:'Claude Code'}],
+      historik:[h('2026-10-06 08:10',ANV,'Registrerade extern faktura E-5512, bokfördes som V53','lock'),h('2026-10-13 21:40',ANV+' via Claude Code','Föreslog betalning 15 000,00 kr från kontoutdrag-2026-10-13.pdf','sparkles')]}),
+    F({status:'utkast',kund:'k1',fdatum:'2026-09-30',ref:'Karin Holm',rader:[M('Konsulttjänster oktober, vecka 40–41',16,'tim',1100,25,'3041')],skapat:'2026-10-02',historik:[h('2026-10-02 17:20',ANV,'Sparade utkast','pencil-line')]}),
+    F({status:'utkast',kund:'k6',fdatum:IDAG_S,rader:[M('Designsprint, 3 dagar',1,'st',18000,25),M('Workshopmaterial',1,'st',1200,25)],kanal:'MCP',klient:'Claude Code',skapat:'2026-10-13',
+      historik:[h('2026-10-13 20:05',ANV+' via Claude Code','Skapade utkast och föreslog ny kund','sparkles')]}),
+    F({typ:'extern',status:'utkast',kund:'k5',nr:'E-5530',fdatum:'2026-10-12',forfallo:'2026-11-11',rader:[E(3001,4000,25)],underlag:'webbshop-order-E-5530.pdf',kanal:'MCP',klient:'Claude Code',skapat:'2026-10-13',
+      historik:[h('2026-10-13 20:07',ANV+' via Claude Code','Registrerade extern faktura som utkast','sparkles')]}),
+  ],
+  lund:[
+    F({typ:'extern',status:'registrerad',kund:'k20',nr:'A-1007',fdatum:'2026-09-20',forfallo:'2026-10-20',rader:[E(3001,19000,25)],underlag:'faktura-A-1007.pdf',
+      historik:[h('2026-09-21 08:00',ANV,'Registrerade extern faktura A-1007 (kontantmetoden: bokförs vid betalning)','lock')]}),
+    F({status:'utkast',kund:'k21',fdatum:IDAG_S,rader:[M('Föreläsning: AI i bokföringen, 2 timmar',1,'st',15000,25)],skapat:IDAG_S,historik:[h(IDAG_S+' 09:30',ANV,'Sparade utkast','pencil-line')]}),
+  ],
+};
+const VNR = {exempel:53,lund:12};
+const NAV = [['inkorg','Att göra'],['verifikat','Verifikat'],['kundfakturor','Kundfakturor'],['leverantorsfakturor','Leverantörsfakturor'],['lon','Lön'],['moms','Moms'],['rapporter','Rapporter']];
+const ic=(n,extra)=>`<i data-lucide="${n}"${extra?' '+extra:''}></i>`;
+
+/* ================= Tillstånd ================= */
+const params = new URLSearchParams(location.search);
+const S = {variant:(params.get('variant')||'A').toUpperCase(), co:'exempel', flik:'obetalda', form:null, coMenu:false, nyMeny:false, pal:false, palQ:'', palI:0, flash:'', modal:null, panel:null, steg:1, visaPdf:false};
+const co=()=>FORETAG.find(f=>f.id===S.co);
+const kontant=()=>co().metod==='kontant';
+const fak=()=>FAK[S.co]; const kunder=()=>KUND[S.co];
+const hittaF=id=>fak().find(x=>x.id===id); const hittaK=id=>kunder().find(x=>x.id===id);
+function route(){const p=(location.hash||'#/inkorg').slice(2).split('/');return {mod:p[0]||'inkorg',id:p[1]||null}}
+function go(hh){if(location.hash===hh)window.dispatchEvent(new HashChangeEvent('hashchange'));else location.hash=hh}
+const initialer=s=>s.split(/\s+/).filter(w=>w!=='AB'&&w!=='i').slice(0,2).map(w=>w[0]).join('').toUpperCase();
+const modBas=()=>route().mod==='inkorg'?'#/inkorg/':'#/kundfakturor/';
+
+/* ================= Hjälpare ================= */
+const fmt=new Intl.NumberFormat('sv-SE',{minimumFractionDigits:2,maximumFractionDigits:2});
+const n=s=>{const x=parseFloat(String(s??'').replace(/\s/g,'').replace('−','-').replace(',','.'));return isNaN(x)?0:x};
+const kr=x=>fmt.format(x||0);
+const r2=x=>Math.round(x*100)/100;
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const dagar=d=>Math.round((IDAG-new Date(d+'T10:00:00'))/864e5);
+const plusDagar=(d,x)=>{const t=new Date(d+'T12:00:00');t.setDate(t.getDate()+x);return t.toISOString().slice(0,10)};
+const MAN=['januari','februari','mars','april','maj','juni','juli','augusti','september','oktober','november','december'];
+const manad=d=>MAN[+d.slice(5,7)-1]+' '+d.slice(0,4);
+const Manad=d=>{const m=manad(d);return m[0].toUpperCase()+m.slice(1)};
+const last=d=>d&&d.slice(0,7)<=LAST_TOM;
+const dekl=d=>d&&DEKL.includes(d.slice(0,7));
+const radN=x=>x.apris!==undefined?r2(n(x.antal)*n(x.apris)*(1-n(x.rabatt)/100)):n(x.netto);
+function momsTab(f){const m={};f.rader.forEach(x=>{const s=f.omvand?'0':String(x.sats);const b=radN(x);m[s]=m[s]||{bas:0,moms:0};m[s].bas=r2(m[s].bas+b);m[s].moms=r2(m[s].moms+(f.omvand?0:r2(b*n(s)/100)))});return m}
+const nettoS=f=>r2(f.rader.reduce((a,x)=>a+radN(x),0));
+const momsS=f=>r2(Object.values(momsTab(f)).reduce((a,x)=>a+x.moms,0));
+const tot=f=>r2(nettoS(f)+momsS(f));
+const utfardad=f=>f.status!=='utkast'&&f.status!=='upplast';
+const krediter=f=>r2(fak().filter(k=>k.kreditAv===f.id&&utfardad(k)).reduce((a,k)=>a+tot(k),0));
+const betalt=f=>r2(f.betalningar.reduce((a,b)=>a+b.belopp,0));
+const aterbet=f=>r2(f.ater.reduce((a,b)=>a+b.belopp,0));
+const forlAktiv=f=>f.forlust&&!f.forlust.aterkallad;
+const kvar=f=>forlAktiv(f)||tot(f)<0?0:r2(tot(f)+krediter(f)-betalt(f)+aterbet(f));
+const kNamnF=f=>hittaK(f.kund)?.namn||'Ingen kund';
+const nrTxt=f=>f.nr?String(f.nr):(f.typ==='extern'?'utan nr':'utkast');
+const vad=f=>f.typ==='extern'?'Extern faktura':(tot(f)<0||f.kreditAv?'Kreditfaktura':'Kundfaktura');
+function fstatus(f){
+  if(f.status==='utkast')return 'utkast';
+  if(f.status==='upplast')return 'upplast';
+  if(tot(f)<0)return 'kredit';
+  if(forlAktiv(f))return 'forlust';
+  const k=kvar(f);
+  if(k<0)return 'tillgodo';
+  if(k===0)return krediter(f)&&!betalt(f)?'krediterad':'betald';
+  if(f.forfallo<IDAG_S)return 'forfallen';
+  if(betalt(f)>0)return 'delbetald';
+  return 'obetald';
+}
+const oppen=f=>['obetald','delbetald','forfallen'].includes(fstatus(f));
+const STAT={utkast:['badge-utkast','pencil-line','Utkast'],upplast:['badge-utkast','lock-open','Upplåst'],obetald:['badge-obetald','clock','Obetald'],delbetald:['badge-obetald','circle-dot','Delbetald'],
+  forfallen:['badge-forfallen','alert-triangle','Förfallen'],betald:['badge-betald','check','Betald'],krediterad:['badge-bokford','file-minus','Krediterad'],kredit:['badge-bokford','file-minus','Kreditfaktura'],
+  tillgodo:['badge-tillgodo','wallet','Kunden har tillgodo'],forlust:['badge-rattad','ban','Kundförlust']};
+const sBadge=f=>{const [c,i,t]=STAT[fstatus(f)];return `<span class="badge ${c}">${ic(i)}${t}</span>`};
+const aiTag=f=>f.kanal==='MCP'?`<span class="badge badge-ai" title="Skapat via ${esc(f.klient)} (AI)">${ic('sparkles')}AI</span>`:'';
+const extTag=f=>f.typ==='extern'?`<span class="badge badge-lock">${ic('external-link')}Extern</span>`:'';
+const nyTag=k=>k&&k.ny?`<span class="badge badge-ny" title="Föreslagen av ${esc(k.ny.klient)}; läggs i kundregistret när fakturan utfärdas">${ic('sparkles')}Ny kund</span>`:'';
+const forfTxt=f=>{const d=-dagar(f.forfallo);return d<0?'förföll för '+(-d)+' d sedan':d===0?'förfaller i dag':'förfaller om '+d+' d'};
+const sistaUtskick=f=>f.utskick[f.utskick.length-1];
+const skickad=f=>f.annat||f.utskick.some(u=>u.res==='ok');
+const fel_utskick=f=>{const u=sistaUtskick(f);return u&&u.res==='fel'&&!f.annat};
+const utkastF=()=>fak().filter(f=>!utfardad(f));
+const ejSkickade=()=>fak().filter(f=>f.typ==='maya'&&utfardad(f)&&tot(f)>0&&!skickad(f)&&!fel_utskick(f));
+
+/* ================= Kontering ================= */
+function dk(list){const m=new Map();list.forEach(([k,b])=>{if(!k||!b)return;m.set(k,r2((m.get(k)||0)+b))});return [...m].filter(([,b])=>b).map(([konto,b])=>({konto,debet:b>0?b:0,kredit:b<0?-b:0}))}
+function intaktMoms(f,andel){const l=[];f.rader.forEach(x=>l.push([x.konto,-r2(radN(x)*andel)]));Object.entries(momsTab(f)).forEach(([s,v])=>{if(v.moms)l.push([MOMS_K[s],-r2(v.moms*andel)])});return l}
+function utfKont(f){if(kontant())return [];return dk([['1510',tot(f)],...intaktMoms(f,1)])}
+function betKont(f,b){const bel=n(b.belopp),rest=r2(kvar(f)-bel),ores=b.ores&&rest>0&&rest<=10;const l=[['1930',bel]];if(ores)l.push(['3740',rest]);
+  if(kontant()){const andel=tot(f)?(bel+(ores?rest:0))/tot(f):0;l.push(...intaktMoms(f,andel))}else l.push(['1510',-(bel+(ores?rest:0))]);
+  return dk(l)}
+function forlKont(f){if(kontant())return [];const k=kvar(f),andel=tot(f)?k/tot(f):0;const l=[['6351',r2(nettoS(f)*andel)]];
+  Object.entries(momsTab(f)).forEach(([s,v])=>{if(v.moms)l.push([MOMS_K[s],r2(v.moms*andel)])});l.push(['1510',-k]);return dk(l)}
+function aterKont(f,bel){return dk([['1510',bel],['1930',-bel]])}
+function roTab(rows,tom){if(!rows.length)return `<div class="mf">${tom||'Inga rader.'}</div>`;const d=r2(rows.reduce((a,x)=>a+x.debet,0)),k=r2(rows.reduce((a,x)=>a+x.kredit,0));
+  return `<table class="table"><thead><tr><th style="width:60px">Konto</th><th></th><th class="num">Debet</th><th class="num">Kredit</th></tr></thead><tbody>
+  ${rows.map(x=>`<tr><td>${x.konto}</td><td class="mf">${esc(kNamn(x.konto)||'')}</td><td class="num">${x.debet?kr(x.debet):''}</td><td class="num">${x.kredit?kr(x.kredit):''}</td></tr>`).join('')}
+  <tr class="sumrow"><td colspan="2">${d===k?`<span class="diff-ok">${ic('circle-check')}Balanserar</span>`:`<span class="diff-bad">${ic('circle-alert')}Differens ${kr(d-k)}</span>`}</td><td class="num">${kr(d)}</td><td class="num">${kr(k)}</td></tr></tbody></table>`}
+function bokforsSom(f){
+  const ext=f.typ==='extern';
+  if(kontant())return `<div class="kont"><div class="sec-t">Så bokförs den</div><div class="mf">Kontantmetoden: ${ext?'registreringen':'utfärdandet'} skapar inget verifikat. Intäkt och moms bokförs när kunden betalar, och obetalda fakturor bokförs vid årets slut.</div></div>`;
+  return `<div class="kont"><div class="sec-t">Bokförs som V${VNR[S.co]+1} · ${f.fdatum||'datum saknas'}</div>${roTab(utfKont(f),'Lägg till rader.')}${f.omvand?`<div class="mf" style="font-size:11px">Omvänd skattskyldighet (${OMV[f.omvand]}): ingen moms på fakturan, intäkten på ${OMV_K[f.omvand]}.</div>`:''}</div>`}
+
+/* ================= Spärrar och varningar ================= */
+function kontroll(f){
+  const k=hittaK(f.kund),fel=[],varn=[],ext=f.typ==='extern';
+  if(!k)fel.push({id:'kund',t:'Välj kund.'});
+  else if(!ext){
+    if(!k.namn)fel.push({id:'kund',t:'Kunden saknar namn.'});
+    if(!k.adress)fel.push({id:'kund',t:`${k.namn||'Kunden'} saknar adress, som fakturan måste ha.`,fix:k.ny?null:{t:'Ändra kunden',run:"inteHar('Kundregistret')"}});
+    if(f.omvand&&!k.momsnr)fel.push({id:'kund',t:`Omvänd skattskyldighet kräver köparens momsreg-nr. ${k.namn} saknar det.`});
+  }
+  if(ext){if(!String(f.nr).trim())fel.push({id:'nr',t:'Fakturanummer saknas.'});
+    else{const d=fak().find(x=>x.id!==f.id&&x.typ==='extern'&&utfardad(x)&&String(x.nr)===String(f.nr).trim());if(d)fel.push({id:'nr',t:`Den externa fakturan ${d.nr} finns redan (${kNamnF(d)}, ${d.fdatum}). Fakturanumret ska vara unikt bland externa fakturor.`})}}
+  if(!f.fdatum)fel.push({id:'fdatum',t:'Fakturadatum saknas.'});
+  else if(!kontant()&&last(f.fdatum))fel.push({id:'fdatum',t:`${Manad(f.fdatum)} är låst. Fakturadatumet måste ligga i en öppen period.`,fix:{t:'Sätt fakturadatum till i dag',run:`setF('fdatum',IDAG_S)`}});
+  else if(!kontant()&&dekl(f.fdatum))fel.push({id:'fdatum',t:`${Manad(f.fdatum)} är momsdeklarerad, så ingen ny moms kan bokföras där.`,fix:{t:'Sätt fakturadatum till i dag',run:`setF('fdatum',IDAG_S)`},fix2:{t:'öppna deklarationen',run:"inteHar('Momsdeklarationen')"}});
+  const ff=forfallo(f);if(ext&&!ff)fel.push({id:'forfallo',t:'Förfallodag saknas.'});else if(ff&&f.fdatum&&ff<f.fdatum)fel.push({id:'forfallo',t:'Förfallodagen är före fakturadatumet.'});
+  const rader=f.rader.filter(x=>x.text||radN(x)||(ext&&x.konto));
+  if(!rader.length)fel.push({id:'rader',t:'Fakturan har inga rader.'});
+  const badR=f.rader.map((x,i)=>({x,i})).filter(({x})=>(x.text||radN(x))&&(ext?!KONTON[x.konto]||!radN(x):(!x.text||!n(x.apris)||!n(x.antal)||!KONTON[x.konto])));
+  if(badR.length)fel.push({id:'rad',t:badR.map(({x,i})=>`Rad ${i+1}: `+(ext?(!KONTON[x.konto]?'konto saknas':'belopp saknas'):(!x.text?'beskrivning saknas':!n(x.antal)?'antal saknas':!n(x.apris)?'à-pris saknas':'konto saknas'))).join('. ')+'.',rader:badR.map(b=>b.i)});
+  if(!ext&&f.kreditAv&&tot(f)>=0&&rader.length)fel.push({id:'rader',t:'En kreditfaktura ska ha ett negativt belopp.'});
+  if(!ext&&!co().bg)fel.push({id:'foretag',t:`${co().namn} har inget betalsätt. Fakturan måste ange minst ett.`,fix:{t:'Lägg till bankgiro 5050-9999',run:"co().bg='5050-9999';S.flash='Bankgiro 5050-9999 lades till i företagets uppgifter.';render()"}});
+  if(k&&k.ny)varn.push({info:true,t:`${k.namn} är en ny kund som ${k.ny.klient} föreslagit. Granska uppgifterna; kunden läggs i kundregistret när fakturan ${ext?'registreras':'utfärdas'}.`});
+  if(!ext&&co().nasta==null)varn.push({info:true,t:'Det här blir företagets första kundfaktura i Maya. Startnumret väljs nu och kan inte ändras senare.'});
+  if(f.kreditAv){const o=hittaF(f.kreditAv);if(o&&betalt(o)>0)varn.push({info:true,t:`${o.nr} är ${oppen(o)?'delvis ':''}betald. Det som krediteras utöver det obetalda blir ett tillgodohavande för kunden, som kan återbetalas.`})}
+  return {fel,varn};
+}
+function forfallo(f){if(f.typ==='extern'||f.kreditAv)return f.forfallo;const k=hittaK(f.kund);return f.forfManuell?f.forfallo:(f.fdatum&&k?plusDagar(f.fdatum,k.villkor):f.forfallo)}
+
+/* ================= Formulär ================= */
+function oppnaForm(id,typ){
+  if(S.form&&S.form._for===id)return;
+  const x=id&&!id.startsWith('ny')?hittaF(id):null;
+  if(x)S.form={...JSON.parse(JSON.stringify(x)),_for:id,src:x};
+  else{const kid=S.nyKund||'';const k=hittaK(kid);S.nyKund=null;
+    S.form=typ==='extern'?{_for:id,id:null,typ:'extern',status:'utkast',kund:kid,nr:'',fdatum:'',forfallo:'',rader:[E('','',25)],underlag:null,omvand:'',betalningar:[],ver:[],historik:[]}
+      :{_for:id,id:null,typ:'maya',status:'utkast',kund:kid,fdatum:IDAG_S,levdatum:'',forfallo:'',ref:k?.ref||'',omvand:k?.omvand||'',rader:[M('',1,'st','',k?.omvand?0:25,k?.omvand?OMV_K[k.omvand]:'')],betalningar:[],ver:[],historik:[]};}
+  S.form.skicka=true;S.form.start=S.form.start||'1';S.steg=1;
+}
+function setF(k,v){const f=S.form;f[k]=v;
+  if(k==='kund'){const c=hittaK(v);if(c){if(f.typ!=='extern'){f.omvand=c.omvand||'';f.ref=f.ref||c.ref||'';if(f.omvand)f.rader.forEach(x=>{x.sats='0';x.konto=OMV_K[f.omvand]})}}}
+  if(k==='omvand'){f.rader.forEach(x=>{if(v){x.sats='0';x.konto=OMV_K[v]}else{x.sats='25';x.konto=SATS_K[25]}})}
+  if(k==='forfallo')f.forfManuell=true;
+  render(true)}
+function setR(i,k,v){const x=S.form.rader[i];x[k]=v;if(k==='sats'&&!S.form.omvand)x.konto=SATS_K[v];render(true)}
+function nyRad(){const f=S.form;f.rader.push(f.typ==='extern'?E('','',25):M('',1,'st','',f.omvand?0:25,f.omvand?OMV_K[f.omvand]:''));render()}
+function nyKund(){const id='k'+(kseq++);kunder().push({id,namn:'',orgnr:'',adress:'',epost:'',momsnr:'',villkor:30,ny:{klient:ANV}});S.form.kund=id;render()}
+function setK(k,v){hittaK(S.form.kund)[k]=k==='villkor'?+v||0:v;render(true)}
+function spara(){
+  const f=S.form;const data={kund:f.kund,nr:f.typ==='extern'?String(f.nr).trim():f.nr,fdatum:f.fdatum,levdatum:f.levdatum,forfallo:forfallo(f),forfManuell:f.forfManuell,ref:f.ref,omvand:f.omvand,
+    rader:f.rader.filter(x=>x.text||radN(x)||x.konto&&f.typ==='extern'),underlag:f.underlag,kreditAv:f.kreditAv};
+  if(f.id){const x=hittaF(f.id);Object.assign(x,data);return x}
+  const x=F(Object.assign(data,{typ:f.typ,status:'utkast',skapat:IDAG_S,historik:[h(nu(),ANV,'Sparade utkast','pencil-line')]}));fak().push(x);return x;
+}
+function sparaUtkast(){const x=spara();S.form=null;S.flash='Utkastet sparades.';go(modBas()+x.id)}
+function nastaEfter(){if(route().mod==='inkorg'){const nx=utkastF()[0];S.flash+=' '+(nx?utkastF().length+' utkast kvar.':'Inga utkast kvar.');go('#/inkorg'+(nx?'/'+nx.id:''));return true}return false}
+function utfarda(){
+  const f=S.form;const {fel}=kontroll(f);if(fel.length){render();return}
+  const skicka=f.skicka,start=n(f.start)||1,x=spara(),tid=nu(),k=hittaK(x.kund),c=co();
+  if(k.ny){x.historik.push(h(tid,ANV,'Lade till '+k.namn+' i kundregistret','user-plus'));delete k.ny}
+  if(c.nasta==null)c.nasta=start;
+  x.nr=c.nasta++;x.status='utfardad';x.ocr=c.ocr?ocr(x.nr):'';x.pdf=pdf(x.nr,IDAG_S);x.forfallo=x.kreditAv?x.fdatum:x.forfallo;
+  const ty=x.kreditAv?'kreditfaktura':'faktura';
+  if(kontant())x.historik.push(h(tid,ANV,`Utfärdade ${ty} ${x.nr}, PDF arkiverad (kontantmetoden: bokförs vid betalning)`,'lock'));
+  else{const nr=++VNR[S.co];x.ver.push({typ:'Utfärdande',nr,datum:x.fdatum});x.historik.push(h(tid,ANV,`Utfärdade ${ty} ${x.nr}, bokfördes som V${nr}, PDF arkiverad`,'lock'))}
+  if(x.kreditAv)hittaF(x.kreditAv).historik.push(h(tid,ANV,'Krediterades av '+x.nr,'file-minus'));
+  S.form=null;S.flash=`${x.kreditAv?'Kreditfaktura':'Faktura'} ${x.nr} är utfärdad${kontant()?'':' och bokförd som V'+VNR[S.co]}.`;
+  if(skicka)skickaNu(x,k.epost,true);
+  if(nastaEfter())return;go(modBas()+x.id)}
+function registrera(){
+  const f=S.form;const {fel}=kontroll(f);if(fel.length){render();return}
+  const om=f.status==='upplast',x=spara(),tid=nu(),k=hittaK(x.kund);
+  if(k.ny){x.historik.push(h(tid,ANV,'Lade till '+k.namn+' i kundregistret','user-plus'));delete k.ny}
+  x.status='registrerad';
+  if(kontant()){x.historik.push(h(tid,ANV,(om?'Registrerade om':'Registrerade')+' (kontantmetoden: bokförs vid betalning)','lock'));S.flash='Registrerad i kundreskontran. Inget verifikat förrän kunden betalar.'}
+  else{const nr=++VNR[S.co];x.ver.push({typ:'Registrering',nr,datum:x.fdatum});x.historik.push(h(tid,ANV,(om?'Registrerade om':'Registrerade')+', bokfördes som V'+nr,'lock'));S.flash=`Registrerad och bokförd som V${nr}.`}
+  S.form=null;if(nastaEfter())return;go(modBas()+x.id)}
+function raderaUtkast(){const f=S.form;FAK[S.co]=fak().filter(y=>y.id!==f.id);const k=hittaK(f.kund);if(k&&k.ny&&!fak().some(y=>y.kund===k.id))KUND[S.co]=kunder().filter(y=>y.id!==k.id);
+  S.modal=null;S.form=null;S.flash='Utkastet raderades och raderingen loggades.'+(f.underlag?' '+f.underlag+' ligger kvar som okopplat underlag.':'');go('#/'+route().mod)}
+function inteHar(t){S.flash=t+' prototypas i ett annat ticket.';render()}
+function byt(id){S.co=id;S.form=null;S.coMenu=false;S.flash='';S.panel=null;S.modal=null;go('#/inkorg');render()}
+
+/* ================= Handlingar på en utfärdad faktura ================= */
+function skickaNu(x,till,tyst){const tid=nu();const fel=/softwar\.de$/.test(till);
+  x.utskick.push(fel?{tid,till,vem:ANV,res:'fel',fel:'550 5.1.1 Mailbox unavailable'}:ok(tid,till));
+  x.historik.push(h(tid,ANV,fel?`Utskick till ${till} misslyckades: 550 5.1.1 Mailbox unavailable`:`Skickade till ${till}`,fel?'mail-x':'send'));
+  const t=fel?` Utskicket till ${till} misslyckades.`:` Skickad till ${till}.`;S.flash=tyst?S.flash+t:t.trim();if(!tyst){S.panel=null;S.modal=null;render()}}
+function markeraSkickad(id,hur){const x=hittaF(id),tid=nu();x.annat={tid,hur};x.historik.push(h(tid,ANV,'Markerade som skickad: '+hur,'mail-check'));S.panel=null;S.modal=null;S.flash='Markerad som skickad ('+hur+').';render()}
+function betala(){
+  const f=hittaF(S.panel.id),b=S.panel,tid=nu(),bel=n(b.belopp),k0=kvar(f),rest=r2(k0-bel),ores=b.ores&&rest>0&&rest<=10;
+  const nr=++VNR[S.co];f.betalningar.push({datum:b.datum,belopp:bel,konto:b.konto,vnr:nr});
+  if(ores)f.betalningar.push({datum:b.datum,belopp:rest,konto:'3740',vnr:nr,stang:true});
+  f.ver.push({typ:'Betalning',nr,datum:b.datum});
+  if(b.forslag!=null){f.forslag.splice(b.forslag,1)}
+  f.historik.push(h(tid,ANV,`Registrerade ${kvar(f)>0?'delbetalning':'betalning'} ${kr(bel)} kr, V${nr}`+(ores?`, rest ${kr(rest)} mot öresutjämning`:'')+(b.forslag!=null?' (förslag från Claude Code)':''),'banknote'));
+  S.panel=null;S.modal=null;S.flash=`Betalningen bokfördes som V${nr}.`+(kvar(f)>0?` ${kr(kvar(f))} kr återstår.`:' Fakturan är betald.');render()}
+function avvisaForslag(id,i){const f=hittaF(id);const p=f.forslag.splice(i,1)[0];f.historik.push(h(nu(),ANV,`Avvisade föreslagen betalning ${kr(p.belopp)} kr`,'x'));S.flash='Förslaget avvisades.';render()}
+function kreditera(id){const o=hittaF(id),p=S.panel;
+  const rader=o.typ==='extern'?o.rader.map(x=>({...x,netto:-n(x.netto)}))
+    :o.rader.map((x,i)=>({...x,antal:p.hela?-n(x.antal):-n(p.antal[i])})).filter(x=>n(x.antal));
+  const x=F({typ:o.typ,status:'utkast',kund:o.kund,kreditAv:o.id,nr:o.typ==='extern'?'':'',fdatum:IDAG_S,forfallo:IDAG_S,ref:o.ref,omvand:o.omvand,rader,skapat:IDAG_S,
+    underlag:null,historik:[h(nu(),ANV,'Skapade utkast till kreditfaktura mot '+o.nr,'file-minus')]});
+  fak().push(x);S.panel=null;S.modal=null;S.form=null;S.flash=o.typ==='extern'?'Utkast till extern kreditfaktura mot '+o.nr+'. Ange kreditfakturans nummer och koppla den från det andra systemet.':'Utkast till kreditfaktura mot '+o.nr+'. Den får nästa nummer i serien när den utfärdas.';go(modBas()+x.id)}
+function kundforlust(id){const f=hittaF(id),p=S.panel,tid=nu(),skal=p.skal==='Annat'?'Annat: '+p.annat:p.skal;
+  const rows=forlKont(f);let vnr=null;if(rows.length){vnr=++VNR[S.co];f.ver.push({typ:'Kundförlust',nr:vnr,datum:p.datum})}
+  f.forlust={datum:p.datum,skal,vnr,belopp:kvar(f)};f.historik.push(h(tid,ANV,`Konstaterad kundförlust ${kr(f.forlust.belopp)} kr (${skal})`+(vnr?', V'+vnr:' (kontantmetoden: bara status)'),'ban'));
+  S.panel=null;S.modal=null;S.flash=vnr?`Kundförlusten bokfördes som V${vnr}. Utgående moms minskades.`:'Fakturan är markerad som kundförlust. Inget verifikat, eftersom den aldrig bokförts.';render()}
+function aterkalla(id){const f=hittaF(id),tid=nu();let vnr=null;if(f.forlust.vnr){vnr=++VNR[S.co];f.ver.push({typ:'Återkallad kundförlust',nr:vnr,datum:IDAG_S})}
+  f.forlust.aterkallad=true;f.historik.push(h(tid,ANV,'Återkallade kundförlusten'+(vnr?', V'+vnr+' vänder V'+f.forlust.vnr:''),'undo-2'));S.flash='Kundförlusten är återkallad'+(vnr?' med V'+vnr:'')+'.';render()}
+function aterbetala(id){const f=hittaF(id),p=S.panel,bel=n(p.belopp),tid=nu(),nr=++VNR[S.co];f.ater.push({datum:p.datum,belopp:bel,vnr:nr});f.ver.push({typ:'Återbetalning',nr,datum:p.datum});
+  f.historik.push(h(tid,ANV,`Återbetalade tillgodohavande ${kr(bel)} kr, V${nr}`,'undo-2'));S.panel=null;S.modal=null;S.flash=`Återbetalningen bokfördes som V${nr}.`;render()}
+function rattaKontering(id){const f=hittaF(id),p=S.panel,tid=nu();const gammal=[...f.ver].reverse().find(v=>v.typ==='Utfärdande'||v.typ==='Registrering'||v.typ==='Ny kontering');
+  const r1=++VNR[S.co],r2_=++VNR[S.co];f.ver.push({typ:'Rättelse av V'+gammal.nr,nr:r1,datum:IDAG_S},{typ:'Ny kontering',nr:r2_,datum:IDAG_S});
+  p.konton.forEach((k,i)=>f.rader[i].konto=k);
+  f.historik.push(h(tid,ANV,`Rättade konteringen: V${r1} vänder V${gammal.nr}, V${r2_} bokför om`+(p.orsak?' ('+p.orsak+')':''),'undo-2'));
+  S.panel=null;S.modal=null;S.flash=`V${gammal.nr} är rättad av V${r1}, och V${r2_} bokför med de nya kontona. Fakturan och PDF:en är oförändrade.`;render()}
+function lasUpp(id){const f=hittaF(id),p=S.panel,tid=nu();const reg=[...f.ver].reverse().find(v=>v.typ==='Registrering');
+  if(reg&&!kontant()){const nr=++VNR[S.co];f.ver.push({typ:'Rättelse av V'+reg.nr,nr,datum:IDAG_S});f.historik.push(h(tid,ANV,`Rättade registreringen: V${reg.nr} rättades av V${nr}, fakturan låstes upp`+(p.orsak?' ('+p.orsak+')':''),'undo-2'))}
+  else f.historik.push(h(tid,ANV,'Låste upp fakturan för ny registrering','lock-open'));
+  f.status='upplast';S.panel=null;S.modal=null;S.form=null;S.flash=reg&&!kontant()?`V${reg.nr} är rättad. Rätta uppgifterna och registrera om.`:'Fakturan är upplåst.';go(modBas()+id)}
+function startaPanel(typ,id,extra){const f=hittaF(id);
+  const bas={typ,id,datum:IDAG_S};
+  if(typ==='bet')Object.assign(bas,{belopp:kr(kvar(f)),konto:'1930',ores:false});
+  if(typ==='skicka')Object.assign(bas,{till:fel_utskick(f)?sistaUtskick(f).till:hittaK(f.kund).epost,medd:co().meddelande.replace('{nr}',f.nr).replace('{forfallo}',f.forfallo),annat:false,hur:'Med post'});
+  if(typ==='kredit')Object.assign(bas,{hela:true,antal:f.rader.map(x=>String(x.antal))});
+  if(typ==='forlust')Object.assign(bas,{skal:'',annat:''});
+  if(typ==='ater')Object.assign(bas,{belopp:kr(-kvar(f))});
+  if(typ==='ratta')Object.assign(bas,{konton:f.rader.map(x=>x.konto),orsak:''});
+  Object.assign(bas,extra||{});S.panel=bas;if(S.variant==='A')S.modal={typ:'panel'};render()}
+
+/* ================= Fakturan som papper (PDF:en) ================= */
+// opt: {utkast, ed (redigerbar i papperet, variant A), fel}
+function papper(f,opt){
+  opt=opt||{};const c=co(),k=hittaK(f.kund)||{},kred=f.kreditAv||tot(f)<0,ff=forfallo(f)||f.forfallo,ed=opt.ed,fel=opt.fel||[];
+  const miss=t=>`<span class="miss">${t}</span>`;
+  const bad=new Set((fel.find(x=>x.id==='rad')||{rader:[]}).rader);
+  const nr=f.nr?esc(f.nr):(c.nasta==null?(ed?`<input class="ed" style="width:60px" value="${esc(S.form.start)}" oninput="S.form.start=this.value" title="Startnummer, väljs en gång">`:esc(S.form?.start||'1')):`<span style="color:#a8a29e">${c.nasta} (vid utfärdande)</span>`);
+  const head=`<div class="h"><div style="display:flex;gap:10px;align-items:center"><div class="lg">${initialer(c.namn)}</div><div><b style="font-size:12px">${esc(c.namn)}</b><br>${esc(c.adress)}</div></div>
+    <div><div class="tt">${kred?'Kreditfaktura':'Faktura'}</div><div class="kv">
+      <span>Fakturanummer</span><span>${nr}</span>
+      <span>Fakturadatum</span><span>${ed?`<input type="date" class="ed ${fel.some(x=>x.id==='fdatum')?'err':''}" value="${f.fdatum}" onchange="setF('fdatum',this.value)">`:(f.fdatum||miss('saknas'))}</span>
+      <span>Leveransdatum</span><span>${ed?`<input class="ed" value="${esc(f.levdatum)}" placeholder="${f.fdatum||'som fakturadatum'}" oninput="setF('levdatum',this.value)">`:esc(f.levdatum||f.fdatum)}</span>
+      ${kred?'':`<span>Förfallodag</span><span>${ed?`<input type="date" class="ed" value="${ff||''}" onchange="setF('forfallo',this.value)">`:(ff||miss('saknas'))}</span>`}
+      ${kred&&f.kreditAv?`<span>Krediterar</span><span>faktura ${esc(hittaF(f.kreditAv)?.nr)}</span>`:''}
+      <span>Er referens</span><span>${ed?`<input class="ed" value="${esc(f.ref)}" oninput="setF('ref',this.value)">`:(esc(f.ref)||'–')}</span>
+      ${c.ocr&&!kred?`<span>OCR</span><span>${f.ocr||'<span style="color:#a8a29e">bildas vid utfärdande</span>'}</span>`:''}</div></div></div>`;
+  const kundSel=ed?`<select class="ed ${fel.some(x=>x.id==='kund')?'err':''}" style="height:22px;margin-bottom:3px" onchange="this.value==='__ny'?nyKund():setF('kund',this.value)"><option value="">Välj kund…</option>${kunder().filter(x=>!x.ny||x.id===f.kund).map(x=>`<option value="${x.id}" ${x.id===f.kund?'selected':''}>${esc(x.namn||'Ny kund')}${x.ny?' (ny)':''}</option>`).join('')}<option value="__ny">+ Ny kund…</option></select>`:'';
+  const adr=`<div class="adr"><div><div class="lbl2">Fakturaadress</div>${kundSel}${k.namn?`<b>${esc(k.namn)}</b><br>`:ed?'':miss('kund saknas')+'<br>'}${k.id?(k.adress?esc(k.adress):miss('adress saknas')):''}${k.orgnr?'<br>Orgnr '+esc(k.orgnr):''}${f.omvand?'<br>Momsreg-nr '+(k.momsnr?esc(k.momsnr):miss('saknas')):''}</div>
+    <div>${ed?`<div class="lbl2">Omvänd skattskyldighet</div><select class="ed" onchange="setF('omvand',this.value)">${Object.entries(OMV).map(([kk,t])=>`<option value="${kk}" ${f.omvand===kk?'selected':''}>${t}</option>`).join('')}</select>`:''}</div></div>`;
+  const rows=f.rader.map((x,i)=>ed?`<tr>
+      <td><input class="ed ${bad.has(i)&&!x.text?'err':''}" value="${esc(x.text)}" placeholder="Beskrivning" oninput="setR(${i},'text',this.value)"></td>
+      <td class="r" style="width:46px"><input class="ed r ${bad.has(i)&&!n(x.antal)?'err':''}" value="${esc(x.antal)}" oninput="setR(${i},'antal',this.value)"></td>
+      <td style="width:44px"><input class="ed" value="${esc(x.enhet)}" oninput="setR(${i},'enhet',this.value)"></td>
+      <td class="r" style="width:70px"><input class="ed r ${bad.has(i)&&!n(x.apris)?'err':''}" value="${esc(typeof x.apris==='number'?kr(x.apris):x.apris)}" oninput="setR(${i},'apris',this.value)" onblur="if(this.value)setR(${i},'apris',kr(n(this.value)))"></td>
+      <td class="r" style="width:40px"><input class="ed r" value="${esc(x.rabatt||'')}" placeholder="0" oninput="setR(${i},'rabatt',this.value)"></td>
+      <td style="width:52px"><select class="ed" ${f.omvand?'disabled':''} onchange="setR(${i},'sats',this.value)">${['25','12','6','0'].map(s=>`<option value="${s}" ${String(x.sats)===s?'selected':''}>${s} %</option>`).join('')}</select></td>
+      <td class="r" style="width:76px">${kr(radN(x))}</td><td style="width:14px">${f.rader.length>1?`<span class="addrow" onclick="S.form.rader.splice(${i},1);render()">×</span>`:''}</td></tr>`
+    :`<tr><td>${esc(x.text)||miss('beskrivning')}</td><td class="r">${esc(String(x.antal).replace('.',','))}</td><td>${esc(x.enhet)}</td><td class="r">${n(x.apris)?kr(n(x.apris)):miss('pris')}</td><td class="r">${n(x.rabatt)?x.rabatt+' %':''}</td><td class="r">${f.omvand?'–':x.sats+' %'}</td><td class="r">${kr(radN(x))}</td></tr>`).join('');
+  const mt=momsTab(f);
+  const sum=`<div class="sum"><span>Netto</span><span class="r">${kr(nettoS(f))}</span>${Object.entries(mt).filter(([s])=>s!=='0').map(([s,v])=>`<span>Moms ${s} % på ${kr(v.bas)}</span><span class="r">${kr(v.moms)}</span>`).join('')}
+    <span class="big">${kred?'Att kreditera':'Att betala'} SEK</span><span class="r big">${kr(tot(f))}</span></div>`;
+  const pay=kred?'':`<div class="pay"><span>Bankgiro</span><span>${c.ocr?'OCR':'Referens'}</span><span>Förfallodag</span><span>Att betala</span>
+    <span>${c.bg?esc(c.bg):miss('betalsätt saknas')}</span><span>${f.ocr||(c.ocr?'–':(f.nr||'fakturanumret'))}</span><span>${ff||'–'}</span><span><b>${kr(tot(f))} kr</b></span></div>`;
+  return `<div class="inv">${opt.utkast?'<div class="wm">UTKAST</div>':''}${head}${adr}
+    <table><thead><tr><th>Beskrivning</th><th class="r">Antal</th><th>Enhet</th><th class="r">À-pris</th><th class="r">Rabatt</th><th class="r">Moms</th><th class="r">Belopp</th>${ed?'<th></th>':''}</tr></thead><tbody>${rows}</tbody></table>
+    ${ed?`<div><span class="addrow" onclick="nyRad()">+ Rad</span></div>`:''}
+    ${sum}${f.omvand?`<div class="omv">${OMV_TXT[f.omvand]}</div>`:''}${kred&&f.kreditAv?`<div>Krediterar faktura ${esc(hittaF(f.kreditAv)?.nr)} daterad ${hittaF(f.kreditAv)?.fdatum}.</div>`:''}${pay}
+    <div class="foot"><span>${esc(c.namn)}</span><span>${esc(c.adress)}</span><span>Säte: ${esc(c.sate)}</span><span>Orgnr ${c.orgnr}</span><span>Momsreg-nr ${c.momsnr}</span><span>Godkänd för F-skatt</span><span>${esc(c.replyto)}</span></div></div>`;
+}
+function pdfMeta(f){return f.pdf?`<div class="pdfmeta">${ic('file-lock-2')}<span>${esc(f.pdf.namn)} · arkiverad ${f.pdf.tid} · SHA-256 ${f.pdf.hash}… · genereras aldrig om</span></div>`:''}
+function preview(namn,hgt){return `<div class="preview" style="height:${hgt||420}px">${ic('file-text','style="width:28px;height:28px"')}<span>${esc(namn)}</span><span style="font-size:11px">förhandsvisning av originalet</span></div>`}
+function original(f,hgt){return f.underlag?preview(f.underlag,hgt)+`<div class="ufile">${ic('paperclip')}<span>${esc(f.underlag)}</span><span class="mf">underlag · SHA-256</span></div>`
+  :`<div class="drop" style="height:${hgt||420}px" onclick="S.form.underlag='${f.nr?'faktura-'+esc(f.nr):'extern-faktura'}.pdf';render()">${ic('upload')}<span>Släpp fakturans PDF här eller <span class="link">välj fil</span></span><span class="mf" style="font-size:11px">PDF:en från det andra systemet blir underlaget</span></div>`}
+
+/* ================= Formulärdelar ================= */
+function ferr(fel,id){return fel.filter(x=>x.id===id).map(e=>`<div class="ferr">${ic('circle-alert')}<span>${esc(e.t)}${e.fix?` · <span class="link" onclick="${e.fix.run}">${e.fix.t}</span>`:''}${e.fix2?` eller <span class="link" onclick="${e.fix2.run}">${e.fix2.t}</span>`:''}</span></div>`).join('')}
+function varnLista(varn){return varn.map(v=>`<div class="note ${v.info?'':'warn'}">${ic(v.info?'info':'triangle-alert')}<span>${esc(v.t)}</span></div>`).join('')}
+function kundVal(f,fel){
+  const k=hittaK(f.kund);
+  const sel=`<select class="select ${fel.some(x=>x.id==='kund')&&!k?'err':''}" onchange="this.value==='__ny'?nyKund():setF('kund',this.value)"><option value="">Välj kund…</option>${kunder().filter(x=>!x.ny||x.id===f.kund).map(x=>`<option value="${x.id}" ${x.id===f.kund?'selected':''}>${esc(x.namn||'Ny kund')}${x.ny?' (ny)':''}</option>`).join('')}<option value="__ny">+ Ny kund…</option></select>`;
+  if(!k||!k.ny)return `<div><label class="label">Kund</label>${sel}${k?`<div class="mf" style="font-size:11px;margin-top:3px">${esc(k.orgnr||k.momsnr)} · ${esc(k.epost)} · ${k.villkor} dagar${k.omvand?' · '+OMV[k.omvand]:''}</div>`:''}${ferr(fel,'kund')}</div>`;
+  const in_=(kk,lbl,ph)=>`<div><label class="label">${lbl}</label><input class="input ${kk==='adress'&&!k.adress?'err':''}" value="${esc(k[kk]??'')}" placeholder="${ph||''}" oninput="setK('${kk}',this.value)"></div>`;
+  return `<div class="levkort ny"><div class="flex" style="justify-content:space-between"><b style="font-weight:500">Ny kund</b>${k.ny.klient!==ANV?`<span class="badge badge-ny">${ic('sparkles')}föreslagen av ${esc(k.ny.klient)}</span>`:''}</div>
+    <div class="g2">${in_('namn','Namn')}${in_('orgnr','Orgnr eller personnr')}${in_('adress','Adress','gata, postnr, ort')}${in_('epost','E-post')}${in_('momsnr','Momsreg-nr')}${in_('villkor','Betalningsvillkor, dagar')}</div>
+    ${ferr(fel,'kund')}<div class="mf" style="font-size:11px">Läggs i kundregistret när fakturan ${f.typ==='extern'?'registreras':'utfärdas'}. Raderas utkastet försvinner förslaget.</div></div>`;
+}
+function datumFalt(f,fel){const ff=forfallo(f);
+  return `<div class="g4">
+    <div><label class="label">Fakturadatum</label><input type="date" class="input ${fel.some(x=>x.id==='fdatum')?'err':''}" value="${f.fdatum}" onchange="setF('fdatum',this.value)"></div>
+    <div><label class="label">Leveransdatum <span class="mf">(eller period)</span></label><input class="input" value="${esc(f.levdatum)}" placeholder="${f.fdatum||'som fakturadatum'}" oninput="setF('levdatum',this.value)"></div>
+    ${f.kreditAv?'<div></div>':`<div><label class="label">Förfallodag</label><input type="date" class="input ${fel.some(x=>x.id==='forfallo')?'err':''}" value="${ff||''}" onchange="setF('forfallo',this.value)">${!f.forfManuell&&hittaK(f.kund)?`<div class="mf" style="font-size:11px;margin-top:3px">${hittaK(f.kund).villkor} dagar enligt kunden</div>`:''}</div>`}
+    <div><label class="label">Er referens</label><input class="input" value="${esc(f.ref)}" oninput="setF('ref',this.value)"></div></div>
+    ${ferr(fel,'fdatum')}${ferr(fel,'forfallo')}
+    <div class="g4"><div style="grid-column:span 2"><label class="label">Omvänd skattskyldighet</label><select class="select" onchange="setF('omvand',this.value)">${Object.entries(OMV).map(([k,t])=>`<option value="${k}" ${f.omvand===k?'selected':''}>${t}</option>`).join('')}</select></div>
+    ${co().nasta==null?`<div><label class="label">Första fakturanummer</label><input class="input num" value="${esc(f.start)}" oninput="S.form.start=this.value"><div class="mf" style="font-size:11px;margin-top:3px">väljs en gång</div></div>`:`<div><label class="label">Fakturanummer</label><input class="input" readonly value="${f.nr||co().nasta+' vid utfärdande'}"></div>`}</div>`}
+function radTab(f,fel){
+  const bad=new Set((fel.find(x=>x.id==='rad')||{rader:[]}).rader);
+  return `<table class="table rows"><thead><tr><th>Beskrivning</th><th class="num" style="width:64px">Antal</th><th style="width:60px">Enhet</th><th class="num" style="width:100px">À-pris</th><th class="num" style="width:58px">Rabatt %</th><th style="width:76px">Moms</th><th style="width:72px">Konto</th><th class="num" style="width:100px">Belopp</th><th style="width:28px"></th></tr></thead><tbody>
+  ${f.rader.map((x,i)=>`<tr class="${bad.has(i)?'err':''}"><td><input class="cell" value="${esc(x.text)}" placeholder="Vad som sålts" oninput="setR(${i},'text',this.value)"></td>
+    <td><input class="cell num" value="${esc(x.antal)}" oninput="setR(${i},'antal',this.value)"></td>
+    <td><input class="cell" value="${esc(x.enhet)}" oninput="setR(${i},'enhet',this.value)"></td>
+    <td><input class="cell num" value="${esc(typeof x.apris==='number'?kr(x.apris):x.apris)}" oninput="setR(${i},'apris',this.value)" onblur="if(this.value)setR(${i},'apris',kr(n(this.value)))"></td>
+    <td><input class="cell num" value="${esc(x.rabatt||'')}" placeholder="0" oninput="setR(${i},'rabatt',this.value)"></td>
+    <td><select class="select" ${f.omvand?'disabled title="Omvänd skattskyldighet: 0 %"':''} onchange="setR(${i},'sats',this.value)">${['25','12','6','0'].map(s=>`<option value="${s}" ${String(x.sats)===s?'selected':''}>${s} %</option>`).join('')}</select></td>
+    <td><input class="cell" value="${esc(x.konto)}" title="${esc(kNamn(x.konto)||'')}" oninput="setR(${i},'konto',this.value)"></td>
+    <td class="num">${kr(radN(x))}</td>
+    <td>${f.rader.length>1?`<button class="btn btn-ghost btn-icon" onclick="S.form.rader.splice(${i},1);render()">${ic('x')}</button>`:''}</td></tr>`).join('')}
+  <tr class="sumrow"><td colspan="7">Netto ${kr(nettoS(f))} · moms ${kr(momsS(f))}</td><td class="num">${kr(tot(f))}</td><td></td></tr></tbody></table>
+  <div class="flex"><button class="btn btn-ghost" onclick="nyRad()">${ic('plus')}Rad</button><span class="mf" style="font-size:11px">Kontot följer momssatsen och kan ändras per rad.</span></div>
+  ${ferr(fel,'rader')}${ferr(fel,'rad')}`}
+function extRader(f,fel){
+  const bad=new Set((fel.find(x=>x.id==='rad')||{rader:[]}).rader);
+  return `<div><div class="sec-t">Belopp per momssats</div><table class="table rows"><thead><tr><th style="width:90px">Intäktskonto</th><th>Kontonamn</th><th class="num" style="width:120px">Netto</th><th style="width:84px">Moms</th><th class="num" style="width:110px">Momsbelopp</th><th style="width:28px"></th></tr></thead><tbody>
+  ${f.rader.map((x,i)=>`<tr class="${bad.has(i)?'err':''}"><td><input class="cell" value="${esc(x.konto)}" placeholder="Konto" oninput="setR(${i},'konto',this.value)"></td><td class="mf">${esc(kNamn(x.konto)||'')}</td>
+    <td><input class="cell num" value="${esc(x.netto)}" oninput="setR(${i},'netto',this.value)" onblur="if(this.value)setR(${i},'netto',kr(n(this.value)))"></td>
+    <td><select class="select" onchange="setR(${i},'sats',this.value)">${['25','12','6','0'].map(s=>`<option value="${s}" ${String(x.sats)===s?'selected':''}>${s} %</option>`).join('')}</select></td>
+    <td class="num">${kr(r2(radN(x)*n(x.sats)/100))}</td><td>${f.rader.length>1?`<button class="btn btn-ghost btn-icon" onclick="S.form.rader.splice(${i},1);render()">${ic('x')}</button>`:''}</td></tr>`).join('')}
+  <tr class="sumrow"><td colspan="2">Totalt med moms</td><td class="num">${kr(nettoS(f))}</td><td></td><td class="num">${kr(tot(f))}</td><td></td></tr></tbody></table>
+  <button class="btn btn-ghost" onclick="nyRad()">${ic('plus')}Momssats</button>${ferr(fel,'rader')}${ferr(fel,'rad')}</div>`}
+function extFalt(f,fel){return `<div class="g3">
+    <div><label class="label">Fakturanummer</label><input class="input ${fel.some(x=>x.id==='nr')?'err':''}" value="${esc(f.nr)}" oninput="setF('nr',this.value)"></div>
+    <div><label class="label">Fakturadatum</label><input type="date" class="input ${fel.some(x=>x.id==='fdatum')?'err':''}" value="${f.fdatum}" onchange="setF('fdatum',this.value)"></div>
+    <div><label class="label">Förfallodag</label><input type="date" class="input ${fel.some(x=>x.id==='forfallo')?'err':''}" value="${f.forfallo}" onchange="setF('forfallo',this.value)"></div></div>
+    ${ferr(fel,'nr')}${ferr(fel,'fdatum')}${ferr(fel,'forfallo')}`}
+function rubrik(f){const x=f.src||(f.id&&hittaF(f.id));const k=hittaK(f.kund);
+  return `<div><div class="mf" style="font-weight:500">${f.typ==='extern'?(f.kreditAv?'Extern kreditfaktura':'Extern kundfaktura'):(f.kreditAv?'Kreditfaktura mot '+esc(hittaF(f.kreditAv)?.nr):'Kundfaktura')}</div><h1 style="font-size:18px">${k&&k.namn?esc(k.namn):'Ny kundfaktura'}${f.nr?' · '+esc(f.nr):''}</h1>
+  <div class="mf flex" style="margin-top:6px;flex-wrap:wrap">${x?sBadge(x)+aiTag(x):'<span class="badge badge-utkast">'+ic('plus')+'Ny</span>'}${nyTag(k)}${x?`<span>${x.kanal==='MCP'?'Skapat av '+esc(ANV)+' via '+esc(x.klient):'Skapat av '+esc(ANV)}${x.skapat?' · '+(dagar(x.skapat)<=0?'i dag':dagar(x.skapat)+' dagar sedan'):''}</span>`:''}</div></div>`}
+function skickaVal(f){const k=hittaK(f.kund);return k&&k.epost?`<label class="flex" style="font-size:12px"><input type="checkbox" ${f.skicka?'checked':''} onchange="S.form.skicka=this.checked">Skicka till ${esc(k.epost)} när den utfärdats</label>`:''}
+function knappar(f,fel){
+  const ext=f.typ==='extern',lbl=ext?(f.status==='upplast'?'Registrera om':'Registrera'):'Utfärda';
+  return `<div class="col" style="gap:8px">${ext?'':skickaVal(f)}<div class="flex"><button class="btn btn-default" ${fel.length?'disabled':''} title="${esc(fel.map(e=>e.t).join('\n'))}" onclick="${ext?'registrera()':'utfarda()'}">${ic(ext?'lock':'stamp')}${lbl}${fel.length?` <span class="bcount">${fel.length}</span>`:ext&&!kontant()?' och bokför':''}</button>
+  <button class="btn btn-outline" onclick="sparaUtkast()">${ic('save')}Spara utkast</button>${f.id&&f.status==='utkast'?`<button class="btn btn-destructive-ghost" onclick="S.modal={typ:'radera'};render()">${ic('trash-2')}Radera utkast</button>`:''}</div>
+  ${ext?'':`<div class="mf" style="font-size:11px">Utfärda låser fakturan, ger den nästa nummer i serien och skapar PDF:en, som arkiveras som underlag. Därefter ändras den bara med kreditfaktura.</div>`}</div>`}
+
+/* ================= Panelerna (betalning, skicka, kredit, kundförlust, återbetalning, rättelse) ================= */
+function panelTitel(p){return {bet:'Registrera betalning',skicka:'Skicka fakturan',kredit:'Kreditfaktura',forlust:'Konstaterad kundförlust',ater:'Återbetala tillgodohavande',ratta:'Rätta konteringen',lasupp:'Rätta registreringen',inbet:'Registrera inbetalning'}[p.typ]}
+function panelInner(f){const p=S.panel;let body='';
+  const st=(k,v)=>`S.panel.${k}=${v};render()`;
+  if(p.typ==='bet'){const bel=n(p.belopp),rest=r2(kvar(f)-bel),fel=!p.datum?'Välj ett datum.':last(p.datum)?Manad(p.datum)+' är låst.':!(bel>0)?'Ange ett belopp.':bel>kvar(f)?`Beloppet är större än det som återstår (${kr(kvar(f))} kr). En överbetalning bokförs med ett manuellt verifikat.`:'';
+    body=`${p.forslag!=null?`<div class="note">${ic('sparkles')}<span>Föreslagen av ${esc(f.forslag[p.forslag].klient)} från ${esc(f.forslag[p.forslag].kalla)}. Granska och bokför.</span></div>`:''}
+    <div class="g3"><div><label class="label">Betaldag</label><input type="date" class="input" value="${p.datum}" onchange="${st('datum','this.value')}"></div>
+      <div><label class="label">Belopp</label><input class="input num ${fel?'err':''}" value="${esc(p.belopp)}" oninput="S.panel.belopp=this.value;S.panel.ores=false;render(true)" onblur="S.panel.belopp=kr(n(this.value));render()"></div>
+      <div><label class="label">Till konto</label><select class="select"><option>1930 Företagskonto</option></select></div></div>
+    ${fel?`<div class="ferr">${ic('circle-alert')}${esc(fel)}</div>`:''}
+    ${rest>0&&!fel?`<div class="note">${ic('info')}<span>Delbetalning, ${kr(rest)} kr återstår.</span></div>`:''}
+    ${rest>0&&rest<=10&&!fel?`<label class="flex"><input type="checkbox" ${p.ores?'checked':''} onchange="${st('ores','this.checked')}">Stäng resten ${kr(rest)} kr mot öresutjämning (3740)</label>`:''}
+    <div class="kont"><div class="sec-t">Bokförs som V${VNR[S.co]+1} · ${p.datum}</div>${roTab(betKont(f,p))}${kontant()?'<div class="mf" style="font-size:11px">Kontantmetoden: intäkt och moms bokförs nu, i proportion till beloppet.</div>':''}</div>
+    <div class="flex"><button class="btn btn-default" ${fel?'disabled':''} onclick="betala()">${ic('banknote')}Registrera betalning</button><button class="btn btn-outline" onclick="stangPanel()">Avbryt</button></div>`}
+  if(p.typ==='skicka'){const k=hittaK(f.kund),forra=sistaUtskick(f);
+    body=`${forra&&forra.res==='fel'?`<div class="alert destructive">${ic('mail-x')}<div><div class="t">Förra utskicket misslyckades</div><ul><li>${esc(forra.till)}, ${forra.tid}: ${esc(forra.fel)}</li></ul></div></div>${k.epost!==p.till?`<div class="note">${ic('info')}<span>Kundregistret har ${esc(k.epost)}. <span class="link" onclick="S.panel.till='${esc(k.epost)}';render()">Använd den</span></span></div>`:''}`:''}
+    <div class="g2"><div><label class="label">Till</label><input class="input" value="${esc(p.till)}" oninput="S.panel.till=this.value"></div><div><label class="label">Svar till</label><input class="input" readonly value="${esc(co().replyto)}"></div></div>
+    <div><label class="label">Meddelande</label><textarea class="input" rows="5" oninput="S.panel.medd=this.value">${esc(p.medd)}</textarea><div class="mf" style="font-size:11px;margin-top:3px">Företagets standardmeddelande, redigerbart per utskick.</div></div>
+    <div class="ufile">${ic('paperclip')}<span>${esc(f.pdf.namn)}</span><span class="mf">den arkiverade PDF:en, oförändrad</span></div>
+    ${f.utskick.length?`<div class="mf" style="font-size:11px">Tidigare utskick: ${f.utskick.map(u=>`${u.tid} till ${esc(u.till)} (${u.res==='ok'?'skickat':'misslyckades'})`).join(' · ')}</div>`:''}
+    <div class="flex"><button class="btn btn-default" onclick="skickaNu(hittaF('${f.id}'),S.panel.till)">${ic('send')}${f.utskick.length?'Skicka igen':'Skicka'}</button><button class="btn btn-outline" onclick="stangPanel()">Avbryt</button>
+      <span style="margin-left:auto"></span>${p.annat?'':`<button class="btn btn-ghost" onclick="${st('annat','true')}">${ic('mail-check')}Lämnad på annat sätt…</button>`}</div>
+    ${p.annat?`<div class="inl" style="padding:10px"><div class="flex"><select class="select" style="width:220px" onchange="S.panel.hur=this.value">${['Med post','Överlämnad personligen','Uppladdad i kundens portal'].map(x=>`<option ${p.hur===x?'selected':''}>${x}</option>`).join('')}</select><button class="btn btn-outline" onclick="markeraSkickad('${f.id}',S.panel.hur)">Markera som skickad</button></div><div class="mf" style="font-size:11px">Loggas i historiken. Fakturan byter inte tillstånd.</div></div>`:''}`}
+  if(p.typ==='kredit'){const ext=f.typ==='extern';
+    body=`<div class="mf">En kreditfaktura är en ny affärshändelse med ${ext?'eget nummer från det andra systemet':'eget nummer i samma serie'}. Den hänvisar till ${esc(f.nr)} och ${ext?'registreras':'utfärdas'} som ett utkast först.</div>
+    ${ext?'':`<div class="radio-list"><label><input type="radio" name="kh" ${p.hela?'checked':''} onchange="${st('hela','true')}">Hela fakturan, ${kr(tot(f))} kr</label><label><input type="radio" name="kh" ${p.hela?'':'checked'} onchange="${st('hela','false')}">Delar av den</label></div>
+    ${p.hela?'':`<table class="table"><thead><tr><th>Rad</th><th class="num">Fakturerat</th><th class="num" style="width:100px">Kreditera antal</th></tr></thead><tbody>${f.rader.map((x,i)=>`<tr><td>${esc(x.text)}</td><td class="num">${x.antal} ${esc(x.enhet)} à ${kr(n(x.apris))}</td><td><input class="cell num" value="${esc(p.antal[i])}" oninput="S.panel.antal[${i}]=this.value"></td></tr>`).join('')}</tbody></table>`}`}
+    ${betalt(f)?`<div class="note">${ic('info')}<span>${esc(f.nr)} är ${oppen(f)?'delvis ':''}betald (${kr(betalt(f))} kr). Det som krediteras utöver det obetalda blir ett tillgodohavande som kan återbetalas. Kvittning mot andra fakturor finns inte.</span></div>`:''}
+    ${kontant()&&!betalt(f)?`<div class="note">${ic('info')}<span>Kontantmetoden: krediten av en obetald faktura skapar inget verifikat.</span></div>`:''}
+    <div class="note">${ic('info')}<span>Är det bara konteringen som är fel, och inte fakturan? <span class="link" onclick="startaPanel('${ext?'lasupp':'ratta'}','${f.id}')">${ext?'Rätta registreringen':'Rätta konteringen'}</span> i stället.</span></div>
+    <div class="flex"><button class="btn btn-default" onclick="kreditera('${f.id}')">${ic('file-minus')}Skapa utkast till kreditfaktura</button><button class="btn btn-outline" onclick="stangPanel()">Avbryt</button></div>`}
+  if(p.typ==='forlust'){const rows=forlKont(f),skal=['Konkurs','Ackord','Utmätning utan resultat','Annat'];
+    body=`<div class="mf">Bara en konstaterad förlust hanteras här. ${kr(kvar(f))} kr skrivs bort${kontant()?'':' och utgående moms minskas'}. En befarad kundförlust bokförs med ett manuellt verifikat.</div>
+    <div class="radio-list">${skal.map(s=>`<label><input type="radio" name="sk" ${p.skal===s?'checked':''} onchange="S.panel.skal='${s}';render()">${s}</label>`).join('')}</div>
+    ${p.skal==='Annat'?`<input class="input" placeholder="Beskriv skälet" value="${esc(p.annat)}" oninput="S.panel.annat=this.value">`:''}
+    <div class="g3"><div><label class="label">Datum</label><input type="date" class="input" value="${p.datum}" onchange="${st('datum','this.value')}"></div></div>
+    <div class="kont"><div class="sec-t">${rows.length?'Bokförs som V'+(VNR[S.co]+1)+' · '+p.datum:'Så bokförs den'}</div>${roTab(rows,'Kontantmetoden: fakturan har aldrig bokförts, så förlusten blir bara en status på fakturan.')}</div>
+    <div class="flex"><button class="btn btn-default" style="background:var(--destructive)" ${p.skal&&(p.skal!=='Annat'||p.annat)?'':'disabled'} onclick="kundforlust('${f.id}')">${ic('ban')}${rows.length?'Bokför kundförlust':'Markera som kundförlust'}</button><button class="btn btn-outline" onclick="stangPanel()">Avbryt</button></div>
+    <div class="mf" style="font-size:11px">Kundförlusten kan återkallas senare med ett nytt verifikat.</div>`}
+  if(p.typ==='ater'){const bel=n(p.belopp),max=-kvar(f);
+    body=`<div class="mf">Kunden har ${kr(max)} kr tillgodo efter en kreditfaktura. Återbetalningen bokförs mot kundfordringar.</div>
+    <div class="g3"><div><label class="label">Datum</label><input type="date" class="input" value="${p.datum}" onchange="${st('datum','this.value')}"></div><div><label class="label">Belopp</label><input class="input num" value="${esc(p.belopp)}" oninput="S.panel.belopp=this.value;render(true)"></div><div><label class="label">Från konto</label><select class="select"><option>1930 Företagskonto</option></select></div></div>
+    ${bel>max?`<div class="ferr">${ic('circle-alert')}Högst ${kr(max)} kr.</div>`:''}
+    <div class="kont"><div class="sec-t">Bokförs som V${VNR[S.co]+1} · ${p.datum}</div>${roTab(aterKont(f,bel))}</div>
+    <div class="flex"><button class="btn btn-default" ${bel>0&&bel<=max?'':'disabled'} onclick="aterbetala('${f.id}')">${ic('undo-2')}Bokför återbetalning</button><button class="btn btn-outline" onclick="stangPanel()">Avbryt</button></div>`}
+  if(p.typ==='ratta'){const gammal=[...f.ver].reverse().find(v=>v.typ==='Utfärdande'||v.typ==='Ny kontering');const andrad=p.konton.some((k,i)=>k!==f.rader[i].konto);
+    const ny={...f,rader:f.rader.map((x,i)=>({...x,konto:p.konton[i]}))};
+    body=`<div class="mf">För ett felkonterat verifikat. Fakturan, numret och PDF:en ändras inte. V${gammal.nr} vänds med en rättelse och ett nytt verifikat bokför med rätt konton. Är fakturan själv fel, gör en <span class="link" onclick="startaPanel('kredit','${f.id}')">kreditfaktura</span>.</div>
+    <table class="table"><thead><tr><th>Rad</th><th class="num">Belopp</th><th style="width:250px">Intäktskonto</th></tr></thead><tbody>${f.rader.map((x,i)=>`<tr><td>${esc(x.text)}</td><td class="num">${kr(radN(x))}</td><td><select class="select" onchange="S.panel.konton[${i}]=this.value;render()">${INTAKT.map(k=>`<option value="${k}" ${p.konton[i]===k?'selected':''}>${k} ${kNamn(k)}</option>`).join('')}</select></td></tr>`).join('')}</tbody></table>
+    <div><label class="label">Orsak <span class="mf">(valfri)</span></label><input class="input" value="${esc(p.orsak)}" placeholder="t.ex. tjänst bokförd som varuförsäljning" oninput="S.panel.orsak=this.value"></div>
+    ${andrad?`<div class="kont"><div class="sec-t">V${VNR[S.co]+1} vänder V${gammal.nr}, V${VNR[S.co]+2} bokför · ${IDAG_S}</div>${roTab(utfKont(ny))}</div>`:''}
+    <div class="flex"><button class="btn btn-default" ${andrad?'':'disabled'} onclick="rattaKontering('${f.id}')">${ic('undo-2')}Rätta V${gammal.nr}</button><button class="btn btn-outline" onclick="stangPanel()">Avbryt</button></div>`}
+  if(p.typ==='lasupp'){const reg=[...f.ver].reverse().find(v=>v.typ==='Registrering');
+    body=`<div class="mf">När uppgifterna i Maya inte stämmer med fakturan från det andra systemet. ${reg&&!kontant()?`V${reg.nr} rättas genom en rättelse som vänder alla rader, och`:''} fakturan låses upp så att du kan rätta fälten och registrera om.</div>
+    ${betalt(f)?`<div class="note">${ic('info')}<span>Betalningarna (${kr(betalt(f))} kr) ligger kvar kopplade.</span></div>`:''}
+    <div class="note">${ic('info')}<span>Har kunden fått en kreditfaktura från det andra systemet? <span class="link" onclick="startaPanel('kredit','${f.id}')">Registrera kreditfakturan</span> i stället.</span></div>
+    <div><label class="label">Orsak <span class="mf">(valfri)</span></label><input class="input" value="${esc(p.orsak||'')}" oninput="S.panel.orsak=this.value"></div>
+    <div class="flex"><button class="btn btn-default" onclick="lasUpp('${f.id}')">${ic('undo-2')}Rätta${reg&&!kontant()?' V'+reg.nr:''} och lås upp</button><button class="btn btn-outline" onclick="stangPanel()">Avbryt</button></div>`}
+  return `<div class="flex" style="justify-content:space-between"><h2>${panelTitel(p)}</h2><button class="btn btn-ghost btn-icon" onclick="stangPanel()">${ic('x')}</button></div>${p.typ==='bet'?`<div class="mf">Återstår ${kr(kvar(f))} kr · förfallodag ${f.forfallo}</div>`:''}${body}`;
+}
+function stangPanel(){S.panel=null;S.modal=null;render()}
+const inlPanel=f=>S.panel&&S.panel.id===f.id?`<div class="inl">${panelInner(f)}</div>`:'';
+
+/* ================= Dokumentdelar ================= */
+function forslagKort(f){return f.forslag.map((p,i)=>`<div class="levkort ny"><div class="flex" style="justify-content:space-between"><b style="font-weight:500">${ic('sparkles')} Föreslagen betalning</b><span class="badge badge-ny">${esc(p.klient)}</span></div>
+  <div>${kr(p.belopp)} kr den ${p.datum} till ${p.konto}, från ${esc(p.kalla)}.</div>
+  <div class="flex"><button class="btn btn-default" onclick="startaPanel('bet','${f.id}',{datum:'${p.datum}',belopp:'${kr(p.belopp)}',forslag:${i}})">${ic('check')}Granska och bokför</button><button class="btn btn-ghost" onclick="avvisaForslag('${f.id}',${i})">Avvisa</button></div></div>`).join('')}
+function docActions(f){const st=fstatus(f),ext=f.typ==='extern',kred=tot(f)<0,b=[];
+  if(oppen(f))b.push(`<button class="btn btn-default" onclick="startaPanel('bet','${f.id}')">${ic('banknote')}Registrera betalning</button>`);
+  if(st==='tillgodo')b.push(`<button class="btn btn-default" onclick="startaPanel('ater','${f.id}')">${ic('undo-2')}Återbetala…</button>`);
+  if(!ext&&f.pdf)b.push(`<button class="btn btn-outline" onclick="startaPanel('skicka','${f.id}')">${ic(fel_utskick(f)?'mail-warning':'send')}${f.utskick.length?'Skicka igen…':'Skicka…'}</button>`);
+  if(!kred&&!['krediterad','forlust'].includes(st))b.push(`<button class="btn btn-outline" onclick="startaPanel('kredit','${f.id}')">${ic('file-minus')}Kreditfaktura…</button>`);
+  if(oppen(f))b.push(`<button class="btn btn-ghost" onclick="startaPanel('forlust','${f.id}')">${ic('ban')}Kundförlust…</button>`);
+  if(st==='forlust')b.push(`<button class="btn btn-outline" onclick="aterkalla('${f.id}')">${ic('undo-2')}Återkalla kundförlust</button>`);
+  if(!kontant()&&f.ver.some(v=>['Utfärdande','Registrering'].includes(v.typ))&&st!=='forlust')b.push(ext?`<button class="btn btn-ghost" onclick="startaPanel('lasupp','${f.id}')">${ic('undo-2')}Rätta registrering…</button>`:`<button class="btn btn-ghost" onclick="startaPanel('ratta','${f.id}')">${ic('undo-2')}Rätta kontering…</button>`);
+  if(kontant()&&ext)b.push(`<button class="btn btn-ghost" onclick="startaPanel('lasupp','${f.id}')">${ic('undo-2')}Rätta registrering…</button>`);
+  return b.join('')}
+function docDelar(f){
+  const k=hittaK(f.kund),st=fstatus(f),ext=f.typ==='extern';
+  const krediterade=fak().filter(x=>x.kreditAv===f.id);
+  const meta=`<dl class="dl">
+    <dt>Kund</dt><dd>${esc(k.namn)} <span class="mf">· ${esc(k.orgnr||k.momsnr)}</span></dd>
+    <dt>Fakturadatum</dt><dd>${f.fdatum}</dd>${tot(f)>0?`<dt>Förfallodag</dt><dd>${f.forfallo} <span class="mf">${oppen(f)?'· '+forfTxt(f):''}</span></dd>`:''}
+    ${f.ocr?`<dt>OCR</dt><dd>${f.ocr}</dd>`:''}${f.omvand?`<dt>Omvänd skattskyld.</dt><dd>${OMV[f.omvand]}</dd>`:''}
+    ${f.kreditAv?`<dt>Krediterar</dt><dd><a class="link" href="${modBas()+f.kreditAv}">${esc(hittaF(f.kreditAv).nr)}</a></dd>`:''}
+    ${krediterade.length?`<dt>Krediteras av</dt><dd>${krediterade.map(x=>`<a class="link" href="${modBas()+x.id}">${esc(x.nr||'utkast')}</a>`).join(', ')}</dd>`:''}
+    <dt>Verifikat</dt><dd>${f.ver.length?f.ver.map(v=>`<span class="link" title="${v.typ} ${v.datum}">V${v.nr}</span> <span class="mf">${v.typ.toLowerCase()}</span>`).join(' · '):'<span class="mf">'+(kontant()?'inga än (kontantmetoden: bokförs vid betalning)':'–')+'</span>'}</dd>
+    ${f.forlust?`<dt>Kundförlust</dt><dd>${f.forlust.datum} · ${esc(f.forlust.skal)}${f.forlust.aterkallad?' <span class="mf">(återkallad)</span>':''}</dd>`:''}</dl>`;
+  const rader=`<table class="table"><thead><tr><th>${ext?'Konto':'Rad'}</th><th style="width:60px">Konto</th><th class="num">Netto</th><th class="num">Moms</th></tr></thead><tbody>${f.rader.map(x=>`<tr><td>${ext?esc(kNamn(x.konto)):esc(x.text)}</td><td class="mf">${x.konto}</td><td class="num">${kr(radN(x))}</td><td class="num">${f.omvand?'–':x.sats+' %'}</td></tr>`).join('')}
+    <tr class="sumrow"><td colspan="2">Totalt med moms</td><td class="num" colspan="2">${kr(tot(f))} kr</td></tr></tbody></table>`;
+  const bets=tot(f)>0?`<div><div class="sec-t">Betalningar</div>${f.betalningar.length?f.betalningar.map(b=>`<div class="bet"><span>${b.datum}</span><span class="mf">${b.stang?'Öresutjämning 3740':'Konto '+b.konto}</span><span class="num">${kr(b.belopp)}</span><span class="link">V${b.vnr}</span></div>`).join(''):'<span class="mf">Inga betalningar.</span>'}
+    ${krediterade.filter(utfardad).map(x=>`<div class="bet"><span>${x.fdatum}</span><span class="mf">Kreditfaktura ${esc(x.nr)}</span><span class="num">${kr(tot(x))}</span><span></span></div>`).join('')}
+    ${f.ater.map(a=>`<div class="bet"><span>${a.datum}</span><span class="mf">Återbetalning</span><span class="num">−${kr(a.belopp)}</span><span class="link">V${a.vnr}</span></div>`).join('')}
+    <div class="bet" style="border:0;font-weight:500"><span>${kvar(f)<0?'Tillgodo':'Återstår'}</span><span></span><span class="num">${kr(Math.abs(kvar(f)))}</span><span></span></div></div>`:'';
+  const utsk=ext?'':`<div><div class="sec-t">Utskick</div>${f.utskick.map(u=>`<div class="bet" style="grid-template-columns:130px 1fr 90px"><span class="mf">${u.tid}</span><span>${esc(u.till)}</span><span class="${u.res==='ok'?'diff-ok':'diff-bad'}">${ic(u.res==='ok'?'check':'x')}${u.res==='ok'?'skickad':'misslyckades'}</span></div>`).join('')}
+    ${f.annat?`<div class="bet" style="grid-template-columns:130px 1fr 90px"><span class="mf">${f.annat.tid}</span><span>${esc(f.annat.hur)}</span><span class="diff-ok">${ic('check')}markerad</span></div>`:''}
+    ${!f.utskick.length&&!f.annat?'<span class="mf">Inte skickad än.</span>':''}${fel_utskick(f)?`<div class="ferr">${ic('mail-x')}Senaste utskicket misslyckades: ${esc(sistaUtskick(f).fel)}</div>`:''}</div>`;
+  const hist=`<div><div class="sec-t">Historik</div><ul class="hist">${f.historik.map(e=>`<li>${ic(e.ikon||'dot')}<span class="t">${e.tid}</span><span>${esc(e.text)} <span class="mf">· ${esc(e.vem)}</span></span></li>`).join('')}</ul></div>`;
+  const head=`<div><div class="mf" style="font-weight:500">${vad(f)} ${esc(f.nr)}</div><h1 style="font-size:18px">${esc(k.namn)}</h1>
+    <div class="flex" style="margin-top:6px;flex-wrap:wrap">${sBadge(f)}${extTag(f)}${aiTag(f)}<span class="num mf" style="text-align:left">${kr(tot(f))} kr${oppen(f)&&kvar(f)!==tot(f)?' · '+kr(kvar(f))+' kvar':''}</span></div></div>`;
+  return {meta,rader,bets,utsk,hist,head,k};
+}
+const flashBox=()=>S.flash?`<div class="alert ok">${ic('circle-check')}<div class="t">${esc(S.flash)}</div></div>`:'';
+function modalBg(inner,w){return `<div class="pal-bg" onclick="if(event.target===this){stangPanel()}"><div class="dialog" ${w?`style="width:${w}px"`:''}>${inner}</div></div>`}
+function gemensamModal(){
+  const m=S.modal;if(!m)return '';
+  if(m.typ==='radera'){const f=S.form;return modalBg(`<h2>Radera utkastet?</h2><div>${esc(kNamnF(f))} · ${kr(tot(f))} kr</div>
+    <div class="note">${ic('info')}<span>Raderingen loggas. Utkastet har inget nummer, så serien påverkas inte.${hittaK(f.kund)?.ny?' Den föreslagna kunden försvinner.':''}</span></div>
+    <div class="ft"><button class="btn btn-outline" onclick="S.modal=null;render()">Avbryt</button><button class="btn btn-default" style="background:var(--destructive)" onclick="raderaUtkast()">${ic('trash-2')}Radera utkast</button></div>`)}
+  if(m.typ==='panel'&&S.panel){const f=hittaF(S.panel.id);return f?modalBg(panelInner(f),620):''}
+  return '';
+}
+/* Att göra: sektionerna, som alla varianter visar */
+function attGora(){
+  return [
+    ['Betalningar att granska','sparkles',fak().filter(f=>f.forslag.length),f=>`${kr(f.forslag[0].belopp)} kr föreslagen av ${esc(f.forslag[0].klient)}`],
+    ['Förfallna','alert-triangle',fak().filter(f=>fstatus(f)==='forfallen'),f=>forfTxt(f)],
+    ['Utskick som misslyckades','mail-x',fak().filter(fel_utskick),f=>esc(sistaUtskick(f).till)],
+    ['Utfärdade, inte skickade','send',ejSkickade(),f=>'utfärdad '+f.fdatum],
+    ['Utkast','pencil-line',utkastF(),f=>(f.typ==='extern'?'extern · ':'')+(f.kreditAv?'kreditfaktura · ':'')+(dagar(f.skapat||IDAG_S)<=0?'i dag':dagar(f.skapat)+' d sedan')],
+  ];
+}
+const antalAttGora=()=>attGora().reduce((a,[, ,l])=>a+l.length,0);
+function kommande(){return `<div class="sect">${ic('calendar-clock')}Kommande</div><div class="item plain"><div class="top"><span>Momsdeklaration september</span><span class="mf">12 nov</span></div><div class="meta">Om 29 dagar</div></div>`}
+function inkorgLista(rt){
+  return `<div class="lh"><h2>Att göra</h2><span class="mf">kundfakturor</span></div>`+attGora().map(([t,i,l,meta])=>l.length?`<div class="sect">${ic(i)}${t} · ${l.length}</div>`+l.map(f=>`<a class="item ${rt.id===f.id?'on':''}" href="#/inkorg/${f.id}" style="padding:8px 10px"><div class="top"><span>${esc(kNamnF(f))} <span class="mf">${esc(f.nr)}</span></span><span class="num">${kr(f.status==='utkast'?tot(f):kvar(f))}</span></div><div class="meta">${f.status==='utkast'?sBadge(f)+aiTag(f)+nyTag(hittaK(f.kund)):''}<span>${meta(f)}</span></div></a>`).join(''):'').join('')+kommande();
+}
+function nyKnapp(){return `<div class="newmenu"><button class="btn btn-default" onclick="event.stopPropagation();S.nyMeny=!S.nyMeny;render()">${ic('plus')}Ny${ic('chevron-down')}</button>${S.nyMeny?`<div class="dropdown"><button class="mi" onclick="go('#/kundfakturor/ny')">${ic('file-plus')}<span><b style="font-weight:500">Kundfaktura</b><br><span class="mf">skapas och utfärdas i Maya</span></span></button><button class="mi" onclick="go('#/kundfakturor/ny-extern')">${ic('external-link')}<span><b style="font-weight:500">Extern faktura</b><br><span class="mf">utfärdad i ett annat system, bokförs här</span></span></button></div>`:''}</div>`}
+const fordringar=()=>r2(fak().filter(f=>utfardad(f)&&tot(f)>0).reduce((a,f)=>a+Math.max(0,kvar(f)),0));
+
+/* ================= Variant A: Fakturan är formuläret, handlingar i dialoger ================= */
+const A={namn:'Fakturan är formuläret, dialoger',
+inkorg:inkorgLista,
+lista(rt){
+  const flikar=[['obetalda','Obetalda',oppen],['utkast','Utkast',f=>!utfardad(f)],['betalda','Betalda och övriga',f=>utfardad(f)&&!oppen(f)],['alla','Alla',()=>true]];
+  const [,,flt]=flikar.find(x=>x[0]===S.flik)||flikar[0];
+  const l=fak().filter(flt).sort((a,b)=>String(b.nr||'').localeCompare(String(a.nr||''))||(a.forfallo||'').localeCompare(b.forfallo||''));
+  return `<div class="lh"><div><h2>Kundfakturor</h2><span class="mf">Kundfordringar ${kr(fordringar())} kr</span></div>${nyKnapp()}</div>
+  <div class="tabs" style="align-self:flex-start;margin-bottom:4px">${flikar.map(([k,t,fn])=>`<button class="${S.flik===k?'on':''}" onclick="S.flik='${k}';render()">${t} <span class="mf">${fak().filter(fn).length}</span></button>`).join('')}</div>
+  <table class="tlist"><thead><tr><th>Nr</th><th>Kund</th><th>Förfaller</th><th class="num">Kvar</th></tr></thead><tbody>${l.map(f=>`<tr class="${rt.id===f.id?'on':''}" onclick="go('#/kundfakturor/${f.id}')">
+    <td style="white-space:nowrap">${f.nr?esc(f.nr):'<span class="mf">–</span>'}</td>
+    <td><div>${esc(kNamnF(f))} ${f.kanal==='MCP'&&f.status==='utkast'?`<span class="mf">${ic('sparkles')}</span>`:''}</div><div class="mf" style="font-size:11px">${sBadge(f)} ${f.typ==='extern'?'extern':''}</div></td>
+    <td class="${fstatus(f)==='forfallen'?'diff-bad':'mf'}" style="white-space:nowrap">${tot(f)>0?(forfallo(f)||''):''}</td><td class="num">${utfardad(f)?kr(kvar(f)):kr(tot(f))}</td></tr>`).join('')}</tbody></table>`;
+},
+edit(f){const {fel,varn}=kontroll(f);
+  if(f.typ==='extern')return `<div class="A-reg"><div class="col" style="gap:14px">${rubrik(f)}${kundVal(f,fel)}${extFalt(f,fel)}${extRader(f,fel)}${varnLista(varn)}${bokforsSom(f)}${knappar(f,fel)}</div><div class="orig">${original(f,520)}</div></div>`;
+  const k=hittaK(f.kund);
+  const chk=(ok,t,ids)=>{const e=fel.filter(x=>ids.includes(x.id));return `<div class="chk ${e.length?'bad':'ok'}">${ic(e.length?'circle-alert':'circle-check')}<span>${t}${e.map(x=>`<span class="fix">${esc(x.t)}${x.fix?` <span class="link" onclick="${x.fix.run}">${x.fix.t}</span>`:''}</span>`).join('')}</span></div>`};
+  return `<div class="A-ed"><div class="col" style="gap:10px">${k&&k.ny?kundVal(f,fel):''}${papper(f,{utkast:true,ed:true,fel})}
+    <div class="mf" style="font-size:11px">${ic('mouse-pointer-2')} Skriv direkt i fakturan. Det du ser är PDF:en som skapas när den utfärdas.</div></div>
+  <div class="rail">${rubrik(f)}<div class="sec-t" style="margin-top:6px">Innan den kan utfärdas</div>
+    ${chk(1,'Kund med adress',['kund'])}${chk(1,'Fakturadatum i öppen period',['fdatum','forfallo'])}${chk(1,'Rader med pris och moms',['rader','rad'])}${chk(1,'Företagets uppgifter och betalsätt',['foretag'])}
+    ${varnLista(varn)}
+    <details><summary class="mf" style="cursor:pointer">Konton per rad</summary><div class="col" style="margin-top:6px">${f.rader.map((x,i)=>`<div class="flex"><span class="mf" style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(x.text||'Rad '+(i+1))}</span><input class="input" style="width:70px" value="${esc(x.konto)}" oninput="setR(${i},'konto',this.value)"></div>`).join('')}</div></details>
+    ${bokforsSom(f)}${knappar(f,fel)}</div></div>`},
+doc(f){const d=docDelar(f);
+  return `<div class="col" style="gap:14px"><div class="toolbar">${docActions(f)}<span style="margin-left:auto"></span>${f.pdf?`<button class="btn btn-ghost" onclick="inteHar('Nedladdning')">${ic('download')}PDF</button>`:''}</div>
+  <div class="A-doc"><div class="col">${f.typ==='extern'?original(f,620):papper(f)+pdfMeta(f)}</div>
+  <div class="col" style="gap:16px">${d.head}${forslagKort(f)}${d.meta}${f.typ==='extern'?d.rader:''}${d.bets}${d.utsk}${d.hist}</div></div></div>`},
+modal(){return gemensamModal()}};
+
+/* ================= Variant B: Kunden först, steg för steg ================= */
+const B={namn:'Kunden först, steg för steg',
+inkorg:inkorgLista,
+lista(rt){
+  const g={};fak().forEach(f=>{(g[f.kund]=g[f.kund]||[]).push(f)});
+  return `<div class="lh"><div><h2>Kunder</h2><span class="mf">Kundfordringar ${kr(fordringar())} kr</span></div>${nyKnapp()}</div>
+  ${kunder().filter(k=>g[k.id]).map(k=>{const fs=g[k.id].sort((a,b)=>(b.fdatum||'').localeCompare(a.fdatum||''));const saldo=r2(fs.filter(utfardad).reduce((a,f)=>a+kvar(f),0));
+    return `<div class="kundhead ${rt.id==='kund-'+k.id?'on':''}" onclick="go('#/kundfakturor/kund-${k.id}')"><span>${esc(k.namn)} ${nyTag(k)}</span><span class="num ${saldo<0?'warn':saldo?'':'mf'}">${saldo<0?'tillgodo '+kr(-saldo):kr(saldo)}</span></div>
+    ${fs.map(f=>`<a class="item ${rt.id===f.id?'on':''}" href="#/kundfakturor/${f.id}" style="padding:6px 10px"><div class="top" style="font-weight:400"><span>${f.nr?esc(f.nr):'utkast'} <span class="mf">${f.fdatum||''}</span></span><span class="num">${kr(utfardad(f)&&oppen(f)?kvar(f):tot(f))}</span></div><div class="meta">${sBadge(f)}${extTag(f)}${aiTag(f)}${oppen(f)?'<span>'+forfTxt(f)+'</span>':''}</div></a>`).join('')}`}).join('')}`;
+},
+kundkort(k){const fs=fak().filter(f=>f.kund===k.id);const opp=fs.filter(oppen),saldo=r2(fs.filter(utfardad).reduce((a,f)=>a+kvar(f),0));
+  const forf=r2(fs.filter(f=>fstatus(f)==='forfallen').reduce((a,f)=>a+kvar(f),0)),attFa=r2(opp.reduce((a,f)=>a+kvar(f),0)),tg=r2(fs.filter(f=>fstatus(f)==='tillgodo').reduce((a,f)=>a-kvar(f),0));
+  const p=S.panel&&S.panel.typ==='inbet'&&S.panel.kund===k.id?S.panel:null;
+  return `<div class="paper"><div class="flex" style="justify-content:space-between;align-items:flex-start"><div><div class="mf" style="font-weight:500">Kund</div><h1 style="font-size:18px">${esc(k.namn)}</h1></div>
+    <div class="flex"><button class="btn btn-default" onclick="S.nyKund='${k.id}';go('#/kundfakturor/ny')">${ic('plus')}Ny faktura</button>${opp.length?`<button class="btn btn-outline" onclick="S.panel={typ:'inbet',kund:'${k.id}',datum:IDAG_S,belopp:kr(${attFa})};render()">${ic('banknote')}Registrera inbetalning</button>`:''}</div></div>
+  <div class="g3"><div class="stat"><span class="mf">Att få</span><b>${kr(attFa)}</b></div><div class="stat"><span class="mf">Varav förfallet</span><b class="${forf?'diff-bad':''}">${kr(forf)}</b></div><div class="stat"><span class="mf">Tillgodo</span><b>${kr(tg)}</b>${tg?`<span class="mf" style="font-size:11px">återbetalas från fakturan, ingen kvittning</span>`:''}</div></div>
+  ${p?`<div class="inl">${B.inbet(k,p)}</div>`:''}
+  <dl class="dl"><dt>Orgnr</dt><dd>${esc(k.orgnr)||'–'}</dd><dt>Momsreg-nr</dt><dd>${esc(k.momsnr)||'–'}</dd><dt>Adress</dt><dd>${esc(k.adress)||'<span class="diff-bad">saknas</span>'}</dd><dt>E-post</dt><dd>${esc(k.epost)}</dd><dt>Villkor</dt><dd>${k.villkor} dagar</dd>${k.omvand?`<dt>Omvänd skattskyld.</dt><dd>${OMV[k.omvand]} föreslås</dd>`:''}</dl>
+  <div><div class="sec-t">Fakturor</div><table class="table"><tbody>${fs.map(f=>`<tr class="click" onclick="go('#/kundfakturor/${f.id}')"><td>${f.nr?esc(f.nr):'<span class="mf">utkast</span>'}</td><td class="mf">${f.fdatum||''}</td><td>${sBadge(f)}</td><td class="num">${kr(tot(f))}</td><td class="num">${utfardad(f)?kr(kvar(f)):''}</td></tr>`).join('')}</tbody></table></div>
+  <div class="flex"><button class="btn btn-outline" onclick="inteHar('Redigering av kund')">${ic('pencil')}Ändra</button><button class="btn btn-ghost" onclick="inteHar('Arkivering av kund')">${ic('archive')}Arkivera</button><span class="mf">En kund med fakturor kan arkiveras men inte raderas.</span></div></div>`},
+inbet(k,p){const opp=fak().filter(f=>f.kund===k.id&&oppen(f)).sort((a,b)=>a.forfallo.localeCompare(b.forfallo));let rest=n(p.belopp);
+  const al=opp.map(f=>{const a=r2(Math.min(rest,kvar(f)));rest=r2(rest-a);return {f,a}});
+  const rows=dk(al.filter(x=>x.a>0).flatMap(({f,a})=>betKont(f,{belopp:a}).map(r=>[r.konto,r.debet-r.kredit])));
+  return `<div class="flex" style="justify-content:space-between"><h2>Registrera inbetalning</h2><button class="btn btn-ghost btn-icon" onclick="stangPanel()">${ic('x')}</button></div>
+  <div class="g3"><div><label class="label">Betaldag</label><input type="date" class="input" value="${p.datum}" onchange="S.panel.datum=this.value;render()"></div><div><label class="label">Belopp</label><input class="input num" value="${esc(p.belopp)}" oninput="S.panel.belopp=this.value;render(true)" onblur="S.panel.belopp=kr(n(this.value));render()"></div><div><label class="label">Till konto</label><select class="select"><option>1930 Företagskonto</option></select></div></div>
+  <div><div class="sec-t">Fördelas på äldsta förfallodag först</div>${al.map(({f,a})=>`<div class="alloc"><span>${esc(f.nr)}</span><span class="mf">förfaller ${f.forfallo} · ${kr(kvar(f))} kvar</span><span class="num">${a?kr(a):'–'}</span><span class="mf" style="font-size:11px">${a&&a<kvar(f)?'delbetalning':a?'betald':''}</span></div>`).join('')}</div>
+  ${rest>0?`<div class="ferr">${ic('circle-alert')}${kr(rest)} kr blir över. En överbetalning bokförs med ett manuellt verifikat.</div>`:''}
+  <div class="kont"><div class="sec-t">Bokförs som V${VNR[S.co]+1} · ${p.datum}</div>${roTab(rows)}</div>
+  <div class="flex"><button class="btn btn-default" ${rest>0||!n(p.belopp)?'disabled':''} onclick="B.bokforInbet('${k.id}')">${ic('banknote')}Registrera inbetalning</button><button class="btn btn-outline" onclick="stangPanel()">Avbryt</button></div>`},
+bokforInbet(kid){const p=S.panel,opp=fak().filter(f=>f.kund===kid&&oppen(f)).sort((a,b)=>a.forfallo.localeCompare(b.forfallo));let rest=n(p.belopp);const nr=++VNR[S.co],tid=nu();let antal=0;
+  opp.forEach(f=>{const a=r2(Math.min(rest,kvar(f)));if(!a)return;rest=r2(rest-a);antal++;f.betalningar.push({datum:p.datum,belopp:a,konto:'1930',vnr:nr});f.ver.push({typ:'Betalning',nr,datum:p.datum});f.historik.push(h(tid,ANV,`Registrerade ${kvar(f)>0?'delbetalning':'betalning'} ${kr(a)} kr, V${nr} (inbetalning från kunden)`,'banknote'))});
+  S.panel=null;S.flash=`Inbetalningen bokfördes som V${nr} och fördelades på ${antal} fakturor.`;render()},
+edit(f){const {fel,varn}=kontroll(f);
+  if(f.typ==='extern')return C.edit(f);
+  const steg=[['Kund och datum',['kund','fdatum','forfallo']],['Rader',['rader','rad']],['Granska och utfärda',['foretag']]];
+  const s=S.steg;const antal=ids=>fel.filter(x=>ids.includes(x.id)).length;
+  const bar=`<div class="stepbar">${steg.map(([t,ids],i)=>{const a=antal(ids);return `<button class="${s===i+1?'on':''} ${a?'bad':i+1<s?'klar':''}" onclick="S.steg=${i+1};render()"><span class="n">${a?a:i+1<s?ic('check','style="width:10px;height:10px"'):i+1}</span>${t}</button>`}).join('')}</div>`;
+  let body='';
+  if(s===1)body=`${kundVal(f,fel)}${datumFalt(f,fel)}`;
+  if(s===2)body=`${radTab(f,fel)}${f.omvand?`<div class="note">${ic('info')}<span>${OMV[f.omvand]}: 0 % moms, intäkten på ${OMV_K[f.omvand]}, och fakturan får texten om omvänd betalningsskyldighet.</span></div>`:''}`;
+  if(s===3)body=`<div class="C-edit"><div class="left">${papper(f,{utkast:true})}</div><div class="col" style="gap:12px">${fel.length?`<div class="alert destructive">${ic('circle-alert')}<div><div class="t">${fel.length} saker kvar innan den kan utfärdas</div><ul>${fel.map(e=>`<li>${esc(e.t)}${e.fix?` <span class="link" onclick="${e.fix.run}">${e.fix.t}</span>`:''}</li>`).join('')}</ul></div></div>`:''}${varnLista(varn)}${bokforsSom(f)}${knappar(f,fel)}</div></div>`;
+  return `<div class="col" style="gap:14px">${rubrik(f)}${bar}${body}
+  ${s<3?`<div class="flex">${s>1?`<button class="btn btn-outline" onclick="S.steg--;render()">${ic('arrow-left')}Tillbaka</button>`:''}<button class="btn btn-default" onclick="S.steg++;render()">Nästa${ic('arrow-right')}</button><button class="btn btn-ghost" onclick="sparaUtkast()">${ic('save')}Spara utkast</button></div>`:''}</div>`},
+doc(f){const d=docDelar(f),st=fstatus(f);
+  const steg=[['Utfärdad',f.fdatum,true],['Skickad',f.utskick.find(u=>u.res==='ok')?.tid.slice(0,10)||f.annat?.tid.slice(0,10)||(fel_utskick(f)?'misslyckades':''),skickad(f)],
+    ['Betald',st==='delbetald'?kr(betalt(f))+' av '+kr(tot(f)):f.betalningar.length?f.betalningar[f.betalningar.length-1].datum:'',['betald','tillgodo'].includes(st)]];
+  if(st==='forlust')steg[2]=['Kundförlust',f.forlust.datum,true];if(st==='krediterad')steg[2]=['Krediterad','',true];
+  const tl=tot(f)>0?`<div class="tl">${steg.map(([t,dd,on],i)=>`${i?'<span class="ar"></span>':''}<div class="st ${on?'on':(steg[i-1]?.[2]||i===0)?'cur':'off'}"><span class="t">${ic(on?'circle-check':'circle-dashed')}${t}</span><span class="d">${dd||(st==='delbetald'&&t==='Betald'?kr(betalt(f))+' av '+kr(tot(f)):'')}</span></div>`).join('')}</div>`:'';
+  return `<div class="paper"><div class="flex" style="justify-content:space-between;align-items:flex-start">${d.head}<a class="link mf" href="#/kundfakturor/kund-${d.k.id}">${esc(d.k.namn)} ${ic('arrow-right')}</a></div>
+  ${tl}<div class="flex" style="flex-wrap:wrap">${S.panel?'':docActions(f)}</div>${inlPanel(f)}${forslagKort(f)}
+  <div><button class="btn btn-ghost" onclick="S.visaPdf=!S.visaPdf;render()">${ic(S.visaPdf?'chevron-down':'chevron-right')}${f.typ==='extern'?'Visa underlaget':'Visa PDF:en'}</button>${S.visaPdf?`<div class="col" style="margin-top:8px">${f.typ==='extern'?original(f,520):papper(f)+pdfMeta(f)}</div>`:''}</div>
+  ${d.meta}${d.rader}${d.bets}${d.utsk}${d.hist}</div>`},
+modal(){return gemensamModal()}};
+
+/* ================= Variant C: Fakturan bredvid, förfallodag först ================= */
+const C={namn:'Fakturan bredvid, förfallodag först',
+inkorg:inkorgLista,
+lista(rt){
+  const grp=[['Förfallna',f=>fstatus(f)==='forfallen','alert-triangle'],['Förfaller inom 7 dagar',f=>['obetald','delbetald'].includes(fstatus(f))&&-dagar(f.forfallo)<=7,'clock'],
+    ['Senare',f=>['obetald','delbetald'].includes(fstatus(f))&&-dagar(f.forfallo)>7,'calendar'],['Utkast',f=>!utfardad(f),'pencil-line'],['Tillgodo, betalda, krediterade och förluster',f=>utfardad(f)&&!oppen(f),'check']];
+  const it=f=>`<a class="item ${rt.id===f.id?'on':''}" href="#/kundfakturor/${f.id}" style="padding:8px 10px"><div class="top"><span>${esc(kNamnF(f))} <span class="mf">${esc(f.nr)}</span></span><span class="num">${kr(utfardad(f)&&oppen(f)?kvar(f):tot(f))}</span></div>
+    <div class="meta">${sBadge(f)}${extTag(f)}${aiTag(f)}${nyTag(hittaK(f.kund))}${utfardad(f)&&oppen(f)?'<span>'+forfTxt(f)+'</span>':'<span>'+(f.fdatum||'')+'</span>'}${fel_utskick(f)?`<span class="diff-bad">${ic('mail-x')}utskick misslyckades</span>`:''}</div></a>`;
+  return `<div class="lh"><div><h2>Kundfakturor</h2><span class="mf">Kundfordringar ${kr(fordringar())} kr</span></div>${nyKnapp()}</div>
+  ${grp.map(([t,fn,i])=>{const l=fak().filter(fn).sort((a,b)=>(a.forfallo||'').localeCompare(b.forfallo||''));return l.length?`<div class="per">${ic(i)}${t} · ${l.length}</div>${l.map(it).join('')}`:''}).join('')}`;
+},
+edit(f){const {fel,varn}=kontroll(f);
+  if(f.typ==='extern')return `<div class="C-edit"><div class="left">${original(f,560)}</div>
+    <div class="col" style="gap:14px">${rubrik(f)}${kundVal(f,fel)}${extFalt(f,fel)}${extRader(f,fel)}${varnLista(varn)}${bokforsSom(f)}${knappar(f,fel)}</div></div>`;
+  return `<div class="C-edit"><div class="left">${papper(f,{utkast:true})}<div class="mf" style="font-size:11px">${ic('eye')} Förhandsvisning av PDF:en som skapas när fakturan utfärdas.</div></div>
+  <div class="col" style="gap:14px">${rubrik(f)}${kundVal(f,fel)}${datumFalt(f,fel)}${radTab(f,fel)}${ferr(fel,'foretag')}${varnLista(varn)}${bokforsSom(f)}${knappar(f,fel)}</div></div>`},
+doc(f){const d=docDelar(f);
+  return `<div class="C-edit"><div class="left">${f.typ==='extern'?original(f,560):papper(f)+pdfMeta(f)}</div>
+  <div class="col" style="gap:18px"><div class="flex" style="justify-content:space-between;align-items:flex-start">${d.head}</div><div class="flex" style="flex-wrap:wrap">${S.panel?'':docActions(f)}</div>
+  ${inlPanel(f)}${forslagKort(f)}${d.meta}${f.typ==='extern'?d.rader:''}${d.bets}${d.utsk}${d.hist}</div></div>`},
+modal(){return gemensamModal()}};
+
+/* ================= Skal (variant D från gränssnittsprototypen) ================= */
+function coMenu(){return `<div class="dropdown"><div class="lbl">Företag</div>${FORETAG.map(f=>`<button class="mi" onclick="byt('${f.id}')"><span class="logo sm">${initialer(f.namn)}</span><span style="flex:1"><b style="font-weight:500">${esc(f.namn)}</b><br><span class="mf">${f.orgnr} · ${f.metod==='kontant'?'kontantmetoden':'fakturametoden'}</span></span>${f.id===S.co?ic('check'):''}</button>`).join('')}</div>`}
+function skal(rt,V){
+  const mod=rt.mod;let page;
+  if(mod!=='inkorg'&&mod!=='kundfakturor')page=`<div style="padding:24px"><div class="placeholder">${ic('construction')}Sidan prototypas i ett eget ticket.</div></div>`;
+  else{
+    let det=`<div class="empty"><div>${ic('mouse-pointer-click','style="width:20px;height:20px"')}<p>Välj något i listan</p><div class="flex" style="justify-content:center"><button class="btn btn-outline" onclick="go('#/kundfakturor/ny')">${ic('plus')}Ny kundfaktura</button><button class="btn btn-ghost" onclick="go('#/kundfakturor/ny-extern')">${ic('external-link')}Extern faktura</button></div></div></div>`;
+    if(rt.id){let inner='';
+      if(rt.id.startsWith('kund-')){S.form=null;const k=hittaK(rt.id.slice(5));inner=k?(V.kundkort?V.kundkort(k):''):''}
+      else{const f=rt.id.startsWith('ny')?null:hittaF(rt.id);
+        if(rt.id.startsWith('ny')||(f&&!utfardad(f))){oppnaForm(rt.id,rt.id==='ny-extern'||f?.typ==='extern'?'extern':'maya');inner=V.edit(S.form)}
+        else if(f){S.form=null;inner=V.doc(f)}}
+      if(inner)det=`<div class="detail">${flashBox()}${inner}</div>`}
+    else if(S.flash)det=`<div class="detail">${flashBox()}</div>`;
+    page=`<div class="split" style="grid-template-columns:${V===A&&mod!=='inkorg'?'420px':'360px'} 1fr"><div class="list">${mod==='inkorg'?V.inkorg(rt):V.lista(rt)}</div>${det}</div>`;
+  }
+  const antal=antalAttGora();
+  return `<div class="B"><header>
+    <span class="brand"><span class="logo" style="width:24px;height:24px">M</span></span><span class="mf">/</span>
+    <div class="co"><button class="btn btn-ghost" onclick="S.coMenu=!S.coMenu;render()">${esc(co().namn)}${ic('chevrons-up-down')}</button>${S.coMenu?coMenu():''}</div>
+    <nav>${NAV.map(([k,t])=>`<a href="#/${k}" class="${mod===k?'on':''}">${t}${k==='inkorg'&&antal?`<span class="badge badge-count">${antal}</span>`:''}</a>`).join('')}</nav>
+    <div class="right"><span class="search" onclick="palett()">${ic('search')}Sök verifikat, faktura…<kbd>⌘K</kbd></span><button class="btn btn-ghost btn-icon" onclick="tema()" title="Ljust/mörkt">${ic('sun-moon')}</button></div>
+  </header>${page}</div>${V.modal()}${S.pal?pal():''}`;
+}
+/* Snabbsökning */
+function opts(){
+  const q=S.palQ.toLowerCase();
+  const o=[{g:'Förslag',t:'Ny kundfaktura',i:'plus',run:()=>go('#/kundfakturor/ny')},{g:'Förslag',t:'Registrera extern faktura',i:'external-link',run:()=>go('#/kundfakturor/ny-extern')},
+    ...fak().map(f=>({g:'Kundfakturor',t:kNamnF(f)+' · '+nrTxt(f),amt:kr(tot(f)),s:(f.ocr||'')+' '+f.fdatum,i:'file-text',run:()=>go('#/kundfakturor/'+f.id)})),
+    ...kunder().filter(k=>!k.ny).map(k=>({g:'Kunder',t:k.namn,s:k.orgnr+' '+k.epost,i:'building-2',run:()=>go(S.variant==='B'?'#/kundfakturor/kund-'+k.id:'#/kundfakturor')}))];
+  if(!q)return o.slice(0,9);
+  const norm=t=>String(t).toLowerCase().replace(/\s/g,'');const qq=norm(q);
+  return o.filter(x=>norm(x.t+' '+(x.amt||'')+' '+(x.s||'')).includes(qq)).slice(0,14);
+}
+function pal(){const o=opts();let g='';
+  return `<div class="pal-bg" onclick="if(event.target===this){S.pal=false;render()}"><div class="pal"><div class="in">${ic('search')}<input id="palq" placeholder="Sök faktura, kund, OCR, belopp…" value="${esc(S.palQ)}" oninput="S.palQ=this.value;S.palI=0;render();const e=document.getElementById('palq');e.focus();e.setSelectionRange(e.value.length,e.value.length)"></div>
+    <div class="ls">${o.map((x,i)=>{const hh=x.g!==g?(g=x.g,`<div class="grp">${x.g}</div>`):'';return hh+`<div class="opt ${i===S.palI?'on':''}" onclick="runOpt(${i})">${ic(x.i)}<span class="t">${esc(x.t)}</span>${x.amt?`<span class="amt">${x.amt}</span>`:''}</div>`}).join('')||'<div class="opt mf">Inga träffar.</div>'}</div></div></div>`}
+function runOpt(i){const o=opts()[i];S.pal=false;S.palQ='';o&&o.run();render()}
+function palett(){S.pal=true;S.palQ='';S.palI=0;render();setTimeout(()=>document.getElementById('palq')?.focus())}
+
+/* ================= Render, tema, tangenter ================= */
+const VARIANTS={A,B,C};
+function render(keepFocus){
+  const a=document.activeElement,all=[...document.querySelectorAll('input,textarea')],idx=keepFocus&&a?all.indexOf(a):-1,pos=idx>=0?a.selectionStart:null;
+  const V=VARIANTS[S.variant]||A;
+  document.getElementById('app').innerHTML=skal(route(),V);
+  window.lucide&&lucide.createIcons();
+  if(idx>=0){const e=document.querySelectorAll('input,textarea')[idx];if(e){e.focus();try{e.setSelectionRange(pos,pos)}catch{}}}
+  const keys=Object.keys(VARIANTS);
+  document.getElementById('proto-switcher').innerHTML=`<button onclick="cyk(-1)">←</button><span class="lbl">PROTOTYP · ${S.variant} (${V.namn}) · ${keys.indexOf(S.variant)+1}/${keys.length}</span><button onclick="cyk(1)">→</button>`;
+}
+function cyk(d){const k=Object.keys(VARIANTS);S.variant=k[(k.indexOf(S.variant)+d+k.length)%k.length];S.coMenu=false;S.pal=false;S.modal=null;S.panel=null;
+  const rt=route();if(rt.id&&rt.id.startsWith('kund-')&&S.variant!=='B')location.hash='#/kundfakturor';
+  const p=new URLSearchParams(location.search);p.set('variant',S.variant);history.replaceState(null,'','?'+p+location.hash);render()}
+function tema(){const r=document.documentElement,cur=r.dataset.theme||(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light');r.dataset.theme=cur==='dark'?'light':'dark'}
+let senast=null;
+window.addEventListener('hashchange',()=>{const rt=route();S.coMenu=false;S.nyMeny=false;S.modal=null;
+  if(rt.id!==senast){S.panel=null;S.visaPdf=false}
+  if(!rt.id||(S.form&&S.form._for!==rt.id))S.form=null;render();senast=rt.id;S.flash=''});
+document.addEventListener('click',e=>{if(S.coMenu&&!e.target.closest('.co')){S.coMenu=false;render()}if(S.nyMeny&&!e.target.closest('.newmenu')){S.nyMeny=false;render()}});
+document.addEventListener('keydown',e=>{
+  const typing=e.target.matches('input,textarea,select,[contenteditable]');const mod=e.metaKey||e.ctrlKey;
+  if(mod&&e.key.toLowerCase()==='k'){e.preventDefault();S.pal?(S.pal=false,render()):palett();return}
+  if(S.pal){const o=opts();
+    if(e.key==='Escape'){S.pal=false;render()}
+    else if(e.key==='ArrowDown'){e.preventDefault();S.palI=Math.min(S.palI+1,o.length-1);render();document.getElementById('palq').focus()}
+    else if(e.key==='ArrowUp'){e.preventDefault();S.palI=Math.max(S.palI-1,0);render();document.getElementById('palq').focus()}
+    else if(e.key==='Enter'){e.preventDefault();runOpt(S.palI)}
+    return}
+  if(e.key==='Escape'&&(S.modal||S.panel)){stangPanel();return}
+  if(typing)return;
+  if(e.key==='ArrowLeft')cyk(-1);
+  if(e.key==='ArrowRight')cyk(1);
+});
+render();
+</script>
+</body>
+</html>
