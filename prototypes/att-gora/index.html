@@ -18,6 +18,7 @@
      med AI-förslag och underlag överst; utan val visar detaljen nyckeltalen ("Läget").
   C: Agendan. Ingen lista och detalj: en tidslinje med allt som har ett datum (försenat först, sedan dag för dag,
      kommande datum nedtonade) och en spalt för det som saknar datum. Kort fälls ut på plats. Nyckeltal överst.
+     (VALD, se #47; spalten utan datum har sektioner och utkasten grupperas per period enligt #32)
   Allt ligger i minnet; ladda om sidan för att börja om. I dag är tisdag 2026-10-14.
   Exempel AB (kvartalsmoms) har utkast i juli (50-dagarsvarning) och oktober, två okopplade underlag och ett
   AI-förslag om radering, en förfallen leverantörsfaktura och två som förfaller inom 7 dagar, kundfakturor i
@@ -712,8 +713,16 @@ function tidslinje(){const L=items();
   const dat=L.filter(x=>x.frist&&!UTKT.includes(x.typ)).map(x=>({...x,dag:x.typ==='kf-forfallen'||x.frist<IDAG?'forsenat':x.frist}));
   KOMMANDE[S.co].forEach(([d,t,o])=>{if(!dat.some(x=>x.frist===d&&x.t.startsWith(t.slice(0,12))))dat.push({dag:d,komm:true,t,omr:o})});
   dat.sort((a,b)=>a.dag===b.dag?(a.komm?1:-1):a.dag==='forsenat'?-1:b.dag==='forsenat'?1:a.dag<b.dag?-1:1);
-  const utan=[...L.filter(x=>['ai-radera','kf-aibet','ny-part'].includes(x.typ)),...L.filter(x=>x.typ==='kf-utskick'||x.typ==='kf-ejskickad'||x.typ==='agi-andrad'),...L.filter(x=>UTKT.includes(x.typ)).sort((a,b)=>a.datum<b.datum?-1:1),...L.filter(x=>x.typ==='underlag')];
-  return {dat,utan}}
+  const sek=[['Att granska','sparkles',L.filter(x=>['ai-radera','kf-aibet','ny-part'].includes(x.typ))],
+   ['Följ upp','eye',L.filter(x=>['kf-utskick','kf-ejskickad','agi-andrad'].includes(x.typ))],
+   ['Utkast','pencil',L.filter(x=>UTKT.includes(x.typ)).sort((a,b)=>a.datum>b.datum?-1:1)],
+   ['Okopplade underlag','paperclip',L.filter(x=>x.typ==='underlag').sort((a,b)=>a.skapad<b.skapad?-1:1)]];
+  return {dat,sek,utan:sek.flatMap(x=>x[2])}}
+function utanSpalt(T){return T.sek.filter(x=>x[2].length).map(([t,i,l])=>{let body;
+  if(t==='Utkast'){const per={};l.forEach(x=>(per[x.datum.slice(0,7)]=per[x.datum.slice(0,7)]||[]).push(x));
+    body=Object.keys(per).sort().reverse().map(m=>`<div class="per">${Manad(m)}${varning50(m)?`<span class="badge badge-warn">slut för ${dagar(manSlut(m),IDAG)} dagar sedan</span>`:''}</div>${per[m].map(kort).join('')}`).join('')}
+  else body=l.map(kort).join('');
+  return `<div class="ig">${ic(i)}${t}<span class="n">${l.length}</span></div>${body}`}).join('')}
 function kort(x){const o=S.open[x.id];return `<div class="acard ${o?'open':''} ${x.ai?'ai':''}" id="k-${x.id}"><div class="ah" onclick="S.open['${x.id}']=!S.open['${x.id}'];render()">${ic(OMR[x.omr][1],'class="mf"')}<div class="col" style="gap:2px"><b style="font-weight:500">${esc(x.t)}</b><span class="s flex" style="gap:6px;flex-wrap:wrap">${badges(x)}${x.s&&!o?esc(x.s):''}</span></div><span class="col" style="gap:2px;align-items:flex-end">${x.belopp?`<span class="num">${kr(x.belopp)}</span>`:''}${when(x)}</span></div>${o?`<div class="ab">${detalj(x,true)}</div>`:''}</div>`}
 function agenda(){const T=tidslinje(),K=NYCK[S.co];let dag='';
   const vecka=T.dat.filter(x=>x.dag!=='forsenat'&&dagar(IDAG,x.dag)<=7&&!x.komm).length,fs=T.dat.filter(x=>x.dag==='forsenat').length;
@@ -722,7 +731,7 @@ function agenda(){const T=tidslinje(),K=NYCK[S.co];let dag='';
   <div class="nyck">${K.map(([t,v,s])=>`<div class="stat"><span class="mf">${t}</span><b>${v}</b><span class="sub">${s}</span></div>`).join('')}</div>
   <div class="ag-grid"><div>${T.dat.map(x=>{let h='';if(x.dag!==dag){dag=x.dag;h=`<div class="ag-day ${dag==='forsenat'?'bad':dag===IDAG?'idag':''}">${dag==='forsenat'?ic('alarm-clock')+'Försenat':dlang(dag)}<span class="mf">${dag==='forsenat'?'':dagar(IDAG,dag)===0?'i dag':'om '+dagar(IDAG,dag)+' dagar'}</span></div>`}
      return h+(x.komm?`<div class="akomm">${ic(OMR[x.omr][1])}<span>${esc(x.t)}</span></div>`:kort(x))}).join('')}</div>
-  <div class="ag-side"><div class="ag-day">${ic('inbox')}Utan datum<span class="mf">${T.utan.length}</span></div>${T.utan.map(kort).join('')||'<div class="mf">Inget.</div>'}<div class="foot">${ic('shield-check')}Senaste backup i natt 03:12, verifierad</div></div></div></div></div>`}
+  <div class="ag-side"><div class="ag-day">${ic('inbox')}Utan datum<span class="mf">${T.utan.length}</span></div>${utanSpalt(T)||'<div class="mf">Inget.</div>'}<div class="foot">${ic('shield-check')}Senaste backup i natt 03:12, verifierad</div></div></div></div></div>`}
 
 /* ================= Skal (variant D från gränssnittsprototypen) ================= */
 const VARIANTS={A:{namn:'Brådskan'},B:{namn:'Områdena'},C:{namn:'Agendan'}};
