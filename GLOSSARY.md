@@ -52,6 +52,10 @@ _Avoid_: Bolag, organisation, tenant, klient
 Den period ett företags bokföring avslutas för, med ingående och utgående balanser.
 _Avoid_: Bokföringsår, verksamhetsår
 
+**Ingående balans**:
+Saldot på varje balanskonto när ett räkenskapsår börjar; den är inget verifikat, och för företagets första räkenskapsår i Maya skrivs den in eller importeras.
+_Avoid_: IB-verifikat, öppningsverifikat, startsaldo
+
 **Verifikat**:
 En bokföringspost som dokumenterar en affärshändelse med debet- och kreditrader; ett bokfört verifikat ändras aldrig, bara rättas genom ett nytt verifikat.
 _Avoid_: Verifikation, voucher, transaktion, journal entry
