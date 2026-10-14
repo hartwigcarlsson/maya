@@ -1,0 +1,849 @@
+<!doctype html>
+<html lang="sv">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Maya leverantörsfakturor</title>
+<!--
+  PROTOTYP, KASTA BORT. Svarar på: Hur ser leverantörsfakturor ut i gränssnittet?
+  (https://github.com/hartwigcarlsson/maya/issues/43). Flödet är beslutat i #20.
+  Bygger på skalet och stilen i variant D av gränssnittsprototypen (#24) och verifikatprototypens variant C (#32).
+  Tre varianter, ?variant=A|B|C (eller ← → / knapparna längst ned). Skalet är detsamma i alla tre;
+  de skiljer sig i Att göra (okopplade underlag), reskontrans lista, registreringsvyn och betalningen.
+  A: Tabell och dialoger   B: Leverantören först, sortera underlag   C: Underlag bredvid, förfallodag först
+  Allt ligger i minnet; ladda om sidan för att börja om. I dag är 2026-10-14. Perioder t.o.m. juni är låsta,
+  juli–september är momsdeklarerade. Exempel AB använder fakturametoden, Konsultbolaget i Lund kontantmetoden.
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://unpkg.com/lucide@0.469.0/dist/umd/lucide.min.js"></script>
+<style>
+<style>
+/* Tokens från presetet (Stone + Amber), ljust */
+:root{
+  --background:oklch(1 0 0);--foreground:oklch(0.147 0.004 49.25);
+  --card:oklch(1 0 0);--popover:oklch(1 0 0);
+  --primary:oklch(0.555 0.163 48.998);--primary-foreground:oklch(0.987 0.022 95.277);
+  --secondary:oklch(0.967 0.001 286.375);--secondary-foreground:oklch(0.21 0.006 285.885);
+  --muted:oklch(0.97 0.001 106.424);--muted-foreground:oklch(0.553 0.013 58.071);
+  --accent:oklch(0.97 0.001 106.424);--accent-foreground:oklch(0.216 0.006 56.043);
+  --destructive:oklch(0.577 0.245 27.325);
+  --border:oklch(0.923 0.003 48.717);--input:oklch(0.923 0.003 48.717);--ring:oklch(0.709 0.01 56.259);
+  --sidebar:oklch(0.985 0.001 106.423);--sidebar-primary:oklch(0.666 0.179 58.318);--sidebar-accent:oklch(0.97 0.001 106.424);--sidebar-border:oklch(0.923 0.003 48.717);
+  --success:oklch(0.52 0.12 150);
+  --radius:0.45rem;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --background:oklch(0.147 0.004 49.25);--foreground:oklch(0.985 0.001 106.423);
+  --card:oklch(0.216 0.006 56.043);--popover:oklch(0.216 0.006 56.043);
+  --primary:oklch(0.473 0.137 46.201);--primary-foreground:oklch(0.987 0.022 95.277);
+  --secondary:oklch(0.274 0.006 286.033);--secondary-foreground:oklch(0.985 0 0);
+  --muted:oklch(0.268 0.007 34.298);--muted-foreground:oklch(0.709 0.01 56.259);
+  --accent:oklch(0.268 0.007 34.298);--accent-foreground:oklch(0.985 0.001 106.423);
+  --destructive:oklch(0.704 0.191 22.216);
+  --border:oklch(1 0 0 / 10%);--input:oklch(1 0 0 / 15%);--ring:oklch(0.553 0.013 58.071);
+  --sidebar:oklch(0.216 0.006 56.043);--sidebar-primary:oklch(0.769 0.188 70.08);--sidebar-accent:oklch(0.268 0.007 34.298);--sidebar-border:oklch(1 0 0 / 10%);
+  --success:oklch(0.75 0.13 150);
+}}
+:root[data-theme="dark"]{
+  --background:oklch(0.147 0.004 49.25);--foreground:oklch(0.985 0.001 106.423);
+  --card:oklch(0.216 0.006 56.043);--popover:oklch(0.216 0.006 56.043);
+  --primary:oklch(0.473 0.137 46.201);--primary-foreground:oklch(0.987 0.022 95.277);
+  --secondary:oklch(0.274 0.006 286.033);--secondary-foreground:oklch(0.985 0 0);
+  --muted:oklch(0.268 0.007 34.298);--muted-foreground:oklch(0.709 0.01 56.259);
+  --accent:oklch(0.268 0.007 34.298);--accent-foreground:oklch(0.985 0.001 106.423);
+  --destructive:oklch(0.704 0.191 22.216);
+  --border:oklch(1 0 0 / 10%);--input:oklch(1 0 0 / 15%);--ring:oklch(0.553 0.013 58.071);
+  --sidebar:oklch(0.216 0.006 56.043);--sidebar-primary:oklch(0.769 0.188 70.08);--sidebar-accent:oklch(0.268 0.007 34.298);--sidebar-border:oklch(1 0 0 / 10%);
+  --success:oklch(0.75 0.13 150);
+}
+*{box-sizing:border-box;border-color:var(--border)}
+html,body{margin:0;height:100%}
+body{background:var(--background);color:var(--foreground);font:13px/1.5 Inter,system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+button,input,select{font:inherit;color:inherit}
+a{color:inherit;text-decoration:none}
+svg.lucide{width:14px;height:14px;flex-shrink:0;stroke-width:2}
+.num{font-variant-numeric:tabular-nums;text-align:right;white-space:nowrap}
+.mf{color:var(--muted-foreground)}
+h1{font-size:16px;font-weight:600;margin:0;letter-spacing:-.01em}
+h2{font-size:14px;font-weight:500;margin:0}
+
+/* Button */
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:4px;height:28px;padding:0 8px;border-radius:calc(var(--radius) * .8);font-size:13px;font-weight:500;border:1px solid transparent;cursor:pointer;white-space:nowrap;background:transparent;transition:background .1s}
+.btn-default{background:var(--primary);color:var(--primary-foreground)}
+.btn-default:hover{background:color-mix(in oklch,var(--primary) 90%,transparent)}
+.btn-outline{border-color:var(--input);background:var(--background)}
+:root[data-theme="dark"] .btn-outline{background:color-mix(in oklch,var(--input) 30%,transparent)}
+.btn-outline:hover,.btn-ghost:hover{background:var(--accent)}
+.btn-secondary{background:var(--secondary);color:var(--secondary-foreground)}
+.btn-icon{width:28px;padding:0}
+.btn-destructive-ghost{color:var(--destructive)}
+.btn-destructive-ghost:hover{background:color-mix(in oklch,var(--destructive) 10%,transparent)}
+
+/* Badge */
+.badge{display:inline-flex;align-items:center;gap:4px;height:20px;padding:2px 8px;border-radius:999px;font-size:10px;font-weight:500;white-space:nowrap;border:1px solid transparent;vertical-align:middle}
+.badge svg.lucide{width:10px;height:10px}
+.badge-utkast{border:1px dashed var(--muted-foreground);color:var(--muted-foreground)}
+.badge-bokford{background:var(--secondary);color:var(--secondary-foreground)}
+.badge-ai{border-color:var(--border);color:var(--foreground)}
+.badge-rattad{background:color-mix(in oklch,var(--destructive) 12%,transparent);color:var(--destructive)}
+.badge-count{background:var(--primary);color:var(--primary-foreground);height:18px;min-width:18px;padding:0 5px;justify-content:center}
+
+/* Card */
+.card{background:var(--card);border-radius:var(--radius);box-shadow:0 0 0 1px color-mix(in oklch,var(--foreground) 10%,transparent);display:flex;flex-direction:column;gap:16px;padding:16px 0}
+.card-header{padding:0 16px;display:flex;justify-content:space-between;align-items:flex-start;gap:12px}
+.card-title{font-size:14px;font-weight:500}
+.card-desc{color:var(--muted-foreground)}
+.card-content{padding:0 16px}
+.card-footer{padding:0 16px;display:flex;gap:8px;justify-content:flex-end;align-items:center}
+
+/* Input */
+.input{height:28px;border:1px solid var(--input);border-radius:calc(var(--radius) * .8);padding:0 8px;background:transparent;font-size:13px;width:100%}
+:root[data-theme="dark"] .input{background:color-mix(in oklch,var(--input) 30%,transparent)}
+.input:focus,.cell:focus{outline:none;border-color:var(--ring);box-shadow:0 0 0 3px color-mix(in oklch,var(--ring) 50%,transparent)}
+.input[readonly]{background:var(--muted);color:var(--muted-foreground)}
+.label{font-size:13px;font-weight:500;display:block;margin-bottom:6px}
+.field-grid{display:grid;grid-template-columns:160px 1fr 1fr;gap:16px}
+
+/* Table */
+table{border-collapse:collapse;width:100%}
+.table th{height:32px;padding:0 8px;text-align:left;font-weight:500;color:var(--muted-foreground);border-bottom:1px solid var(--border);white-space:nowrap}
+.table td{padding:6px 8px;border-bottom:1px solid var(--border);vertical-align:middle}
+.table tbody tr:last-child td{border-bottom:0}
+.table tr.click{cursor:pointer}
+.table tr.click:hover td{background:color-mix(in oklch,var(--muted) 50%,transparent)}
+.cell{width:100%;height:28px;border:1px solid transparent;border-radius:calc(var(--radius) * .8);padding:0 6px;background:transparent}
+.cell:hover:not([readonly]){border-color:var(--input)}
+.rows td{padding:2px 4px}
+.sumrow td{font-weight:600;border-top:1px solid var(--border);padding:8px}
+.diff-bad{color:var(--destructive);display:inline-flex;gap:4px;align-items:center}
+.diff-ok{color:var(--success);display:inline-flex;gap:4px;align-items:center}
+
+/* Alert */
+.alert{display:grid;grid-template-columns:auto 1fr auto;gap:2px 10px;align-items:start;border:1px solid var(--border);border-radius:var(--radius);padding:10px 12px;background:var(--card)}
+.alert .t{font-weight:500}
+.alert ul{margin:2px 0 0 16px;padding:0;color:var(--muted-foreground)}
+.alert.destructive{color:var(--destructive)}
+.alert.destructive ul{color:color-mix(in oklch,var(--destructive) 85%,var(--foreground))}
+.alert.ok{color:var(--success)}
+
+/* Tabs */
+.tabs{display:inline-flex;background:var(--muted);border-radius:var(--radius);padding:3px;gap:2px}
+.tabs button{height:22px;padding:0 10px;border:0;border-radius:calc(var(--radius) * .7);background:transparent;color:var(--muted-foreground);font-weight:500;cursor:pointer;display:inline-flex;gap:6px;align-items:center}
+.tabs button.on{background:var(--background);color:var(--foreground);box-shadow:0 1px 2px rgba(0,0,0,.08)}
+:root[data-theme="dark"] .tabs button.on{background:var(--input)}
+
+/* Dropdown */
+.dropdown{position:absolute;z-index:20;background:var(--popover);border:1px solid var(--border);border-radius:var(--radius);box-shadow:0 8px 24px rgba(0,0,0,.18);padding:4px;min-width:240px}
+.dropdown .lbl{padding:6px 8px;color:var(--muted-foreground);font-size:11px}
+.dropdown .mi{display:flex;align-items:center;gap:8px;width:100%;padding:6px 8px;border:0;background:transparent;border-radius:calc(var(--radius) * .8);cursor:pointer;text-align:left}
+.dropdown .mi:hover{background:var(--accent)}
+.dropdown .sepl{height:1px;background:var(--border);margin:4px -4px}
+.logo{width:28px;height:28px;border-radius:calc(var(--radius) * .8);background:var(--sidebar-primary);color:var(--primary-foreground);display:grid;place-items:center;font-weight:700;flex-shrink:0}
+.logo.sm{width:22px;height:22px;font-size:11px;background:var(--muted);color:var(--foreground);border:1px solid var(--border)}
+kbd{font:500 10px Inter,system-ui;border:1px solid var(--border);border-radius:4px;padding:1px 5px;background:var(--muted);color:var(--muted-foreground)}
+.placeholder{display:grid;place-items:center;gap:8px;padding:64px;color:var(--muted-foreground);text-align:center;border:1px dashed var(--border);border-radius:var(--radius)}
+
+/* ---------- Switcher (inte en del av designen) ---------- */
+#proto-switcher{position:fixed;left:50%;bottom:14px;transform:translateX(-50%);z-index:999;display:flex;align-items:center;gap:6px;
+  background:#111;color:#fff;border-radius:999px;padding:6px 8px;box-shadow:0 6px 24px rgba(0,0,0,.35);font:12px system-ui;border:2px dashed #f5c400}
+#proto-switcher button{background:#333;color:#fff;border:0;border-radius:999px;padding:4px 10px;cursor:pointer}
+#proto-switcher .lbl{padding:0 8px;white-space:nowrap}
+
+/* ---------- Variant B: Inkorg först ---------- */
+.B{display:flex;flex-direction:column;height:100vh}
+.B header{display:flex;align-items:center;gap:12px;padding:0 12px;height:48px;border-bottom:1px solid var(--border);background:var(--background)}
+.B .brand{display:flex;align-items:center;gap:8px;font-weight:600}
+.B .co{position:relative}
+.B .co .dropdown{top:34px;left:0}
+.B nav{display:flex;gap:2px}
+.B nav a{display:inline-flex;align-items:center;gap:6px;height:28px;padding:0 10px;border-radius:calc(var(--radius) * .8);color:var(--muted-foreground);font-weight:500}
+.B nav a:hover{color:var(--foreground);background:var(--accent)}
+.B nav a.on{color:var(--foreground);background:var(--accent)}
+.B header .right{margin-left:auto;display:flex;gap:4px;align-items:center}
+.B .split{flex:1;display:grid;grid-template-columns:360px 1fr;min-height:0}
+.B .list{border-right:1px solid var(--border);overflow:auto;padding:12px;display:flex;flex-direction:column;gap:6px;background:var(--sidebar)}
+.B .list .lh{display:flex;justify-content:space-between;align-items:center;padding:4px 4px 8px}
+.B .sect{display:flex;align-items:center;gap:6px;color:var(--muted-foreground);font-size:11px;font-weight:500;padding:10px 4px 2px}
+.B .item{display:flex;flex-direction:column;gap:6px;padding:10px 12px;border-radius:calc(var(--radius) * .8);border:1px solid transparent;background:color-mix(in oklch,var(--muted) 50%,transparent)}
+.B .item:hover{background:var(--muted)}
+.B .item.on{border-color:var(--ring);background:var(--card)}
+.B .item .top{display:flex;justify-content:space-between;gap:8px;font-weight:500}
+.B .item .meta{display:flex;gap:6px;align-items:center;color:var(--muted-foreground);flex-wrap:wrap}
+.B .item.plain{background:transparent;border-color:var(--border)}
+.B .detail{overflow:auto;padding:20px 28px 90px;display:flex;flex-direction:column;gap:16px}
+.B .empty{display:grid;place-items:center;height:100%;color:var(--muted-foreground);text-align:center;gap:8px}
+
+.search{display:inline-flex;align-items:center;gap:8px;height:28px;padding:0 8px;min-width:240px;border:1px solid var(--input);border-radius:calc(var(--radius) * .8);color:var(--muted-foreground);cursor:pointer;background:color-mix(in oklch,var(--muted) 50%,transparent)}
+.search kbd{margin-left:auto}
+.pal-bg{position:fixed;inset:0;background:rgba(0,0,0,.5);display:flex;justify-content:center;align-items:flex-start;padding-top:14vh;z-index:50}
+.pal{width:520px;max-width:92vw;background:var(--popover);border-radius:var(--radius);box-shadow:0 0 0 1px color-mix(in oklch,var(--foreground) 10%,transparent),0 16px 48px rgba(0,0,0,.4);overflow:hidden}
+.pal .in{display:flex;align-items:center;gap:8px;padding:0 12px;border-bottom:1px solid var(--border);color:var(--muted-foreground)}
+.pal input{flex:1;height:40px;border:0;background:transparent;outline:none;font-size:13px;color:var(--foreground)}
+.pal .ls{max-height:340px;overflow:auto;padding:4px}
+.pal .opt{display:flex;align-items:center;gap:8px;height:30px;padding:0 8px;border-radius:calc(var(--radius) * .8);cursor:pointer}
+.pal .opt.on{background:var(--accent)}
+.pal .opt kbd,.pal .opt .amt{margin-left:auto}
+.pal .opt .amt{color:var(--muted-foreground);font-variant-numeric:tabular-nums}
+.pal .opt .t{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pal .grp{padding:8px 8px 4px;font-size:11px;color:var(--muted-foreground);font-weight:500}
+.pal .ft{display:flex;gap:12px;padding:6px 12px;border-top:1px solid var(--border);color:var(--muted-foreground);font-size:11px}
+
+/* ---------- Gemensamt för verifikatprototypen ---------- */
+.B .detail{position:relative}
+.warn{color:var(--sidebar-primary)}
+.badge-warn{background:color-mix(in oklch,var(--sidebar-primary) 14%,transparent);color:var(--sidebar-primary)}
+.badge-lock{background:var(--muted);color:var(--muted-foreground);border-color:var(--border)}
+.dl{display:grid;grid-template-columns:130px 1fr;gap:6px 16px}
+.dl dt{color:var(--muted-foreground)}
+.dl dd{margin:0}
+.link{text-decoration:underline;text-underline-offset:2px;cursor:pointer}
+.sec-t{font-size:11px;font-weight:500;color:var(--muted-foreground);text-transform:uppercase;letter-spacing:.04em;margin-bottom:6px}
+.paper{background:var(--card);border-radius:var(--radius);box-shadow:0 0 0 1px color-mix(in oklch,var(--foreground) 10%,transparent),0 2px 8px rgba(0,0,0,.04);padding:24px 28px;display:flex;flex-direction:column;gap:20px;max-width:860px}
+.ro td{padding:6px 8px}
+.hist{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px}
+.hist li{display:grid;grid-template-columns:18px 130px 1fr;gap:8px;align-items:start}
+.hist li .t{color:var(--muted-foreground);font-variant-numeric:tabular-nums}
+.ufile{display:flex;align-items:center;gap:8px;padding:6px 8px;border:1px solid var(--border);border-radius:calc(var(--radius) * .8)}
+.ufile .mf{margin-left:auto;font-size:11px}
+.ufile.kompl{border-style:dashed}
+.preview{display:grid;place-items:center;gap:6px;background:var(--muted);color:var(--muted-foreground);border-radius:var(--radius);text-align:center}
+.drop{display:grid;place-items:center;gap:6px;border:1px dashed var(--ring);border-radius:var(--radius);color:var(--muted-foreground);padding:16px;text-align:center}
+.err .input,.input.err{border-color:var(--destructive)}
+tr.err td{background:color-mix(in oklch,var(--destructive) 6%,transparent)}
+.cell.err{border-color:var(--destructive)}
+.ferr{color:var(--destructive);font-size:11px;margin-top:3px;display:flex;gap:4px;align-items:center}
+.ferr svg.lucide{width:11px;height:11px}
+.btn[disabled]{opacity:.5;cursor:not-allowed}
+.dialog{width:560px;max-width:94vw;background:var(--popover);border-radius:var(--radius);box-shadow:0 0 0 1px color-mix(in oklch,var(--foreground) 10%,transparent),0 16px 48px rgba(0,0,0,.4);display:flex;flex-direction:column;gap:14px;padding:18px 20px}
+.dialog .ft{display:flex;gap:8px;justify-content:flex-end}
+.pick{display:flex;flex-direction:column;gap:4px;max-height:220px;overflow:auto}
+.pick label{display:flex;gap:8px;align-items:center;padding:6px 8px;border-radius:calc(var(--radius) * .8);border:1px solid var(--border);cursor:pointer}
+.pick label:hover{background:var(--accent)}
+.note{display:flex;gap:8px;align-items:flex-start;color:var(--muted-foreground);font-size:12px}
+.note svg.lucide{margin-top:2px}
+.flex{display:flex;gap:8px;align-items:center}
+.col{display:flex;flex-direction:column;gap:8px}
+
+/* A: kontrollista i en högerspalt */
+.A-edit{display:grid;grid-template-columns:1fr 250px;gap:24px;align-items:start}
+.rail{position:sticky;top:0;display:flex;flex-direction:column;gap:10px;padding:14px;border:1px solid var(--border);border-radius:var(--radius);background:var(--sidebar)}
+.rail .chk{display:grid;grid-template-columns:16px 1fr;gap:6px;align-items:start}
+.rail .chk.ok{color:var(--muted-foreground)}
+.rail .chk.bad{color:var(--foreground)}
+.rail .chk.bad svg.lucide{color:var(--destructive)}
+.rail .chk.ok svg.lucide{color:var(--success)}
+.rail .chk .fix{display:block;font-size:11px;color:var(--muted-foreground)}
+
+/* B: tabell som lista */
+.tlist{width:100%;border-collapse:collapse}
+.tlist td{padding:6px 6px;border-bottom:1px solid var(--border);vertical-align:top}
+.tlist tr{cursor:pointer}
+.tlist tr:hover td{background:var(--muted)}
+.tlist tr.on td{background:var(--card);box-shadow:inset 0 0 0 0 var(--ring)}
+.tlist tr.on td:first-child{box-shadow:inset 2px 0 0 var(--sidebar-primary)}
+.tlist th{font-weight:500;color:var(--muted-foreground);text-align:left;padding:4px 6px;border-bottom:1px solid var(--border);font-size:11px}
+.B .list.wide{padding:8px}
+.cmp{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.cmp .paper{padding:16px}
+
+/* C: underlag bredvid */
+.C-edit{display:grid;grid-template-columns:minmax(260px,42%) 1fr;gap:20px;align-items:start}
+.C-edit .left{position:sticky;top:0;display:flex;flex-direction:column;gap:8px}
+.C-edit .left .preview{height:420px}
+.per{display:flex;align-items:center;gap:6px;font-size:11px;font-weight:500;color:var(--muted-foreground);padding:12px 4px 2px}
+.per .badge{margin-left:auto}
+.pop{position:absolute;z-index:20;background:var(--popover);border:1px solid var(--border);border-radius:var(--radius);box-shadow:0 8px 24px rgba(0,0,0,.18);padding:8px;width:300px;display:flex;flex-direction:column;gap:6px}
+.inl{border:1px solid var(--ring);border-radius:var(--radius);padding:14px;display:flex;flex-direction:column;gap:12px;background:var(--card)}
+.bcount{background:color-mix(in oklch,var(--primary-foreground) 25%,transparent);border-radius:999px;padding:0 6px;font-size:11px}
+/* ---------- Leverantörsfakturor ---------- */
+.badge-obetald{background:var(--secondary);color:var(--secondary-foreground)}
+.badge-forfallen{background:color-mix(in oklch,var(--destructive) 12%,transparent);color:var(--destructive)}
+.badge-betald{background:color-mix(in oklch,var(--success) 14%,transparent);color:var(--success)}
+.badge-ny{background:color-mix(in oklch,var(--sidebar-primary) 14%,transparent);color:var(--sidebar-primary);border:1px dashed var(--sidebar-primary)}
+.copy{display:inline-flex;align-items:center;gap:6px;height:24px;padding:0 8px;border:1px solid var(--border);border-radius:calc(var(--radius) * .8);background:var(--background);cursor:pointer;font-variant-numeric:tabular-nums}
+.copy:hover{background:var(--accent)}
+.copy .k{color:var(--muted-foreground);font-size:11px}
+.levkort{border:1px solid var(--border);border-radius:var(--radius);padding:12px;display:flex;flex-direction:column;gap:8px}
+.levkort.ny{border:1px dashed var(--sidebar-primary);background:color-mix(in oklch,var(--sidebar-primary) 5%,transparent)}
+.g2{display:grid;grid-template-columns:1fr 1fr;gap:10px 14px}
+.g3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px 14px}
+.g4{display:grid;grid-template-columns:repeat(4,1fr);gap:10px 14px}
+.kont{border:1px solid var(--border);border-radius:var(--radius);padding:10px 12px;background:var(--sidebar)}
+.kont .table td,.kont .table th{padding:3px 8px;height:auto}
+.select{height:28px;border:1px solid var(--input);border-radius:calc(var(--radius) * .8);padding:0 6px;background:var(--background);width:100%}
+.seg{display:inline-flex;border:1px solid var(--border);border-radius:var(--radius);overflow:hidden}
+.seg button{border:0;border-right:1px solid var(--border);background:var(--background);padding:6px 12px;cursor:pointer;display:inline-flex;gap:6px;align-items:center}
+.seg button:last-child{border-right:0}
+.seg button.on{background:var(--accent);font-weight:500}
+.seg button:hover{background:var(--accent)}
+.triage{display:grid;grid-template-columns:1fr 280px;gap:20px;align-items:start}
+.tchoice{display:flex;flex-direction:column;gap:6px}
+.tchoice button{display:flex;align-items:center;gap:10px;padding:10px 12px;border:1px solid var(--border);border-radius:var(--radius);background:var(--card);cursor:pointer;text-align:left}
+.tchoice button:hover{background:var(--accent)}
+.tchoice kbd{margin-left:auto}
+.levgrp{display:flex;justify-content:space-between;align-items:center;padding:10px 6px 4px;font-weight:500;cursor:pointer}
+.levgrp:hover{color:var(--sidebar-primary)}
+.bet{display:grid;grid-template-columns:100px 1fr 120px 60px;gap:8px;padding:4px 0;border-bottom:1px solid var(--border)}
+.A-reg{display:grid;grid-template-columns:1fr minmax(240px,36%);gap:20px;align-items:start}
+.A-reg .orig{position:sticky;top:0;display:flex;flex-direction:column;gap:8px}
+.steg{display:flex;flex-direction:column;gap:10px;border:1px solid var(--border);border-radius:var(--radius);padding:12px 14px}
+.steg .st{display:flex;gap:8px;align-items:center;font-weight:500}
+.steg .st .n{width:20px;height:20px;border-radius:999px;background:var(--muted);display:grid;place-items:center;font-size:11px}
+.steg.klar .st .n{background:var(--success);color:white}
+</style>
+</head>
+<body>
+<div id="app"></div>
+<div id="proto-switcher"></div>
+<script>
+/* ================= Data (i minnet) ================= */
+const IDAG = new Date('2026-10-14T10:00:00');
+const IDAG_S = '2026-10-14';
+const LAST_TOM = '2026-06';                          // perioder t.o.m. juni är låsta
+const DEKL = ['2026-07','2026-08','2026-09'];        // deklarerade momsperioder (månadsmoms)
+const KONTON = {1930:'Företagskonto',2440:'Leverantörsskulder',2614:'Utgående moms omvänd skattskyldighet 25 %',2615:'Utgående moms import av varor 25 %',2617:'Utgående moms omvänd skattskyldighet bygg 25 %',
+  2641:'Debiterad ingående moms',2645:'Beräknad ingående moms på förvärv från utlandet',2647:'Ingående moms omvänd skattskyldighet i Sverige',3740:'Öres- och kronutjämning',3960:'Valutakursvinster',
+  5010:'Lokalhyra',5170:'Reparation och underhåll av fastighet',5410:'Förbrukningsinventarier',6212:'Mobiltelefon',6540:'IT-tjänster',6250:'Postbefordran',7960:'Valutakursförluster',5020:'El för lokaler'};
+const INAKTIVA = new Set(['5020']);
+const kNamn = k=>KONTON[k]; const kAktiv=k=>!!KONTON[k]&&!INAKTIVA.has(String(k));
+const ANV = 'Anna Berg';
+const FORETAG = [
+  {id:'exempel',namn:'Exempel AB',orgnr:'559999-9991',metod:'faktura'},
+  {id:'lund',namn:'Konsultbolaget i Lund AB',orgnr:'559888-1234',metod:'kontant'},
+];
+const OMV = {'':'Ingen',eutj:'EU-tjänst',euvara:'EU-vara',bygg:'Bygg inom Sverige',import:'Tjänst från land utanför EU'};
+const OMV_K = {eutj:['2645','2614'],euvara:['2645','2615'],bygg:['2647','2617'],import:['2645','2614']};
+let fseq=100,useq=1,lseq=10,min=10;
+const nu=()=>IDAG_S+' 10:'+String(min++).padStart(2,'0');
+const h=(tid,vem,text,ikon)=>({tid,vem,text,ikon});
+const U=(namn,o)=>Object.assign({id:'u'+(useq++),namn},o||{});
+const R=(konto,netto,sats)=>({konto:String(konto),netto:netto===''?'':new Intl.NumberFormat('sv-SE',{minimumFractionDigits:2}).format(netto),sats:String(sats),moms:''});
+const LEV = {
+  exempel:[
+    {id:'l1',namn:'Telia Sverige AB',orgnr:'556430-0142',adress:'169 94 Solna',momsnr:'SE556430014201',land:'SE',bg:'5050-1055',konto:'6212'},
+    {id:'l2',namn:'Fastighets AB Kvarnen',orgnr:'556677-1122',adress:'Kvarngatan 4, 118 47 Stockholm',momsnr:'SE556677112201',land:'SE',bg:'123-4567',konto:'5010'},
+    {id:'l3',namn:'Adobe Systems Software Ireland Ltd',orgnr:'',adress:'4–6 Riverwalk, Dublin 24',momsnr:'IE6364992H',land:'IE',iban:'IE29 AIBK 9311 5212 3456 78',bic:'AIBKIE2D',konto:'6540',omvand:'eutj'},
+    {id:'l4',namn:'Loopia AB',orgnr:'556633-9304',adress:'Kopparlundsvägen 7, Västerås',momsnr:'SE556633930401',land:'SE',bg:'5051-6905',konto:'6540'},
+    {id:'l5',namn:'Kontorsgiganten i Norden AB',orgnr:'556123-4567',adress:'Lagervägen 12, 431 49 Mölndal',momsnr:'SE556123456701',land:'SE',bg:'987-6543',konto:'5410',ny:{klient:'Claude Code'}},
+    {id:'l6',namn:'Bygg & Montage Lindqvist AB',orgnr:'559012-3344',adress:'Industrigatan 9, Uppsala',momsnr:'SE559012334401',land:'SE',pg:'48 77 21-3',konto:'5170',omvand:'bygg'},
+  ],
+  lund:[{id:'l20',namn:'Loopia AB',orgnr:'556633-9304',adress:'Kopparlundsvägen 7, Västerås',momsnr:'SE556633930401',land:'SE',bg:'5051-6905',konto:'6540'}],
+};
+function F(o){return Object.assign({id:'f'+(fseq++),ocr:'',rader:[],omvand:'',valuta:'',status:'registrerad',ver:[],betalningar:[],underlag:[],historik:[],kanal:'webb'},o)}
+const FAK = {
+  exempel:[
+    F({lev:'l2',nr:'2026-1045',fdatum:'2026-09-25',forfallo:'2026-09-30',ocr:'20261045',total:15000,rader:[R(5010,12000,25)],underlag:[U('kvarnen-hyra-okt.pdf')],
+      ver:[{typ:'Registrering',nr:3,datum:'2026-09-25'},{typ:'Betalning',nr:4,datum:'2026-09-30'}],betalningar:[{datum:'2026-09-30',belopp:15000,konto:'1930',vnr:4}],
+      historik:[h('2026-09-25 09:02',ANV,'Registrerade, bokfördes som V3','lock'),h('2026-09-30 08:15',ANV,'Registrerade betalning 15 000,00 kr, V4','banknote')]}),
+    F({lev:'l4',nr:'4412977',fdatum:'2026-09-10',forfallo:'2026-10-10',ocr:'4412977000',total:225,rader:[R(6540,180,25)],underlag:[U('loopia-4412977.pdf')],
+      ver:[{typ:'Registrering',nr:2,datum:'2026-09-10'}],historik:[h('2026-09-11 07:40',ANV,'Registrerade, bokfördes som V2','lock')]}),
+    F({lev:'l1',nr:'INV-87650',fdatum:'2026-09-02',forfallo:'2026-09-30',ocr:'8765011',total:498.75,rader:[R(6212,399,25)],underlag:[U('telia-sep.pdf')],
+      ver:[{typ:'Registrering',nr:1,datum:'2026-09-02'}],historik:[h('2026-09-03 08:00',ANV,'Registrerade, bokfördes som V1','lock'),h('2026-09-20 10:00',ANV,'Krediterad av CR-1203','file-minus')]}),
+    F({lev:'l1',nr:'CR-1203',fdatum:'2026-09-18',forfallo:'2026-09-18',total:-498.75,rader:[R(6212,-399,25)],kreditAv:'f102',underlag:[U('telia-kredit-CR-1203.pdf')],
+      ver:[{typ:'Registrering',nr:5,datum:'2026-09-18'}],historik:[h('2026-09-20 10:00',ANV,'Registrerade kreditfaktura, bokfördes som V5','lock')]}),
+    F({lev:'l6',nr:'1187',fdatum:'2026-10-01',forfallo:'2026-10-31',ocr:'',total:50000,omvand:'bygg',rader:[R(5170,50000,0)],underlag:[U('lindqvist-1187.pdf')],
+      ver:[{typ:'Registrering',nr:6,datum:'2026-10-01'},{typ:'Betalning',nr:7,datum:'2026-10-05'}],betalningar:[{datum:'2026-10-05',belopp:30000,konto:'1930',vnr:7}],
+      historik:[h('2026-10-02 09:30',ANV,'Registrerade, bokfördes som V6','lock'),h('2026-10-05 12:00',ANV,'Registrerade delbetalning 30 000,00 kr, V7','banknote')]}),
+    F({lev:'l1',nr:'INV-88213',fdatum:'2026-10-02',forfallo:'2026-10-19',ocr:'8821304',total:498.75,rader:[R(6212,399,25)],underlag:[U('telia-okt.pdf')],
+      ver:[{typ:'Registrering',nr:8,datum:'2026-10-02'}],historik:[h('2026-10-03 11:20',ANV,'Registrerade, bokfördes som V8','lock')]}),
+    // Utkast från AI
+    F({status:'utkast',lev:'l3',nr:'IE-2026-55102',fdatum:'2026-10-08',forfallo:'2026-11-07',total:599,omvand:'eutj',valuta:'EUR 54,00',rader:[R(6540,599,0)],kanal:'MCP',klient:'Claude Code',skapat:'2026-10-08',
+      underlag:[U('adobe-IE-2026-55102.pdf')],historik:[h('2026-10-08 21:40',ANV+' via Claude Code','Skapade utkast','sparkles')]}),
+    F({status:'utkast',lev:'l5',nr:'70021',fdatum:'2026-10-11',forfallo:'2026-11-10',ocr:'7002100459',total:2995,rader:[R(5410,2396,25)],kanal:'MCP',klient:'Claude Code',skapat:'2026-10-12',
+      underlag:[U('kontorsgiganten-70021.pdf')],historik:[h('2026-10-12 20:15',ANV+' via Claude Code','Skapade utkast och föreslog ny leverantör','sparkles')]}),
+    F({status:'utkast',lev:'l1',nr:'INV-88214',fdatum:'2026-09-29',forfallo:'2026-10-29',ocr:'8821412',total:249,rader:[R(6212,199.2,25)],kanal:'webb',skapat:'2026-10-13',
+      underlag:[U('telia-extra-sim.pdf')],historik:[h('2026-10-13 16:02',ANV,'Sparade utkast','pencil-line')]}),
+  ],
+  lund:[
+    F({lev:'l20',nr:'4419021',fdatum:'2026-10-03',forfallo:'2026-10-17',ocr:'4419021000',total:225,rader:[R(6540,180,25)],underlag:[U('loopia-4419021.pdf')],historik:[h('2026-10-04 08:00',ANV,'Registrerade (kontantmetoden: bokförs vid betalning)','lock')]}),
+  ],
+};
+const OKOPPLADE = {exempel:[U('ellevio-faktura-okt.pdf',{upp:'2026-10-13',via:'webb'}),U('telia-INV-88213-kopia.pdf',{upp:'2026-10-12',via:'Claude Code'}),U('kvitto-taxi.jpg',{upp:'2026-10-09',via:'webb'})],lund:[]};
+const VNR = {exempel:8,lund:0};
+const NAV = [['inkorg','Att göra'],['verifikat','Verifikat'],['kundfakturor','Kundfakturor'],['leverantorsfakturor','Leverantörsfakturor'],['lon','Lön'],['moms','Moms'],['rapporter','Rapporter']];
+const ic=(n,extra)=>`<i data-lucide="${n}"${extra?' '+extra:''}></i>`;
+
+/* ================= Tillstånd ================= */
+const params = new URLSearchParams(location.search);
+const S = {variant:(params.get('variant')||'C').toUpperCase(), co:'exempel', flik:'obetalda', form:null, coMenu:false, pal:false, palQ:'', palI:0, flash:'', modal:null, bet:null, rattaAvskrift:null, triageI:0, val:null};
+const co=()=>FORETAG.find(f=>f.id===S.co);
+const kontant=()=>co().metod==='kontant';
+const fak=()=>FAK[S.co]; const levs=()=>LEV[S.co];
+const hittaF=id=>fak().find(x=>x.id===id); const hittaL=id=>levs().find(x=>x.id===id); const hittaU=id=>OKOPPLADE[S.co].find(x=>x.id===id);
+function route(){const p=(location.hash||'#/inkorg').slice(2).split('/');return {mod:p[0]||'inkorg',id:p[1]||null,sub:p[2]||null}}
+function go(hh){if(location.hash===hh)window.dispatchEvent(new HashChangeEvent('hashchange'));else location.hash=hh}
+const initialer=s=>s.split(/\s+/).filter(w=>w!=='AB'&&w!=='i').slice(0,2).map(w=>w[0]).join('').toUpperCase();
+
+/* ================= Hjälpare ================= */
+const fmt=new Intl.NumberFormat('sv-SE',{minimumFractionDigits:2,maximumFractionDigits:2});
+const n=s=>{const x=parseFloat(String(s??'').replace(/\s/g,'').replace('−','-').replace(',','.'));return isNaN(x)?0:x};
+const kr=x=>fmt.format(x||0);
+const r2=x=>Math.round(x*100)/100;
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const dagar=d=>Math.round((IDAG-new Date(d+'T10:00:00'))/864e5);
+const MAN=['januari','februari','mars','april','maj','juni','juli','augusti','september','oktober','november','december'];
+const manad=d=>MAN[+d.slice(5,7)-1]+' '+d.slice(0,4);
+const last=d=>d&&d.slice(0,7)<=LAST_TOM;
+const dekl=d=>d&&DEKL.includes(d.slice(0,7));
+const radMoms=x=>x.moms!==''&&x.moms!=null?n(x.moms):r2(n(x.netto)*n(x.sats)/100);
+const summa=f=>r2(f.rader.reduce((a,x)=>a+n(x.netto)+radMoms(x),0));
+const betalt=f=>r2(f.betalningar.reduce((a,b)=>a+b.belopp,0));
+const krediter=f=>r2(fak().filter(k=>k.kreditAv===f.id&&k.status==='registrerad').reduce((a,k)=>a+k.total,0));
+const kvar=f=>r2(f.total-betalt(f)+krediter(f));
+const levNamn=f=>hittaL(f.lev)?.namn||'Ingen leverantör';
+function fstatus(f){
+  if(f.status==='utkast')return 'utkast';
+  if(f.status==='upplast')return 'upplast';
+  if(f.total<0)return 'kredit';
+  const k=kvar(f);
+  if(k<=0)return krediter(f)||f.historik.some(e=>/Krediterad/.test(e.text))?'krediterad':'betald';
+  if(f.forfallo<IDAG_S)return 'forfallen';
+  if(betalt(f)>0)return 'delbetald';
+  return 'obetald';
+}
+const STAT={utkast:['badge-utkast','pencil-line','Utkast'],upplast:['badge-utkast','lock-open','Upplåst'],obetald:['badge-obetald','clock','Obetald'],delbetald:['badge-obetald','circle-dot','Delbetald'],
+  forfallen:['badge-forfallen','alert-triangle','Förfallen'],betald:['badge-betald','check','Betald'],krediterad:['badge-bokford','file-minus','Krediterad'],kredit:['badge-bokford','file-minus','Kreditfaktura']};
+const sBadge=f=>{const [c,i,t]=STAT[fstatus(f)];return `<span class="badge ${c}">${ic(i)}${t}</span>`};
+const aiTag=f=>f.kanal==='MCP'?`<span class="badge badge-ai" title="Skapat via ${esc(f.klient)} (AI)">${ic('sparkles')}AI</span>`:'';
+const nyTag=l=>l&&l.ny?`<span class="badge badge-ny" title="Föreslagen av ${esc(l.ny.klient)}; blir verklig när fakturan registreras">${ic('sparkles')}Ny leverantör</span>`:'';
+const forfTxt=f=>{const d=-dagar(f.forfallo);return d<0?'förföll för '+(-d)+' d sedan':d===0?'förfaller i dag':'förfaller om '+d+' d'};
+const attBetala=()=>fak().filter(f=>['obetald','delbetald','forfallen'].includes(fstatus(f))&&-dagar(f.forfallo)<=7).sort((a,b)=>a.forfallo.localeCompare(b.forfallo));
+const utkastF=()=>fak().filter(f=>f.status!=='registrerad');
+function kopiera(t){try{navigator.clipboard.writeText(t)}catch{}S.flash='Kopierade '+t;render()}
+const cp=(k,v)=>v?`<span class="copy" onclick="event.stopPropagation();kopiera('${esc(v)}')"><span class="k">${k}</span>${esc(v)}${ic('copy')}</span>`:'';
+function betalUppg(f){const l=hittaL(f.lev);if(!l)return '';
+  return `<div class="flex" style="flex-wrap:wrap">${cp('Bankgiro',l.bg)}${cp('Plusgiro',l.pg)}${cp('IBAN',l.iban)}${cp('BIC',l.bic)}${f.ocr?cp('OCR',f.ocr):cp('Meddelande',f.nr)}${cp('Belopp',kr(kvar(f)))}</div>`}
+
+/* ================= Kontering (vad registrering och betalning bokför) ================= */
+function verifikatDatum(f){return kontant()?null:(last(f.fdatum)||dekl(f.fdatum)?IDAG_S:f.fdatum)}
+function kontering(f){
+  if(kontant())return [];
+  const rows=[];const tot=summa(f);
+  f.rader.forEach(x=>{if(x.konto||n(x.netto))rows.push([x.konto,n(x.netto)])});
+  const m=r2(f.rader.reduce((a,x)=>a+radMoms(x),0));if(m)rows.push(['2641',m]);
+  if(f.omvand){const bas=r2(f.rader.reduce((a,x)=>a+n(x.netto),0));const fm=r2(bas*0.25);const [ing,utg]=OMV_K[f.omvand];rows.push([ing,fm]);rows.push([utg,-fm])}
+  rows.push(['2440',-tot]);
+  return rows.map(([k,b])=>({konto:k,debet:b>0?b:0,kredit:b<0?-b:0}));
+}
+function betKontering(f,b){
+  const belopp=n(b.belopp),k=kvar(f),rows=[];
+  if(kontant()){const andel=f.total?belopp/f.total:0;
+    f.rader.forEach(x=>rows.push({konto:x.konto,debet:r2(n(x.netto)*andel),kredit:0}));
+    const m=r2(f.rader.reduce((a,x)=>a+radMoms(x),0)*andel);if(m)rows.push({konto:'2641',debet:m,kredit:0});
+    rows.push({konto:b.konto||'1930',debet:0,kredit:belopp});return rows}
+  const rest=r2(k-belopp);
+  if(b.stang==='ores'&&rest>0){rows.push({konto:'2440',debet:k,kredit:0},{konto:b.konto,debet:0,kredit:belopp},{konto:'3740',debet:0,kredit:rest})}
+  else if(b.stang==='kurs'&&rest!==0){rows.push({konto:'2440',debet:k,kredit:0},{konto:b.konto,debet:0,kredit:belopp});rows.push(rest>0?{konto:'3960',debet:0,kredit:rest}:{konto:'7960',debet:-rest,kredit:0})}
+  else rows.push({konto:'2440',debet:belopp,kredit:0},{konto:b.konto,debet:0,kredit:belopp});
+  return rows;
+}
+function roTab(rows){const d=r2(rows.reduce((a,x)=>a+x.debet,0)),k=r2(rows.reduce((a,x)=>a+x.kredit,0));
+  return `<table class="table"><thead><tr><th style="width:60px">Konto</th><th></th><th class="num">Debet</th><th class="num">Kredit</th></tr></thead><tbody>
+  ${rows.map(x=>`<tr><td>${x.konto}</td><td class="mf">${esc(kNamn(x.konto)||'')}</td><td class="num">${x.debet?kr(x.debet):''}</td><td class="num">${x.kredit?kr(x.kredit):''}</td></tr>`).join('')}
+  <tr class="sumrow"><td colspan="2">${d===k?`<span class="diff-ok">${ic('circle-check')}Balanserar</span>`:`<span class="diff-bad">${ic('circle-alert')}Differens ${kr(d-k)}</span>`}</td><td class="num">${kr(d)}</td><td class="num">${kr(k)}</td></tr></tbody></table>`}
+function konteringBox(f){
+  if(kontant())return `<div class="kont"><div class="sec-t">Så bokförs den</div><div class="mf">Kontantmetoden: registreringen skapar inget verifikat. Kostnaden och momsen bokförs när fakturan betalas, och obetalda fakturor bokförs vid årets slut.</div></div>`;
+  const vd=verifikatDatum(f);
+  return `<div class="kont"><div class="sec-t">Bokförs som V${VNR[S.co]+1} · ${vd||'datum saknas'}</div>${roTab(kontering(f))}${f.omvand?`<div class="mf" style="font-size:11px">Omvänd skattskyldighet (${OMV[f.omvand]}): Maya bokför både utgående och avdragsgill ingående moms, 25 % av nettot.</div>`:''}</div>`}
+
+/* ================= Spärrar och varningar vid registrering ================= */
+function kontroll(f){
+  const l=hittaL(f.lev);const tot=n(f.total);const s=summa(f);const fel=[],varn=[];
+  if(!l)fel.push({id:'lev',t:'Välj leverantör.'});
+  if(!f.nr.trim())fel.push({id:'nr',t:'Fakturanummer saknas.'});
+  else{const d=fak().find(x=>x.id!==f.id&&x.status!=='utkast'&&x.lev===f.lev&&x.nr===f.nr.trim());
+    if(d)fel.push({id:'nr',t:`${l?l.namn:'Leverantören'} har redan faktura ${d.nr} (fakturadatum ${d.fdatum}). Om leverantören har återanvänt numret, lägg till ett suffix.`,fix:{t:'Lägg till suffix -2',run:`setF('nr',S.form.nr+'-2')`}})}
+  if(!f.fdatum)fel.push({id:'fdatum',t:'Fakturadatum saknas.'});
+  if(!f.forfallo)fel.push({id:'forfallo',t:'Förfallodag saknas.'});else if(f.fdatum&&f.forfallo<f.fdatum)fel.push({id:'forfallo',t:'Förfallodagen är före fakturadatumet.'});
+  if(!tot)fel.push({id:'total',t:'Totalbelopp saknas.'});
+  else if(r2(s-tot)!==0)fel.push({id:'rader',t:`Raderna med moms blir ${kr(s)} kr, totalen är ${kr(tot)} kr. Differens ${kr(s-tot)}.`});
+  const bad=f.rader.map((x,i)=>({x,i})).filter(({x})=>(x.konto||n(x.netto))&&!kAktiv(x.konto));
+  if(bad.length)fel.push({id:'konto',t:bad.map(({x,i})=>`Rad ${i+1}: ${!x.konto?'konto saknas':!KONTON[x.konto]?'konto '+x.konto+' finns inte':x.konto+' '+kNamn(x.konto)+' är inaktivt'}`).join('. ')+'.',rader:bad.map(b=>b.i)});
+  if(f.status==='upplast'&&tot<betalt(f))fel.push({id:'total',t:`Det är redan betalt ${kr(betalt(f))} kr. Den nya totalen får inte bli lägre.`});
+  const nara=l&&fak().find(x=>x.id!==f.id&&x.status!=='utkast'&&x.lev===f.lev&&x.total===tot&&x.fdatum===f.fdatum&&x.nr!==f.nr.trim());
+  if(nara)varn.push({t:`${l.namn} har en faktura med samma belopp och datum men nummer ${nara.nr}. Är det samma faktura?`});
+  if(!kontant()&&f.fdatum&&(last(f.fdatum)||dekl(f.fdatum)))varn.push({t:`${manad(f.fdatum)[0].toUpperCase()+manad(f.fdatum).slice(1)} är ${last(f.fdatum)?'låst':'momsdeklarerad'}, så verifikatdatumet blir registreringsdagen ${IDAG_S}. Fakturadatumet står kvar på fakturan, och den ingående momsen dras i oktober.`,fix:dekl(f.fdatum)&&!last(f.fdatum)?{t:'Öppna deklarationen för '+manad(f.fdatum)+' i stället',run:"S.flash='Momsdeklarationen prototypas i ett eget ticket.';render()"}:null});
+  if(l&&l.ny)varn.push({t:`${l.namn} är en ny leverantör som ${l.ny.klient} föreslagit. Granska uppgifterna; leverantören läggs i registret när fakturan registreras.`,info:true});
+  return {fel,varn};
+}
+
+/* ================= Formulär ================= */
+function oppnaForm(id){
+  if(S.form&&S.form._for===id)return;
+  const x=id&&id!=='ny'?hittaF(id):null;
+  S.form=x?{_for:id,id:x.id,lev:x.lev,nr:x.nr,fdatum:x.fdatum,forfallo:x.forfallo,ocr:x.ocr,total:kr(x.total),rader:x.rader.map(y=>({...y})),omvand:x.omvand,valuta:x.valuta,underlag:x.underlag.slice(),kreditAv:x.kreditAv,status:x.status,betalningar:x.betalningar,src:x}
+    :{_for:'ny',id:null,lev:'',nr:'',fdatum:'',forfallo:'',ocr:'',total:'',rader:[R('','',25)],omvand:'',valuta:'',underlag:S.nyMedUnderlag?[S.nyMedUnderlag]:[],status:'utkast',betalningar:[],src:null};
+}
+function setF(k,v){S.form[k]=v;if(k==='lev'){const l=hittaL(v);if(l){S.form.rader.forEach(x=>{if(!x.konto)x.konto=l.konto});if(l.omvand&&!S.form.omvand)S.form.omvand=l.omvand}}
+  if(k==='omvand'&&v)S.form.rader.forEach(x=>{x.sats='0';x.moms=''});render(true)}
+function setR(i,k,v){S.form.rader[i][k]=v;if(k==='sats')S.form.rader[i].moms='';render(true)}
+function fyllTotal(){S.form.total=kr(summa(S.form));render()}
+function nyLev(){const id='l'+(lseq++);levs().push({id,namn:'',orgnr:'',adress:'',momsnr:'',land:'SE',bg:'',konto:'',ny:{klient:ANV}});S.form.lev=id;render()}
+function setL(k,v){hittaL(S.form.lev)[k]=v;render(true)}
+function spara(){
+  const f=S.form;const data={lev:f.lev,nr:f.nr.trim(),fdatum:f.fdatum,forfallo:f.forfallo,ocr:f.ocr,total:n(f.total),rader:f.rader.filter(x=>x.konto||n(x.netto)),omvand:f.omvand,valuta:f.valuta,underlag:f.underlag};
+  if(f.id){const x=hittaF(f.id);Object.assign(x,data);return x}
+  const x=F(Object.assign(data,{status:'utkast',skapat:IDAG_S,historik:[h(nu(),ANV,'Sparade utkast','pencil-line')]}));fak().push(x);return x;
+}
+function sparaUtkast(){const x=spara();S.form=null;S.flash='Utkastet sparades.';go('#/'+(route().mod==='inkorg'?'inkorg':'leverantorsfakturor')+'/'+x.id)}
+function registrera(){
+  const {fel}=kontroll(S.form);if(fel.length){render();return}
+  const x=spara(),tid=nu(),l=hittaL(x.lev);const upplast=x.status==='upplast';
+  if(l.ny){x.historik.push(h(tid,ANV,'Lade till '+l.namn+' i leverantörsregistret','user-plus'));delete l.ny}
+  if(kontant()){x.status='registrerad';x.historik.push(h(tid,ANV,(upplast?'Registrerade om':'Registrerade')+' (kontantmetoden: bokförs vid betalning)','lock'));S.flash=`Registrerad i leverantörsreskontran. Inget verifikat förrän den betalas.`}
+  else{const nr=++VNR[S.co];x.ver.push({typ:'Registrering',nr,datum:verifikatDatum(x)});x.status='registrerad';x.historik.push(h(tid,ANV,(upplast?'Registrerade om':'Registrerade')+', bokfördes som V'+nr,'lock'));S.flash=`Registrerad och bokförd som V${nr}.`}
+  S.form=null;
+  if(route().mod==='inkorg'){const nx=utkastF()[0];S.flash+=' '+(nx?utkastF().length+' utkast kvar.':'Inga utkast kvar.');go('#/inkorg'+(nx?'/'+nx.id:''));return}
+  go('#/leverantorsfakturor/'+x.id);
+}
+function raderaUtkast(){const f=S.form;FAK[S.co]=fak().filter(y=>y.id!==f.id);f.underlag.forEach(u=>OKOPPLADE[S.co].unshift({...u,upp:IDAG_S}));
+  const l=hittaL(f.lev);if(l&&l.ny&&!fak().some(y=>y.lev===l.id))LEV[S.co]=levs().filter(y=>y.id!==l.id);
+  S.modal=null;S.form=null;S.flash='Utkastet raderades och raderingen loggades.'+(f.underlag.length?' '+f.underlag.map(u=>u.namn).join(', ')+' ligger kvar som okopplat underlag.':'');go('#/'+route().mod)}
+function rattaAvskrift(id){
+  const x=hittaF(id),reg=[...x.ver].reverse().find(v=>v.typ==='Registrering'),tid=nu();
+  if(reg&&!kontant()){const nr=++VNR[S.co];x.ver.push({typ:'Rättelse av V'+reg.nr,nr,datum:IDAG_S});x.historik.push(h(tid,ANV,`Rättade avskriften: V${reg.nr} rättades av V${nr}, fakturan låstes upp`+(S.rattaAvskrift.orsak?' ('+S.rattaAvskrift.orsak+')':''),'undo-2'))}
+  else x.historik.push(h(tid,ANV,'Låste upp fakturan för ny registrering','lock-open'));
+  x.status='upplast';S.rattaAvskrift=null;S.modal=null;S.form=null;S.flash=reg&&!kontant()?`V${reg.nr} är rättad. Rätta uppgifterna och registrera om.`:'Fakturan är upplåst.';go('#/leverantorsfakturor/'+id);
+}
+function kreditfaktura(id){const o=hittaF(id);const x=F({status:'utkast',lev:o.lev,nr:'',fdatum:IDAG_S,forfallo:IDAG_S,total:-kvar(o)||-o.total,kreditAv:o.id,rader:o.rader.map(y=>({...y,netto:kr(-n(y.netto)),moms:''})),omvand:o.omvand,skapat:IDAG_S,historik:[h(nu(),ANV,'Skapade kreditfaktura-utkast mot '+o.nr,'file-minus')]});
+  fak().push(x);S.flash='Utkast till kreditfaktura mot '+o.nr+'. Fyll i leverantörens kreditnummer och koppla underlaget.';go('#/leverantorsfakturor/'+x.id)}
+// Betalning
+function startaBet(f){const k=kvar(f);S.bet={id:f.id,datum:IDAG_S,belopp:kr(k),konto:'1930',stang:''}}
+function betFel(f){const b=S.bet;if(!b.datum)return 'Välj ett datum.';if(last(b.datum))return manad(b.datum)+' är låst.';if(!(n(b.belopp)>0))return 'Ange ett belopp.';
+  if(n(b.belopp)>kvar(f)&&!f.valuta)return `Beloppet är större än det som återstår (${kr(kvar(f))} kr). Ett överskott blir ett tillgodohavande hos leverantören.`;return ''}
+function betala(){
+  const f=hittaF(S.bet.id),b=S.bet,tid=nu();
+  const nr=++VNR[S.co];const rest=r2(kvar(f)-n(b.belopp));
+  f.betalningar.push({datum:b.datum,belopp:n(b.belopp),konto:b.konto,vnr:nr});
+  f.ver.push({typ:'Betalning',nr,datum:b.datum});
+  if(b.stang&&rest!==0){f.betalningar.push({datum:b.datum,belopp:rest,konto:b.stang==='ores'?'3740':rest>0?'3960':'7960',vnr:nr,stang:true})}
+  f.historik.push(h(tid,ANV,`Registrerade ${kvar(f)>0?'delbetalning':'betalning'} ${kr(n(b.belopp))} kr, V${nr}`+(b.stang&&rest?`, rest ${kr(rest)} mot ${b.stang==='ores'?'öresutjämning':'kursdifferens'}`:''),'banknote'));
+  S.bet=null;S.modal=null;S.flash=`Betalningen bokfördes som V${nr}.`+(kvar(f)>0?` ${kr(kvar(f))} kr återstår.`:' Fakturan är betald.');render();
+}
+// Okopplade underlag
+function registreraUnderlag(uid){const u=hittaU(uid);OKOPPLADE[S.co]=OKOPPLADE[S.co].filter(y=>y.id!==uid);
+  const x=F({status:'utkast',lev:'',nr:'',fdatum:'',forfallo:'',total:'',rader:[R('','',25)],skapat:IDAG_S,underlag:[u],historik:[h(nu(),ANV,'Skapade utkast från '+u.namn,'pencil-line')]});fak().push(x);
+  S.flash='';go('#/'+(route().mod==='inkorg'?'inkorg':'leverantorsfakturor')+'/'+x.id)}
+function raderaUnderlag(uid,skal){const u=hittaU(uid);OKOPPLADE[S.co]=OKOPPLADE[S.co].filter(y=>y.id!==uid);S.modal=null;S.flash=u.namn+' raderades. Skäl: '+skal+'. Raderingen loggades.';go('#/inkorg')}
+function inteHar(t){S.flash=t+' prototypas i ett annat ticket.';render()}
+function byt(id){S.co=id;S.form=null;S.coMenu=false;S.flash='';S.bet=null;go('#/inkorg');render()}
+
+/* ================= Gemensamma bitar ================= */
+function preview(namn,hgt){return `<div class="preview" style="height:${hgt||420}px">${ic('file-text','style="width:28px;height:28px"')}<span>${esc(namn)}</span><span style="font-size:11px">förhandsvisning av originalet</span></div>`}
+function ferr(fel,id){const e=fel.find(x=>x.id===id);return e?`<div class="ferr">${ic('circle-alert')}${esc(e.t)}${e.fix?` · <span class="link" onclick="${e.fix.run}">${e.fix.t}</span>`:''}</div>`:''}
+function levVal(f,fel){
+  const l=hittaL(f.lev);
+  const sel=`<select class="select ${fel.some(x=>x.id==='lev')?'err':''}" onchange="this.value==='__ny'?nyLev():setF('lev',this.value)"><option value="">Välj leverantör…</option>${levs().filter(x=>!x.ny||x.id===f.lev).map(x=>`<option value="${x.id}" ${x.id===f.lev?'selected':''}>${esc(x.namn||'Ny leverantör')}${x.ny?' (ny)':''}</option>`).join('')}<option value="__ny">+ Ny leverantör…</option></select>`;
+  if(!l||!l.ny)return `<div><label class="label">Leverantör</label>${sel}${l?`<div class="mf" style="font-size:11px;margin-top:3px">${esc(l.orgnr||l.momsnr)} · standardkonto ${l.konto} ${esc(kNamn(l.konto)||'')}${l.omvand?' · '+OMV[l.omvand]:''}</div>`:ferr(fel,'lev')}</div>`;
+  const in_=(k,lbl,ph)=>`<div><label class="label">${lbl}</label><input class="input" value="${esc(l[k]||'')}" placeholder="${ph||''}" oninput="setL('${k}',this.value)"></div>`;
+  return `<div class="levkort ny"><div class="flex" style="justify-content:space-between"><b style="font-weight:500">Ny leverantör</b>${l.ny.klient!==ANV?`<span class="badge badge-ny">${ic('sparkles')}föreslagen av ${esc(l.ny.klient)}</span>`:''}</div>
+    <div class="g2">${in_('namn','Namn')}${in_('orgnr','Orgnr')}${in_('momsnr','Momsreg-nr')}${in_('adress','Adress')}${in_('bg','Bankgiro')}${in_('konto','Standardkonto','t.ex. 5410')}</div>
+    <div class="mf" style="font-size:11px">Läggs i leverantörsregistret när fakturan registreras. Raderas utkastet försvinner förslaget.</div></div>`;
+}
+function falt(f,fel){
+  return `<div class="g4">
+    <div><label class="label">Fakturanummer</label><input class="input ${fel.some(x=>x.id==='nr')?'err':''}" value="${esc(f.nr)}" oninput="setF('nr',this.value)"></div>
+    <div><label class="label">Fakturadatum</label><input type="date" class="input ${fel.some(x=>x.id==='fdatum')?'err':''}" value="${f.fdatum}" onchange="setF('fdatum',this.value)"></div>
+    <div><label class="label">Förfallodag</label><input type="date" class="input ${fel.some(x=>x.id==='forfallo')?'err':''}" value="${f.forfallo}" onchange="setF('forfallo',this.value)"></div>
+    <div><label class="label">OCR eller meddelande</label><input class="input" value="${esc(f.ocr)}" oninput="setF('ocr',this.value)"></div></div>
+    ${ferr(fel,'nr')}${ferr(fel,'forfallo')}
+    <div class="g4">
+    <div><label class="label">Totalbelopp, SEK</label><input class="input num ${fel.some(x=>x.id==='total'||x.id==='rader')?'err':''}" value="${esc(f.total)}" oninput="setF('total',this.value)" onblur="if(this.value)setF('total',kr(n(this.value)))"></div>
+    <div style="grid-column:span 2"><label class="label">Omvänd skattskyldighet</label><select class="select" onchange="setF('omvand',this.value)">${Object.entries(OMV).map(([k,t])=>`<option value="${k}" ${f.omvand===k?'selected':''}>${t}</option>`).join('')}</select></div>
+    <div><label class="label">Originalvaluta <span class="mf">(fritext)</span></label><input class="input" value="${esc(f.valuta)}" placeholder="t.ex. EUR 54,00" oninput="setF('valuta',this.value)"></div></div>
+    ${ferr(fel,'total')}`;
+}
+function radTab(f,fel){
+  const bad=new Set((fel.find(x=>x.id==='konto')||{rader:[]}).rader);
+  return `<table class="table rows"><thead><tr><th style="width:80px">Konto</th><th>Kontonamn</th><th class="num" style="width:120px">Netto</th><th style="width:84px">Moms</th><th class="num" style="width:110px">Momsbelopp</th><th style="width:28px"></th></tr></thead><tbody>
+  ${f.rader.map((x,i)=>`<tr><td><input class="cell ${bad.has(i)?'err':''}" value="${esc(x.konto)}" oninput="setR(${i},'konto',this.value)" placeholder="Konto"></td>
+    <td class="mf">${esc(kNamn(x.konto)||(x.konto?'Okänt konto':''))}${bad.has(i)&&KONTON[x.konto]?` · <span class="link" onclick="INAKTIVA.delete('${x.konto}');render()">Aktivera</span>`:''}</td>
+    <td><input class="cell num" value="${esc(x.netto)}" oninput="setR(${i},'netto',this.value)" onblur="if(this.value)setR(${i},'netto',kr(n(this.value)))"></td>
+    <td><select class="select" ${f.omvand?'disabled title="Omvänd skattskyldighet: ingen moms på fakturan"':''} onchange="setR(${i},'sats',this.value)">${['25','12','6','0'].map(s=>`<option value="${s}" ${x.sats===s?'selected':''}>${s} %</option>`).join('')}</select></td>
+    <td><input class="cell num" value="${x.moms!==''?esc(x.moms):kr(radMoms(x))}" oninput="setR(${i},'moms',this.value)" title="Ändra om fakturans moms avviker"></td>
+    <td>${f.rader.length>1?`<button class="btn btn-ghost btn-icon" onclick="S.form.rader.splice(${i},1);render()">${ic('x')}</button>`:''}</td></tr>`).join('')}
+  <tr class="sumrow"><td colspan="2">${fel.some(x=>x.id==='rader')?`<span class="diff-bad">${ic('circle-alert')}Stämmer inte med totalen</span>`:n(f.total)?`<span class="diff-ok">${ic('circle-check')}Summerar till totalen</span>`:''}</td><td class="num">${kr(f.rader.reduce((a,x)=>a+n(x.netto),0))}</td><td></td><td class="num">${kr(f.rader.reduce((a,x)=>a+radMoms(x),0))}</td><td></td></tr></tbody></table>
+  <div class="flex"><button class="btn btn-ghost" onclick="S.form.rader.push(R(hittaL(S.form.lev)?.konto||'','',S.form.omvand?0:25));render()">${ic('plus')}Rad</button>${!n(f.total)&&summa(f)?`<button class="btn btn-ghost" onclick="fyllTotal()">Sätt totalen till ${kr(summa(f))}</button>`:''}</div>
+  ${ferr(fel,'rader')}${ferr(fel,'konto')}`;
+}
+function varnLista(varn){return varn.map(v=>`<div class="note ${v.info?'':'warn'}">${ic(v.info?'info':'triangle-alert')}<span>${esc(v.t)}${v.fix?` <span class="link" onclick="${v.fix.run}">${v.fix.t}</span>`:''}</span></div>`).join('')}
+function rubrikForm(f){const x=f.src;const l=hittaL(f.lev);
+  return `<div><div class="mf" style="font-weight:500">${f.kreditAv||n(f.total)<0?'Kreditfaktura':'Leverantörsfaktura'}${f.kreditAv?' mot '+esc(hittaF(f.kreditAv)?.nr):''}</div><h1 style="font-size:18px">${l&&l.namn?esc(l.namn):'Ny leverantörsfaktura'}${f.nr?' · '+esc(f.nr):''}</h1>
+  <div class="mf flex" style="margin-top:6px;flex-wrap:wrap">${x?sBadge(x)+aiTag(x):'<span class="badge badge-utkast">'+ic('plus')+'Ny</span>'}${nyTag(l)}${x?`<span>${x.kanal==='MCP'?'Skapat av '+esc(ANV)+' via '+esc(x.klient):'Skapat av '+esc(ANV)}${x.skapat?' · '+(dagar(x.skapat)<=0?'i dag':dagar(x.skapat)+' dagar sedan'):''}</span>`:''}</div></div>`}
+function knappar(f,fel){
+  const lbl=f.status==='upplast'?'Registrera om':'Registrera';
+  return `<div class="flex"><button class="btn btn-default" ${fel.length?'disabled':''} title="${esc(fel.map(e=>e.t).join('\n'))}" onclick="registrera()">${ic('lock')}${lbl}${fel.length?` <span class="bcount">${fel.length}</span>`:kontant()?'':' och bokför'}</button>
+  <button class="btn btn-outline" onclick="sparaUtkast()">${ic('save')}Spara utkast</button>${f.id&&f.status==='utkast'?`<button class="btn btn-destructive-ghost" onclick="S.modal={typ:'radera'};render()">${ic('trash-2')}Radera utkast</button>`:''}</div>`}
+function underlagFiler(f){return f.underlag.map(u=>`<div class="ufile">${ic('paperclip')}<span>${esc(u.namn)}</span></div>`).join('')||`<div class="drop" onclick="S.modal={typ:'koppla'};render()">${ic('upload')}<span>Släpp originalet här eller <span class="link">välj ett okopplat underlag</span></span></div>`}
+// Dokumentet för en registrerad faktura
+function docDelar(f){
+  const l=hittaL(f.lev),st=fstatus(f);
+  const meta=`<dl class="dl">
+    <dt>Fakturadatum</dt><dd>${f.fdatum}</dd><dt>Förfallodag</dt><dd>${f.forfallo} <span class="mf">· ${['betald','krediterad','kredit'].includes(st)?'':forfTxt(f)}</span></dd>
+    <dt>OCR / meddelande</dt><dd>${esc(f.ocr)||'<span class="mf">–</span>'}</dd>
+    ${f.omvand?`<dt>Omvänd skattskyld.</dt><dd>${OMV[f.omvand]}</dd>`:''}${f.valuta?`<dt>Originalvaluta</dt><dd>${esc(f.valuta)}</dd>`:''}
+    ${f.kreditAv?`<dt>Krediterar</dt><dd><a class="link" href="#/leverantorsfakturor/${f.kreditAv}">${esc(hittaF(f.kreditAv).nr)}</a></dd>`:''}
+    <dt>Verifikat</dt><dd>${f.ver.length?f.ver.map(v=>`<span class="link" title="${v.typ} ${v.datum}">V${v.nr}</span> <span class="mf">${v.typ.toLowerCase()}</span>`).join(' · '):'<span class="mf">'+(kontant()?'inga än (kontantmetoden: bokförs vid betalning)':'–')+'</span>'}</dd></dl>`;
+  const rader=`<table class="table"><thead><tr><th style="width:60px">Konto</th><th></th><th class="num">Netto</th><th class="num">Moms</th></tr></thead><tbody>${f.rader.map(x=>`<tr><td>${x.konto}</td><td class="mf">${esc(kNamn(x.konto))}</td><td class="num">${kr(n(x.netto))}</td><td class="num">${kr(radMoms(x))}</td></tr>`).join('')}
+    <tr class="sumrow"><td colspan="2">Totalt</td><td class="num" colspan="2">${kr(f.total)} kr</td></tr></tbody></table>`;
+  const bets=`<div><div class="sec-t">Betalningar</div>${f.betalningar.length?f.betalningar.map(b=>`<div class="bet"><span>${b.datum}</span><span class="mf">${b.stang?(b.konto==='3740'?'Öresutjämning':'Kursdifferens')+' '+b.konto:'Konto '+b.konto}</span><span class="num">${kr(b.belopp)}</span><span class="link">V${b.vnr}</span></div>`).join(''):'<span class="mf">Inga betalningar.</span>'}
+    ${f.total>0?`<div class="bet" style="border:0;font-weight:500"><span>Återstår</span><span></span><span class="num">${kr(kvar(f))}</span><span></span></div>`:''}</div>`;
+  const hist=`<div><div class="sec-t">Historik</div><ul class="hist">${f.historik.map(e=>`<li>${ic(e.ikon||'dot')}<span class="t">${e.tid}</span><span>${esc(e.text)} <span class="mf">· ${esc(e.vem)}</span></span></li>`).join('')}</ul></div>`;
+  const head=`<div><div class="mf" style="font-weight:500">${f.total<0?'Kreditfaktura':'Leverantörsfaktura'} ${esc(f.nr)}</div><h1 style="font-size:18px">${esc(l.namn)}</h1>
+    <div class="flex" style="margin-top:6px">${sBadge(f)}${aiTag(f)}<span class="num mf" style="text-align:left">${kr(f.total)} kr</span></div></div>`;
+  const kanBetala=['obetald','delbetald','forfallen'].includes(st);
+  return {meta,rader,bets,hist,head,kanBetala,l};
+}
+function betalForm(f){
+  const b=S.bet,fel=betFel(f),rest=r2(kvar(f)-n(b.belopp));
+  const stangOres=rest>0&&rest<=10,stangKurs=!!f.valuta&&rest!==0;
+  return `<div class="col" style="gap:12px">
+    <div><div class="sec-t">Betaluppgifter</div>${betalUppg(f)}</div>
+    <div class="g3"><div><label class="label">Betaldag</label><input type="date" class="input" value="${b.datum}" onchange="S.bet.datum=this.value;render()"></div>
+      <div><label class="label">Belopp</label><input class="input num ${fel&&!f.valuta?'err':''}" value="${esc(b.belopp)}" oninput="S.bet.belopp=this.value;S.bet.stang='';render(true)" onblur="S.bet.belopp=kr(n(this.value));render()"></div>
+      <div><label class="label">Från konto</label><select class="select" onchange="S.bet.konto=this.value;render()"><option value="1930">1930 Företagskonto</option></select></div></div>
+    ${fel?`<div class="ferr">${ic('circle-alert')}${esc(fel)}</div>`:''}
+    ${rest>0&&!fel?`<div class="note">${ic('info')}<span>Delbetalning. ${kr(rest)} kr återstår efter den här betalningen.</span></div>`:''}
+    ${stangOres&&!f.valuta?`<label class="flex"><input type="checkbox" ${b.stang==='ores'?'checked':''} onchange="S.bet.stang=this.checked?'ores':'';render()">Stäng resten ${kr(rest)} kr mot öresutjämning (3740)</label>`:''}
+    ${stangKurs?`<label class="flex"><input type="checkbox" ${b.stang==='kurs'?'checked':''} onchange="S.bet.stang=this.checked?'kurs':'';render()">Stäng avvikelsen ${kr(Math.abs(rest))} kr mot kursdifferens (${rest>0?'3960 vinst':'7960 förlust'}) <span class="mf">· originalvaluta ${esc(f.valuta)}</span></label>`:''}
+    <div class="kont"><div class="sec-t">Bokförs som V${VNR[S.co]+1} · ${b.datum}</div>${roTab(betKontering(f,{...b,belopp:n(b.belopp)}))}${kontant()?'<div class="mf" style="font-size:11px">Kontantmetoden: kostnad och moms bokförs nu, i proportion till beloppet.</div>':''}</div>
+    <div class="flex"><button class="btn btn-default" ${fel&&!(f.valuta&&b.stang)?'disabled':''} onclick="betala()">${ic('banknote')}Registrera betalning</button><button class="btn btn-outline" onclick="S.bet=null;S.modal=null;render()">Avbryt</button></div></div>`}
+function rattaPanel(f){const reg=[...f.ver].reverse().find(v=>v.typ==='Registrering');
+  return `<div class="inl"><div class="flex" style="justify-content:space-between"><h2>Rätta avskriften</h2><button class="btn btn-ghost btn-icon" onclick="S.rattaAvskrift=null;S.modal=null;render()">${ic('x')}</button></div>
+    <div class="mf">Gör så här när uppgifterna i Maya inte stämmer med leverantörens faktura. ${reg&&!kontant()?`V${reg.nr} rättas genom en rättelse som vänder alla rader, och`:''} fakturan låses upp så att du kan rätta fälten och registrera om.</div>
+    ${betalt(f)?`<div class="note">${ic('info')}<span>Betalningarna (${kr(betalt(f))} kr) ligger kvar kopplade. Den nya totalen får inte bli lägre än det.</span></div>`:''}
+    <div class="note">${ic('info')}<span>Skickar leverantören en ny faktura eller en kreditfaktura är det en ny affärshändelse: <span class="link" onclick="kreditfaktura('${f.id}')">registrera kreditfaktura</span> i stället.</span></div>
+    <div><label class="label">Orsak <span class="mf">(valfri)</span></label><input class="input" value="${esc(S.rattaAvskrift.orsak)}" placeholder="t.ex. fel belopp avskrivet" oninput="S.rattaAvskrift.orsak=this.value"></div>
+    <div class="flex"><button class="btn btn-default" onclick="rattaAvskrift('${f.id}')">${ic('undo-2')}Rätta${reg&&!kontant()?' V'+reg.nr:''} och lås upp</button></div></div>`}
+function docActions(f,d,betalaKlick){return `${d.kanBetala?`<button class="btn btn-default" onclick="${betalaKlick}">${ic('banknote')}Registrera betalning</button>`:''}
+  ${f.total>0&&fstatus(f)!=='krediterad'?`<button class="btn btn-outline" onclick="kreditfaktura('${f.id}')">${ic('file-minus')}Kreditfaktura…</button>`:''}
+  <button class="btn btn-ghost" onclick="S.rattaAvskrift={orsak:''};${S.variant==='A'?"S.modal={typ:'ratta',id:'"+f.id+"'};":''}render()">${ic('undo-2')}Rätta avskrift…</button>`}
+const flashBox=()=>S.flash?`<div class="alert ok">${ic('circle-check')}<div class="t">${esc(S.flash)}</div></div>`:'';
+function underlagActions(u,stil){return `<div class="${stil||'flex'}" style="flex-wrap:wrap">
+  <button class="btn btn-default" onclick="registreraUnderlag('${u.id}')">${ic('receipt')}Registrera som leverantörsfaktura</button>
+  <button class="btn btn-outline" onclick="inteHar('Nytt verifikat från underlag')">${ic('file-plus')}Nytt verifikat (kvitto, kortköp)</button>
+  <button class="btn btn-outline" onclick="inteHar('Komplettering')">${ic('paperclip')}Komplettera ett verifikat</button>
+  <button class="btn btn-destructive-ghost" onclick="S.modal={typ:'raderaU',id:'${u.id}',skal:''};render()">${ic('trash-2')}Radera…</button></div>`}
+function modalBg(inner){return `<div class="pal-bg" onclick="if(event.target===this){S.modal=null;S.bet=null;render()}"><div class="dialog">${inner}</div></div>`}
+function gemensamModal(){
+  const m=S.modal;if(!m)return '';
+  if(m.typ==='radera'){const f=S.form;return modalBg(`<h2>Radera utkastet?</h2><div>${esc(levNamn(f))} · ${esc(f.nr)||'utan nummer'} · ${esc(f.total)} kr</div>
+    <div class="note">${ic('info')}<span>Raderingen loggas.${f.underlag.length?' '+f.underlag.map(u=>esc(u.namn)).join(', ')+' ligger kvar som okopplat underlag.':''}${hittaL(f.lev)?.ny?' Den föreslagna leverantören försvinner.':''}</span></div>
+    <div class="ft"><button class="btn btn-outline" onclick="S.modal=null;render()">Avbryt</button><button class="btn btn-default" style="background:var(--destructive)" onclick="raderaUtkast()">${ic('trash-2')}Radera utkast</button></div>`)}
+  if(m.typ==='raderaU'){const u=hittaU(m.id);const sk=['Dubblett av ett underlag som redan finns','Fel fil, inte räkenskapsinformation'];
+    return modalBg(`<h2>Radera ${esc(u.namn)}?</h2><div class="mf">Ett underlag får bara raderas om det inte är räkenskapsinformation. Raderingen loggas med skälet.</div>
+    <div class="pick">${sk.map(s=>`<label><input type="radio" name="sk" ${m.skal===s?'checked':''} onchange="S.modal.skal='${s}';render()">${s}</label>`).join('')}</div>
+    <div class="ft"><button class="btn btn-outline" onclick="S.modal=null;render()">Avbryt</button><button class="btn btn-default" style="background:var(--destructive)" ${m.skal?'':'disabled'} onclick="raderaUnderlag('${u.id}',S.modal.skal)">${ic('trash-2')}Radera</button></div>`)}
+  if(m.typ==='koppla')return modalBg(`<h2>Koppla original</h2><div class="pick">${OKOPPLADE[S.co].map(u=>`<label onclick="S.form.underlag.push(hittaU('${u.id}'));OKOPPLADE[S.co]=OKOPPLADE[S.co].filter(y=>y.id!=='${u.id}');S.modal=null;render()">${ic('file')}${esc(u.namn)}<span class="mf" style="margin-left:auto">${u.upp}</span></label>`).join('')||'<span class="mf">Inga okopplade underlag.</span>'}</div><div class="ft"><button class="btn btn-outline" onclick="S.modal=null;render()">Stäng</button></div>`);
+  return '';
+}
+// Att göra: sektioner som alla varianter delar data för
+function kommande(){return `<div class="sect">${ic('calendar-clock')}Kommande</div><div class="item plain"><div class="top"><span>Momsdeklaration september</span><span class="mf">12 nov</span></div><div class="meta">Om 29 dagar</div></div>`}
+
+/* ================= Variant A: Tabell och dialoger ================= */
+const A={namn:'Tabell och dialoger',
+inkorg(rt){
+  const ab=attBetala(),uk=utkastF(),ok=OKOPPLADE[S.co];
+  const it=(id,top,amt,meta)=>`<a class="item ${rt.id===id?'on':''}" href="#/inkorg/${id}"><div class="top"><span>${top}</span><span class="num">${amt}</span></div><div class="meta">${meta}</div></a>`;
+  return `<div class="lh"><h2>Att göra</h2></div>
+  <div class="sect">${ic('banknote')}Att betala · ${ab.length}</div>${ab.map(f=>it(f.id,esc(levNamn(f)),kr(kvar(f)),sBadge(f)+'<span>'+forfTxt(f)+'</span>')).join('')||'<p class="mf">Inget att betala.</p>'}
+  <div class="sect">${ic('file-question')}Okopplade underlag · ${ok.length}</div>${ok.map(u=>it(u.id,esc(u.namn),'',`<span>uppladdat ${u.upp}${u.via!=='webb'?' via '+esc(u.via):''}</span>`)).join('')||'<p class="mf">Inga.</p>'}
+  <div class="sect">${ic('pencil-line')}Utkast att registrera · ${uk.length}</div>${uk.map(f=>it(f.id,esc(levNamn(f)),esc(kr(n(f.total))),sBadge(f)+aiTag(f)+nyTag(hittaL(f.lev))+(f.underlag.length?ic('paperclip'):''))).join('')}${kommande()}`;
+},
+underlag(u){return `<div class="col" style="gap:16px"><div><div class="mf" style="font-weight:500">Okopplat underlag</div><h1 style="font-size:18px">${esc(u.namn)}</h1><div class="mf">Arkiverat ${u.upp}${u.via!=='webb'?' via '+esc(u.via):''} · SHA-256 sparad · syns här tills det kopplas</div></div>
+  ${underlagActions(u)}${preview(u.namn,520)}</div>`},
+lista(rt){
+  const flikar=[['obetalda','Obetalda',f=>['obetald','delbetald','forfallen'].includes(fstatus(f))],['utkast','Utkast',f=>f.status!=='registrerad'],['betalda','Betalda',f=>['betald','krediterad','kredit'].includes(fstatus(f))],['alla','Alla',()=>true]];
+  const [,,flt]=flikar.find(x=>x[0]===S.flik)||flikar[0];
+  const l=fak().filter(flt).sort((a,b)=>a.forfallo.localeCompare(b.forfallo));
+  return `<div class="lh"><h2>Leverantörsfakturor</h2><button class="btn btn-default" onclick="go('#/leverantorsfakturor/ny')">${ic('plus')}Ny</button></div>
+  <div class="tabs" style="align-self:flex-start;margin-bottom:4px">${flikar.map(([k,t,fn])=>`<button class="${S.flik===k?'on':''}" onclick="S.flik='${k}';render()">${t} <span class="mf">${fak().filter(fn).length}</span></button>`).join('')}</div>
+  <table class="tlist"><thead><tr><th>Leverantör</th><th>Förfaller</th><th class="num">Kvar</th></tr></thead><tbody>${l.map(f=>`<tr class="${rt.id===f.id?'on':''}" onclick="go('#/leverantorsfakturor/${f.id}')">
+    <td><div>${esc(levNamn(f))} ${f.kanal==='MCP'&&f.status==='utkast'?`<span class="mf">${ic('sparkles')}</span>`:''}</div><div class="mf" style="font-size:11px">${esc(f.nr)||'utan nr'} · ${sBadge(f)}</div></td>
+    <td class="${fstatus(f)==='forfallen'?'diff-bad':'mf'}" style="white-space:nowrap">${f.forfallo||''}</td><td class="num">${f.status==='registrerad'?kr(kvar(f)):kr(n(f.total))}</td></tr>`).join('')}</tbody></table>`;
+},
+edit(f){const {fel,varn}=kontroll(f);
+  return `<div class="A-reg"><div class="col" style="gap:14px">${rubrikForm(f)}${levVal(f,fel)}${falt(f,fel)}${radTab(f,fel)}${varnLista(varn)}${konteringBox(f)}${knappar(f,fel)}</div>
+  <div class="orig">${f.underlag.length?preview(f.underlag[0].name||f.underlag[0].namn,560):''}${underlagFiler(f)}</div></div>`},
+doc(f){const d=docDelar(f);
+  return `<div class="paper"><div class="flex" style="justify-content:space-between;align-items:flex-start">${d.head}<div class="flex">${docActions(f,d,`startaBet(hittaF('${f.id}'));S.modal={typ:'betala',id:'${f.id}'};render()`)}</div></div>
+  ${d.kanBetala?`<div><div class="sec-t">Betaluppgifter</div>${betalUppg(f)}</div>`:''}${d.meta}${d.rader}${d.bets}<div><div class="sec-t">Underlag</div>${f.underlag.map(u=>`<div class="ufile">${ic('paperclip')}${esc(u.namn)}</div>`).join('')}</div>${d.hist}</div>`},
+modal(){const m=S.modal;if(!m)return '';
+  if(m.typ==='betala'){const f=hittaF(m.id);return modalBg(`<h2>Betalning · ${esc(levNamn(f))} ${esc(f.nr)}</h2><div class="mf">Återstår ${kr(kvar(f))} kr · förfallodag ${f.forfallo}</div>${betalForm(f)}`)}
+  if(m.typ==='ratta'){const f=hittaF(m.id);return modalBg(rattaPanel(f))}
+  return gemensamModal()}};
+
+/* ================= Variant B: Leverantören först och sortera underlag ================= */
+const B={namn:'Leverantören först, sortera underlag',
+inkorg(rt){
+  const ab=attBetala(),uk=utkastF(),ok=OKOPPLADE[S.co];
+  const it=(id,top,amt,meta,href)=>`<a class="item ${rt.id===id?'on':''}" href="${href||'#/inkorg/'+id}"><div class="top"><span>${top}</span><span class="num">${amt}</span></div><div class="meta">${meta}</div></a>`;
+  return `<div class="lh"><h2>Att göra</h2></div>
+  ${ok.length?`<a class="item ${rt.id==='sortera'?'on':''}" href="#/inkorg/sortera" style="border-color:var(--sidebar-primary)"><div class="top"><span>${ic('layers')} Sortera underlag</span><span class="badge badge-count">${ok.length}</span></div><div class="meta">Okopplade underlag, ett i taget</div></a>`:''}
+  <div class="sect">${ic('banknote')}Att betala · ${ab.length}</div>${ab.map(f=>it(f.id,esc(levNamn(f))+' <span class="mf">'+esc(f.nr)+'</span>',kr(kvar(f)),sBadge(f)+'<span>'+forfTxt(f)+'</span>')).join('')}
+  <div class="sect">${ic('pencil-line')}Utkast att registrera · ${uk.length}</div>${uk.map(f=>it(f.id,esc(levNamn(f)),esc(kr(n(f.total))),sBadge(f)+aiTag(f)+nyTag(hittaL(f.lev)))).join('')}${kommande()}`;
+},
+sortera(){
+  const ok=OKOPPLADE[S.co];if(!ok.length)return `<div class="empty"><div>${ic('check')}<p>Alla underlag är sorterade.</p></div></div>`;
+  const i=Math.min(S.triageI,ok.length-1),u=ok[i];
+  return `<div class="col" style="gap:14px"><div class="flex" style="justify-content:space-between"><div><div class="mf" style="font-weight:500">Sortera underlag · ${i+1} av ${ok.length}</div><h1 style="font-size:18px">${esc(u.namn)}</h1>
+    <div class="mf">Uppladdat ${u.upp}${u.via!=='webb'?' via '+esc(u.via):''} · arkiverat oförändrat</div></div>
+    <div class="flex"><button class="btn btn-outline btn-icon" onclick="S.triageI=Math.max(0,${i}-1);render()">${ic('chevron-left')}</button><button class="btn btn-outline btn-icon" onclick="S.triageI=Math.min(${ok.length-1},${i}+1);render()">${ic('chevron-right')}</button></div></div>
+    <div class="triage">${preview(u.namn,520)}<div class="tchoice"><div class="sec-t">Vad är det här?</div>
+      <button onclick="registreraUnderlag('${u.id}')">${ic('receipt')}<span><b style="font-weight:500">Leverantörsfaktura</b><br><span class="mf">ska betalas senare</span></span><kbd>L</kbd></button>
+      <button onclick="inteHar('Nytt verifikat från underlag')">${ic('file-plus')}<span><b style="font-weight:500">Kvitto eller kortköp</b><br><span class="mf">redan betalt, blir ett verifikat</span></span><kbd>V</kbd></button>
+      <button onclick="inteHar('Komplettering')">${ic('paperclip')}<span><b style="font-weight:500">Hör till ett bokfört verifikat</b><br><span class="mf">komplettering</span></span><kbd>K</kbd></button>
+      <button onclick="S.triageI=${i}+1;render()">${ic('skip-forward')}<span><b style="font-weight:500">Hoppa över</b><br><span class="mf">ligger kvar under Att göra</span></span><kbd>S</kbd></button>
+      <button onclick="S.modal={typ:'raderaU',id:'${u.id}',skal:''};render()" style="color:var(--destructive)">${ic('trash-2')}<span><b style="font-weight:500">Dubblett eller fel fil</b><br><span class="mf">raderas med skäl, loggas</span></span><kbd>D</kbd></button></div></div></div>`},
+underlag(u){S.triageI=OKOPPLADE[S.co].indexOf(u);return B.sortera()},
+lista(rt){
+  const g={};fak().forEach(f=>{(g[f.lev]=g[f.lev]||[]).push(f)});
+  return `<div class="lh"><h2>Leverantörer</h2><button class="btn btn-default" onclick="go('#/leverantorsfakturor/ny')">${ic('plus')}Ny faktura</button></div>
+  ${levs().filter(l=>g[l.id]).map(l=>{const fs=g[l.id].sort((a,b)=>b.fdatum.localeCompare(a.fdatum));const skuld=r2(fs.filter(f=>f.status==='registrerad'&&f.total>0).reduce((a,f)=>a+kvar(f),0));
+    return `<div class="levgrp" onclick="go('#/leverantorsfakturor/lev-${l.id}')"><span>${esc(l.namn)} ${nyTag(l)}</span><span class="num ${skuld?'':'mf'}">${skuld?kr(skuld):'0,00'}</span></div>
+    ${fs.map(f=>`<a class="item ${rt.id===f.id?'on':''}" href="#/leverantorsfakturor/${f.id}" style="padding:6px 10px"><div class="top" style="font-weight:400"><span>${esc(f.nr)||'utan nr'} <span class="mf">${f.fdatum}</span></span><span class="num">${kr(n(f.total))}</span></div><div class="meta">${sBadge(f)}${aiTag(f)}${f.status==='registrerad'&&['obetald','delbetald','forfallen'].includes(fstatus(f))?'<span>'+forfTxt(f)+'</span>':''}</div></a>`).join('')}`}).join('')}`;
+},
+levkort(l){const fs=fak().filter(f=>f.lev===l.id);
+  return `<div class="paper"><div><div class="mf" style="font-weight:500">Leverantör</div><h1 style="font-size:18px">${esc(l.namn)}</h1></div>
+  <dl class="dl"><dt>Orgnr</dt><dd>${esc(l.orgnr)||'–'}</dd><dt>Momsreg-nr</dt><dd>${esc(l.momsnr)}</dd><dt>Land</dt><dd>${l.land}</dd><dt>Adress</dt><dd>${esc(l.adress)}</dd>
+  <dt>Betaluppgifter</dt><dd class="flex">${cp('Bankgiro',l.bg)}${cp('Plusgiro',l.pg)}${cp('IBAN',l.iban)}</dd><dt>Standardkonto</dt><dd>${l.konto} ${esc(kNamn(l.konto))} <span class="mf">· automatkontering, ändringar loggas</span></dd>${l.omvand?`<dt>Omvänd skattskyld.</dt><dd>${OMV[l.omvand]} föreslås</dd>`:''}</dl>
+  <div><div class="sec-t">Fakturor</div><table class="table"><tbody>${fs.map(f=>`<tr class="click" onclick="go('#/leverantorsfakturor/${f.id}')"><td>${esc(f.nr)}</td><td class="mf">${f.fdatum}</td><td>${sBadge(f)}</td><td class="num">${kr(f.total)}</td><td class="num">${f.status==='registrerad'?kr(kvar(f)):''}</td></tr>`).join('')}</tbody></table></div>
+  <div class="flex"><button class="btn btn-outline" onclick="inteHar('Redigering av leverantör')">${ic('pencil')}Ändra</button><button class="btn btn-ghost" onclick="inteHar('Arkivering av leverantör')">${ic('archive')}Arkivera</button><span class="mf">En leverantör med fakturor kan arkiveras men inte raderas.</span></div></div>`},
+edit(f){const {fel,varn}=kontroll(f);const l=hittaL(f.lev);const s1=!!l&&!!l.namn,s2=s1&&f.nr&&f.fdatum&&f.forfallo&&n(f.total);
+  return `<div class="C-edit"><div class="left">${f.underlag.length?preview(f.underlag[0].namn,560):''}${underlagFiler(f)}</div>
+  <div class="col" style="gap:12px">${rubrikForm(f)}
+    <div class="steg ${s1?'klar':''}"><div class="st"><span class="n">${s1?ic('check'):'1'}</span>Leverantör</div>${levVal(f,fel)}${l&&!l.ny?`<div class="flex">${betalUppg({...f,total:n(f.total),betalningar:[],id:'x'}).replace(/Belopp<\/span>[^<]*/,'Belopp</span>'+esc(f.total))}</div>`:''}</div>
+    <div class="steg ${s2?'klar':''}"><div class="st"><span class="n">${s2?ic('check'):'2'}</span>Fakturauppgifter</div>${falt(f,fel)}</div>
+    <div class="steg ${s2&&!fel.length?'klar':''}"><div class="st"><span class="n">${s2&&!fel.length?ic('check'):'3'}</span>Kontering</div>${radTab(f,fel)}${konteringBox(f)}</div>
+    ${varnLista(varn)}${knappar(f,fel)}</div></div>`},
+doc(f){const d=docDelar(f);
+  const bet=S.bet&&S.bet.id===f.id?`<div class="inl">${betalForm(f)}</div>`:'';
+  return `<div class="paper"><div class="flex" style="justify-content:space-between;align-items:flex-start">${d.head}<div class="flex">${docActions(f,d,`startaBet(hittaF('${f.id}'));render()`)}</div></div>
+  ${S.rattaAvskrift?rattaPanel(f):''}
+  <div class="levkort"><div class="flex" style="justify-content:space-between"><a class="link" href="#/leverantorsfakturor/lev-${d.l.id}">${esc(d.l.namn)}</a><span class="mf">${esc(d.l.orgnr||d.l.momsnr)}</span></div>${d.kanBetala?betalUppg(f):''}</div>
+  ${d.meta}${d.rader}${d.bets}${bet}<div><div class="sec-t">Underlag</div>${f.underlag.map(u=>`<div class="ufile">${ic('paperclip')}${esc(u.namn)}</div>`).join('')}</div>${d.hist}</div>`},
+modal(){return gemensamModal()}};
+
+/* ================= Variant C: Underlag bredvid och förfallodag först ================= */
+const C={namn:'Underlag bredvid, förfallodag först',
+inkorg(rt){
+  const ab=attBetala(),uk=utkastF(),ok=OKOPPLADE[S.co];
+  const it=(id,top,amt,meta,extra)=>`<a class="item ${rt.id===id?'on':''}" href="#/inkorg/${id}" style="padding:8px 10px"><div class="top"><span>${top}</span><span class="num">${amt}</span></div><div class="meta">${meta}</div>${extra||''}</a>`;
+  return `<div class="lh"><h2>Att göra</h2><span class="mf">per förfallodag</span></div>
+  <div class="sect">${ic('banknote')}Att betala · ${ab.length}</div>${ab.map(f=>it(f.id,esc(levNamn(f)),kr(kvar(f)),sBadge(f)+'<span>'+forfTxt(f)+'</span>',`<div class="flex" style="flex-wrap:wrap;margin-top:2px">${(hittaL(f.lev).bg?cp('BG',hittaL(f.lev).bg):'')+(hittaL(f.lev).pg?cp('PG',hittaL(f.lev).pg):'')}${cp(f.ocr?'OCR':'Medd.',f.ocr||f.nr)}</div>`)).join('')}
+  <div class="sect">${ic('file-question')}Okopplade underlag · ${ok.length}</div>${ok.map(u=>it(u.id,esc(u.namn),'',`<span>${u.upp}${u.via!=='webb'?' · via '+esc(u.via):''}</span>`)).join('')}
+  <div class="sect">${ic('pencil-line')}Utkast att registrera · ${uk.length}</div>${uk.map(f=>it(f.id,esc(levNamn(f)),esc(kr(n(f.total))),sBadge(f)+aiTag(f)+nyTag(hittaL(f.lev))+(f.underlag.length?ic('paperclip'):''))).join('')}${kommande()}`;
+},
+underlag(u){
+  return `<div class="C-edit"><div class="left">${preview(u.namn,560)}</div><div class="col" style="gap:16px">
+    <div><div class="mf" style="font-weight:500">Okopplat underlag</div><h1 style="font-size:18px">${esc(u.namn)}</h1><div class="mf">Arkiverat ${u.upp}${u.via!=='webb'?' via '+esc(u.via):''}, oförändrat med SHA-256</div></div>
+    <div><div class="sec-t">Vad är det här?</div><div class="seg">
+      <button onclick="registreraUnderlag('${u.id}')">${ic('receipt')}Leverantörsfaktura</button>
+      <button onclick="inteHar('Nytt verifikat från underlag')">${ic('file-plus')}Kvitto</button>
+      <button onclick="inteHar('Komplettering')">${ic('paperclip')}Komplettering</button></div></div>
+    <div class="note">${ic('info')}<span>Leverantörsfaktura: något som ska betalas efter att det tagits emot. Kvitton och kortköp blir vanliga verifikat.</span></div>
+    <div><button class="btn btn-destructive-ghost" onclick="S.modal={typ:'raderaU',id:'${u.id}',skal:''};render()">${ic('trash-2')}Dubblett eller fel fil…</button></div></div></div>`},
+lista(rt){
+  const grp=[['Förfallna',f=>fstatus(f)==='forfallen','alert-triangle'],['Förfaller inom 7 dagar',f=>['obetald','delbetald'].includes(fstatus(f))&&-dagar(f.forfallo)<=7,'clock'],
+    ['Senare',f=>['obetald','delbetald'].includes(fstatus(f))&&-dagar(f.forfallo)>7,'calendar'],['Utkast',f=>f.status!=='registrerad','pencil-line'],['Betalda och krediterade',f=>['betald','krediterad','kredit'].includes(fstatus(f)),'check']];
+  const it=f=>`<a class="item ${rt.id===f.id?'on':''}" href="#/leverantorsfakturor/${f.id}" style="padding:8px 10px"><div class="top"><span>${esc(levNamn(f))} <span class="mf">${esc(f.nr)}</span></span><span class="num">${['obetald','delbetald','forfallen'].includes(fstatus(f))?kr(kvar(f)):kr(n(f.total))}</span></div>
+    <div class="meta">${sBadge(f)}${aiTag(f)}${nyTag(hittaL(f.lev))}${f.status==='registrerad'&&['obetald','delbetald','forfallen'].includes(fstatus(f))?'<span>'+forfTxt(f)+'</span>':'<span>'+(f.fdatum||'')+'</span>'}</div></a>`;
+  const skuld=r2(fak().filter(f=>f.status==='registrerad'&&f.total>0).reduce((a,f)=>a+kvar(f),0));
+  return `<div class="lh"><div><h2>Leverantörsfakturor</h2><span class="mf">Leverantörsskulder ${kr(skuld)} kr</span></div><button class="btn btn-default" onclick="go('#/leverantorsfakturor/ny')">${ic('plus')}Ny</button></div>
+  ${grp.map(([t,fn,i])=>{const l=fak().filter(fn).sort((a,b)=>(a.forfallo||'').localeCompare(b.forfallo||''));return l.length?`<div class="per">${ic(i)}${t} · ${l.length}</div>${l.map(it).join('')}`:''}).join('')}`;
+},
+edit(f){const {fel,varn}=kontroll(f);
+  return `<div class="C-edit"><div class="left">${f.underlag.length?preview(f.underlag[0].namn,560):''}${underlagFiler(f)}</div>
+  <div class="col" style="gap:14px">${rubrikForm(f)}${levVal(f,fel)}${falt(f,fel)}${radTab(f,fel)}${varnLista(varn)}${konteringBox(f)}${knappar(f,fel)}</div></div>`},
+doc(f){const d=docDelar(f);
+  const bet=S.bet&&S.bet.id===f.id?`<div class="inl"><div class="flex" style="justify-content:space-between"><h2>Registrera betalning</h2><button class="btn btn-ghost btn-icon" onclick="S.bet=null;render()">${ic('x')}</button></div><div class="mf">Återstår ${kr(kvar(f))} kr · förfallodag ${f.forfallo}</div>${betalForm(f)}</div>`:'';
+  return `<div class="C-edit"><div class="left">${preview(f.underlag[0]?.namn||'inget underlag',560)}${f.underlag.map(u=>`<div class="ufile">${ic('paperclip')}${esc(u.namn)}</div>`).join('')}</div>
+  <div class="col" style="gap:18px"><div class="flex" style="justify-content:space-between;align-items:flex-start">${d.head}<div class="flex">${S.bet?'':docActions(f,d,`startaBet(hittaF('${f.id}'));render()`)}</div></div>
+  ${S.rattaAvskrift?rattaPanel(f):''}${bet}${d.kanBetala&&!S.bet?`<div><div class="sec-t">Betaluppgifter</div>${betalUppg(f)}</div>`:''}${d.meta}${d.rader}${d.bets}${d.hist}</div></div>`},
+modal(){return gemensamModal()}};
+
+/* ================= Skal (variant D från gränssnittsprototypen) ================= */
+function coMenu(){return `<div class="dropdown"><div class="lbl">Företag</div>${FORETAG.map(f=>`<button class="mi" onclick="byt('${f.id}')"><span class="logo sm">${initialer(f.namn)}</span><span style="flex:1"><b style="font-weight:500">${esc(f.namn)}</b><br><span class="mf">${f.orgnr} · ${f.metod==='kontant'?'kontantmetoden':'fakturametoden'}</span></span>${f.id===S.co?ic('check'):''}</button>`).join('')}</div>`}
+function skal(rt,V){
+  const antal=attBetala().length+OKOPPLADE[S.co].length+utkastF().length;const mod=rt.mod;
+  let page;
+  if(mod!=='inkorg'&&mod!=='leverantorsfakturor')page=`<div style="padding:24px"><div class="placeholder">${ic('construction')}Sidan prototypas i ett eget ticket.</div></div>`;
+  else{
+    let det=`<div class="empty"><div>${ic('mouse-pointer-click','style="width:20px;height:20px"')}<p>Välj något i listan</p><button class="btn btn-outline" onclick="go('#/leverantorsfakturor/ny')">${ic('plus')}Ny leverantörsfaktura</button></div></div>`;
+    if(rt.id){let inner='';
+      if(rt.id==='sortera'&&V.sortera)inner=V.sortera();
+      else if(rt.id.startsWith('lev-')&&V.levkort){S.form=null;inner=V.levkort(hittaL(rt.id.slice(4)))}
+      else if(hittaU(rt.id)){S.form=null;inner=V.underlag(hittaU(rt.id))}
+      else{const f=rt.id==='ny'?null:hittaF(rt.id);
+        if(rt.id==='ny'||(f&&f.status!=='registrerad')){oppnaForm(rt.id);inner=V.edit(S.form)}
+        else if(f){S.form=null;inner=V.doc(f)}}
+      if(inner)det=`<div class="detail">${flashBox()}${inner}</div>`}
+    else if(S.flash)det=`<div class="detail">${flashBox()}</div>`;
+    page=`<div class="split" style="grid-template-columns:${V===A&&mod!=='inkorg'?'400px':'360px'} 1fr"><div class="list">${mod==='inkorg'?V.inkorg(rt):V.lista(rt)}</div>${det}</div>`;
+  }
+  return `<div class="B"><header>
+    <span class="brand"><span class="logo" style="width:24px;height:24px">M</span></span><span class="mf">/</span>
+    <div class="co"><button class="btn btn-ghost" onclick="S.coMenu=!S.coMenu;render()">${esc(co().namn)}${ic('chevrons-up-down')}</button>${S.coMenu?coMenu():''}</div>
+    <nav>${NAV.map(([k,t])=>`<a href="#/${k}" class="${mod===k?'on':''}">${t}${k==='inkorg'&&antal?`<span class="badge badge-count">${antal}</span>`:''}</a>`).join('')}</nav>
+    <div class="right"><span class="search" onclick="palett()">${ic('search')}Sök verifikat, faktura…<kbd>⌘K</kbd></span><button class="btn btn-ghost btn-icon" onclick="tema()" title="Ljust/mörkt">${ic('sun-moon')}</button></div>
+  </header>${page}</div>${V.modal()}${S.pal?pal():''}`;
+}
+/* Snabbsökning */
+function opts(){
+  const q=S.palQ.toLowerCase();
+  const o=[{g:'Förslag',t:'Ny leverantörsfaktura',i:'plus',run:()=>go('#/leverantorsfakturor/ny')},
+    ...fak().map(f=>({g:'Leverantörsfakturor',t:levNamn(f)+' · '+(f.nr||'utkast'),amt:kr(n(f.total)),s:f.fdatum,i:'receipt',run:()=>go('#/leverantorsfakturor/'+f.id)})),
+    ...levs().filter(l=>!l.ny).map(l=>({g:'Leverantörer',t:l.namn,s:l.orgnr+' '+(l.bg||''),i:'building-2',run:()=>go('#/leverantorsfakturor/lev-'+l.id)}))];
+  if(!q)return o.slice(0,8);
+  const norm=t=>String(t).toLowerCase().replace(/\s/g,'');const qq=norm(q);
+  return o.filter(x=>norm(x.t+' '+(x.amt||'')+' '+(x.s||'')).includes(qq)).slice(0,14);
+}
+function pal(){const o=opts();let g='';
+  return `<div class="pal-bg" onclick="if(event.target===this){S.pal=false;render()}"><div class="pal"><div class="in">${ic('search')}<input id="palq" placeholder="Sök faktura, leverantör, belopp…" value="${esc(S.palQ)}" oninput="S.palQ=this.value;S.palI=0;render();const e=document.getElementById('palq');e.focus();e.setSelectionRange(e.value.length,e.value.length)"></div>
+    <div class="ls">${o.map((x,i)=>{const hh=x.g!==g?(g=x.g,`<div class="grp">${x.g}</div>`):'';return hh+`<div class="opt ${i===S.palI?'on':''}" onclick="runOpt(${i})">${ic(x.i)}<span class="t">${esc(x.t)}</span>${x.amt?`<span class="amt">${x.amt}</span>`:''}</div>`}).join('')||'<div class="opt mf">Inga träffar.</div>'}</div></div></div>`}
+function runOpt(i){const o=opts()[i];S.pal=false;S.palQ='';o&&o.run();render()}
+function palett(){S.pal=true;S.palQ='';S.palI=0;render();setTimeout(()=>document.getElementById('palq')?.focus())}
+
+/* ================= Render, tema, tangenter ================= */
+const VARIANTS={A,B,C};
+function render(keepFocus){
+  const a=document.activeElement,all=[...document.querySelectorAll('input')],idx=keepFocus&&a?all.indexOf(a):-1,pos=idx>=0?a.selectionStart:null;
+  const V=VARIANTS[S.variant]||C;
+  document.getElementById('app').innerHTML=skal(route(),V);
+  window.lucide&&lucide.createIcons();
+  if(idx>=0){const e=document.querySelectorAll('input')[idx];if(e){e.focus();try{e.setSelectionRange(pos,pos)}catch{}}}
+  const keys=Object.keys(VARIANTS);
+  document.getElementById('proto-switcher').innerHTML=`<button onclick="cyk(-1)">←</button><span class="lbl">PROTOTYP · ${S.variant} (${V.namn}) · ${keys.indexOf(S.variant)+1}/${keys.length}</span><button onclick="cyk(1)">→</button>`;
+}
+function cyk(d){const k=Object.keys(VARIANTS);S.variant=k[(k.indexOf(S.variant)+d+k.length)%k.length];S.coMenu=false;S.pal=false;S.modal=null;S.bet=null;S.rattaAvskrift=null;
+  const rt=route();if(rt.id==='sortera'&&S.variant!=='B')location.hash='#/inkorg';
+  const p=new URLSearchParams(location.search);p.set('variant',S.variant);history.replaceState(null,'','?'+p+location.hash);render()}
+function tema(){const r=document.documentElement,cur=r.dataset.theme||(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light');r.dataset.theme=cur==='dark'?'light':'dark'}
+let senast=null;
+window.addEventListener('hashchange',()=>{const rt=route();S.coMenu=false;S.modal=null;
+  if(rt.id!==senast){S.bet=null;S.rattaAvskrift=null}
+  if(!rt.id||(S.form&&S.form._for!==rt.id))S.form=null;render();senast=rt.id;S.flash=''});
+document.addEventListener('click',e=>{if(S.coMenu&&!e.target.closest('.co')){S.coMenu=false;render()}});
+document.addEventListener('keydown',e=>{
+  const typing=e.target.matches('input,textarea,select,[contenteditable]');const mod=e.metaKey||e.ctrlKey;
+  if(mod&&e.key.toLowerCase()==='k'){e.preventDefault();S.pal?(S.pal=false,render()):palett();return}
+  if(S.pal){const o=opts();
+    if(e.key==='Escape'){S.pal=false;render()}
+    else if(e.key==='ArrowDown'){e.preventDefault();S.palI=Math.min(S.palI+1,o.length-1);render();document.getElementById('palq').focus()}
+    else if(e.key==='ArrowUp'){e.preventDefault();S.palI=Math.max(S.palI-1,0);render();document.getElementById('palq').focus()}
+    else if(e.key==='Enter'){e.preventDefault();runOpt(S.palI)}
+    return}
+  if(e.key==='Escape'&&(S.modal||S.bet)){S.modal=null;S.bet=null;render();return}
+  if(typing)return;
+  // Variant B: sortera underlag med tangenter
+  if(S.variant==='B'&&route().id==='sortera'&&!S.modal){const ok=OKOPPLADE[S.co],u=ok[Math.min(S.triageI,ok.length-1)];if(u){const k=e.key.toLowerCase();
+    if(k==='l'){registreraUnderlag(u.id);return}if(k==='v'){inteHar('Nytt verifikat från underlag');return}if(k==='k'){inteHar('Komplettering');return}
+    if(k==='s'){S.triageI++;render();return}if(k==='d'){S.modal={typ:'raderaU',id:u.id,skal:''};render();return}}}
+  if(e.key==='ArrowLeft')cyk(-1);
+  if(e.key==='ArrowRight')cyk(1);
+});
+render();
+</script>
+</body>
+</html>
