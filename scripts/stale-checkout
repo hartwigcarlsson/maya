@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+# SessionStart hook: warns when the session's checkout is behind origin/main,
+# since repo docs and skills read from it may then be stale.
+set -uo pipefail
+
+# The hook's own timeout in .claude/settings.json bounds a slow fetch.
+GIT_TERMINAL_PROMPT=0 git fetch -q origin main 2>/dev/null || exit 0
+branch=$(git symbolic-ref --short -q HEAD) || exit 0
+behind=$(git rev-list --count HEAD..origin/main 2>/dev/null) || exit 0
+[ "$behind" -gt 0 ] || exit 0
+
+if git merge-base --is-ancestor HEAD origin/main; then
+  state="is already merged into origin/main and is $behind commits behind it"
+else
+  state="is $behind commits behind origin/main"
+fi
+echo "This session's checkout is on '$branch', which $state. Docs, skills and scripts here may be stale: read them with 'git show origin/main:<path>', or work in a worktree cut from origin/main."
