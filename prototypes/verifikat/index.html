@@ -1,0 +1,740 @@
+<!doctype html>
+<html lang="sv">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Maya verifikatprototyp</title>
+<!--
+  PROTOTYP, KASTA BORT. Svarar på: Hur ser registrering av verifikat ut?
+  (https://github.com/hartwigcarlsson/maya/issues/32)
+  Bygger på skalet och stilen i variant D av gränssnittsprototypen
+  (https://github.com/hartwigcarlsson/maya/issues/24): inkorg först, ⌘K, shadcn b1Gdz9bFY, 13 px.
+  Tre varianter, ?variant=A|B|C (eller ← → / knapparna längst ned). Skalet är detsamma i alla tre;
+  de skiljer sig i utkastlistan, hur spärrarna visas, och hur rättelse och komplettering nås.
+  A: Kontrollista och dialoger   B: Fel vid bokföring och egen rättelsesida   C: Underlag bredvid och allt på plats
+  Allt ligger i minnet; ladda om sidan för att börja om. I dag är 2026-10-13, perioder t.o.m. juni är låsta.
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://unpkg.com/lucide@0.469.0/dist/umd/lucide.min.js"></script>
+<style>
+/* Tokens från presetet (Stone + Amber), ljust */
+:root{
+  --background:oklch(1 0 0);--foreground:oklch(0.147 0.004 49.25);
+  --card:oklch(1 0 0);--popover:oklch(1 0 0);
+  --primary:oklch(0.555 0.163 48.998);--primary-foreground:oklch(0.987 0.022 95.277);
+  --secondary:oklch(0.967 0.001 286.375);--secondary-foreground:oklch(0.21 0.006 285.885);
+  --muted:oklch(0.97 0.001 106.424);--muted-foreground:oklch(0.553 0.013 58.071);
+  --accent:oklch(0.97 0.001 106.424);--accent-foreground:oklch(0.216 0.006 56.043);
+  --destructive:oklch(0.577 0.245 27.325);
+  --border:oklch(0.923 0.003 48.717);--input:oklch(0.923 0.003 48.717);--ring:oklch(0.709 0.01 56.259);
+  --sidebar:oklch(0.985 0.001 106.423);--sidebar-primary:oklch(0.666 0.179 58.318);--sidebar-accent:oklch(0.97 0.001 106.424);--sidebar-border:oklch(0.923 0.003 48.717);
+  --success:oklch(0.52 0.12 150);
+  --radius:0.45rem;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --background:oklch(0.147 0.004 49.25);--foreground:oklch(0.985 0.001 106.423);
+  --card:oklch(0.216 0.006 56.043);--popover:oklch(0.216 0.006 56.043);
+  --primary:oklch(0.473 0.137 46.201);--primary-foreground:oklch(0.987 0.022 95.277);
+  --secondary:oklch(0.274 0.006 286.033);--secondary-foreground:oklch(0.985 0 0);
+  --muted:oklch(0.268 0.007 34.298);--muted-foreground:oklch(0.709 0.01 56.259);
+  --accent:oklch(0.268 0.007 34.298);--accent-foreground:oklch(0.985 0.001 106.423);
+  --destructive:oklch(0.704 0.191 22.216);
+  --border:oklch(1 0 0 / 10%);--input:oklch(1 0 0 / 15%);--ring:oklch(0.553 0.013 58.071);
+  --sidebar:oklch(0.216 0.006 56.043);--sidebar-primary:oklch(0.769 0.188 70.08);--sidebar-accent:oklch(0.268 0.007 34.298);--sidebar-border:oklch(1 0 0 / 10%);
+  --success:oklch(0.75 0.13 150);
+}}
+:root[data-theme="dark"]{
+  --background:oklch(0.147 0.004 49.25);--foreground:oklch(0.985 0.001 106.423);
+  --card:oklch(0.216 0.006 56.043);--popover:oklch(0.216 0.006 56.043);
+  --primary:oklch(0.473 0.137 46.201);--primary-foreground:oklch(0.987 0.022 95.277);
+  --secondary:oklch(0.274 0.006 286.033);--secondary-foreground:oklch(0.985 0 0);
+  --muted:oklch(0.268 0.007 34.298);--muted-foreground:oklch(0.709 0.01 56.259);
+  --accent:oklch(0.268 0.007 34.298);--accent-foreground:oklch(0.985 0.001 106.423);
+  --destructive:oklch(0.704 0.191 22.216);
+  --border:oklch(1 0 0 / 10%);--input:oklch(1 0 0 / 15%);--ring:oklch(0.553 0.013 58.071);
+  --sidebar:oklch(0.216 0.006 56.043);--sidebar-primary:oklch(0.769 0.188 70.08);--sidebar-accent:oklch(0.268 0.007 34.298);--sidebar-border:oklch(1 0 0 / 10%);
+  --success:oklch(0.75 0.13 150);
+}
+*{box-sizing:border-box;border-color:var(--border)}
+html,body{margin:0;height:100%}
+body{background:var(--background);color:var(--foreground);font:13px/1.5 Inter,system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+button,input,select{font:inherit;color:inherit}
+a{color:inherit;text-decoration:none}
+svg.lucide{width:14px;height:14px;flex-shrink:0;stroke-width:2}
+.num{font-variant-numeric:tabular-nums;text-align:right;white-space:nowrap}
+.mf{color:var(--muted-foreground)}
+h1{font-size:16px;font-weight:600;margin:0;letter-spacing:-.01em}
+h2{font-size:14px;font-weight:500;margin:0}
+
+/* Button */
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:4px;height:28px;padding:0 8px;border-radius:calc(var(--radius) * .8);font-size:13px;font-weight:500;border:1px solid transparent;cursor:pointer;white-space:nowrap;background:transparent;transition:background .1s}
+.btn-default{background:var(--primary);color:var(--primary-foreground)}
+.btn-default:hover{background:color-mix(in oklch,var(--primary) 90%,transparent)}
+.btn-outline{border-color:var(--input);background:var(--background)}
+:root[data-theme="dark"] .btn-outline{background:color-mix(in oklch,var(--input) 30%,transparent)}
+.btn-outline:hover,.btn-ghost:hover{background:var(--accent)}
+.btn-secondary{background:var(--secondary);color:var(--secondary-foreground)}
+.btn-icon{width:28px;padding:0}
+.btn-destructive-ghost{color:var(--destructive)}
+.btn-destructive-ghost:hover{background:color-mix(in oklch,var(--destructive) 10%,transparent)}
+
+/* Badge */
+.badge{display:inline-flex;align-items:center;gap:4px;height:20px;padding:2px 8px;border-radius:999px;font-size:10px;font-weight:500;white-space:nowrap;border:1px solid transparent;vertical-align:middle}
+.badge svg.lucide{width:10px;height:10px}
+.badge-utkast{border:1px dashed var(--muted-foreground);color:var(--muted-foreground)}
+.badge-bokford{background:var(--secondary);color:var(--secondary-foreground)}
+.badge-ai{border-color:var(--border);color:var(--foreground)}
+.badge-rattad{background:color-mix(in oklch,var(--destructive) 12%,transparent);color:var(--destructive)}
+.badge-count{background:var(--primary);color:var(--primary-foreground);height:18px;min-width:18px;padding:0 5px;justify-content:center}
+
+/* Card */
+.card{background:var(--card);border-radius:var(--radius);box-shadow:0 0 0 1px color-mix(in oklch,var(--foreground) 10%,transparent);display:flex;flex-direction:column;gap:16px;padding:16px 0}
+.card-header{padding:0 16px;display:flex;justify-content:space-between;align-items:flex-start;gap:12px}
+.card-title{font-size:14px;font-weight:500}
+.card-desc{color:var(--muted-foreground)}
+.card-content{padding:0 16px}
+.card-footer{padding:0 16px;display:flex;gap:8px;justify-content:flex-end;align-items:center}
+
+/* Input */
+.input{height:28px;border:1px solid var(--input);border-radius:calc(var(--radius) * .8);padding:0 8px;background:transparent;font-size:13px;width:100%}
+:root[data-theme="dark"] .input{background:color-mix(in oklch,var(--input) 30%,transparent)}
+.input:focus,.cell:focus{outline:none;border-color:var(--ring);box-shadow:0 0 0 3px color-mix(in oklch,var(--ring) 50%,transparent)}
+.input[readonly]{background:var(--muted);color:var(--muted-foreground)}
+.label{font-size:13px;font-weight:500;display:block;margin-bottom:6px}
+.field-grid{display:grid;grid-template-columns:160px 1fr 1fr;gap:16px}
+
+/* Table */
+table{border-collapse:collapse;width:100%}
+.table th{height:32px;padding:0 8px;text-align:left;font-weight:500;color:var(--muted-foreground);border-bottom:1px solid var(--border);white-space:nowrap}
+.table td{padding:6px 8px;border-bottom:1px solid var(--border);vertical-align:middle}
+.table tbody tr:last-child td{border-bottom:0}
+.table tr.click{cursor:pointer}
+.table tr.click:hover td{background:color-mix(in oklch,var(--muted) 50%,transparent)}
+.cell{width:100%;height:28px;border:1px solid transparent;border-radius:calc(var(--radius) * .8);padding:0 6px;background:transparent}
+.cell:hover:not([readonly]){border-color:var(--input)}
+.rows td{padding:2px 4px}
+.sumrow td{font-weight:600;border-top:1px solid var(--border);padding:8px}
+.diff-bad{color:var(--destructive);display:inline-flex;gap:4px;align-items:center}
+.diff-ok{color:var(--success);display:inline-flex;gap:4px;align-items:center}
+
+/* Alert */
+.alert{display:grid;grid-template-columns:auto 1fr auto;gap:2px 10px;align-items:start;border:1px solid var(--border);border-radius:var(--radius);padding:10px 12px;background:var(--card)}
+.alert .t{font-weight:500}
+.alert ul{margin:2px 0 0 16px;padding:0;color:var(--muted-foreground)}
+.alert.destructive{color:var(--destructive)}
+.alert.destructive ul{color:color-mix(in oklch,var(--destructive) 85%,var(--foreground))}
+.alert.ok{color:var(--success)}
+
+/* Tabs */
+.tabs{display:inline-flex;background:var(--muted);border-radius:var(--radius);padding:3px;gap:2px}
+.tabs button{height:22px;padding:0 10px;border:0;border-radius:calc(var(--radius) * .7);background:transparent;color:var(--muted-foreground);font-weight:500;cursor:pointer;display:inline-flex;gap:6px;align-items:center}
+.tabs button.on{background:var(--background);color:var(--foreground);box-shadow:0 1px 2px rgba(0,0,0,.08)}
+:root[data-theme="dark"] .tabs button.on{background:var(--input)}
+
+/* Dropdown */
+.dropdown{position:absolute;z-index:20;background:var(--popover);border:1px solid var(--border);border-radius:var(--radius);box-shadow:0 8px 24px rgba(0,0,0,.18);padding:4px;min-width:240px}
+.dropdown .lbl{padding:6px 8px;color:var(--muted-foreground);font-size:11px}
+.dropdown .mi{display:flex;align-items:center;gap:8px;width:100%;padding:6px 8px;border:0;background:transparent;border-radius:calc(var(--radius) * .8);cursor:pointer;text-align:left}
+.dropdown .mi:hover{background:var(--accent)}
+.dropdown .sepl{height:1px;background:var(--border);margin:4px -4px}
+.logo{width:28px;height:28px;border-radius:calc(var(--radius) * .8);background:var(--sidebar-primary);color:var(--primary-foreground);display:grid;place-items:center;font-weight:700;flex-shrink:0}
+.logo.sm{width:22px;height:22px;font-size:11px;background:var(--muted);color:var(--foreground);border:1px solid var(--border)}
+kbd{font:500 10px Inter,system-ui;border:1px solid var(--border);border-radius:4px;padding:1px 5px;background:var(--muted);color:var(--muted-foreground)}
+.placeholder{display:grid;place-items:center;gap:8px;padding:64px;color:var(--muted-foreground);text-align:center;border:1px dashed var(--border);border-radius:var(--radius)}
+
+/* ---------- Switcher (inte en del av designen) ---------- */
+#proto-switcher{position:fixed;left:50%;bottom:14px;transform:translateX(-50%);z-index:999;display:flex;align-items:center;gap:6px;
+  background:#111;color:#fff;border-radius:999px;padding:6px 8px;box-shadow:0 6px 24px rgba(0,0,0,.35);font:12px system-ui;border:2px dashed #f5c400}
+#proto-switcher button{background:#333;color:#fff;border:0;border-radius:999px;padding:4px 10px;cursor:pointer}
+#proto-switcher .lbl{padding:0 8px;white-space:nowrap}
+
+/* ---------- Variant B: Inkorg först ---------- */
+.B{display:flex;flex-direction:column;height:100vh}
+.B header{display:flex;align-items:center;gap:12px;padding:0 12px;height:48px;border-bottom:1px solid var(--border);background:var(--background)}
+.B .brand{display:flex;align-items:center;gap:8px;font-weight:600}
+.B .co{position:relative}
+.B .co .dropdown{top:34px;left:0}
+.B nav{display:flex;gap:2px}
+.B nav a{display:inline-flex;align-items:center;gap:6px;height:28px;padding:0 10px;border-radius:calc(var(--radius) * .8);color:var(--muted-foreground);font-weight:500}
+.B nav a:hover{color:var(--foreground);background:var(--accent)}
+.B nav a.on{color:var(--foreground);background:var(--accent)}
+.B header .right{margin-left:auto;display:flex;gap:4px;align-items:center}
+.B .split{flex:1;display:grid;grid-template-columns:360px 1fr;min-height:0}
+.B .list{border-right:1px solid var(--border);overflow:auto;padding:12px;display:flex;flex-direction:column;gap:6px;background:var(--sidebar)}
+.B .list .lh{display:flex;justify-content:space-between;align-items:center;padding:4px 4px 8px}
+.B .sect{display:flex;align-items:center;gap:6px;color:var(--muted-foreground);font-size:11px;font-weight:500;padding:10px 4px 2px}
+.B .item{display:flex;flex-direction:column;gap:6px;padding:10px 12px;border-radius:calc(var(--radius) * .8);border:1px solid transparent;background:color-mix(in oklch,var(--muted) 50%,transparent)}
+.B .item:hover{background:var(--muted)}
+.B .item.on{border-color:var(--ring);background:var(--card)}
+.B .item .top{display:flex;justify-content:space-between;gap:8px;font-weight:500}
+.B .item .meta{display:flex;gap:6px;align-items:center;color:var(--muted-foreground);flex-wrap:wrap}
+.B .item.plain{background:transparent;border-color:var(--border)}
+.B .detail{overflow:auto;padding:20px 28px 90px;display:flex;flex-direction:column;gap:16px}
+.B .empty{display:grid;place-items:center;height:100%;color:var(--muted-foreground);text-align:center;gap:8px}
+
+.search{display:inline-flex;align-items:center;gap:8px;height:28px;padding:0 8px;min-width:240px;border:1px solid var(--input);border-radius:calc(var(--radius) * .8);color:var(--muted-foreground);cursor:pointer;background:color-mix(in oklch,var(--muted) 50%,transparent)}
+.search kbd{margin-left:auto}
+.pal-bg{position:fixed;inset:0;background:rgba(0,0,0,.5);display:flex;justify-content:center;align-items:flex-start;padding-top:14vh;z-index:50}
+.pal{width:520px;max-width:92vw;background:var(--popover);border-radius:var(--radius);box-shadow:0 0 0 1px color-mix(in oklch,var(--foreground) 10%,transparent),0 16px 48px rgba(0,0,0,.4);overflow:hidden}
+.pal .in{display:flex;align-items:center;gap:8px;padding:0 12px;border-bottom:1px solid var(--border);color:var(--muted-foreground)}
+.pal input{flex:1;height:40px;border:0;background:transparent;outline:none;font-size:13px;color:var(--foreground)}
+.pal .ls{max-height:340px;overflow:auto;padding:4px}
+.pal .opt{display:flex;align-items:center;gap:8px;height:30px;padding:0 8px;border-radius:calc(var(--radius) * .8);cursor:pointer}
+.pal .opt.on{background:var(--accent)}
+.pal .opt kbd,.pal .opt .amt{margin-left:auto}
+.pal .opt .amt{color:var(--muted-foreground);font-variant-numeric:tabular-nums}
+.pal .opt .t{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pal .grp{padding:8px 8px 4px;font-size:11px;color:var(--muted-foreground);font-weight:500}
+.pal .ft{display:flex;gap:12px;padding:6px 12px;border-top:1px solid var(--border);color:var(--muted-foreground);font-size:11px}
+
+/* ---------- Gemensamt för verifikatprototypen ---------- */
+.B .detail{position:relative}
+.warn{color:var(--sidebar-primary)}
+.badge-warn{background:color-mix(in oklch,var(--sidebar-primary) 14%,transparent);color:var(--sidebar-primary)}
+.badge-lock{background:var(--muted);color:var(--muted-foreground);border-color:var(--border)}
+.dl{display:grid;grid-template-columns:130px 1fr;gap:6px 16px}
+.dl dt{color:var(--muted-foreground)}
+.dl dd{margin:0}
+.link{text-decoration:underline;text-underline-offset:2px;cursor:pointer}
+.sec-t{font-size:11px;font-weight:500;color:var(--muted-foreground);text-transform:uppercase;letter-spacing:.04em;margin-bottom:6px}
+.paper{background:var(--card);border-radius:var(--radius);box-shadow:0 0 0 1px color-mix(in oklch,var(--foreground) 10%,transparent),0 2px 8px rgba(0,0,0,.04);padding:24px 28px;display:flex;flex-direction:column;gap:20px;max-width:860px}
+.ro td{padding:6px 8px}
+.hist{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px}
+.hist li{display:grid;grid-template-columns:18px 130px 1fr;gap:8px;align-items:start}
+.hist li .t{color:var(--muted-foreground);font-variant-numeric:tabular-nums}
+.ufile{display:flex;align-items:center;gap:8px;padding:6px 8px;border:1px solid var(--border);border-radius:calc(var(--radius) * .8)}
+.ufile .mf{margin-left:auto;font-size:11px}
+.ufile.kompl{border-style:dashed}
+.preview{display:grid;place-items:center;gap:6px;background:var(--muted);color:var(--muted-foreground);border-radius:var(--radius);text-align:center}
+.drop{display:grid;place-items:center;gap:6px;border:1px dashed var(--ring);border-radius:var(--radius);color:var(--muted-foreground);padding:16px;text-align:center}
+.err .input,.input.err{border-color:var(--destructive)}
+tr.err td{background:color-mix(in oklch,var(--destructive) 6%,transparent)}
+.cell.err{border-color:var(--destructive)}
+.ferr{color:var(--destructive);font-size:11px;margin-top:3px;display:flex;gap:4px;align-items:center}
+.ferr svg.lucide{width:11px;height:11px}
+.btn[disabled]{opacity:.5;cursor:not-allowed}
+.dialog{width:560px;max-width:94vw;background:var(--popover);border-radius:var(--radius);box-shadow:0 0 0 1px color-mix(in oklch,var(--foreground) 10%,transparent),0 16px 48px rgba(0,0,0,.4);display:flex;flex-direction:column;gap:14px;padding:18px 20px}
+.dialog .ft{display:flex;gap:8px;justify-content:flex-end}
+.pick{display:flex;flex-direction:column;gap:4px;max-height:220px;overflow:auto}
+.pick label{display:flex;gap:8px;align-items:center;padding:6px 8px;border-radius:calc(var(--radius) * .8);border:1px solid var(--border);cursor:pointer}
+.pick label:hover{background:var(--accent)}
+.note{display:flex;gap:8px;align-items:flex-start;color:var(--muted-foreground);font-size:12px}
+.note svg.lucide{margin-top:2px}
+.flex{display:flex;gap:8px;align-items:center}
+.col{display:flex;flex-direction:column;gap:8px}
+
+/* A: kontrollista i en högerspalt */
+.A-edit{display:grid;grid-template-columns:1fr 250px;gap:24px;align-items:start}
+.rail{position:sticky;top:0;display:flex;flex-direction:column;gap:10px;padding:14px;border:1px solid var(--border);border-radius:var(--radius);background:var(--sidebar)}
+.rail .chk{display:grid;grid-template-columns:16px 1fr;gap:6px;align-items:start}
+.rail .chk.ok{color:var(--muted-foreground)}
+.rail .chk.bad{color:var(--foreground)}
+.rail .chk.bad svg.lucide{color:var(--destructive)}
+.rail .chk.ok svg.lucide{color:var(--success)}
+.rail .chk .fix{display:block;font-size:11px;color:var(--muted-foreground)}
+
+/* B: tabell som lista */
+.tlist{width:100%;border-collapse:collapse}
+.tlist td{padding:6px 6px;border-bottom:1px solid var(--border);vertical-align:top}
+.tlist tr{cursor:pointer}
+.tlist tr:hover td{background:var(--muted)}
+.tlist tr.on td{background:var(--card);box-shadow:inset 0 0 0 0 var(--ring)}
+.tlist tr.on td:first-child{box-shadow:inset 2px 0 0 var(--sidebar-primary)}
+.tlist th{font-weight:500;color:var(--muted-foreground);text-align:left;padding:4px 6px;border-bottom:1px solid var(--border);font-size:11px}
+.B .list.wide{padding:8px}
+.cmp{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.cmp .paper{padding:16px}
+
+/* C: underlag bredvid */
+.C-edit{display:grid;grid-template-columns:minmax(260px,42%) 1fr;gap:20px;align-items:start}
+.C-edit .left{position:sticky;top:0;display:flex;flex-direction:column;gap:8px}
+.C-edit .left .preview{height:420px}
+.per{display:flex;align-items:center;gap:6px;font-size:11px;font-weight:500;color:var(--muted-foreground);padding:12px 4px 2px}
+.per .badge{margin-left:auto}
+.pop{position:absolute;z-index:20;background:var(--popover);border:1px solid var(--border);border-radius:var(--radius);box-shadow:0 8px 24px rgba(0,0,0,.18);padding:8px;width:300px;display:flex;flex-direction:column;gap:6px}
+.inl{border:1px solid var(--ring);border-radius:var(--radius);padding:14px;display:flex;flex-direction:column;gap:12px;background:var(--card)}
+.bcount{background:color-mix(in oklch,var(--primary-foreground) 25%,transparent);border-radius:999px;padding:0 6px;font-size:11px}
+</style>
+</head>
+<body>
+<div id="app"></div>
+<div id="proto-switcher"></div>
+<script>
+/* ================= Data (i minnet) ================= */
+const IDAG = new Date('2026-10-13T10:00:00');
+const IDAG_S = '2026-10-13';
+const LAST_TOM = '2026-06';            // perioder t.o.m. juni är låsta
+const FORSTA_OPPNA = '2026-07-01';
+const AR_FINNS = d=>d>='2026-01-01'&&d<='2026-12-31';
+const KONTON = {
+  1510:['Kundfordringar',1],1930:['Företagskonto',1],2440:['Leverantörsskulder',1],2611:['Utgående moms 25 %',1],2641:['Debiterad ingående moms',1],
+  2710:['Personalskatt',1],2731:['Avräkning lagstadgade sociala avgifter',1],3041:['Försäljning tjänster 25 %',1],5010:['Lokalhyra',1],
+  5410:['Förbrukningsinventarier',1],5800:['Resekostnader',1],6071:['Representation, avdragsgill',0],6211:['Fast telefoni',1],6212:['Mobiltelefon',1],
+  6540:['IT-tjänster',1],6570:['Bankkostnader',1],7210:['Löner till tjänstemän',1],7510:['Arbetsgivaravgifter',1],7690:['Övriga personalkostnader',1],
+};
+const kNamn=k=>KONTON[k]?.[0]; const kAktiv=k=>KONTON[k]?.[1]===1;
+const ANV = 'Anna Berg';
+const FORETAG = [
+  {id:'exempel',namn:'Exempel AB',orgnr:'559999-9991',ar:'2026-01-01 – 2026-12-31'},
+  {id:'lund',namn:'Konsultbolaget i Lund AB',orgnr:'559888-1234',ar:'2025-07-01 – 2026-06-30'},
+];
+let seq=100, useq=1, min=10;
+const nu=()=>IDAG_S+' 10:'+String(min++).padStart(2,'0');
+function r(konto,d,k){return {konto:String(konto),debet:d?String(d).replace('.',','):'',kredit:k?String(k).replace('.',','):''}}
+const U=(namn,o)=>Object.assign({id:'u'+(useq++),namn},o||{});
+function v(o){return Object.assign({id:'v'+(seq++),underlag:[],rader:[],historik:[]},o)}
+const h=(tid,vem,text,ikon)=>({tid,vem,text,ikon});
+const VER = {
+  exempel:[
+    v({nr:1,datum:'2026-01-02',beskrivning:'Hyra januari, Fastighets AB Kvarnen',bokford:'2026-01-03 09:12',bokfordAv:ANV,skapatAv:ANV,kanal:'webb',
+      underlag:[U('hyresavi-jan.pdf')],rader:[r(5010,12000),r(2641,3000),r(1930,0,15000)],
+      historik:[h('2026-01-03 09:12',ANV,'Registrerade och bokförde','lock')]}),
+    v({nr:2,datum:'2026-01-15',beskrivning:'Kundfaktura 1001, Norrsken Design AB',bokford:'2026-01-15 14:40',bokfordAv:ANV,skapatAv:ANV,kanal:'webb',kalla:{typ:'Kundfaktura',nr:'1001'},
+      underlag:[U('faktura-1001.pdf')],rader:[r(1510,50000),r(3041,0,40000),r(2611,0,10000)],
+      historik:[h('2026-01-15 14:40',ANV,'Utfärdade kundfaktura 1001, som bokförde verifikatet','file-output')]}),
+    v({nr:3,datum:'2026-09-25',beskrivning:'Lön september',bokford:'2026-09-25 08:01',bokfordAv:ANV,skapatAv:ANV,kanal:'webb',
+      rader:[r(7210,42000),r(7510,13196.4),r(2710,0,11340),r(2731,0,13196.4),r(1930,0,30660)],
+      historik:[h('2026-09-25 08:01',ANV,'Bokförde lönekörning september','lock')]}),
+    v({nr:4,datum:'2026-09-30',beskrivning:'Bankavgift september',bokford:'2026-10-01 07:55',bokfordAv:ANV,skapat:'2026-09-30',skapatAv:ANV,kanal:'MCP',klient:'Claude Code',
+      underlag:[U('kontoutdrag-sep.pdf'),U('avgiftsspec-sep.pdf',{kompl:'2026-10-05 13:02',av:'Erik Lind'})],rader:[r(6570,95),r(1930,0,95)],
+      historik:[h('2026-09-30 22:14',ANV+' via Claude Code','Skapade utkast','sparkles'),h('2026-10-01 07:55',ANV,'Bokförde','lock'),h('2026-10-05 13:02','Erik Lind','Kompletterade med avgiftsspec-sep.pdf','paperclip')]}),
+    v({nr:5,datum:'2026-10-02',beskrivning:'Mobilabonnemang oktober, Telia',bokford:'2026-10-03 11:20',bokfordAv:ANV,skapatAv:ANV,kanal:'webb',rattadAv:6,
+      underlag:[U('telia-okt.pdf')],rader:[r(6211,399),r(2641,99.75),r(2440,0,498.75)],
+      historik:[h('2026-10-03 11:20',ANV,'Registrerade och bokförde','lock'),h('2026-10-03 11:31',ANV,'Rättad av V6','undo-2')]}),
+    v({nr:6,datum:'2026-10-03',beskrivning:'Rättelse av V5, fel konto',bokford:'2026-10-03 11:31',bokfordAv:ANV,skapatAv:ANV,kanal:'webb',rattelseAv:5,
+      rader:[r(6211,0,399),r(2641,0,99.75),r(2440,498.75)],
+      historik:[h('2026-10-03 11:31',ANV,'Bokförde rättelse av V5','undo-2')]}),
+    v({nr:7,datum:'2026-10-02',beskrivning:'Mobilabonnemang oktober, Telia',bokford:'2026-10-03 11:33',bokfordAv:ANV,skapatAv:ANV,kanal:'webb',kopiaAv:5,
+      rader:[r(6212,399),r(2641,99.75),r(2440,0,498.75)],
+      historik:[h('2026-10-03 11:31',ANV,'Skapade utkast som kopia av V5','copy'),h('2026-10-03 11:33',ANV,'Bokförde','lock')]}),
+    // Utkast
+    v({nr:null,datum:'2026-10-08',beskrivning:'Adobe Creative Cloud, oktober',skapat:'2026-10-08',skapatAv:ANV,kanal:'MCP',klient:'Claude Code',underlag:[U('adobe-okt.pdf')],
+      rader:[r(6540,599),r(2641,149.75),r(1930,0,748.75)],historik:[h('2026-10-08 21:40',ANV+' via Claude Code','Skapade utkast','sparkles')]}),
+    v({nr:null,datum:'2026-10-10',beskrivning:'Kontorsstol, IKEA',skapat:'2026-10-10',skapatAv:ANV,kanal:'MCP',klient:'Claude Code',underlag:[U('ikea-kvitto.jpg')],
+      rader:[r(5410,2396),r(2641,599),r(1930,0,2995)],historik:[h('2026-10-10 18:02',ANV+' via Claude Code','Skapade utkast','sparkles')]}),
+    v({nr:null,datum:'2026-09-28',beskrivning:'Lunch med kund',skapat:'2026-09-29',skapatAv:'Erik Lind',kanal:'webb',
+      rader:[r(6071,642),r('',0,0)],historik:[h('2026-09-29 12:30','Erik Lind','Sparade utkast','pencil-line')]}),
+    v({nr:null,datum:'2026-07-14',beskrivning:'Parkering, Stockholm City',skapat:'2026-07-15',skapatAv:ANV,kanal:'webb',underlag:[U('parkering-juli.jpg')],
+      rader:[r(5800,120),r(2641,30),r(1930,0,150)],historik:[h('2026-07-15 08:10',ANV,'Sparade utkast','pencil-line')]}),
+    v({nr:null,datum:'2026-05-20',beskrivning:'Konferensavgift, Visma Summit',skapat:'2026-10-12',skapatAv:ANV,kanal:'MCP',klient:'Claude Code',underlag:[U('konferens-kvitto.pdf')],
+      rader:[r(7690,2400),r(2641,600),r(1930,0,3000)],historik:[h('2026-10-12 20:15',ANV+' via Claude Code','Skapade utkast','sparkles')]}),
+  ],
+  lund:[
+    v({nr:1,datum:'2026-07-01',beskrivning:'Hyra juli',bokford:'2026-07-02 10:00',bokfordAv:ANV,skapatAv:ANV,kanal:'webb',rader:[r(5010,8000),r(1930,0,8000)],historik:[h('2026-07-02 10:00',ANV,'Registrerade och bokförde','lock')]}),
+    v({nr:null,datum:'2026-10-11',beskrivning:'Domänförnyelse, Loopia',skapat:'2026-10-11',skapatAv:ANV,kanal:'MCP',klient:'Claude Code',underlag:[U('loopia.pdf')],rader:[r(6540,180),r(2641,45),r(1930,0,225)],historik:[]}),
+  ],
+};
+const OKOPPLADE = {exempel:[U('telia-nov.pdf',{upp:'2026-10-11'}),U('kvitto-taxi.jpg',{upp:'2026-10-09'}),U('bankavgift-detalj-sep.pdf',{upp:'2026-10-04'})],lund:[]};
+const FAKTUROR = {exempel:[{typ:'kund',nr:'1001',motpart:'Norrsken Design AB',belopp:50000},{typ:'lev',nr:'INV-88213',motpart:'Telia Sverige AB',belopp:498.75}],lund:[]};
+const NAV = [['inkorg','Att göra'],['verifikat','Verifikat'],['kundfakturor','Kundfakturor'],['leverantorsfakturor','Leverantörsfakturor'],['lon','Lön'],['moms','Moms'],['rapporter','Rapporter']];
+const ic=(n,extra)=>`<i data-lucide="${n}"${extra?' '+extra:''}></i>`;
+
+/* ================= Tillstånd ================= */
+const params = new URLSearchParams(location.search);
+const S = {variant:(params.get('variant')||'A').toUpperCase(), co:'exempel', filter:'alla', form:null, forsok:false, coMenu:false, pal:false, palQ:'', palI:0, flash:'', flashKopiera:null,
+  modal:null, valt:null, ratta:{datum:IDAG_S,orsak:'',kopiera:true}, inlineRatta:null, pop:null};
+const co = ()=>FORETAG.find(f=>f.id===S.co);
+const lista = ()=>VER[S.co];
+const hitta = id=>lista().find(x=>x.id===id);
+const hittaNr = nr=>lista().find(x=>x.nr===nr);
+const utkast = ()=>lista().filter(x=>x.nr==null);
+function route(){const p=(location.hash||'#/inkorg').slice(2).split('/');return {mod:p[0]||'inkorg',id:p[1]||null,sub:p[2]||null}}
+function go(hh){if(location.hash===hh)window.dispatchEvent(new HashChangeEvent('hashchange'));else location.hash=hh}
+const initialer=s=>s.split(/\s+/).filter(w=>w!=='AB'&&w!=='i').slice(0,2).map(w=>w[0]).join('').toUpperCase();
+
+/* ================= Hjälpare ================= */
+const fmt = new Intl.NumberFormat('sv-SE',{minimumFractionDigits:2,maximumFractionDigits:2});
+const n = s=>{const x=parseFloat(String(s).replace(/\s/g,'').replace(',','.'));return isNaN(x)?0:x};
+const kr = x=>x?fmt.format(x):'';
+const sum = (rader,f)=>rader.reduce((a,x)=>a+n(x[f]),0);
+const belopp = x=>Math.max(sum(x.rader,'debet'),sum(x.rader,'kredit'));
+const esc = s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const dagar = d=>Math.round((IDAG-new Date(d+'T10:00:00'))/864e5);
+const alder = d=>{const x=dagar(d);return x<=0?'i dag':x===1?'1 dag':x+' dagar'};
+const MAN=['januari','februari','mars','april','maj','juni','juli','augusti','september','oktober','november','december'];
+const manad = d=>MAN[+d.slice(5,7)-1]+' '+d.slice(0,4);
+const last = d=>d.slice(0,7)<=LAST_TOM;
+const vnr = x=>x.nr==null?'Utkast':'V'+x.nr;
+// Varning enligt livscykeln (punkt 12): verifikatdatum i en månad som tog slut för mer än 50 dagar sedan
+function varning(x){
+  if(x.nr!=null)return null;
+  if(last(x.datum))return {typ:'last',kort:'Låst period',lang:'Verifikatdatumet ligger i '+manad(x.datum)+', som är låst. Byt datum till '+FORSTA_OPPNA+' eller senare för att kunna bokföra.'};
+  const [y,m]=x.datum.split('-').map(Number);const slut=new Date(y,m,0,10);const d=Math.round((IDAG-slut)/864e5);
+  if(d>50)return {typ:'gammal',kort:d+' dagar sedan månaden tog slut',lang:manad(x.datum)+' tog slut för '+d+' dagar sedan. Bokför snart, så att perioden kan stängas.'};
+  return null;
+}
+function status(x){
+  if(x.nr==null) return `<span class="badge badge-utkast">${ic('pencil-line')}Utkast</span>`;
+  if(x.rattadAv) return `<span class="badge badge-rattad">Rättad av V${x.rattadAv}</span>`;
+  if(x.rattelseAv) return `<span class="badge badge-bokford">${ic('undo-2')}Rättelse av V${x.rattelseAv}</span>`;
+  return `<span class="badge badge-bokford">${ic('lock')}Bokförd</span>`;
+}
+const aiTag = x=>x.kanal==='MCP'?`<span class="badge badge-ai" title="Skapat via ${esc(x.klient)} (AI)">${ic('sparkles')}AI</span>`:'';
+const varnTag = x=>{const w=varning(x);return w?`<span class="badge ${w.typ==='last'?'badge-lock':'badge-warn'}" title="${esc(w.lang)}">${ic(w.typ==='last'?'lock':'clock-alert')}${w.typ==='last'?'Låst period':'Gammalt'}</span>`:''};
+const clip = x=>x.underlag.length?ic('paperclip'):'';
+function filtrerad(){const l=lista().slice();const f=S.filter;
+  const out=f==='utkast'?l.filter(x=>x.nr==null):f==='bokforda'?l.filter(x=>x.nr!=null):l;
+  return out.sort((a,b)=>(b.nr==null)-(a.nr==null)||(b.nr??0)-(a.nr??0)||b.datum.localeCompare(a.datum));}
+const aldstForst = ()=>utkast().sort((a,b)=>a.skapat.localeCompare(b.skapat));
+const nastaNr = ()=>Math.max(0,...lista().map(y=>y.nr||0))+1;
+const vLink = nr=>{const x=hittaNr(nr);return x?`<a class="link" href="#/${route().mod==='inkorg'?'verifikat':route().mod}/${x.id}">V${nr}</a>`:'V'+nr};
+
+/* ================= Spärrar vid bokföring (livscykeln punkt 8) ================= */
+function sparrar(f){
+  const ifyllda=f.rader.map((x,i)=>({x,i})).filter(({x})=>x.konto||n(x.debet)||n(x.kredit));
+  const d=sum(f.rader,'debet'),k=sum(f.rader,'kredit'),diff=Math.round((d-k)*100)/100;
+  const dåliga=ifyllda.filter(({x})=>!kAktiv(x.konto));
+  let dFel='';
+  if(!f.datum)dFel='Verifikatdatum saknas.';
+  else if(!AR_FINNS(f.datum))dFel='Det finns inget räkenskapsår för '+f.datum+'.';
+  else if(last(f.datum))dFel=manad(f.datum)[0].toUpperCase()+manad(f.datum).slice(1)+' är låst. Välj ett datum från '+FORSTA_OPPNA+'.';
+  return [
+    {id:'datum',ok:!dFel,text:'Datum i en öppen period',fel:dFel,fix:dFel&&f.datum&&last(f.datum)?{t:'Sätt dagens datum',run:"setF('datum',IDAG_S)"}:null},
+    {id:'beskrivning',ok:!!f.beskrivning.trim(),text:'Beskrivning',fel:'Beskrivning saknas.'},
+    {id:'rader',ok:ifyllda.length>=2,text:'Minst två rader',fel:'Minst två rader behövs.'},
+    {id:'balans',ok:diff===0&&d>0,text:'Debet och kredit balanserar',fel:d===0&&k===0?'Raderna har inga belopp.':'Differens '+fmt.format(diff)+'.'},
+    {id:'konton',ok:!dåliga.length,text:'Aktiva konton på alla rader',rader:dåliga.map(b=>b.i),
+      fel:dåliga.map(({x,i})=>'Rad '+(i+1)+': '+(!x.konto?'konto saknas':!KONTON[x.konto]?'konto '+x.konto+' finns inte':x.konto+' '+kNamn(x.konto)+' är inaktivt')).join('. ')+'.',
+      fix:dåliga.find(({x})=>KONTON[x.konto]&&!kAktiv(x.konto))?{t:'Aktivera '+dåliga.find(({x})=>KONTON[x.konto]).x.konto,run:`aktivera('${dåliga.find(({x})=>KONTON[x.konto]).x.konto}')`}:null},
+  ];
+}
+const kvar = f=>sparrar(f).filter(s=>!s.ok);
+function aktivera(k){KONTON[k][1]=1;S.flash='Konto '+k+' '+kNamn(k)+' är aktiverat i kontoplanen.';render()}
+
+/* ================= Formulär och handlingar ================= */
+function oppnaForm(id){
+  if(S.form&&S.form._for===id)return;
+  const x=id!=='ny'?hitta(id):null;
+  S.forsok=false;S.valt=null;
+  S.form=x?{_for:id,id:x.id,datum:x.datum,beskrivning:x.beskrivning,rader:x.rader.map(y=>({...y})),underlag:x.underlag.slice(),src:x}
+         :{_for:'ny',id:null,datum:IDAG_S,beskrivning:'',rader:[r('',0,0),r('',0,0)],underlag:[],src:null};
+}
+function setF(k,val){S.form[k]=val;render(true)}
+function setR(i,k,val){S.form.rader[i][k]=val;render(true)}
+function fmtCell(i,k){const x=S.form.rader[i];if(x[k])x[k]=kr(n(x[k]));render(true)}
+function laggTillRad(){S.form.rader.push(r('',0,0));render()}
+function spar(){
+  const f=S.form;const rader=f.rader.filter(x=>x.konto||x.debet||x.kredit);
+  if(f.id){const x=hitta(f.id);const andrat=x.datum!==f.datum||x.beskrivning!==f.beskrivning||JSON.stringify(x.rader)!==JSON.stringify(rader);
+    Object.assign(x,{datum:f.datum,beskrivning:f.beskrivning,rader,underlag:f.underlag});if(andrat)x.historik.push(h(nu(),ANV,'Ändrade utkastet','pencil-line'));return x}
+  const x=v({nr:null,datum:f.datum,beskrivning:f.beskrivning,skapat:IDAG_S,skapatAv:ANV,kanal:'webb',rader,underlag:f.underlag,historik:[h(nu(),ANV,'Sparade utkast','pencil-line')]});
+  lista().push(x);return x;
+}
+function sparaUtkast(){const x=spar();S.form=null;S.flash='Utkastet sparades.';go('#/'+route().mod+'/'+x.id)}
+function bokfor(){
+  S.forsok=true;
+  if(kvar(S.form).length){render();return}
+  const x=spar(),tid=nu();x.nr=nastaNr();x.bokford=tid;x.bokfordAv=ANV;x.historik.push(h(tid,ANV,x.historik.length?'Bokförde':'Registrerade och bokförde','lock'));
+  S.form=null;
+  if(route().mod==='inkorg'){const nx=aldstForst()[0];
+    S.flash='Bokförd som V'+x.nr+'. '+(nx?utkast().length+' utkast kvar.':'Inga utkast kvar.');go('#/inkorg'+(nx?'/'+nx.id:''));return}
+  S.flash='Bokförd som V'+x.nr+'.';go('#/'+route().mod+'/'+x.id);
+}
+function raderaFraga(){S.modal={typ:'radera'};render()}
+function radera(){const f=S.form;VER[S.co]=lista().filter(y=>y.id!==f.id);f.underlag.forEach(u=>OKOPPLADE[S.co].unshift({...u,upp:IDAG_S}));
+  S.modal=null;S.form=null;S.flash='Utkastet raderades och raderingen loggades.'+(f.underlag.length?' '+f.underlag.map(u=>u.namn).join(', ')+' ligger kvar som okopplat underlag.':'');go('#/'+route().mod)}
+// Underlag
+function laddaUpp(){const u=U('skannat-kvitto-'+useq+'.pdf',{upp:IDAG_S});OKOPPLADE[S.co].unshift(u);S.valt=u.id;render()}
+function kopplaTillUtkast(uid){const u=OKOPPLADE[S.co].find(y=>y.id===uid);if(!u)return;OKOPPLADE[S.co]=OKOPPLADE[S.co].filter(y=>y.id!==uid);S.form.underlag.push(u);S.modal=null;S.pop=null;S.valt=null;render()}
+function kopplaBort(uid){const u=S.form.underlag.find(y=>y.id===uid);S.form.underlag=S.form.underlag.filter(y=>y.id!==uid);OKOPPLADE[S.co].unshift({...u,upp:IDAG_S});render()}
+function komplettera(id,uid){const x=hitta(id);const u=OKOPPLADE[S.co].find(y=>y.id===uid);if(!u)return;const tid=nu();
+  OKOPPLADE[S.co]=OKOPPLADE[S.co].filter(y=>y.id!==uid);x.underlag.push({...u,kompl:tid,av:ANV});x.historik.push(h(tid,ANV,'Kompletterade med '+u.namn,'paperclip'));
+  S.modal=null;S.pop=null;S.valt=null;S.flash=vnr(x)+' kompletterades med '+u.namn+'.';render()}
+// Rättelse (livscykeln punkt 6)
+function rattRegel(x){
+  if(x.rattelseAv)return {ok:false,why:'Det här är en rättelse och kan inte rättas. Blev något fel, registrera ett nytt verifikat.'};
+  if(x.rattadAv)return {ok:false,why:'Redan rättad av V'+x.rattadAv+'. Ett verifikat kan bara rättas en gång.'};
+  if(x.kalla)return {ok:false,kalla:true,why:'Verifikatet kommer från '+x.kalla.typ.toLowerCase()+' '+x.kalla.nr+'. Ändra det genom en kreditfaktura.'};
+  return {ok:true};
+}
+const rattMin = x=>x.datum>FORSTA_OPPNA?x.datum:FORSTA_OPPNA;
+function rattFel(x){const d=S.ratta.datum;if(!d)return 'Välj ett datum.';if(d<rattMin(x))return 'Tidigast '+rattMin(x)+(x.datum<FORSTA_OPPNA?' (första öppna period).':' (originalets datum).');if(!AR_FINNS(d))return 'Det finns inget räkenskapsår för '+d+'.';return ''}
+function startaRatta(x){S.ratta={datum:IDAG_S,orsak:'',kopiera:true}}
+function rattaBokfor(id,kopiera){
+  const x=hitta(id);if(rattFel(x))return render();
+  const tid=nu(),nr=nastaNr();
+  const rv=v({nr,datum:S.ratta.datum,beskrivning:'Rättelse av V'+x.nr+(S.ratta.orsak.trim()?', '+S.ratta.orsak.trim():''),bokford:tid,bokfordAv:ANV,skapatAv:ANV,kanal:'webb',rattelseAv:x.nr,
+    rader:x.rader.map(y=>({konto:y.konto,debet:y.kredit,kredit:y.debet})),historik:[h(tid,ANV,'Bokförde rättelse av V'+x.nr,'undo-2')]});
+  x.rattadAv=nr;x.historik.push(h(tid,ANV,'Rättad av V'+nr,'undo-2'));lista().push(rv);
+  S.modal=null;S.inlineRatta=null;
+  const mod=route().mod==='inkorg'?'verifikat':route().mod;
+  if(kopiera){const k=kopiaUtkast(x);S.flash='Rättelsen bokfördes som V'+nr+'. Här är ett utkast med V'+x.nr+'s rader att rätta och bokföra.';go('#/'+mod+'/'+k.id);return}
+  S.flash='Rättelsen bokfördes som V'+nr+'.';S.flashKopiera=x.id;go('#/'+mod+'/'+rv.id);
+}
+function kopiaUtkast(x){const k=v({nr:null,datum:last(x.datum)?IDAG_S:x.datum,beskrivning:x.beskrivning,skapat:IDAG_S,skapatAv:ANV,kanal:'webb',kopiaAv:x.nr,
+  rader:x.rader.map(y=>({...y})),underlag:x.underlag.map(u=>({id:u.id,namn:u.namn})),historik:[h(nu(),ANV,'Skapade utkast som kopia av V'+x.nr,'copy')]});lista().push(k);return k}
+function kopieraNu(id){const x=hitta(id);const k=kopiaUtkast(x);S.flashKopiera=null;S.flash='Utkast skapat med V'+x.nr+'s rader.';go('#/verifikat/'+k.id)}
+function byt(id){S.co=id;S.form=null;S.coMenu=false;S.flash='';go('#/inkorg');render()}
+
+/* ================= Gemensamma bitar ================= */
+function radTabell(f,opt){
+  opt=opt||{};const bad=opt.markera?new Set((sparrar(f).find(s=>s.id==='konton').rader)):new Set();
+  return `<table class="table rows"><thead><tr><th style="width:96px">Konto</th><th>Kontonamn</th><th class="num" style="width:130px">Debet</th><th class="num" style="width:130px">Kredit</th></tr></thead><tbody>
+  ${f.rader.map((x,i)=>{const b=bad.has(i);const inakt=KONTON[x.konto]&&!kAktiv(x.konto);
+    return `<tr class="${b&&opt.markera==='rad'?'err':''}"><td><input class="cell ${b?'err':''}" value="${esc(x.konto)}" oninput="setR(${i},'konto',this.value)" placeholder="Konto"></td>
+    <td class="mf">${esc(kNamn(x.konto)||(x.konto?'Okänt konto':''))}${b&&opt.inline?`<div class="ferr">${ic('circle-alert')}${!x.konto?'Konto saknas':!KONTON[x.konto]?'Finns inte i kontoplanen':'Inaktivt'}${inakt?` · <span class="link" onclick="aktivera('${x.konto}')">Aktivera</span>`:''}</div>`:''}</td>
+    <td><input class="cell num" value="${esc(x.debet)}" oninput="setR(${i},'debet',this.value)" onblur="fmtCell(${i},'debet')"></td>
+    <td><input class="cell num" value="${esc(x.kredit)}" oninput="setR(${i},'kredit',this.value)" onblur="fmtCell(${i},'kredit')"></td></tr>`}).join('')}
+  ${sumRad(f.rader)}</tbody></table>`;
+}
+function sumRad(rader){const d=sum(rader,'debet'),k=sum(rader,'kredit'),diff=Math.round((d-k)*100)/100;
+  return `<tr class="sumrow"><td colspan="2">${diff===0&&d>0?`<span class="diff-ok">${ic('circle-check')}Balanserar</span>`:d===0&&k===0?'<span class="mf">Inga belopp</span>':`<span class="diff-bad">${ic('circle-alert')}Differens ${fmt.format(diff)}</span>`}</td><td class="num">${fmt.format(d)}</td><td class="num">${fmt.format(k)}</td></tr>`}
+function roTabell(rader){
+  return `<table class="table ro"><thead><tr><th style="width:70px">Konto</th><th>Kontonamn</th><th class="num" style="width:130px">Debet</th><th class="num" style="width:130px">Kredit</th></tr></thead><tbody>
+  ${rader.map(x=>`<tr><td class="num" style="text-align:left">${x.konto}</td><td>${esc(kNamn(x.konto)||'')}</td><td class="num">${kr(n(x.debet))}</td><td class="num">${kr(n(x.kredit))}</td></tr>`).join('')}${sumRad(rader)}</tbody></table>`;
+}
+const flashBox=()=>S.flash?`<div class="alert ok">${ic('circle-check')}<div class="t">${esc(S.flash)}</div>${S.flashKopiera?`<button class="btn btn-outline" onclick="kopieraNu('${S.flashKopiera}')">${ic('copy')}Kopiera V${hitta(S.flashKopiera).nr} till nytt utkast</button>`:''}</div>`:'';
+function skapadTxt(x){if(!x)return 'Nytt verifikat';return 'Skapat av '+esc(x.skapatAv)+(x.kanal==='MCP'?' via '+esc(x.klient):'')+(x.nr==null?(dagar(x.skapat)<=0?' · utkast sedan i dag':' · utkast i '+alder(x.skapat)):'')}
+function rubrik(f){const x=f.src;return `<div><h1 style="font-size:18px">${esc(f.beskrivning)||'Nytt verifikat'}</h1>
+  <div class="mf flex" style="margin-top:6px;flex-wrap:wrap">${x?status(x)+aiTag(x)+varnTag({nr:null,datum:f.datum}):'<span class="badge badge-utkast">'+ic('plus')+'Nytt</span>'}<span>${skapadTxt(x)}</span>${x&&x.kopiaAv?`<span>· kopia av ${vLink(x.kopiaAv)}</span>`:''}</div></div>`}
+function varnBox(f){const w=f.datum&&varning({nr:null,datum:f.datum});if(!w)return '';return `<div class="alert">${ic(w.typ==='last'?'lock':'clock-alert')}<div><div class="t">${w.typ==='last'?'Låst period':'Utkastet börjar bli gammalt'}</div><div class="mf">${esc(w.lang)}</div></div>${w.typ==='last'?`<button class="btn btn-outline" onclick="setF('datum',IDAG_S)">Sätt dagens datum</button>`:''}</div>`}
+function underlagLista(f,kanBort){
+  if(!f.underlag.length)return '<span class="mf">Inget underlag</span>';
+  return `<div class="col">${f.underlag.map(u=>`<div class="ufile">${ic('paperclip')}<span>${esc(u.namn)}</span>${kanBort?`<button class="btn btn-ghost" style="margin-left:auto;height:22px" onclick="kopplaBort('${u.id}')">Koppla bort</button>`:''}</div>`).join('')}</div>`;
+}
+function plockLista(onPick,knapp){
+  const l=OKOPPLADE[S.co];
+  return `<div class="pick">${l.map(u=>`<label><input type="radio" name="u" ${S.valt===u.id?'checked':''} onchange="S.valt='${u.id}';render()">${ic('file')}<span>${esc(u.namn)}</span><span class="mf" style="margin-left:auto">uppladdad ${u.upp}</span></label>`).join('')||'<span class="mf">Inga okopplade underlag.</span>'}</div>
+  <div class="flex"><button class="btn btn-outline" onclick="laddaUpp()">${ic('upload')}Ladda upp fil…</button><span class="mf">PDF, JPEG, PNG, HEIC, XML, CSV · högst 20 MB</span></div>`;
+}
+const kompNote=`<div class="note">${ic('info')}<span>En komplettering ändrar inte verifikatet. Den loggas med vem och när, och kopplingen kan inte tas bort.</span></div>`;
+function dokument(x,v){
+  const rr=rattRegel(x);
+  const meta=`<dl class="dl">
+    <dt>Verifikatdatum</dt><dd>${x.datum} <span class="mf">· period ${manad(x.datum)}${last(x.datum)?' (låst)':''}</span></dd>
+    <dt>Bokfört</dt><dd>${x.bokford} av ${esc(x.bokfordAv)}</dd>
+    <dt>Skapat</dt><dd>av ${esc(x.skapatAv)}${x.kanal==='MCP'?' via '+esc(x.klient)+' (AI)':''}</dd>
+    ${x.kalla?`<dt>Källa</dt><dd><span class="link">${x.kalla.typ} ${x.kalla.nr}</span></dd>`:''}
+    ${x.rattadAv?`<dt>Rättad</dt><dd>av ${vLink(x.rattadAv)}</dd>`:''}
+    ${x.rattelseAv?`<dt>Rättar</dt><dd>${vLink(x.rattelseAv)}</dd>`:''}
+    ${x.kopiaAv?`<dt>Ersätter</dt><dd>${vLink(x.kopiaAv)} (kopia av dess rader)</dd>`:''}
+  </dl>`;
+  const und=`<div><div class="sec-t">Underlag</div>${x.underlag.length?`<div class="col">${x.underlag.map(u=>`<div class="ufile ${u.kompl?'kompl':''}">${ic('paperclip')}<span>${esc(u.namn)}</span><span class="mf">${u.kompl?'Komplettering '+u.kompl+' av '+esc(u.av):'Vid bokföring'}</span></div>`).join('')}</div>`:'<span class="mf">Inget underlag.</span>'}${v.efterUnderlag?v.efterUnderlag(x):''}</div>`;
+  const hist=`<div><div class="sec-t">Historik</div><ul class="hist">${x.historik.map(e=>`<li>${ic(e.ikon||'dot')}<span class="t">${e.tid}</span><span>${esc(e.text)} <span class="mf">· ${esc(e.vem)}</span></span></li>`).join('')}</ul></div>`;
+  const rattInfo=rr.ok?'':`<div class="note">${ic('info')}<span>${esc(rr.why)}${rr.kalla?' <span class="link">Skapa kreditfaktura…</span>':''}</span></div>`;
+  return {meta,und,hist,rattInfo,rr,head:`<div class="flex" style="justify-content:space-between;align-items:flex-start"><div><div class="mf" style="font-weight:500">${vnr(x)}</div><h1 style="font-size:18px">${esc(x.beskrivning)}</h1><div class="flex" style="margin-top:6px">${status(x)}${aiTag(x)}<span class="num mf" style="text-align:left">${kr(belopp(x))} kr</span></div></div><div class="flex">${v.actions(x,rr)}</div></div>`};
+}
+function raderaModal(){const f=S.form;return `<div class="pal-bg" onclick="if(event.target===this){S.modal=null;render()}"><div class="dialog">
+  <h2>Radera utkastet?</h2><div>${esc(f.beskrivning)||'Utkastet'} · ${kr(belopp(f))} kr · ${f.datum}</div>
+  <div class="note">${ic('info')}<span>Raderingen loggas med vem, när och en sammanfattning av utkastet.${f.underlag.length?' '+f.underlag.map(u=>esc(u.namn)).join(', ')+' ligger kvar i arkivet som okopplat underlag.':''}</span></div>
+  <div class="ft"><button class="btn btn-outline" onclick="S.modal=null;render()">Avbryt</button><button class="btn btn-default" style="background:var(--destructive)" onclick="radera()">${ic('trash-2')}Radera utkast</button></div></div></div>`}
+
+/* ================= Variant A: Kontrollista och dialoger ================= */
+const A={namn:'Kontrollista och dialoger',
+list(mod,rt){
+  const it=x=>`<a class="item ${rt.id===x.id?'on':''}" href="#/${mod}/${x.id}"><div class="top"><span>${esc(x.beskrivning)||'Utan beskrivning'}</span><span class="num">${kr(belopp(x))}</span></div>
+    <div class="meta">${x.nr==null?status(x)+aiTag(x)+varnTag(x)+'<span>'+alder(x.skapat)+'</span>':'<b style="color:var(--foreground);font-weight:500">'+vnr(x)+'</b><span>'+x.datum+'</span>'+(x.rattadAv||x.rattelseAv?status(x):'')}${clip(x)}</div></a>`;
+  if(mod==='inkorg'){const l=aldstForst();return `<div class="lh"><h2>Att göra</h2><span class="mf">äldst först</span></div>
+    <div class="sect">${ic('pencil-line')}Utkast att bokföra · ${l.length}</div>${l.map(it).join('')||'<p class="mf" style="padding:4px">Inget väntar.</p>'}${kommande()}`}
+  return `<div class="lh"><h2>Verifikat</h2><button class="btn btn-default" onclick="go('#/verifikat/ny')">${ic('plus')}Nytt</button></div>${filterTabs()}${filtrerad().map(it).join('')}`;
+},
+edit(f){
+  const sp=sparrar(f),fel=sp.filter(s=>!s.ok);
+  return `<div class="A-edit"><div class="col" style="gap:16px">${rubrik(f)}${varnBox(f)}
+    <div class="field-grid">
+      <div><label class="label">Verifikatdatum</label><input type="date" class="input" value="${f.datum}" onchange="setF('datum',this.value)"></div>
+      <div style="grid-column:span 2"><label class="label">Beskrivning</label><input class="input" value="${esc(f.beskrivning)}" oninput="setF('beskrivning',this.value)" placeholder="Vad hände?"></div></div>
+    <div><label class="label">Underlag</label><div class="col">${underlagLista(f,true)}<div><button class="btn btn-ghost" onclick="S.modal={typ:'underlag'};S.valt=null;render()">${ic('plus')}Lägg till underlag</button></div></div></div>
+    ${f.underlag.length?`<div class="preview" style="height:140px">${ic('file-text','style="width:24px;height:24px"')}<span>Förhandsvisning av ${esc(f.underlag[0].namn)}</span></div>`:''}
+    <div>${radTabell(f)}<button class="btn btn-ghost" onclick="laggTillRad()">${ic('plus')}Rad</button></div></div>
+  <div class="rail">
+    <button class="btn btn-default" ${fel.length?'disabled':''} onclick="bokfor()" title="${fel.length?'Åtgärda punkterna nedan först':''}">${ic('lock')}Bokför${fel.length?'':' som V'+nastaNr()}</button>
+    <button class="btn btn-outline" onclick="sparaUtkast()">${ic('save')}Spara utkast</button>
+    <div class="sec-t" style="margin:6px 0 0">${fel.length?fel.length+' kvar innan du kan bokföra':'Klart att bokföra'}</div>
+    ${sp.map(s=>`<div class="chk ${s.ok?'ok':'bad'}">${ic(s.ok?'circle-check':'circle-x')}<span>${s.ok?s.text:esc(s.fel)}${!s.ok&&s.fix?`<span class="fix"><span class="link" onclick="${s.fix.run}">${s.fix.t}</span></span>`:''}</span></div>`).join('')}
+    ${f.id?`<div style="border-top:1px solid var(--border);margin:4px -14px 0;padding:10px 14px 0"><button class="btn btn-destructive-ghost" onclick="raderaFraga()">${ic('trash-2')}Radera utkast</button></div>`:''}
+  </div></div>`;
+},
+actions(x,rr){return `<button class="btn btn-outline" onclick="S.modal={typ:'kompl',id:'${x.id}'};S.valt=null;render()">${ic('paperclip')}Komplettera…</button>`+
+  (rr.ok?`<button class="btn btn-outline" onclick="startaRatta();S.modal={typ:'ratta',id:'${x.id}'};render()">${ic('undo-2')}Rätta…</button>`:'')},
+doc(x){const d=dokument(x,A);return `<div class="paper">${d.head}${d.rattInfo}${d.meta}${roTabell(x.rader)}${d.und}${d.hist}</div>`},
+modal(){
+  const m=S.modal;if(!m)return '';
+  if(m.typ==='radera')return raderaModal();
+  const bg=inner=>`<div class="pal-bg" onclick="if(event.target===this){S.modal=null;render()}"><div class="dialog">${inner}</div></div>`;
+  if(m.typ==='underlag')return bg(`<h2>Lägg till underlag</h2>${plockLista()}<div class="ft"><button class="btn btn-outline" onclick="S.modal=null;render()">Avbryt</button><button class="btn btn-default" ${S.valt?'':'disabled'} onclick="kopplaTillUtkast(S.valt)">Koppla till utkastet</button></div>`);
+  const x=hitta(m.id);
+  if(m.typ==='kompl')return bg(`<h2>Komplettera ${vnr(x)} med underlag</h2>${plockLista()}${kompNote}<div class="ft"><button class="btn btn-outline" onclick="S.modal=null;render()">Avbryt</button><button class="btn btn-default" ${S.valt?'':'disabled'} onclick="komplettera('${x.id}',S.valt)">${ic('paperclip')}Komplettera ${vnr(x)}</button></div>`);
+  if(m.typ==='ratta'){const fel=rattFel(x);return bg(`<h2>Rätta ${vnr(x)}</h2>
+    <div class="mf">Rättelsen blir ett nytt verifikat, V${nastaNr()}, som vänder alla rader i ${vnr(x)}. ${vnr(x)} visar sedan att det är rättat.</div>
+    ${roTabell(x.rader.map(y=>({konto:y.konto,debet:y.kredit,kredit:y.debet})))}
+    <div class="field-grid" style="grid-template-columns:160px 1fr">
+      <div><label class="label">Verifikatdatum</label><input type="date" class="input ${fel?'err':''}" min="${rattMin(x)}" value="${S.ratta.datum}" onchange="S.ratta.datum=this.value;render()">${fel?`<div class="ferr">${ic('circle-alert')}${esc(fel)}</div>`:`<div class="mf" style="font-size:11px;margin-top:3px">Tidigast ${rattMin(x)}</div>`}</div>
+      <div><label class="label">Orsak <span class="mf">(valfri)</span></label><input class="input" value="${esc(S.ratta.orsak)}" placeholder="t.ex. fel konto" oninput="S.ratta.orsak=this.value"></div></div>
+    <label class="flex"><input type="checkbox" ${S.ratta.kopiera?'checked':''} onchange="S.ratta.kopiera=this.checked;render()">Skapa ett utkast med ${vnr(x)}s rader, så att jag kan registrera det rätt</label>
+    <div class="ft"><button class="btn btn-outline" onclick="S.modal=null;render()">Avbryt</button><button class="btn btn-default" ${fel?'disabled':''} onclick="rattaBokfor('${x.id}',S.ratta.kopiera)">${ic('lock')}Bokför rättelse</button></div>`)}
+  return '';
+}};
+
+/* ================= Variant B: Fel vid bokföring och egen rättelsesida ================= */
+const B={namn:'Fel vid bokföring och egen rättelsesida',
+list(mod,rt){
+  const row=x=>{const w=varning(x);return `<tr class="${rt.id===x.id?'on':''}" onclick="go('#/${mod}/${x.id}')">
+    <td style="width:52px;font-weight:500">${x.nr==null?`<span class="mf">${ic('pencil-line')}</span>`:vnr(x)}</td>
+    <td><div>${esc(x.beskrivning)||'Utan beskrivning'} ${x.kanal==='MCP'&&x.nr==null?`<span class="mf" title="AI">${ic('sparkles')}</span>`:''}</div><div class="mf" style="font-size:11px">${x.datum}${x.rattadAv?' · rättad av V'+x.rattadAv:x.rattelseAv?' · rättar V'+x.rattelseAv:''}</div></td>
+    <td class="num">${kr(belopp(x))}</td>
+    <td class="num ${w?(w.typ==='last'?'mf':'warn'):'mf'}" style="width:64px" title="${w?esc(w.lang):''}">${x.nr==null?(w?ic(w.typ==='last'?'lock':'clock-alert')+' ':'')+alder(x.skapat):''}</td></tr>`};
+  const head=`<thead><tr><th></th><th>Beskrivning</th><th class="num">Belopp</th><th class="num">Ålder</th></tr></thead>`;
+  if(mod==='inkorg'){const l=aldstForst();return `<div class="lh"><h2>Att göra</h2><span class="mf">äldst först</span></div><div class="sect">${ic('pencil-line')}Utkast att bokföra · ${l.length}</div>
+    <table class="tlist">${head}<tbody>${l.map(row).join('')}</tbody></table>${kommande()}`}
+  return `<div class="lh"><h2>Verifikat</h2><button class="btn btn-default" onclick="go('#/verifikat/ny')">${ic('plus')}Nytt</button></div>${filterTabs()}<table class="tlist">${head}<tbody>${filtrerad().map(row).join('')}</tbody></table>`;
+},
+edit(f){
+  const sp=sparrar(f),fel=S.forsok?sp.filter(s=>!s.ok):[],has=id=>fel.some(s=>s.id===id);
+  return `${rubrik(f)}${varnBox(f)}
+    <div class="field-grid">
+      <div class="${has('datum')?'err':''}"><label class="label">Verifikatdatum</label><input type="date" class="input" value="${f.datum}" onchange="setF('datum',this.value)">${has('datum')?`<div class="ferr">${ic('circle-alert')}${esc(sp.find(s=>s.id==='datum').fel)}</div>`:''}</div>
+      <div class="${has('beskrivning')?'err':''}"><label class="label">Beskrivning</label><input class="input" value="${esc(f.beskrivning)}" oninput="setF('beskrivning',this.value)">${has('beskrivning')?`<div class="ferr">${ic('circle-alert')}Krävs för att bokföra</div>`:''}</div>
+      <div><label class="label">Underlag</label>${underlagLista(f,true)}${B.drop('utkast')}</div></div>
+    ${f.underlag.length?`<div class="preview" style="height:140px">${ic('file-text','style="width:24px;height:24px"')}<span>Förhandsvisning av ${esc(f.underlag[0].namn)}</span></div>`:''}
+    <div>${radTabell(f,{markera:has('konton')?'rad':null})}<button class="btn btn-ghost" onclick="laggTillRad()">${ic('plus')}Rad</button></div>
+    ${fel.length?`<div class="alert destructive">${ic('circle-alert')}<div><div class="t">Kan inte bokföra</div><ul>${fel.map(s=>'<li>'+esc(s.fel)+'</li>').join('')}</ul></div></div>`:''}
+    <div class="flex"><button class="btn btn-default" onclick="bokfor()">${ic('lock')}Bokför</button><button class="btn btn-outline" onclick="sparaUtkast()">${ic('save')}Spara utkast</button>${f.id?`<button class="btn btn-destructive-ghost" onclick="raderaFraga()">${ic('trash-2')}Radera utkast</button>`:''}</div>`;
+},
+drop(mode,id){
+  if(S.pop!==mode)return `<div class="drop" style="margin-top:6px;padding:10px" onclick="S.pop='${mode}';S.valt=null;render()">${ic('upload')}<span>Släpp en fil här eller <span class="link">välj okopplat underlag</span>${mode==='kompl'?' för att komplettera':''}</span></div>`;
+  const u=S.valt&&OKOPPLADE[S.co].find(y=>y.id===S.valt);
+  return `<div class="inl" style="margin-top:6px">${plockLista()}${mode==='kompl'?kompNote:''}
+    <div class="flex">${mode==='kompl'?`<button class="btn btn-default" ${u?'':'disabled'} onclick="komplettera('${id}',S.valt)">${ic('paperclip')}${u?'Komplettera med '+esc(u.namn):'Komplettera'}</button>`:`<button class="btn btn-default" ${u?'':'disabled'} onclick="kopplaTillUtkast(S.valt)">Koppla till utkastet</button>`}<button class="btn btn-outline" onclick="S.pop=null;render()">Avbryt</button></div></div>`;
+},
+efterUnderlag(x){return B.drop('kompl',x.id)},
+actions(x,rr){return rr.ok?`<button class="btn btn-outline" onclick="startaRatta();go('#/verifikat/${x.id}/ratta')">${ic('undo-2')}Rätta…</button>`:''},
+doc(x){const d=dokument(x,B);return `<div class="paper">${d.head}${d.rattInfo}${d.meta}${roTabell(x.rader)}${d.und}${d.hist}</div>`},
+rattaSida(x){
+  const rr=rattRegel(x);if(!rr.ok)return B.doc(x);
+  const fel=rattFel(x),nr=nastaNr();
+  return `<div><a class="link mf" href="#/verifikat/${x.id}">${ic('arrow-left')} Tillbaka till ${vnr(x)}</a><h1 style="font-size:18px;margin-top:8px">Rätta ${vnr(x)}</h1>
+    <div class="mf" style="margin-top:4px">Rättelsen bokförs som V${nr} och vänder alla rader. Vill du registrera ${vnr(x)} rätt kan du kopiera det till ett nytt utkast efteråt.</div></div>
+    <div class="cmp"><div class="paper"><div class="sec-t">Original · ${vnr(x)} · ${x.datum}</div><div>${esc(x.beskrivning)}</div>${roTabell(x.rader)}</div>
+      <div class="paper" style="box-shadow:0 0 0 1px var(--ring)"><div class="sec-t">Rättelse · V${nr}</div>
+        <div class="field-grid" style="grid-template-columns:150px 1fr;gap:10px">
+          <div><label class="label">Verifikatdatum</label><input type="date" class="input ${fel?'err':''}" min="${rattMin(x)}" value="${S.ratta.datum}" onchange="S.ratta.datum=this.value;render()">${fel?`<div class="ferr">${ic('circle-alert')}${esc(fel)}</div>`:`<div class="mf" style="font-size:11px;margin-top:3px">Tidigast ${rattMin(x)}</div>`}</div>
+          <div><label class="label">Beskrivning</label><div class="flex"><span class="mf" style="white-space:nowrap">Rättelse av ${vnr(x)},</span><input class="input" value="${esc(S.ratta.orsak)}" placeholder="orsak" oninput="S.ratta.orsak=this.value"></div></div></div>
+        ${roTabell(x.rader.map(y=>({konto:y.konto,debet:y.kredit,kredit:y.debet})))}</div></div>
+    <div class="flex"><button class="btn btn-default" ${fel?'disabled':''} onclick="rattaBokfor('${x.id}',false)">${ic('lock')}Bokför rättelse som V${nr}</button><button class="btn btn-outline" onclick="go('#/verifikat/${x.id}')">Avbryt</button></div>`;
+},
+modal(){return S.modal&&S.modal.typ==='radera'?raderaModal():''}};
+
+/* ================= Variant C: Underlag bredvid och allt på plats ================= */
+const C={namn:'Underlag bredvid och allt på plats',
+list(mod,rt){
+  const it=x=>`<a class="item ${rt.id===x.id?'on':''}" href="#/${mod}/${x.id}" style="padding:8px 10px"><div class="top"><span>${x.nr!=null?`<span class="mf">${vnr(x)}</span> `:''}${esc(x.beskrivning)||'Utan beskrivning'}</span><span class="num">${kr(belopp(x))}</span></div>
+    <div class="meta">${x.nr==null?status(x)+aiTag(x)+'<span>'+alder(x.skapat)+'</span>':'<span>'+x.datum+'</span>'+(x.rattadAv||x.rattelseAv?status(x):'')}${clip(x)}</div></a>`;
+  const grupper=l=>{const g={};l.forEach(x=>{(g[x.datum.slice(0,7)]=g[x.datum.slice(0,7)]||[]).push(x)});
+    return Object.keys(g).sort().reverse().map(p=>{const d=p+'-01';const w=g[p].map(varning).find(Boolean);
+      return `<div class="per">${ic(last(d)?'lock':'calendar')}${manad(d)[0].toUpperCase()+manad(d).slice(1)}${last(d)?'<span class="badge badge-lock">Låst · byt datum</span>':w?`<span class="badge badge-warn" title="${esc(w.lang)}">${ic('clock-alert')}slut för ${w.kort.split(' ')[0]} dagar sedan</span>`:''}</div>${g[p].map(it).join('')}`}).join('')};
+  if(mod==='inkorg'){const l=utkast();return `<div class="lh"><h2>Att göra</h2><span class="mf">per period</span></div><div class="sect">${ic('pencil-line')}Utkast att bokföra · ${l.length}</div>${grupper(l)}${kommande()}`}
+  return `<div class="lh"><h2>Verifikat</h2><button class="btn btn-default" onclick="go('#/verifikat/ny')">${ic('plus')}Nytt</button></div>${filterTabs()}${grupper(filtrerad())}`;
+},
+vansterUnderlag(f,mode,id){
+  const pop=S.pop===mode?`<div class="pop" style="top:0;left:0"><div class="flex" style="justify-content:space-between"><b style="font-weight:500">${mode==='kompl'?'Komplettera med':'Koppla underlag'}</b><button class="btn btn-ghost btn-icon" onclick="S.pop=null;render()">${ic('x')}</button></div>
+     ${mode==='kompl'?'<div class="mf" style="font-size:11px">Kopplingen loggas och kan inte tas bort.</div>':''}
+     ${OKOPPLADE[S.co].map(u=>`<div class="ufile">${ic('file')}<span>${esc(u.namn)}</span><button class="btn btn-outline" style="margin-left:auto;height:22px" onclick="${mode==='kompl'?`komplettera('${id}','${u.id}')`:`kopplaTillUtkast('${u.id}')`}">Koppla</button></div>`).join('')||'<span class="mf">Inga okopplade underlag.</span>'}
+     <button class="btn btn-ghost" onclick="laddaUpp()">${ic('upload')}Ladda upp fil…</button></div>`:'';
+  const ul=f.underlag;
+  return `<div class="left" style="position:sticky">${ul.length?`<div class="preview" style="height:420px">${ic('file-text','style="width:28px;height:28px"')}<span>${esc(ul[0].namn)}</span><span style="font-size:11px">förhandsvisning</span></div>`
+     :`<div class="drop" style="height:420px" onclick="S.pop='${mode}';render()">${ic('upload','style="width:22px;height:22px"')}<span>Släpp underlaget här<br><span class="link">eller välj ett okopplat</span></span></div>`}
+    <div class="col" style="position:relative">${ul.map(u=>`<div class="ufile ${u.kompl?'kompl':''}">${ic('paperclip')}<span>${esc(u.namn)}</span>${u.kompl?`<span class="mf">komplettering ${u.kompl.slice(0,10)}</span>`:mode==='utkast'?`<button class="btn btn-ghost" style="margin-left:auto;height:22px" onclick="kopplaBort('${u.id}')">${ic('x')}</button>`:''}</div>`).join('')}
+    ${ul.length||mode==='kompl'?`<button class="btn btn-ghost" style="align-self:flex-start" onclick="S.pop='${mode}';render()">${ic('plus')}${mode==='kompl'?'Komplettera med underlag':'Fler underlag'}</button>`:''}${pop}</div></div>`;
+},
+edit(f){
+  const sp=sparrar(f),fel=sp.filter(s=>!s.ok),get=id=>sp.find(s=>s.id===id);
+  return `<div class="C-edit">${C.vansterUnderlag(f,'utkast')}
+  <div class="col" style="gap:16px">${rubrik(f)}${f.datum&&varning({nr:null,datum:f.datum})?`<div class="note warn">${ic('clock-alert')}<span>${esc(varning({nr:null,datum:f.datum}).lang)}</span></div>`:''}
+    <div class="field-grid" style="grid-template-columns:160px 1fr">
+      <div><label class="label">Verifikatdatum</label><input type="date" class="input ${get('datum').ok?'':'err'}" value="${f.datum}" onchange="setF('datum',this.value)">${get('datum').ok?'':`<div class="ferr">${ic('circle-alert')}${last(f.datum)?`Låst period · <span class="link" onclick="setF('datum',IDAG_S)">i dag</span>`:esc(get('datum').fel)}</div>`}</div>
+      <div><label class="label">Beskrivning</label><input class="input" value="${esc(f.beskrivning)}" oninput="setF('beskrivning',this.value)" placeholder="Vad hände?">${get('beskrivning').ok?'':`<div class="ferr" style="color:var(--muted-foreground)">${ic('circle-dashed')}Krävs för att bokföra</div>`}</div></div>
+    <div>${radTabell(f,{markera:'cell',inline:true})}<div class="flex"><button class="btn btn-ghost" onclick="laggTillRad()">${ic('plus')}Rad</button>${get('rader').ok?'':`<span class="ferr" style="margin:0">${ic('circle-alert')}Minst två rader behövs</span>`}</div></div>
+    <div class="flex"><button class="btn btn-default" ${fel.length?'disabled':''} title="${esc(fel.map(s=>s.fel).join('\n'))}" onclick="bokfor()">${ic('lock')}Bokför${fel.length?` <span class="bcount">${fel.length}</span>`:''}</button><button class="btn btn-outline" onclick="sparaUtkast()">${ic('save')}Spara utkast</button>${f.id?`<button class="btn btn-destructive-ghost" onclick="raderaFraga()">${ic('trash-2')}Radera utkast</button>`:''}</div></div></div>`;
+},
+actions(x,rr){return rr.ok&&S.inlineRatta!==x.id?`<button class="btn btn-outline" onclick="startaRatta();S.inlineRatta='${x.id}';render()">${ic('undo-2')}Rätta…</button>`:''},
+doc(x){const d=dokument(x,C);
+  let inl='';
+  if(S.inlineRatta===x.id){const fel=rattFel(x),nr=nastaNr();
+    inl=`<div class="inl"><div class="flex" style="justify-content:space-between"><h2>Rättelse · V${nr}</h2><button class="btn btn-ghost btn-icon" onclick="S.inlineRatta=null;render()">${ic('x')}</button></div>
+      <div class="mf">Vänder alla rader i ${vnr(x)}:</div>${roTabell(x.rader.map(y=>({konto:y.konto,debet:y.kredit,kredit:y.debet})))}
+      <div class="field-grid" style="grid-template-columns:160px 1fr"><div><label class="label">Verifikatdatum</label><input type="date" class="input ${fel?'err':''}" min="${rattMin(x)}" value="${S.ratta.datum}" onchange="S.ratta.datum=this.value;render()">${fel?`<div class="ferr">${ic('circle-alert')}${esc(fel)}</div>`:''}</div>
+        <div><label class="label">Orsak <span class="mf">(valfri)</span></label><input class="input" value="${esc(S.ratta.orsak)}" placeholder="t.ex. fel konto" oninput="S.ratta.orsak=this.value"></div></div>
+      <div class="flex"><button class="btn btn-default" ${fel?'disabled':''} onclick="rattaBokfor('${x.id}',true)">${ic('lock')}Bokför rättelse och registrera om</button><button class="btn btn-outline" ${fel?'disabled':''} onclick="rattaBokfor('${x.id}',false)">Bara bokför rättelse</button></div></div>`}
+  return `<div class="C-edit">${C.vansterUnderlag(x,'kompl',x.id)}<div class="col" style="gap:20px">${d.head}${d.rattInfo}${inl}${d.meta}${roTabell(x.rader)}${d.hist}</div></div>`},
+modal(){return S.modal&&S.modal.typ==='radera'?raderaModal():''}};
+
+/* ================= Skal (variant D från gränssnittsprototypen) ================= */
+function filterTabs(){const cnt=k=>k==='utkast'?utkast().length:k==='bokforda'?lista().length-utkast().length:lista().length;
+  return `<div class="tabs" style="align-self:flex-start;margin-bottom:4px">${[['alla','Alla'],['utkast','Utkast'],['bokforda','Bokförda']].map(([k,t])=>`<button class="${S.filter===k?'on':''}" onclick="S.filter='${k}';render()">${t} <span class="mf">${cnt(k)}</span></button>`).join('')}</div>`}
+function kommande(){return `<div class="sect">${ic('calendar-clock')}Kommande</div>
+  <div class="item plain"><div class="top"><span>Momsdeklaration september</span><span class="mf">12 nov</span></div><div class="meta">Om 30 dagar</div></div>`}
+function coMenu(){return `<div class="dropdown"><div class="lbl">Företag</div>${FORETAG.map(f=>`<button class="mi" onclick="byt('${f.id}')"><span class="logo sm">${initialer(f.namn)}</span><span style="flex:1"><b style="font-weight:500">${esc(f.namn)}</b><br><span class="mf">${f.orgnr} · ${VER[f.id].filter(x=>x.nr==null).length} utkast</span></span>${f.id===S.co?ic('check'):''}</button>`).join('')}</div>`}
+function skal(rt,V){
+  const u=utkast().length;const mod=rt.mod;
+  let page;
+  if(mod!=='inkorg'&&mod!=='verifikat')page=`<div style="padding:24px"><div class="placeholder">${ic('construction')}Sidan prototypas i ett eget ticket.</div></div>`;
+  else{
+    let det=`<div class="empty"><div>${ic('mouse-pointer-click','style="width:20px;height:20px"')}<p>Välj något i listan</p><button class="btn btn-outline" onclick="go('#/verifikat/ny')">${ic('plus')}Nytt verifikat</button></div></div>`;
+    if(rt.id){const x=rt.id==='ny'?null:hitta(rt.id);
+      if(rt.id==='ny'||(x&&x.nr==null)){oppnaForm(rt.id);det=`<div class="detail">${flashBox()}${V.edit(S.form)}</div>`}
+      else if(x){S.form=null;det=`<div class="detail">${flashBox()}${rt.sub==='ratta'&&V.rattaSida?V.rattaSida(x):V.doc(x)}</div>`}}
+    page=`<div class="split" style="grid-template-columns:${V===B?'420px':'360px'} 1fr"><div class="list">${V.list(mod,rt)}</div>${det}</div>`;
+  }
+  return `<div class="B"><header>
+    <span class="brand"><span class="logo" style="width:24px;height:24px">M</span></span><span class="mf">/</span>
+    <div class="co"><button class="btn btn-ghost" onclick="S.coMenu=!S.coMenu;render()">${esc(co().namn)}${ic('chevrons-up-down')}</button>${S.coMenu?coMenu():''}</div>
+    <nav>${NAV.map(([k,t])=>`<a href="#/${k}" class="${mod===k?'on':''}">${t}${k==='inkorg'&&u?`<span class="badge badge-count">${u}</span>`:''}</a>`).join('')}</nav>
+    <div class="right"><span class="search" onclick="palett()">${ic('search')}Sök verifikat, faktura…<kbd>⌘K</kbd></span><button class="btn btn-ghost btn-icon" title="Inställningar">${ic('settings')}</button><button class="btn btn-ghost btn-icon" onclick="tema()" title="Ljust/mörkt">${ic('sun-moon')}</button></div>
+  </header>${page}</div>${V.modal()}${S.pal?pal():''}`;
+}
+/* Snabbsökning (från variant D) */
+function opts(){
+  const q=S.palQ.toLowerCase();
+  const o=[{g:'Förslag',t:'Nytt verifikat',i:'plus',run:()=>go('#/verifikat/ny')},{g:'Förslag',t:'Utkast att bokföra ('+utkast().length+')',i:'inbox',run:()=>go('#/inkorg')},
+    ...lista().map(x=>({g:'Verifikat',t:vnr(x)+' · '+x.beskrivning,amt:kr(belopp(x)),s:x.datum,i:x.nr?'file-lock':'file-pen',run:()=>go('#/'+(x.nr==null?'inkorg':'verifikat')+'/'+x.id)})),
+    ...(FAKTUROR[S.co]||[]).map(f=>({g:f.typ==='kund'?'Kundfakturor':'Leverantörsfakturor',t:'Faktura '+f.nr+' · '+f.motpart,amt:kr(f.belopp),i:'file',run:()=>{}}))];
+  if(!q)return o.slice(0,8);
+  const norm=t=>String(t).toLowerCase().replace(/\s/g,'');const qq=norm(q);
+  return o.filter(x=>norm(x.t+' '+(x.amt||'')+' '+(x.s||'')).includes(qq)).slice(0,14);
+}
+function pal(){const o=opts();let g='';
+  return `<div class="pal-bg" onclick="if(event.target===this){S.pal=false;render()}"><div class="pal"><div class="in">${ic('search')}<input id="palq" placeholder="Sök verifikat, faktura, belopp…" value="${esc(S.palQ)}" oninput="S.palQ=this.value;S.palI=0;render();const e=document.getElementById('palq');e.focus();e.setSelectionRange(e.value.length,e.value.length)"></div>
+    <div class="ls">${o.map((x,i)=>{const hh=x.g!==g?(g=x.g,`<div class="grp">${x.g}</div>`):'';return hh+`<div class="opt ${i===S.palI?'on':''}" onclick="runOpt(${i})">${ic(x.i)}<span class="t">${esc(x.t)}</span>${x.amt?`<span class="amt">${x.amt}</span>`:''}</div>`}).join('')||'<div class="opt mf">Inga träffar.</div>'}</div>
+    <div class="ft"><span><kbd>↑</kbd><kbd>↓</kbd> välj</span><span><kbd>↵</kbd> öppna</span><span><kbd>Esc</kbd> stäng</span></div></div></div>`}
+function runOpt(i){const o=opts()[i];S.pal=false;S.palQ='';o&&o.run();render()}
+function palett(){S.pal=true;S.palQ='';S.palI=0;render();setTimeout(()=>document.getElementById('palq')?.focus())}
+
+/* ================= Render, tema, tangenter ================= */
+const VARIANTS={A,B,C};
+function render(keepFocus){
+  const a=document.activeElement,all=[...document.querySelectorAll('input')],idx=keepFocus&&a?all.indexOf(a):-1,pos=idx>=0?a.selectionStart:null;
+  const V=VARIANTS[S.variant]||A;
+  document.getElementById('app').innerHTML=skal(route(),V);
+  window.lucide&&lucide.createIcons();
+  if(idx>=0){const e=document.querySelectorAll('input')[idx];if(e){e.focus();try{e.setSelectionRange(pos,pos)}catch{}}}
+  const keys=Object.keys(VARIANTS);
+  document.getElementById('proto-switcher').innerHTML=`<button onclick="cyk(-1)">←</button><span class="lbl">PROTOTYP · ${S.variant} (${V.namn}) · ${keys.indexOf(S.variant)+1}/${keys.length}</span><button onclick="cyk(1)">→</button>`;
+}
+function cyk(d){const k=Object.keys(VARIANTS);S.variant=k[(k.indexOf(S.variant)+d+k.length)%k.length];S.coMenu=false;S.pal=false;S.modal=null;S.pop=null;S.inlineRatta=null;S.forsok=false;
+  if(route().sub)location.hash='#/'+route().mod+'/'+route().id;
+  const p=new URLSearchParams(location.search);p.set('variant',S.variant);history.replaceState(null,'','?'+p+location.hash);render()}
+function tema(){const r=document.documentElement,cur=r.dataset.theme||(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light');r.dataset.theme=cur==='dark'?'light':'dark'}
+let flashVid=null;
+window.addEventListener('hashchange',()=>{const rt=route();S.coMenu=false;S.modal=null;S.pop=null;if(rt.id!==flashVid){S.inlineRatta=null}
+  if(!rt.id||(S.form&&S.form._for!==rt.id)){S.form=null;S.forsok=false}render();flashVid=rt.id;S.flash='';S.flashKopiera=null});
+document.addEventListener('click',e=>{if(S.coMenu&&!e.target.closest('.co')){S.coMenu=false;render()}});
+document.addEventListener('keydown',e=>{
+  const typing=e.target.matches('input,textarea,select,[contenteditable]');const mod=e.metaKey||e.ctrlKey;
+  if(mod&&e.key.toLowerCase()==='k'){e.preventDefault();S.pal?(S.pal=false,render()):palett();return}
+  if(S.pal){const o=opts();
+    if(e.key==='Escape'){S.pal=false;render()}
+    else if(e.key==='ArrowDown'){e.preventDefault();S.palI=Math.min(S.palI+1,o.length-1);render();document.getElementById('palq').focus()}
+    else if(e.key==='ArrowUp'){e.preventDefault();S.palI=Math.max(S.palI-1,0);render();document.getElementById('palq').focus()}
+    else if(e.key==='Enter'){e.preventDefault();runOpt(S.palI)}
+    return}
+  if(e.key==='Escape'&&(S.modal||S.pop)){S.modal=null;S.pop=null;render();return}
+  if(typing)return;
+  if(e.key==='ArrowLeft')cyk(-1);
+  if(e.key==='ArrowRight')cyk(1);
+});
+render();
+</script>
+</body>
+</html>
