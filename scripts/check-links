@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+# Checks the links in a resolution comment or a map line, which GitHub renders outside the repo.
+# Usage: scripts/check-links <file>
+#
+# A relative link does not resolve in an issue. A link into a resolution branch breaks when the
+# PR merges, since merged branches are deleted: link to blob/main/<path> instead. Research and
+# prototype branches are never merged, so links into them stay.
+set -euo pipefail
+
+status=0
+while IFS= read -r link; do
+  echo "check-links: relative link '$link' does not resolve in an issue; use a full URL" >&2
+  status=1
+done < <(grep -oE '\]\([^)#][^)]*\)' "$1" | sed -E 's/^\]\(|\)$//g' | grep -vE '^[a-z]+:' || true)
+
+while IFS= read -r link; do
+  echo "check-links: '$link' points into a branch that is deleted on merge; use blob/main/<path>" >&2
+  status=1
+done < <(grep -oE 'github\.com/hartwigcarlsson/maya/(blob|tree)/[^/ )]+/' "$1" |
+  grep -vE '/(blob|tree)/(main|research|prototype)/' || true)
+
+exit $status

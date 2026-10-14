@@ -79,4 +79,5 @@ for part in "${parts[@]}"; do
   done
 done
 
+[ "$status" -eq 0 ] && echo "check-bfl-line: OK ($line)"
 exit $status
