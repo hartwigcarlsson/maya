@@ -24,6 +24,10 @@ _Avoid_: Radera, ta bort, spärra
 Den som utför en handling i Maya: en användare genom en viss kanal (webb, AI via MCP, CLI) eller Maya självt; varje post i behandlingshistoriken anger sin aktör.
 _Avoid_: Principal, actor, utförare
 
+**Ansluten klient**:
+Ett AI-program som en användare har godkänt att nå utvalda företag via MCP; användaren kan ändra urvalet och återkalla klienten.
+_Avoid_: Integration, app, token
+
 **Företag**:
 Ett aktiebolag vars bokföring förs i Maya; en användare kan ha åtkomst till flera, och flera användare kan ha åtkomst till samma.
 _Avoid_: Bolag, organisation, tenant, klient
