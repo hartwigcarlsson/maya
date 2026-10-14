@@ -11,7 +11,11 @@
   och leverantörsfakturornas variant C (#43): lista per förfallodag, betalningspanel i dokumentet, rutan "Bokförs som".
   Tre varianter, ?variant=A|B|C (eller ← → / knapparna längst ned). Skalet är detsamma i alla tre;
   de skiljer sig i reskontrans lista, hur utkastet redigeras och hur dokumentet och dess handlingar visas.
-  A: Fakturan är formuläret, handlingar i dialoger   B: Kunden först, steg för steg   C: Fakturan bredvid, förfallodag först
+  Omgång 2: C valdes, men förhandsvisningen ska inte synas hela tiden. Varianterna nu:
+  C: Fakturan bredvid (som förut, jämförelse)   D: Förhandsvisningen som spalt vid behov (knapp eller P)
+  E: Förhandsvisningen i en låda från höger   F: Miniatyr vid rubriken, och förhandsvisningen visas när fakturan utfärdas
+  Externa fakturors underlag står kvar bredvid i alla, eftersom de skrivs av från det.
+  Omgång 1 (bortvalda, koden ligger kvar): A: Fakturan är formuläret, dialoger   B: Kunden först, steg för steg
   Allt ligger i minnet; ladda om sidan för att börja om. I dag är 2026-10-14. Perioder t.o.m. juni är låsta,
   juli–september är momsdeklarerade. Exempel AB använder fakturametoden och OCR, Konsultbolaget i Lund
   kontantmetoden utan OCR och har ännu inte utfärdat någon faktura i Maya.
@@ -326,6 +330,14 @@ textarea.input{height:auto;padding:6px 8px;resize:vertical;line-height:1.45}
 .inv .addrow{color:#c2410c;cursor:pointer;font-weight:500}
 .C-edit .left .inv{padding:18px;font-size:10px;gap:10px}
 .C-edit .left .inv .tt{font-size:16px}
+.pal-bg .dialog{max-height:86vh;overflow:auto}
+.drawer{position:fixed;top:48px;right:0;bottom:0;width:600px;max-width:92vw;background:var(--background);border-left:1px solid var(--border);box-shadow:-12px 0 32px rgba(0,0,0,.25);z-index:30;display:flex;flex-direction:column}
+.drawer .dh{display:flex;justify-content:space-between;align-items:center;padding:10px 14px;border-bottom:1px solid var(--border)}
+.drawer .db{overflow:auto;padding:16px;background:var(--muted);flex:1}
+.thumb{width:132px;height:176px;overflow:hidden;border-radius:4px;cursor:zoom-in;position:relative;flex-shrink:0;box-shadow:0 0 0 1px var(--border);background:#fff}
+.thumb .inner{transform:scale(.22);transform-origin:0 0;width:600px;pointer-events:none}
+.thumb .lab{position:absolute;bottom:0;left:0;right:0;background:rgba(0,0,0,.65);color:#fff;font-size:11px;padding:3px 6px;display:flex;gap:4px;align-items:center}
+.thumb:hover{box-shadow:0 0 0 2px var(--ring)}
 .pdfmeta{display:flex;align-items:center;gap:6px;color:var(--muted-foreground);font-size:11px}
 /* A: formulär i fakturan, kontrollista i höger */
 .A-ed{display:grid;grid-template-columns:minmax(520px,1fr) 340px;gap:20px;align-items:start}
@@ -447,7 +459,7 @@ const ic=(n,extra)=>`<i data-lucide="${n}"${extra?' '+extra:''}></i>`;
 
 /* ================= Tillstånd ================= */
 const params = new URLSearchParams(location.search);
-const S = {variant:(params.get('variant')||'A').toUpperCase(), co:'exempel', flik:'obetalda', form:null, coMenu:false, nyMeny:false, pal:false, palQ:'', palI:0, flash:'', modal:null, panel:null, steg:1, visaPdf:false};
+const S = {variant:(params.get('variant')||'D').toUpperCase(), co:'exempel', flik:'obetalda', form:null, coMenu:false, nyMeny:false, pal:false, palQ:'', palI:0, flash:'', modal:null, panel:null, steg:1, visaPdf:false, prev:false};
 const co=()=>FORETAG.find(f=>f.id===S.co);
 const kontant=()=>co().metod==='kontant';
 const fak=()=>FAK[S.co]; const kunder=()=>KUND[S.co];
@@ -1000,6 +1012,49 @@ doc(f){const d=docDelar(f);
   ${inlPanel(f)}${forslagKort(f)}${d.meta}${f.typ==='extern'?d.rader:''}${d.bets}${d.utsk}${d.hist}</div></div>`},
 modal(){return gemensamModal()}};
 
+
+/* ================= Förhandsvisning vid behov: tre sätt att ta fram den i variant C ================= */
+// S.prev överlever byte av faktura: den som vill ha förhandsvisningen framme slipper ta fram den igen.
+function cForm(f,fel,varn,knapp){return `${kundVal(f,fel)}${datumFalt(f,fel)}${radTab(f,fel)}${ferr(fel,'foretag')}${varnLista(varn)}${bokforsSom(f)}${knapp||knappar(f,fel)}`}
+const prevKnapp=(t)=>`<button class="btn btn-outline" onclick="S.prev=!S.prev;render()">${ic(S.prev?'panel-right-close':'eye')}${S.prev?'Dölj':'Visa'} ${t||'förhandsvisning'} <kbd>P</kbd></button>`;
+const rubrikRad=(f,knapp)=>`<div class="flex" style="justify-content:space-between;align-items:flex-start">${rubrik(f)}${knapp}</div>`;
+function docKropp(f,d,knapp){return `<div class="flex" style="justify-content:space-between;align-items:flex-start">${d.head}${knapp||''}</div><div class="flex" style="flex-wrap:wrap">${S.panel?'':docActions(f)}</div>
+  ${inlPanel(f)}${forslagKort(f)}${d.meta}${d.rader}${d.bets}${d.utsk}${d.hist}`}
+const pdfFor=f=>f.typ==='extern'?original(f,560):papper(f)+pdfMeta(f);
+
+/* D: spalten tas fram och döljs med en knapp (eller P) */
+const D={namn:'C, förhandsvisning som spalt vid behov',inkorg:inkorgLista,lista:rt=>C.lista(rt),
+edit(f){if(f.typ==='extern')return C.edit(f);const {fel,varn}=kontroll(f);
+  const body=`<div class="col" style="gap:14px">${rubrikRad(f,prevKnapp())}${cForm(f,fel,varn)}</div>`;
+  return S.prev?`<div class="C-edit"><div class="left">${papper(f,{utkast:true})}<div class="mf" style="font-size:11px">${ic('eye')} Uppdateras medan du skriver.</div></div>${body}</div>`:`<div style="max-width:960px">${body}</div>`},
+doc(f){const d=docDelar(f);const k=prevKnapp(f.typ==='extern'?'underlaget':'PDF:en');
+  return S.prev?`<div class="C-edit"><div class="left">${pdfFor(f)}</div><div class="col" style="gap:18px">${docKropp(f,d,k)}</div></div>`:`<div class="col" style="gap:18px;max-width:960px">${docKropp(f,d,k)}</div>`},
+modal(){return gemensamModal()}};
+
+/* E: en låda från höger som ligger över listan, formuläret står kvar */
+const lada=(titel,inner)=>S.prev?`<div class="drawer"><div class="dh"><b style="font-weight:500">${titel}</b><button class="btn btn-ghost btn-icon" onclick="S.prev=false;render()">${ic('x')}</button></div><div class="db">${inner}</div></div>`:'';
+const E_={namn:'C, förhandsvisning i en låda',inkorg:inkorgLista,lista:rt=>C.lista(rt),
+edit(f){if(f.typ==='extern')return C.edit(f);const {fel,varn}=kontroll(f);
+  return `<div class="col" style="gap:14px;max-width:960px">${rubrikRad(f,prevKnapp())}${cForm(f,fel,varn)}</div>${lada('Förhandsvisning · uppdateras medan du skriver',papper(f,{utkast:true}))}`},
+doc(f){const d=docDelar(f);
+  return `<div class="col" style="gap:18px;max-width:960px">${docKropp(f,d,prevKnapp(f.typ==='extern'?'underlaget':'PDF:en'))}</div>${lada(f.typ==='extern'?esc(f.underlag):'Arkiverad PDF',pdfFor(f))}`},
+modal(){return gemensamModal()}};
+
+/* F: en miniatyr vid rubriken som förstoras, och förhandsvisningen kommer fram när fakturan utfärdas */
+const tumme=(f,opt)=>`<div class="thumb" onclick="S.modal={typ:'prev'};render()" title="Förstora (P)"><div class="inner">${f.typ==='extern'?preview(f.underlag,800):papper(f,opt)}</div><div class="lab">${ic('zoom-in')}Förhandsvisa</div></div>`;
+const F_={namn:'C, miniatyr och granska vid utfärdande',inkorg:inkorgLista,lista:rt=>C.lista(rt),
+edit(f){if(f.typ==='extern')return C.edit(f);const {fel,varn}=kontroll(f);
+  const kn=knappar(f,fel).replace('onclick="utfarda()"',`onclick="S.modal={typ:'granska'};render()"`).replace(/Utfärda(<\/button>| <span)/,'Granska och utfärda$1');
+  return `<div class="col" style="gap:14px;max-width:960px">${rubrikRad(f,tumme(f,{utkast:true}))}${cForm(f,fel,varn,kn)}</div>`},
+doc(f){const d=docDelar(f);return `<div class="col" style="gap:18px;max-width:960px">${docKropp(f,d,tumme(f))}</div>`},
+modal(){const m=S.modal;
+  if(m&&m.typ==='prev'){const f=S.form||hittaF(route().id);return modalBg(`<div class="flex" style="justify-content:space-between"><h2>${S.form?'Förhandsvisning':'Arkiverad PDF'}</h2><button class="btn btn-ghost btn-icon" onclick="S.modal=null;render()">${ic('x')}</button></div>${S.form?papper(f,{utkast:true}):pdfFor(f)}`,760)}
+  if(m&&m.typ==='granska'){const f=S.form,{fel}=kontroll(f);return modalBg(`<div class="flex" style="justify-content:space-between"><h2>Granska och utfärda</h2><button class="btn btn-ghost btn-icon" onclick="S.modal=null;render()">${ic('x')}</button></div>
+    <div class="mf">Så här ser PDF:en ut. När du utfärdar får fakturan nummer ${co().nasta??esc(f.start)}, låses och arkiveras. Därefter ändras den bara med kreditfaktura.</div>
+    <div style="max-height:56vh;overflow:auto">${papper(f)}</div>${bokforsSom(f)}${skickaVal(f)}
+    <div class="ft"><button class="btn btn-outline" onclick="S.modal=null;render()">Tillbaka och ändra</button><button class="btn btn-default" ${fel.length?'disabled':''} onclick="S.modal=null;utfarda()">${ic('stamp')}Utfärda</button></div>`,760)}
+  return gemensamModal()}};
+
 /* ================= Skal (variant D från gränssnittsprototypen) ================= */
 function coMenu(){return `<div class="dropdown"><div class="lbl">Företag</div>${FORETAG.map(f=>`<button class="mi" onclick="byt('${f.id}')"><span class="logo sm">${initialer(f.namn)}</span><span style="flex:1"><b style="font-weight:500">${esc(f.namn)}</b><br><span class="mf">${f.orgnr} · ${f.metod==='kontant'?'kontantmetoden':'fakturametoden'}</span></span>${f.id===S.co?ic('check'):''}</button>`).join('')}</div>`}
 function skal(rt,V){
@@ -1041,10 +1096,12 @@ function runOpt(i){const o=opts()[i];S.pal=false;S.palQ='';o&&o.run();render()}
 function palett(){S.pal=true;S.palQ='';S.palI=0;render();setTimeout(()=>document.getElementById('palq')?.focus())}
 
 /* ================= Render, tema, tangenter ================= */
-const VARIANTS={A,B,C};
-function render(keepFocus){
+const VARIANTS={C,D,E:E_,F:F_};   // A och B ligger kvar i koden men är bortvalda (C valdes i #44)
+let ritar=false;
+function render(keepFocus){if(ritar)return;ritar=true;try{rita(keepFocus)}finally{ritar=false}}
+function rita(keepFocus){
   const a=document.activeElement,all=[...document.querySelectorAll('input,textarea')],idx=keepFocus&&a?all.indexOf(a):-1,pos=idx>=0?a.selectionStart:null;
-  const V=VARIANTS[S.variant]||A;
+  const V=VARIANTS[S.variant]||D;
   document.getElementById('app').innerHTML=skal(route(),V);
   window.lucide&&lucide.createIcons();
   if(idx>=0){const e=document.querySelectorAll('input,textarea')[idx];if(e){e.focus();try{e.setSelectionRange(pos,pos)}catch{}}}
@@ -1071,6 +1128,7 @@ document.addEventListener('keydown',e=>{
     return}
   if(e.key==='Escape'&&(S.modal||S.panel)){stangPanel();return}
   if(typing)return;
+  if(e.key.toLowerCase()==='p'&&route().id&&!S.modal){if(S.variant==='F'){S.modal={typ:'prev'}}else S.prev=!S.prev;render();return}
   if(e.key==='ArrowLeft')cyk(-1);
   if(e.key==='ArrowRight')cyk(1);
 });
