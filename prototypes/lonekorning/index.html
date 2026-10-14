@@ -13,7 +13,7 @@
   Tre varianter, ?variant=A|B|C (eller ← → / knapparna längst ned). Data, beräkning, AGI och anställda är gemensamma;
   varianterna skiljer sig i hur lönekörningen redigeras och hur månaden hänger ihop:
   A: Tabell över alla anställda, en rad per person som fälls ut   B: En anställd i taget, med lönespecen bredvid
-  C: Månaden som kedja: lönekörningar → bokföring → AGI → skatt på en sida
+  C: Månaden som kedja: lönekörningar → bokföring → AGI → skatt på en sida (VALD, se #45)
   Allt ligger i minnet; ladda om sidan för att börja om. I dag är 2026-10-14. Perioder t.o.m. juni är låsta.
   Skattetabellen, engångsskatten och avgiftssatserna är förenklade och bara illustrativa; formen på beräkningen är poängen.
   Exempel AB: oktoberkörningen är ett AI-utkast, slutlönen för Jonas är fastställd och utbetald men obokförd,
@@ -479,7 +479,7 @@ const ic=(n,extra)=>`<i data-lucide="${n}"${extra?' '+extra:''}></i>`;
 
 /* ================= Tillstånd ================= */
 const params=new URLSearchParams(location.search);
-const S={variant:(params.get('variant')||'A').toUpperCase(),co:'exempel',flik:'korningar',coMenu:false,pal:false,palQ:'',palI:0,flash:'',panel:null,modal:null,open:{},emp:null,edit:null,xml:false};
+const S={variant:(params.get('variant')||'C').toUpperCase(),co:'exempel',flik:'korningar',coMenu:false,pal:false,palQ:'',palI:0,flash:'',panel:null,modal:null,open:{},emp:null,edit:null,xml:false};
 const co=()=>FORETAG.find(f=>f.id===S.co);
 const kor=()=>KOR[S.co], anst=()=>ANST[S.co];
 const hittaK=id=>kor().find(k=>k.id===id), hittaA=id=>anst().find(a=>a.id===id);
@@ -979,7 +979,7 @@ document.addEventListener('keydown',e=>{
   if(e.key==='ArrowLeft')cyk(-1);
   if(e.key==='ArrowRight')cyk(1);
 });
-if(!location.hash)location.hash='#/lon/k4';
+if(!location.hash)location.hash=S.variant==='C'?'#/lon/m-2026-10':'#/lon/k4';
 if(S.variant==='C'&&route().id&&hittaK(route().id))location.hash='#/lon/m-'+hittaK(route().id).period;
 render();
 </script>
