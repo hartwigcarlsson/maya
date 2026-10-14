@@ -420,21 +420,26 @@ pre.xml{font:11px/1.45 ui-monospace,SFMono-Regular,Menlo,monospace;background:va
 <style>
 /* Momsdeklarationen */
 .B .detail>*{flex-shrink:0}
+.blkp{background:var(--card);color:var(--foreground);border-radius:var(--radius);box-shadow:0 0 0 1px color-mix(in oklch,var(--foreground) 10%,transparent);padding:22px 24px;display:flex;flex-direction:column;gap:14px;font-size:12px}
+.blkp .h{display:flex;justify-content:space-between;gap:16px;align-items:flex-start}
+.blkp .tt{font-size:16px;font-weight:600}
+.blkp .kv{display:grid;grid-template-columns:auto auto;gap:2px 12px;color:var(--muted-foreground)}
+.blkp .kv>span:nth-child(even){color:var(--foreground)}
 .blk{display:flex;flex-direction:column;gap:10px}
-.blk .sek{border:1px solid #d6d3d1;border-radius:3px}
-.blk .sek .sh{display:flex;gap:8px;align-items:baseline;padding:5px 8px;background:#f5f5f4;border-bottom:1px solid #d6d3d1;font-weight:600}
-.blk .sek .sh .bk{display:inline-grid;place-items:center;width:16px;height:16px;border-radius:2px;background:#1c1917;color:#fff;font-size:10px}
-.blk .rr{display:grid;grid-template-columns:34px 1fr 130px;align-items:center;gap:8px;padding:4px 8px;border-top:1px solid #eeeceb;cursor:pointer}
+.blk .sek{border:1px solid var(--border);border-radius:calc(var(--radius) - 2px);overflow:hidden}
+.blk .sek .sh{display:flex;gap:8px;align-items:baseline;padding:6px 10px;background:var(--muted);border-bottom:1px solid var(--border);font-weight:600}
+.blk .sek .sh .bk{display:inline-grid;place-items:center;width:16px;height:16px;border-radius:2px;background:var(--foreground);color:var(--background);font-size:10px}
+.blk .rr{display:grid;grid-template-columns:34px 1fr 130px;align-items:center;gap:8px;padding:4px 10px;border-top:1px solid color-mix(in oklch,var(--border) 60%,transparent);cursor:pointer}
 .blk .rr:first-of-type{border-top:0}
-.blk .rr:hover{background:#fafaf9}
-.blk .rr.on{background:#eff6ff;box-shadow:inset 3px 0 0 #2563eb}
-.blk .rr.zero{color:#a8a29e}
-.blk .rr.fel{background:#fef2f2;box-shadow:inset 3px 0 0 #dc2626}
-.blk .rr .nr{font-weight:600;border:1px solid #a8a29e;border-radius:2px;text-align:center;font-size:10px;padding:1px 0}
-.blk .rr .bel{text-align:right;font-variant-numeric:tabular-nums;border:1px solid #d6d3d1;border-radius:2px;padding:2px 6px;background:#fff}
-.blk .rr.zero .bel{border-style:dashed}
-.blk .rr.big{font-size:12px;font-weight:600}
-.blk .rr.big .bel{border-width:2px;border-color:#1c1917}
+.blk .rr:hover{background:var(--accent)}
+.blk .rr.on{background:color-mix(in oklch,var(--sidebar-primary) 12%,transparent);box-shadow:inset 3px 0 0 var(--sidebar-primary)}
+.blk .rr.zero{color:var(--muted-foreground)}
+.blk .rr.fel{background:color-mix(in oklch,var(--destructive) 10%,transparent);box-shadow:inset 3px 0 0 var(--destructive)}
+.blk .rr .nr{font-weight:600;border:1px solid var(--border);border-radius:2px;text-align:center;font-size:10px;padding:1px 0}
+.blk .rr .bel{text-align:right;font-variant-numeric:tabular-nums;border:1px solid var(--border);border-radius:2px;padding:2px 6px;background:var(--background)}
+.blk .rr.zero .bel{border-style:dashed;background:transparent}
+.blk .rr.big{font-size:13px;font-weight:600}
+.blk .rr.big .bel{border-width:2px;border-color:var(--foreground)}
 .drill td{font-size:12px}
 .drill tr.k td{font-weight:500;cursor:pointer}
 .drill tr.k:hover td{background:var(--accent)}
@@ -747,7 +752,7 @@ function drill(pk,r){const R=berakna(pk),x=R[r],K=Object.entries(x.konton);
 
 /* ================= Variant A: Blanketten ================= */
 function blankett(pk){const R=berakna(pk),fe=new Set(fel(kontroller(pk)).map(k=>k.ruta).filter(Boolean)),c=co();
-  return `<div class="inv"><div class="h"><div><div class="tt">Mervärdesskattedeklaration</div><div>${esc(c.namn)} · ${c.orgnr}</div></div><div class="kv"><span>Redovisningsperiod</span><span>${sistaManad(pk).replace('-','')}</span><span>Momsperiod</span><span>${pLabel(pk)}</span></div></div>
+  return `<div class="blkp"><div class="h"><div><div class="tt">Mervärdesskattedeklaration</div><div>${esc(c.namn)} · ${c.orgnr}</div></div><div class="kv"><span>Redovisningsperiod</span><span>${sistaManad(pk).replace('-','')}</span><span>Momsperiod</span><span>${pLabel(pk)}</span></div></div>
   <div class="blk">${RUTOR.map(([a,t,l])=>`<div class="sek"><div class="sh"><span class="bk">${a}</span>${t}</div>${l.map(([r,tt])=>{const v=R[r].belopp;
     return `<div class="rr ${v?'':'zero'} ${r==='49'?'big':''} ${S.ruta===r?'on':''} ${fe.has(r)?'fel':''}" onclick="visaRuta('${r}')"><span class="nr">${r}</span><span>${tt}</span><span class="bel">${v||r==='49'?kr0(v):''}</span></div>`}).join('')}</div>`).join('')}</div></div>`}
 function sidaA(pk){const L=kontroller(pk),ej=L.filter(x=>x.niva!=='ok');
