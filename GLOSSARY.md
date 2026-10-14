@@ -4,6 +4,18 @@ Maya är ett self-hostat bokföringssystem för svenska aktiebolag som följer B
 
 ## Language
 
+**Kontoplan**:
+Ett företags uppsättning konton. Den utgår från BAS-kontoplanen som Maya har inbyggd, och varje konto är aktivt eller inaktivt.
+_Avoid_: Kontolista, chart of accounts
+
+**Grundkonto**:
+Ett konto som BAS markerar som en del av basuppsättningen (■). Grundkontona är aktiva när ett nytt företag läggs upp.
+_Avoid_: Baskonto, standardkonto
+
+**Inaktivt konto**:
+Ett konto som finns i företagets kontoplan men inte kan väljas vid kontering förrän någon aktiverar det.
+_Avoid_: Dolt konto, spärrat konto
+
 **Användare**:
 En person som loggar in i Maya och har åtkomst till ett eller flera företag; en användare raderas aldrig, bara avaktiveras.
 _Avoid_: Konto, kund, medlem
