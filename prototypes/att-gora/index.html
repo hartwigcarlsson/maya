@@ -1,0 +1,782 @@
+<!doctype html>
+<html lang="sv">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Maya Att göra</title>
+<!--
+  PROTOTYP, KASTA BORT. Svarar på: Hur ser Att göra ut? (https://github.com/hartwigcarlsson/maya/issues/47).
+  Startsidan som ersätter Översikt (#24). Innehållet är redan beslutat av flödena: utkast per period med
+  50-dagarsvarning (#32), okopplade underlag med "Vad är det här?" (#43), AI-förslag om radering och nya
+  kunder och leverantörer (#16), att betala med kopieringschips (#43), kundfakturornas sektioner (#44),
+  lönens sektioner (#45) och momsens sektioner (#46). Frågan här är ordningen, hur mycket som görs på
+  plats och om nyckeltal behövs.
+  Tre varianter, ?variant=A|B|C (eller ← → / knapparna längst ned). Data och handlingar är gemensamma:
+  A: Brådskan. En lista i brådskeordning (försenat, inom 7 dagar, att granska, utkast, underlag, följ upp,
+     senare) med detaljen bredvid; första raden är vald. Inga nyckeltal.
+  B: Områdena. Listan grupperad som toppmenyn (verifikat, kundfakturor, leverantörsfakturor, lön, moms),
+     med AI-förslag och underlag överst; utan val visar detaljen nyckeltalen ("Läget").
+  C: Agendan. Ingen lista och detalj: en tidslinje med allt som har ett datum (försenat först, sedan dag för dag,
+     kommande datum nedtonade) och en spalt för det som saknar datum. Kort fälls ut på plats. Nyckeltal överst.
+  Allt ligger i minnet; ladda om sidan för att börja om. I dag är tisdag 2026-10-14.
+  Exempel AB (kvartalsmoms) har utkast i juli (50-dagarsvarning) och oktober, två okopplade underlag och ett
+  AI-förslag om radering, en förfallen leverantörsfaktura och två som förfaller inom 7 dagar, kundfakturor i
+  alla sektioner, en ändrad AGI och en odeklarerad momsperiod. Konsultbolaget i Lund AB (månadsmoms) har
+  försenad AGI och skatt, en fastställd lönekörning som inte är bokförd, ett utkast som spärras av en
+  deklarerad momsperiod och en periodisk sammanställning att lämna.
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://unpkg.com/lucide@0.469.0/dist/umd/lucide.min.js"></script>
+<style>
+/* Tokens från presetet (Stone + Amber), ljust */
+:root{
+  --background:oklch(1 0 0);--foreground:oklch(0.147 0.004 49.25);
+  --card:oklch(1 0 0);--popover:oklch(1 0 0);
+  --primary:oklch(0.555 0.163 48.998);--primary-foreground:oklch(0.987 0.022 95.277);
+  --secondary:oklch(0.967 0.001 286.375);--secondary-foreground:oklch(0.21 0.006 285.885);
+  --muted:oklch(0.97 0.001 106.424);--muted-foreground:oklch(0.553 0.013 58.071);
+  --accent:oklch(0.97 0.001 106.424);--accent-foreground:oklch(0.216 0.006 56.043);
+  --destructive:oklch(0.577 0.245 27.325);
+  --border:oklch(0.923 0.003 48.717);--input:oklch(0.923 0.003 48.717);--ring:oklch(0.709 0.01 56.259);
+  --sidebar:oklch(0.985 0.001 106.423);--sidebar-primary:oklch(0.666 0.179 58.318);--sidebar-accent:oklch(0.97 0.001 106.424);--sidebar-border:oklch(0.923 0.003 48.717);
+  --success:oklch(0.52 0.12 150);
+  --radius:0.45rem;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --background:oklch(0.147 0.004 49.25);--foreground:oklch(0.985 0.001 106.423);
+  --card:oklch(0.216 0.006 56.043);--popover:oklch(0.216 0.006 56.043);
+  --primary:oklch(0.473 0.137 46.201);--primary-foreground:oklch(0.987 0.022 95.277);
+  --secondary:oklch(0.274 0.006 286.033);--secondary-foreground:oklch(0.985 0 0);
+  --muted:oklch(0.268 0.007 34.298);--muted-foreground:oklch(0.709 0.01 56.259);
+  --accent:oklch(0.268 0.007 34.298);--accent-foreground:oklch(0.985 0.001 106.423);
+  --destructive:oklch(0.704 0.191 22.216);
+  --border:oklch(1 0 0 / 10%);--input:oklch(1 0 0 / 15%);--ring:oklch(0.553 0.013 58.071);
+  --sidebar:oklch(0.216 0.006 56.043);--sidebar-primary:oklch(0.769 0.188 70.08);--sidebar-accent:oklch(0.268 0.007 34.298);--sidebar-border:oklch(1 0 0 / 10%);
+  --success:oklch(0.75 0.13 150);
+}}
+:root[data-theme="dark"]{
+  --background:oklch(0.147 0.004 49.25);--foreground:oklch(0.985 0.001 106.423);
+  --card:oklch(0.216 0.006 56.043);--popover:oklch(0.216 0.006 56.043);
+  --primary:oklch(0.473 0.137 46.201);--primary-foreground:oklch(0.987 0.022 95.277);
+  --secondary:oklch(0.274 0.006 286.033);--secondary-foreground:oklch(0.985 0 0);
+  --muted:oklch(0.268 0.007 34.298);--muted-foreground:oklch(0.709 0.01 56.259);
+  --accent:oklch(0.268 0.007 34.298);--accent-foreground:oklch(0.985 0.001 106.423);
+  --destructive:oklch(0.704 0.191 22.216);
+  --border:oklch(1 0 0 / 10%);--input:oklch(1 0 0 / 15%);--ring:oklch(0.553 0.013 58.071);
+  --sidebar:oklch(0.216 0.006 56.043);--sidebar-primary:oklch(0.769 0.188 70.08);--sidebar-accent:oklch(0.268 0.007 34.298);--sidebar-border:oklch(1 0 0 / 10%);
+  --success:oklch(0.75 0.13 150);
+}
+*{box-sizing:border-box;border-color:var(--border)}
+html,body{margin:0;height:100%}
+body{background:var(--background);color:var(--foreground);font:13px/1.5 Inter,system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+button,input,select{font:inherit;color:inherit}
+a{color:inherit;text-decoration:none}
+svg.lucide{width:14px;height:14px;flex-shrink:0;stroke-width:2}
+.num{font-variant-numeric:tabular-nums;text-align:right;white-space:nowrap}
+.mf{color:var(--muted-foreground)}
+h1{font-size:16px;font-weight:600;margin:0;letter-spacing:-.01em}
+h2{font-size:14px;font-weight:500;margin:0}
+
+/* Button */
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:4px;height:28px;padding:0 8px;border-radius:calc(var(--radius) * .8);font-size:13px;font-weight:500;border:1px solid transparent;cursor:pointer;white-space:nowrap;background:transparent;transition:background .1s}
+.btn-default{background:var(--primary);color:var(--primary-foreground)}
+.btn-default:hover{background:color-mix(in oklch,var(--primary) 90%,transparent)}
+.btn-outline{border-color:var(--input);background:var(--background)}
+:root[data-theme="dark"] .btn-outline{background:color-mix(in oklch,var(--input) 30%,transparent)}
+.btn-outline:hover,.btn-ghost:hover{background:var(--accent)}
+.btn-secondary{background:var(--secondary);color:var(--secondary-foreground)}
+.btn-icon{width:28px;padding:0}
+.btn-destructive-ghost{color:var(--destructive)}
+.btn-destructive-ghost:hover{background:color-mix(in oklch,var(--destructive) 10%,transparent)}
+
+/* Badge */
+.badge{display:inline-flex;align-items:center;gap:4px;height:20px;padding:2px 8px;border-radius:999px;font-size:10px;font-weight:500;white-space:nowrap;border:1px solid transparent;vertical-align:middle}
+.badge svg.lucide{width:10px;height:10px}
+.badge-utkast{border:1px dashed var(--muted-foreground);color:var(--muted-foreground)}
+.badge-bokford{background:var(--secondary);color:var(--secondary-foreground)}
+.badge-ai{border-color:var(--border);color:var(--foreground)}
+.badge-rattad{background:color-mix(in oklch,var(--destructive) 12%,transparent);color:var(--destructive)}
+.badge-count{background:var(--primary);color:var(--primary-foreground);height:18px;min-width:18px;padding:0 5px;justify-content:center}
+
+/* Card */
+.card{background:var(--card);border-radius:var(--radius);box-shadow:0 0 0 1px color-mix(in oklch,var(--foreground) 10%,transparent);display:flex;flex-direction:column;gap:16px;padding:16px 0}
+.card-header{padding:0 16px;display:flex;justify-content:space-between;align-items:flex-start;gap:12px}
+.card-title{font-size:14px;font-weight:500}
+.card-desc{color:var(--muted-foreground)}
+.card-content{padding:0 16px}
+.card-footer{padding:0 16px;display:flex;gap:8px;justify-content:flex-end;align-items:center}
+
+/* Input */
+.input{height:28px;border:1px solid var(--input);border-radius:calc(var(--radius) * .8);padding:0 8px;background:transparent;font-size:13px;width:100%}
+:root[data-theme="dark"] .input{background:color-mix(in oklch,var(--input) 30%,transparent)}
+.input:focus,.cell:focus{outline:none;border-color:var(--ring);box-shadow:0 0 0 3px color-mix(in oklch,var(--ring) 50%,transparent)}
+.input[readonly]{background:var(--muted);color:var(--muted-foreground)}
+.label{font-size:13px;font-weight:500;display:block;margin-bottom:6px}
+.field-grid{display:grid;grid-template-columns:160px 1fr 1fr;gap:16px}
+
+/* Table */
+table{border-collapse:collapse;width:100%}
+.table th{height:32px;padding:0 8px;text-align:left;font-weight:500;color:var(--muted-foreground);border-bottom:1px solid var(--border);white-space:nowrap}
+.table td{padding:6px 8px;border-bottom:1px solid var(--border);vertical-align:middle}
+.table tbody tr:last-child td{border-bottom:0}
+.table tr.click{cursor:pointer}
+.table tr.click:hover td{background:color-mix(in oklch,var(--muted) 50%,transparent)}
+.cell{width:100%;height:28px;border:1px solid transparent;border-radius:calc(var(--radius) * .8);padding:0 6px;background:transparent}
+.cell:hover:not([readonly]){border-color:var(--input)}
+.rows td{padding:2px 4px}
+.sumrow td{font-weight:600;border-top:1px solid var(--border);padding:8px}
+.diff-bad{color:var(--destructive);display:inline-flex;gap:4px;align-items:center}
+.diff-ok{color:var(--success);display:inline-flex;gap:4px;align-items:center}
+
+/* Alert */
+.alert{display:grid;grid-template-columns:auto 1fr auto;gap:2px 10px;align-items:start;border:1px solid var(--border);border-radius:var(--radius);padding:10px 12px;background:var(--card)}
+.alert .t{font-weight:500}
+.alert ul{margin:2px 0 0 16px;padding:0;color:var(--muted-foreground)}
+.alert.destructive{color:var(--destructive)}
+.alert.destructive ul{color:color-mix(in oklch,var(--destructive) 85%,var(--foreground))}
+.alert.ok{color:var(--success)}
+
+/* Tabs */
+.tabs{display:inline-flex;background:var(--muted);border-radius:var(--radius);padding:3px;gap:2px}
+.tabs button{height:22px;padding:0 10px;border:0;border-radius:calc(var(--radius) * .7);background:transparent;color:var(--muted-foreground);font-weight:500;cursor:pointer;display:inline-flex;gap:6px;align-items:center}
+.tabs button.on{background:var(--background);color:var(--foreground);box-shadow:0 1px 2px rgba(0,0,0,.08)}
+:root[data-theme="dark"] .tabs button.on{background:var(--input)}
+
+/* Dropdown */
+.dropdown{position:absolute;z-index:20;background:var(--popover);border:1px solid var(--border);border-radius:var(--radius);box-shadow:0 8px 24px rgba(0,0,0,.18);padding:4px;min-width:240px}
+.dropdown .lbl{padding:6px 8px;color:var(--muted-foreground);font-size:11px}
+.dropdown .mi{display:flex;align-items:center;gap:8px;width:100%;padding:6px 8px;border:0;background:transparent;border-radius:calc(var(--radius) * .8);cursor:pointer;text-align:left}
+.dropdown .mi:hover{background:var(--accent)}
+.dropdown .sepl{height:1px;background:var(--border);margin:4px -4px}
+.logo{width:28px;height:28px;border-radius:calc(var(--radius) * .8);background:var(--sidebar-primary);color:var(--primary-foreground);display:grid;place-items:center;font-weight:700;flex-shrink:0}
+.logo.sm{width:22px;height:22px;font-size:11px;background:var(--muted);color:var(--foreground);border:1px solid var(--border)}
+kbd{font:500 10px Inter,system-ui;border:1px solid var(--border);border-radius:4px;padding:1px 5px;background:var(--muted);color:var(--muted-foreground)}
+.placeholder{display:grid;place-items:center;gap:8px;padding:64px;color:var(--muted-foreground);text-align:center;border:1px dashed var(--border);border-radius:var(--radius)}
+
+/* ---------- Switcher (inte en del av designen) ---------- */
+#proto-switcher{position:fixed;left:50%;bottom:14px;transform:translateX(-50%);z-index:999;display:flex;align-items:center;gap:6px;
+  background:#111;color:#fff;border-radius:999px;padding:6px 8px;box-shadow:0 6px 24px rgba(0,0,0,.35);font:12px system-ui;border:2px dashed #f5c400}
+#proto-switcher button{background:#333;color:#fff;border:0;border-radius:999px;padding:4px 10px;cursor:pointer}
+#proto-switcher .lbl{padding:0 8px;white-space:nowrap}
+
+/* ---------- Variant B: Inkorg först ---------- */
+.B{display:flex;flex-direction:column;height:100vh}
+.B header{display:flex;align-items:center;gap:12px;padding:0 12px;height:48px;border-bottom:1px solid var(--border);background:var(--background)}
+.B .brand{display:flex;align-items:center;gap:8px;font-weight:600}
+.B .co{position:relative}
+.B .co .dropdown{top:34px;left:0}
+.B nav{display:flex;gap:2px}
+.B nav a{display:inline-flex;align-items:center;gap:6px;height:28px;padding:0 10px;border-radius:calc(var(--radius) * .8);color:var(--muted-foreground);font-weight:500}
+.B nav a:hover{color:var(--foreground);background:var(--accent)}
+.B nav a.on{color:var(--foreground);background:var(--accent)}
+.B header .right{margin-left:auto;display:flex;gap:4px;align-items:center}
+.B .split{flex:1;display:grid;grid-template-columns:360px 1fr;min-height:0}
+.B .list{border-right:1px solid var(--border);overflow:auto;padding:12px;display:flex;flex-direction:column;gap:6px;background:var(--sidebar)}
+.B .list .lh{display:flex;justify-content:space-between;align-items:center;padding:4px 4px 8px}
+.B .sect{display:flex;align-items:center;gap:6px;color:var(--muted-foreground);font-size:11px;font-weight:500;padding:10px 4px 2px}
+.B .item{display:flex;flex-direction:column;gap:6px;padding:10px 12px;border-radius:calc(var(--radius) * .8);border:1px solid transparent;background:color-mix(in oklch,var(--muted) 50%,transparent)}
+.B .item:hover{background:var(--muted)}
+.B .item.on{border-color:var(--ring);background:var(--card)}
+.B .item .top{display:flex;justify-content:space-between;gap:8px;font-weight:500}
+.B .item .meta{display:flex;gap:6px;align-items:center;color:var(--muted-foreground);flex-wrap:wrap}
+.B .item.plain{background:transparent;border-color:var(--border)}
+.B .detail{overflow:auto;padding:20px 28px 90px;display:flex;flex-direction:column;gap:16px}
+.B .empty{display:grid;place-items:center;height:100%;color:var(--muted-foreground);text-align:center;gap:8px}
+
+.search{display:inline-flex;align-items:center;gap:8px;height:28px;padding:0 8px;min-width:240px;border:1px solid var(--input);border-radius:calc(var(--radius) * .8);color:var(--muted-foreground);cursor:pointer;background:color-mix(in oklch,var(--muted) 50%,transparent)}
+.search kbd{margin-left:auto}
+.pal-bg{position:fixed;inset:0;background:rgba(0,0,0,.5);display:flex;justify-content:center;align-items:flex-start;padding-top:14vh;z-index:50}
+.pal{width:520px;max-width:92vw;background:var(--popover);border-radius:var(--radius);box-shadow:0 0 0 1px color-mix(in oklch,var(--foreground) 10%,transparent),0 16px 48px rgba(0,0,0,.4);overflow:hidden}
+.pal .in{display:flex;align-items:center;gap:8px;padding:0 12px;border-bottom:1px solid var(--border);color:var(--muted-foreground)}
+.pal input{flex:1;height:40px;border:0;background:transparent;outline:none;font-size:13px;color:var(--foreground)}
+.pal .ls{max-height:340px;overflow:auto;padding:4px}
+.pal .opt{display:flex;align-items:center;gap:8px;height:30px;padding:0 8px;border-radius:calc(var(--radius) * .8);cursor:pointer}
+.pal .opt.on{background:var(--accent)}
+.pal .opt kbd,.pal .opt .amt{margin-left:auto}
+.pal .opt .amt{color:var(--muted-foreground);font-variant-numeric:tabular-nums}
+.pal .opt .t{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pal .grp{padding:8px 8px 4px;font-size:11px;color:var(--muted-foreground);font-weight:500}
+.pal .ft{display:flex;gap:12px;padding:6px 12px;border-top:1px solid var(--border);color:var(--muted-foreground);font-size:11px}
+
+/* ---------- Gemensamt för verifikatprototypen ---------- */
+.B .detail{position:relative}
+.warn{color:var(--sidebar-primary)}
+.badge-warn{background:color-mix(in oklch,var(--sidebar-primary) 14%,transparent);color:var(--sidebar-primary)}
+.badge-lock{background:var(--muted);color:var(--muted-foreground);border-color:var(--border)}
+.dl{display:grid;grid-template-columns:130px 1fr;gap:6px 16px}
+.dl dt{color:var(--muted-foreground)}
+.dl dd{margin:0}
+.link{text-decoration:underline;text-underline-offset:2px;cursor:pointer}
+.sec-t{font-size:11px;font-weight:500;color:var(--muted-foreground);text-transform:uppercase;letter-spacing:.04em;margin-bottom:6px}
+.paper{background:var(--card);border-radius:var(--radius);box-shadow:0 0 0 1px color-mix(in oklch,var(--foreground) 10%,transparent),0 2px 8px rgba(0,0,0,.04);padding:24px 28px;display:flex;flex-direction:column;gap:20px;max-width:860px}
+.ro td{padding:6px 8px}
+.hist{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px}
+.hist li{display:grid;grid-template-columns:18px 130px 1fr;gap:8px;align-items:start}
+.hist li .t{color:var(--muted-foreground);font-variant-numeric:tabular-nums}
+.ufile{display:flex;align-items:center;gap:8px;padding:6px 8px;border:1px solid var(--border);border-radius:calc(var(--radius) * .8)}
+.ufile .mf{margin-left:auto;font-size:11px}
+.ufile.kompl{border-style:dashed}
+.preview{display:grid;place-items:center;gap:6px;background:var(--muted);color:var(--muted-foreground);border-radius:var(--radius);text-align:center}
+.drop{display:grid;place-items:center;gap:6px;border:1px dashed var(--ring);border-radius:var(--radius);color:var(--muted-foreground);padding:16px;text-align:center}
+.err .input,.input.err{border-color:var(--destructive)}
+tr.err td{background:color-mix(in oklch,var(--destructive) 6%,transparent)}
+.cell.err{border-color:var(--destructive)}
+.ferr{color:var(--destructive);font-size:11px;margin-top:3px;display:flex;gap:4px;align-items:center}
+.ferr svg.lucide{width:11px;height:11px}
+.btn[disabled]{opacity:.5;cursor:not-allowed}
+.dialog{width:560px;max-width:94vw;background:var(--popover);border-radius:var(--radius);box-shadow:0 0 0 1px color-mix(in oklch,var(--foreground) 10%,transparent),0 16px 48px rgba(0,0,0,.4);display:flex;flex-direction:column;gap:14px;padding:18px 20px}
+.dialog .ft{display:flex;gap:8px;justify-content:flex-end}
+.pick{display:flex;flex-direction:column;gap:4px;max-height:220px;overflow:auto}
+.pick label{display:flex;gap:8px;align-items:center;padding:6px 8px;border-radius:calc(var(--radius) * .8);border:1px solid var(--border);cursor:pointer}
+.pick label:hover{background:var(--accent)}
+.note{display:flex;gap:8px;align-items:flex-start;color:var(--muted-foreground);font-size:12px}
+.note svg.lucide{margin-top:2px}
+.flex{display:flex;gap:8px;align-items:center}
+.col{display:flex;flex-direction:column;gap:8px}
+
+/* A: kontrollista i en högerspalt */
+.A-edit{display:grid;grid-template-columns:1fr 250px;gap:24px;align-items:start}
+.rail{position:sticky;top:0;display:flex;flex-direction:column;gap:10px;padding:14px;border:1px solid var(--border);border-radius:var(--radius);background:var(--sidebar)}
+.rail .chk{display:grid;grid-template-columns:16px 1fr;gap:6px;align-items:start}
+.rail .chk.ok{color:var(--muted-foreground)}
+.rail .chk.bad{color:var(--foreground)}
+.rail .chk.bad svg.lucide{color:var(--destructive)}
+.rail .chk.ok svg.lucide{color:var(--success)}
+.rail .chk .fix{display:block;font-size:11px;color:var(--muted-foreground)}
+
+/* B: tabell som lista */
+.tlist{width:100%;border-collapse:collapse}
+.tlist td{padding:6px 6px;border-bottom:1px solid var(--border);vertical-align:top}
+.tlist tr{cursor:pointer}
+.tlist tr:hover td{background:var(--muted)}
+.tlist tr.on td{background:var(--card);box-shadow:inset 0 0 0 0 var(--ring)}
+.tlist tr.on td:first-child{box-shadow:inset 2px 0 0 var(--sidebar-primary)}
+.tlist th{font-weight:500;color:var(--muted-foreground);text-align:left;padding:4px 6px;border-bottom:1px solid var(--border);font-size:11px}
+.B .list.wide{padding:8px}
+.cmp{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.cmp .paper{padding:16px}
+
+/* C: underlag bredvid */
+.C-edit{display:grid;grid-template-columns:minmax(260px,42%) 1fr;gap:20px;align-items:start}
+.C-edit .left{position:sticky;top:0;display:flex;flex-direction:column;gap:8px}
+.C-edit .left .preview{height:420px}
+.per{display:flex;align-items:center;gap:6px;font-size:11px;font-weight:500;color:var(--muted-foreground);padding:12px 4px 2px}
+.per .badge{margin-left:auto}
+.pop{position:absolute;z-index:20;background:var(--popover);border:1px solid var(--border);border-radius:var(--radius);box-shadow:0 8px 24px rgba(0,0,0,.18);padding:8px;width:300px;display:flex;flex-direction:column;gap:6px}
+.inl{border:1px solid var(--ring);border-radius:var(--radius);padding:14px;display:flex;flex-direction:column;gap:12px;background:var(--card)}
+.bcount{background:color-mix(in oklch,var(--primary-foreground) 25%,transparent);border-radius:999px;padding:0 6px;font-size:11px}
+/* ---------- Leverantörsfakturor ---------- */
+.badge-obetald{background:var(--secondary);color:var(--secondary-foreground)}
+.badge-forfallen{background:color-mix(in oklch,var(--destructive) 12%,transparent);color:var(--destructive)}
+.badge-betald{background:color-mix(in oklch,var(--success) 14%,transparent);color:var(--success)}
+.badge-ny{background:color-mix(in oklch,var(--sidebar-primary) 14%,transparent);color:var(--sidebar-primary);border:1px dashed var(--sidebar-primary)}
+.copy{display:inline-flex;align-items:center;gap:6px;height:24px;padding:0 8px;border:1px solid var(--border);border-radius:calc(var(--radius) * .8);background:var(--background);cursor:pointer;font-variant-numeric:tabular-nums}
+.copy:hover{background:var(--accent)}
+.copy .k{color:var(--muted-foreground);font-size:11px}
+.levkort{border:1px solid var(--border);border-radius:var(--radius);padding:12px;display:flex;flex-direction:column;gap:8px}
+.levkort.ny{border:1px dashed var(--sidebar-primary);background:color-mix(in oklch,var(--sidebar-primary) 5%,transparent)}
+.g2{display:grid;grid-template-columns:1fr 1fr;gap:10px 14px}
+.g3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px 14px}
+.g4{display:grid;grid-template-columns:repeat(4,1fr);gap:10px 14px}
+.kont{border:1px solid var(--border);border-radius:var(--radius);padding:10px 12px;background:var(--sidebar)}
+.kont .table td,.kont .table th{padding:3px 8px;height:auto}
+.select{height:28px;border:1px solid var(--input);border-radius:calc(var(--radius) * .8);padding:0 6px;background:var(--background);width:100%}
+.seg{display:inline-flex;border:1px solid var(--border);border-radius:var(--radius);overflow:hidden}
+.seg button{border:0;border-right:1px solid var(--border);background:var(--background);padding:6px 12px;cursor:pointer;display:inline-flex;gap:6px;align-items:center}
+.seg button:last-child{border-right:0}
+.seg button.on{background:var(--accent);font-weight:500}
+.seg button:hover{background:var(--accent)}
+.triage{display:grid;grid-template-columns:1fr 280px;gap:20px;align-items:start}
+.tchoice{display:flex;flex-direction:column;gap:6px}
+.tchoice button{display:flex;align-items:center;gap:10px;padding:10px 12px;border:1px solid var(--border);border-radius:var(--radius);background:var(--card);cursor:pointer;text-align:left}
+.tchoice button:hover{background:var(--accent)}
+.tchoice kbd{margin-left:auto}
+.levgrp{display:flex;justify-content:space-between;align-items:center;padding:10px 6px 4px;font-weight:500;cursor:pointer}
+.levgrp:hover{color:var(--sidebar-primary)}
+.bet{display:grid;grid-template-columns:100px 1fr 120px 60px;gap:8px;padding:4px 0;border-bottom:1px solid var(--border)}
+.A-reg{display:grid;grid-template-columns:1fr minmax(240px,36%);gap:20px;align-items:start}
+.A-reg .orig{position:sticky;top:0;display:flex;flex-direction:column;gap:8px}
+.steg{display:flex;flex-direction:column;gap:10px;border:1px solid var(--border);border-radius:var(--radius);padding:12px 14px}
+.steg .st{display:flex;gap:8px;align-items:center;font-weight:500}
+.steg .st .n{width:20px;height:20px;border-radius:999px;background:var(--muted);display:grid;place-items:center;font-size:11px}
+.steg.klar .st .n{background:var(--success);color:white}
+/* ---------- Kundfakturor ---------- */
+.badge-tillgodo{background:color-mix(in oklch,var(--sidebar-primary) 14%,transparent);color:var(--sidebar-primary)}
+textarea{font:inherit;color:inherit}
+textarea.input{height:auto;padding:6px 8px;resize:vertical;line-height:1.45}
+.newmenu{position:relative}
+.newmenu .dropdown{right:0;top:32px}
+/* Fakturan som PDF: alltid ljus, den är ett papper */
+.inv{position:relative;background:#fff;color:#1c1917;border-radius:4px;box-shadow:0 0 0 1px rgba(0,0,0,.1),0 2px 10px rgba(0,0,0,.06);padding:26px 28px;font-size:10.5px;line-height:1.45;display:flex;flex-direction:column;gap:14px;overflow:hidden}
+.inv .h{display:flex;justify-content:space-between;gap:16px;align-items:flex-start}
+.inv .lg{width:42px;height:42px;border-radius:6px;background:#c2410c;color:#fff;display:grid;place-items:center;font-weight:700;font-size:14px}
+.inv .tt{font-size:19px;font-weight:600;letter-spacing:-.01em;margin-bottom:4px}
+.inv table{width:100%}
+.inv td,.inv th{padding:3px 4px;border-bottom:1px solid #e7e5e4;text-align:left;vertical-align:top}
+.inv th{font-weight:500;color:#78716c}
+.inv .r{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+.inv .kv{display:grid;grid-template-columns:auto auto;gap:1px 12px;align-content:start}
+.inv .kv>span:nth-child(odd){color:#78716c}
+.inv .adr{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.inv .lbl2{color:#78716c;font-size:9.5px;text-transform:uppercase;letter-spacing:.05em;margin-bottom:2px}
+.inv .sum{display:grid;grid-template-columns:1fr auto;gap:2px 16px;margin-left:auto;min-width:220px}
+.inv .sum .big{font-size:13px;font-weight:600;border-top:1px solid #1c1917;padding-top:4px}
+.inv .pay{display:grid;grid-template-columns:repeat(4,auto);gap:2px 18px;border:1px solid #e7e5e4;border-radius:4px;padding:8px 10px;justify-content:start}
+.inv .pay span:nth-child(-n+4){color:#78716c;font-size:9.5px}
+.inv .foot{border-top:1px solid #e7e5e4;padding-top:8px;color:#78716c;font-size:9.5px;display:flex;flex-wrap:wrap;gap:2px 14px}
+.inv .wm{position:absolute;top:42%;left:50%;transform:translate(-50%,-50%) rotate(-24deg);font-size:72px;font-weight:700;color:rgba(194,65,12,.09);pointer-events:none;letter-spacing:.12em}
+.inv .miss{background:rgba(220,38,38,.09);color:#b91c1c;border-radius:3px;padding:0 3px}
+.inv .omv{border-left:3px solid #c2410c;padding:4px 8px;background:#fff7ed}
+.inv .ed{border:1px dashed #d6d3d1;border-radius:3px;background:#fffbeb;height:20px;padding:0 4px;font:inherit;font-size:10.5px;width:100%;color:#1c1917}
+.inv .ed:focus{outline:none;border:1px solid #c2410c;background:#fff}
+.inv .ed.err{border-color:#dc2626;background:#fef2f2}
+.inv select.ed{padding:0 2px}
+.inv .addrow{color:#c2410c;cursor:pointer;font-weight:500}
+.C-edit .left .inv{padding:18px;font-size:10px;gap:10px}
+.C-edit .left .inv .tt{font-size:16px}
+.pal-bg .dialog{max-height:86vh;overflow:auto}
+.drawer{position:fixed;top:48px;right:0;bottom:0;width:600px;max-width:92vw;background:var(--background);border-left:1px solid var(--border);box-shadow:-12px 0 32px rgba(0,0,0,.25);z-index:30;display:flex;flex-direction:column}
+.drawer .dh{display:flex;justify-content:space-between;align-items:center;padding:10px 14px;border-bottom:1px solid var(--border)}
+.drawer .db{overflow:auto;padding:16px;background:var(--muted);flex:1}
+.thumb{width:132px;height:176px;overflow:hidden;border-radius:4px;cursor:zoom-in;position:relative;flex-shrink:0;box-shadow:0 0 0 1px var(--border);background:#fff}
+.thumb .inner{transform:scale(.22);transform-origin:0 0;width:600px;pointer-events:none}
+.thumb .lab{position:absolute;bottom:0;left:0;right:0;background:rgba(0,0,0,.65);color:#fff;font-size:11px;padding:3px 6px;display:flex;gap:4px;align-items:center}
+.thumb:hover{box-shadow:0 0 0 2px var(--ring)}
+.pdfmeta{display:flex;align-items:center;gap:6px;color:var(--muted-foreground);font-size:11px}
+/* A: formulär i fakturan, kontrollista i höger */
+.A-ed{display:grid;grid-template-columns:minmax(520px,1fr) 340px;gap:20px;align-items:start}
+.toolbar{display:flex;gap:6px;align-items:center;flex-wrap:wrap;padding:8px 10px;border:1px solid var(--border);border-radius:var(--radius);background:var(--sidebar);position:sticky;top:0;z-index:5}
+.A-doc{display:grid;grid-template-columns:minmax(480px,640px) 1fr;gap:20px;align-items:start}
+/* B: steg och tidslinje */
+.stepbar{display:flex;gap:6px;flex-wrap:wrap}
+.stepbar button{display:inline-flex;align-items:center;gap:8px;height:30px;padding:0 12px;border:1px solid var(--border);border-radius:999px;background:var(--background);cursor:pointer;font-weight:500;color:var(--muted-foreground)}
+.stepbar button.on{border-color:var(--ring);color:var(--foreground);background:var(--card);box-shadow:0 0 0 2px color-mix(in oklch,var(--ring) 30%,transparent)}
+.stepbar .n{width:18px;height:18px;border-radius:999px;background:var(--muted);display:grid;place-items:center;font-size:10px}
+.stepbar .klar .n{background:var(--success);color:#fff}
+.stepbar .bad .n{background:var(--destructive);color:#fff}
+.tl{display:flex;align-items:center;gap:0;flex-wrap:wrap}
+.tl .st{display:flex;flex-direction:column;gap:2px;padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius);min-width:110px}
+.tl .st.on{border-color:var(--success)}
+.tl .st.cur{border-color:var(--sidebar-primary);background:color-mix(in oklch,var(--sidebar-primary) 6%,transparent)}
+.tl .st.off{border-style:dashed;color:var(--muted-foreground)}
+.tl .st .t{font-weight:500;display:flex;gap:6px;align-items:center}
+.tl .st .d{font-size:11px;color:var(--muted-foreground)}
+.tl .ar{width:16px;height:1px;background:var(--border)}
+.kundhead{display:flex;justify-content:space-between;align-items:center;padding:10px 6px 4px;font-weight:500;cursor:pointer;border-radius:calc(var(--radius) * .8)}
+.kundhead:hover{color:var(--sidebar-primary)}
+.kundhead.on{color:var(--sidebar-primary)}
+.alloc{display:grid;grid-template-columns:70px 1fr 110px 110px;gap:6px;padding:4px 0;border-bottom:1px solid var(--border);align-items:center}
+.stat{display:flex;flex-direction:column;gap:2px;padding:10px 12px;border:1px solid var(--border);border-radius:var(--radius)}
+.stat b{font-size:16px;font-weight:600;font-variant-numeric:tabular-nums}
+.chips{display:flex;flex-wrap:wrap;gap:4px}
+.radio-list{display:flex;flex-direction:column;gap:4px}
+.radio-list label{display:flex;gap:8px;align-items:center;padding:6px 8px;border:1px solid var(--border);border-radius:calc(var(--radius) * .8);cursor:pointer}
+.radio-list label:hover{background:var(--accent)}
+/* ---------- Lönekörning ---------- */
+.lt td,.lt th{padding:5px 8px}
+.lt tr.row{cursor:pointer}
+.lt tr.row:hover td{background:color-mix(in oklch,var(--muted) 50%,transparent)}
+.lt tr.row.open td{background:var(--sidebar);border-bottom-color:transparent}
+.lt tr.exp>td{background:var(--sidebar);padding:4px 12px 14px}
+.lt tr.bad td:first-child{box-shadow:inset 2px 0 0 var(--destructive)}
+.redit td{padding:2px 4px;vertical-align:middle}
+.redit .cell{height:26px}
+.redit .typ{white-space:nowrap;font-weight:500;width:130px}
+.calc td{padding:2px 8px;font-size:12px}
+.calc .fk{color:var(--muted-foreground);font-size:11px}
+.B-run{display:grid;grid-template-columns:210px minmax(380px,1fr) 330px;gap:16px;align-items:start}
+.B-run .emps{display:flex;flex-direction:column;gap:4px;position:sticky;top:0}
+.B-run .emp{display:flex;flex-direction:column;gap:2px;padding:8px 10px;border-radius:calc(var(--radius) * .8);border:1px solid var(--border);cursor:pointer;background:var(--card)}
+.B-run .emp:hover{background:var(--accent)}
+.B-run .emp.on{border-color:var(--ring);box-shadow:0 0 0 2px color-mix(in oklch,var(--ring) 30%,transparent)}
+.B-run .emp .r{display:flex;justify-content:space-between;gap:6px}
+.B-run .right{position:sticky;top:0}
+.inv.spec{font-size:10px;padding:18px 20px;gap:10px}
+.inv.spec .tt{font-size:15px}
+.dot{width:7px;height:7px;border-radius:99px;background:var(--destructive);display:inline-block}
+.mcard{border:1px solid var(--border);border-radius:var(--radius);padding:14px 16px;display:flex;flex-direction:column;gap:12px;background:var(--card)}
+.mcard .mh{display:flex;justify-content:space-between;align-items:flex-start;gap:12px}
+.chain{display:flex;align-items:stretch;gap:0;flex-wrap:wrap}
+.chain .st{display:flex;flex-direction:column;gap:2px;padding:8px 12px;border:1px solid var(--border);border-radius:var(--radius);min-width:150px;cursor:pointer;background:var(--card)}
+.chain .st:hover{background:var(--accent)}
+.chain .st.ok{border-color:color-mix(in oklch,var(--success) 60%,transparent)}
+.chain .st.cur{border-color:var(--sidebar-primary);background:color-mix(in oklch,var(--sidebar-primary) 6%,transparent)}
+.chain .st.bad{border-color:var(--destructive);background:color-mix(in oklch,var(--destructive) 5%,transparent)}
+.chain .st .t{font-weight:500;display:flex;gap:6px;align-items:center}
+.chain .st .d{font-size:11px;color:var(--muted-foreground)}
+.chain .ar{align-self:center;width:18px;height:1px;background:var(--border)}
+pre.xml{font:11px/1.45 ui-monospace,SFMono-Regular,Menlo,monospace;background:var(--muted);border-radius:var(--radius);padding:10px 12px;overflow:auto;max-height:340px;margin:0;white-space:pre}
+.stats{display:grid;grid-template-columns:repeat(5,1fr);gap:8px}
+.mchip{display:inline-flex;gap:4px;align-items:center;font-size:11px;color:var(--muted-foreground)}
+.mchip svg.lucide{width:12px;height:12px}
+.mchip.ok{color:var(--success)}
+.mchip.bad{color:var(--destructive)}
+.mchip.warn{color:var(--sidebar-primary)}
+.kv2{display:grid;grid-template-columns:170px 1fr;gap:6px 14px;align-items:center}
+.kv2 dt{color:var(--muted-foreground)}
+.kv2 dd{margin:0}
+.lh{flex-wrap:wrap;gap:6px}
+</style>
+<style>
+/* ---------- Att göra ---------- */
+.ig{display:flex;align-items:center;gap:6px;color:var(--muted-foreground);font-size:11px;font-weight:500;padding:12px 4px 2px}
+.ig .n{margin-left:auto;font-variant-numeric:tabular-nums}
+.ig.bad{color:var(--destructive)}
+.ig.hot{color:var(--sidebar-primary)}
+.ig.fold{cursor:pointer;border-radius:calc(var(--radius) * .8)}
+.ig.fold:hover{color:var(--foreground)}
+.it .top .t{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.it .top .num{font-weight:400}
+.it.ai{border-left:2px dashed var(--muted-foreground)}
+.when{font-variant-numeric:tabular-nums}
+.when.bad{color:var(--destructive)}
+.when.hot{color:var(--sidebar-primary)}
+.omr{display:inline-flex;align-items:center;gap:4px}
+.omr svg.lucide{width:12px;height:12px}
+.foot{margin-top:auto;padding:12px 4px 0;color:var(--muted-foreground);font-size:11px;display:flex;gap:6px;align-items:center}
+.foot svg.lucide{width:12px;height:12px;color:var(--success)}
+.dhead{display:flex;justify-content:space-between;align-items:flex-start;gap:12px}
+.dhead .col{gap:4px}
+.two{display:grid;grid-template-columns:minmax(240px,40%) 1fr;gap:20px;align-items:start}
+.two .preview{height:360px;position:sticky;top:0}
+.aibox{border:1px dashed var(--muted-foreground);border-radius:var(--radius);padding:10px 12px;display:flex;flex-direction:column;gap:6px;background:color-mix(in oklch,var(--muted) 40%,transparent)}
+.aibox .who{display:flex;gap:6px;align-items:center;color:var(--muted-foreground);font-size:11px}
+.acts{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.nyck{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:8px}
+.nyck .stat .mf{font-size:11px}
+.nyck .stat .sub{font-size:11px;color:var(--muted-foreground)}
+.done{display:grid;place-items:center;gap:8px;padding:48px;color:var(--muted-foreground);text-align:center}
+.done svg.lucide{width:22px;height:22px;color:var(--success)}
+.flash{display:flex;gap:8px;align-items:center;padding:8px 12px;border-radius:var(--radius);background:color-mix(in oklch,var(--success) 10%,transparent);color:var(--success)}
+.flash.fel{background:color-mix(in oklch,var(--destructive) 10%,transparent);color:var(--destructive)}
+/* C: agendan */
+.agenda{flex:1;overflow:auto;padding:20px 28px 90px}
+.agenda .wrap{max-width:1180px;margin:0 auto;display:flex;flex-direction:column;gap:16px}
+.ag-grid{display:grid;grid-template-columns:minmax(0,1fr) 380px;gap:24px;align-items:start}
+.ag-day{display:flex;align-items:baseline;gap:8px;font-weight:500;padding:14px 2px 6px;border-bottom:1px solid var(--border);margin-bottom:6px}
+.ag-day .mf{font-weight:400;font-size:11px}
+.ag-day.bad{color:var(--destructive)}
+.ag-day.idag{color:var(--sidebar-primary)}
+.acard{border:1px solid var(--border);border-radius:var(--radius);background:var(--card);margin-bottom:6px}
+.acard .ah{display:grid;grid-template-columns:18px 1fr auto;gap:10px;align-items:center;padding:9px 12px;cursor:pointer}
+.acard .ah:hover{background:color-mix(in oklch,var(--muted) 50%,transparent)}
+.acard .ah .s{color:var(--muted-foreground);font-size:12px}
+.acard.open{border-color:var(--ring)}
+.acard .ab{border-top:1px solid var(--border);padding:14px 16px;display:flex;flex-direction:column;gap:12px}
+.acard.ai{border-style:dashed}
+.akomm{display:grid;grid-template-columns:18px 1fr;gap:10px;padding:5px 12px;color:var(--muted-foreground)}
+.ag-side{position:sticky;top:0;display:flex;flex-direction:column;gap:6px}
+.ag-side .acard .ab .two{grid-template-columns:1fr}
+.ag-side .acard .ab .two .preview{height:180px;position:static}
+</style>
+</head>
+<body>
+<div id="app"></div>
+<div id="proto-switcher"></div>
+<script>
+/* ================= Hjälpare ================= */
+const IDAG='2026-10-14', ANV='Anna Berg';
+const fmt=new Intl.NumberFormat('sv-SE',{minimumFractionDigits:2,maximumFractionDigits:2});
+const fmt0=new Intl.NumberFormat('sv-SE',{maximumFractionDigits:0});
+const kr=x=>fmt.format(x||0), kr0=x=>fmt0.format(x||0);
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const ic=(n,extra)=>`<i data-lucide="${n}"${extra?' '+extra:''}></i>`;
+const MAN=['januari','februari','mars','april','maj','juni','juli','augusti','september','oktober','november','december'];
+const MK=['jan','feb','mar','apr','maj','jun','jul','aug','sep','okt','nov','dec'];
+const VD=['sön','mån','tis','ons','tor','fre','lör'];
+const dkort=d=>(+d.slice(8,10))+' '+MK[+d.slice(5,7)-1];
+const dlang=d=>{const x=new Date(d+'T12:00');return VD[x.getDay()][0].toUpperCase()+VD[x.getDay()].slice(1)+' '+dkort(d)};
+const manad=m=>MAN[+m.slice(5,7)-1]+' '+m.slice(0,4);
+const Manad=m=>{const x=manad(m);return x[0].toUpperCase()+x.slice(1)};
+const dagar=(a,b)=>Math.round((new Date(b+'T12:00')-new Date(a+'T12:00'))/864e5);
+const manSlut=m=>m+'-'+String(new Date(+m.slice(0,4),+m.slice(5,7),0).getDate()).padStart(2,'0');
+const initialer=s=>s.split(/\s+/).filter(w=>w!=='AB'&&w!=='i').slice(0,2).map(w=>w[0]).join('').toUpperCase();
+const nu=()=>IDAG+' '+new Date().toTimeString().slice(0,5);
+
+/* ================= Data (i minnet) ================= */
+const FORETAG=[
+  {id:'exempel',namn:'Exempel AB',orgnr:'559999-9991',momsper:'kvartal',nastaV:43},
+  {id:'lund',namn:'Konsultbolaget i Lund AB',orgnr:'559888-1234',momsper:'månad',nastaV:118},
+];
+// Typer: utkast, lev-utkast, kf-utkast, underlag, ai-radera, ny-part, lev-betala, kf-forfallen, kf-aibet,
+// kf-utskick, kf-ejskickad, agi, agi-andrad, skatt, lon-bokf, moms, moms-inl, ps
+const OMR={verifikat:['Verifikat','book-open'],kund:['Kundfakturor','file-output'],lev:['Leverantörsfakturor','file-input'],lon:['Lön','wallet'],moms:['Moms','landmark'],underlag:['Underlag','paperclip']};
+const ITEMS={
+exempel:[
+ {id:'u1',typ:'utkast',omr:'verifikat',t:'Lunch kundmöte, Nordljus',datum:'2026-07-22',skapad:'2026-07-23',vem:'Anna Berg',belopp:612,und:'kvitto_restaurang.jpg',rader:[[6071,'Representation, avdragsgill',490],[2641,'Debiterad ingående moms',58.8],[6072,'Representation, ej avdragsgill',63.2],[1930,'Företagskonto',-612]]},
+ {id:'u2',typ:'utkast',omr:'verifikat',t:'Tågbiljett Stockholm–Lund',datum:'2026-10-09',skapad:'2026-10-09',vem:'Anna Berg',ai:'Claude',belopp:1166,und:'biljett_sj.pdf',rader:[[5800,'Resekostnader',1100],[2641,'Debiterad ingående moms',66],[1930,'Företagskonto',-1166]]},
+ {id:'u3',typ:'utkast',omr:'verifikat',t:'Förbrukningsmaterial, Kontorsgiganten',datum:'2026-10-11',skapad:'2026-10-12',vem:'Anna Berg',ai:'Claude',belopp:845,und:'kvitto_kontor.pdf',rader:[[5460,'Förbrukningsmaterial',676],[2641,'Debiterad ingående moms',169],[1930,'Företagskonto',-845]]},
+ {id:'u4',typ:'utkast',omr:'verifikat',t:'Bankavgift oktober',datum:'2026-10-13',skapad:'2026-10-13',vem:'Anna Berg',belopp:95,rader:[[6570,'Bankkostnader',95],[1930,'Företagskonto',-95]],fel:'Underlag saknas. Bokför ändå eller släpp ett underlag i utkastet.'},
+ {id:'lu1',typ:'lev-utkast',omr:'lev',t:'Molnbolaget Ltd · faktura 2026-118',datum:'2026-10-08',skapad:'2026-10-12',vem:'Anna Berg',ai:'Claude',belopp:4800,frist:'2026-10-30',ny:'np1',und:'invoice_2026-118.pdf',s:'omvänd skattskyldighet · förfaller 30 okt'},
+ {id:'ku1',typ:'kf-utkast',omr:'kund',t:'Faktura till Bergström Fastigheter AB',datum:'2026-10-12',skapad:'2026-10-12',vem:'Anna Berg',belopp:31250,s:'3 rader · 30 dagar netto'},
+ {id:'ku2',typ:'kf-utkast',omr:'kund',t:'Faktura till Fjällström Design AB',datum:'2026-10-13',skapad:'2026-10-13',vem:'Anna Berg',ai:'Claude',belopp:18750,ny:'np2',s:'1 rad · 30 dagar netto'},
+ {id:'ul1',typ:'underlag',omr:'underlag',t:'IMG_4412.heic',skapad:'2026-10-11',vem:'Anna Berg',kanal:'webben',s:'Bild, 2,1 MB'},
+ {id:'ul3',typ:'underlag',omr:'underlag',t:'hyresavtal_lokal_2027.pdf',skapad:'2026-09-02',vem:'Anna Berg',kanal:'webben',s:'PDF, 4 sidor'},
+ {id:'ar1',typ:'ai-radera',omr:'underlag',t:'faktura_8812.pdf',skapad:'2026-10-12',vem:'Anna Berg',ai:'Claude',skal:'Dubblett av underlaget till leverantörsfaktura 8812 från Telia Sverige AB (V38): samma fakturanummer, datum och belopp, men inskannad i stället för PDF:en från Telia.',s:'PDF, 1 sida'},
+ {id:'np1',typ:'ny-part',omr:'lev',t:'Molnbolaget Ltd',slag:'Ny leverantör',skapad:'2026-10-12',ai:'Claude',vem:'Anna Berg',ref:'lu1',f:[['Land','Irland'],['VAT-nr','IE3456789XH'],['Betalning','IBAN IE29 AIBK 9311 5212 3456 78']]},
+ {id:'np2',typ:'ny-part',omr:'kund',t:'Fjällström Design AB',slag:'Ny kund',skapad:'2026-10-13',ai:'Claude',vem:'Anna Berg',ref:'ku2',f:[['Orgnr','559412-3307'],['E-post','faktura@fjallstromdesign.se'],['Adress','Storgatan 4, 831 30 Östersund']]},
+ {id:'lf1',typ:'lev-betala',omr:'lev',t:'Telia Sverige AB · 8812',belopp:1245,frist:'2026-10-10',bet:[['BG','5050-1055'],['OCR','88120044711']]},
+ {id:'lf2',typ:'lev-betala',omr:'lev',t:'Kontorsgiganten AB · 55120',belopp:2380,frist:'2026-10-17',bet:[['PG','12 34 56-7'],['OCR','551200091']]},
+ {id:'lf3',typ:'lev-betala',omr:'lev',t:'Solna Lokalfastigheter AB · hyra nov',belopp:18750,frist:'2026-10-20',bet:[['BG','713-2245'],['Meddelande','Hyra nov, objekt 0412']]},
+ {id:'kf1',typ:'kf-forfallen',omr:'kund',t:'Faktura 1042 · Nordljus Arkitekter AB',belopp:46875,frist:'2026-09-30',s:'e-post ekonomi@nordljus.se · tel 08-555 120 40'},
+ {id:'kf2',typ:'kf-aibet',omr:'kund',t:'Inbetalning 12 500,00 → faktura 1045',ai:'Claude',skapad:'2026-10-14',vem:'Anna Berg',belopp:12500,datum:'2026-10-13',s:'Hagström & Co · OCR 10450 stämmer'},
+ {id:'kf3',typ:'kf-utskick',omr:'kund',t:'Faktura 1047 · Ekberg Konsult AB',belopp:9375,skapad:'2026-10-13',s:'ekonomi@ekbergkonsult.se svarade: brevlådan är full (13 okt 16:02)',epost:'ekonomi@ekbergkonsult.se'},
+ {id:'kf4',typ:'kf-ejskickad',omr:'kund',t:'Faktura 1048 · Sundström Bygg AB',belopp:23125,skapad:'2026-10-14',s:'utfärdad i dag 08:40',epost:'faktura@sundstrombygg.se'},
+ {id:'ag1',typ:'agi-andrad',omr:'lon',t:'AGI augusti är ändrad efter lämnad',skapad:'2026-10-06',s:'Lönekörningen 25 aug rättades 6 okt: Erik Lind, förmån bil +1 840 kr',belopp:578},
+ {id:'mo1',typ:'moms',omr:'moms',t:'Momsdeklaration jul–sep',frist:'2026-11-12',belopp:38214,s:'ej deklarerad · 1 varning'},
+],
+lund:[
+ {id:'lu-a',typ:'agi',omr:'lon',t:'AGI september',frist:'2026-10-12',belopp:41280,s:'2 anställda · ej lämnad'},
+ {id:'lu-s',typ:'skatt',omr:'lon',t:'Skatt och avgifter september',frist:'2026-10-12',belopp:41280,bet:[['BG','5050-1055'],['OCR','16559888123401']],s:'skatteavdrag 18 430 + arbetsgivaravgifter 22 850'},
+ {id:'lu-l',typ:'lon-bokf',omr:'lon',t:'Lönekörning 10 okt',frist:'2026-10-10',belopp:58900,s:'fastställd 6 okt · 2 anställda · utbetalningsdagen har passerat'},
+ {id:'lu-ps',typ:'ps',omr:'moms',t:'Periodisk sammanställning kv 3',frist:'2026-10-25',belopp:212400,s:'3 köpare · ej lämnad'},
+ {id:'lu-m',typ:'moms-inl',omr:'moms',t:'Momsdeklaration september',frist:'2026-11-12',belopp:15880,s:'deklarerad 3 okt · ej inlämnad'},
+ {id:'lu-u1',typ:'utkast',omr:'verifikat',t:'Figma licens september',datum:'2026-09-28',skapad:'2026-10-02',vem:'Per Nilsson',ai:'Claude',belopp:1440,und:'figma_receipt.pdf',rader:[[5420,'Programvaror',1440],[2645,'Beräknad ingående moms',360],[2614,'Utgående moms omvänd',-360],[1930,'Företagskonto',-1440]],sparr:'Momsperioden september är deklarerad. Öppna deklarationen igen eller byt datum.'},
+ {id:'lu-u2',typ:'utkast',omr:'verifikat',t:'Parkering Lund C',datum:'2026-10-07',skapad:'2026-10-07',vem:'Per Nilsson',belopp:120,und:'parkering.png',rader:[[5800,'Resekostnader',96],[2641,'Debiterad ingående moms',24],[1930,'Företagskonto',-120]]},
+]};
+const KOMMANDE={
+ exempel:[['2026-10-25','Utbetalning av lön','lon'],['2026-11-12','AGI och skatt för oktober','lon'],['2026-11-12','Momsdeklaration jul–sep','moms'],['2026-11-25','Utbetalning av lön','lon']],
+ lund:[['2026-10-25','Periodisk sammanställning kv 3','moms'],['2026-11-10','Utbetalning av lön','lon'],['2026-11-12','AGI och skatt för oktober','lon'],['2026-11-12','Momsdeklaration september','moms'],['2026-12-12','Momsdeklaration oktober','moms']]};
+const NYCK={
+ exempel:[['Företagskonto','412 380 kr','enligt bokföringen'],['Kundfordringar','127 500 kr','varav förfallet 46 875'],['Leverantörsskulder','22 375 kr','varav förfallet 1 245'],['Moms jul–sep','38 214 kr','att betala, preliminärt'],['Resultat jan–sep','214 600 kr','före bokslut']],
+ lund:[['Företagskonto','188 940 kr','enligt bokföringen'],['Kundfordringar','212 400 kr','inget förfallet'],['Leverantörsskulder','4 210 kr','inget förfallet'],['Moms september','15 880 kr','deklarerad'],['Resultat jan–sep','96 300 kr','före bokslut']]};
+
+const UTKT=['utkast','lev-utkast','kf-utkast'];
+const items=()=>ITEMS[S.co];
+const co=()=>FORETAG.find(f=>f.id===S.co);
+const hitta=id=>items().find(x=>x.id===id);
+const forsenad=x=>x.frist&&x.frist<IDAG&&!['kf-forfallen'].includes(x.typ);
+const inom7=x=>x.frist&&x.frist>=IDAG&&dagar(IDAG,x.frist)<=7;
+const varning50=m=>dagar(manSlut(m),IDAG)>50;
+
+/* ================= Rader i listan ================= */
+function when(x){
+  if(x.typ==='kf-forfallen'){const d=dagar(x.frist,IDAG);return `<span class="when bad">förföll för ${d} dagar sedan</span>`}
+  if(x.frist){const d=dagar(IDAG,x.frist);if(d<0)return `<span class="when bad">${x.typ==='lev-betala'?'förföll':x.typ==='lon-bokf'?'utbetald':'sista dag'} ${dkort(x.frist)}, ${-d} d sedan</span>`;
+    if(d===0)return `<span class="when hot">i dag</span>`;if(d<=7)return `<span class="when hot">${x.typ==='lev-betala'?'förfaller':'senast'} ${dlang(x.frist).toLowerCase()}</span>`;return `<span class="when">senast ${dkort(x.frist)}</span>`}
+  if(x.skapad){const d=dagar(x.skapad,IDAG);return `<span class="when ${d>30&&x.typ==='underlag'?'hot':''}">${d===0?'i dag':d===1?'i går':d+' dagar'}${d>30&&x.typ==='underlag'?' · 30+ dagar':''}</span>`}
+  return ''}
+const typTxt={utkast:'utkast','lev-utkast':'leverantörsfaktura','kf-utkast':'kundfaktura',underlag:'okopplat','ai-radera':'radera?','ny-part':'ny','lev-betala':'att betala','kf-forfallen':'förfallen','kf-aibet':'betalning','kf-utskick':'utskick misslyckades','kf-ejskickad':'inte skickad',agi:'AGI','agi-andrad':'ändrad AGI',skatt:'skatt','lon-bokf':'att bokföra',moms:'moms','moms-inl':'lämna in',ps:'PS'};
+function badges(x){let b='';
+  if(UTKT.includes(x.typ))b+=`<span class="badge badge-utkast">${ic('pencil')}${x.typ==='utkast'?'utkast':typTxt[x.typ]}</span>`;
+  else if(x.typ==='ny-part')b+=`<span class="badge badge-ny">${esc(x.slag.toLowerCase())}</span>`;
+  else if(['lev-betala','kf-forfallen'].includes(x.typ)&&x.frist<IDAG)b+=`<span class="badge badge-forfallen">förfallen</span>`;
+  else if(forsenad(x))b+=`<span class="badge badge-forfallen">försenad</span>`;
+  else if(x.typ==='kf-utskick')b+=`<span class="badge badge-forfallen">${ic('mail-x')}studsade</span>`;
+  else b+=`<span class="badge badge-bokford">${typTxt[x.typ]}</span>`;
+  if(x.ai)b+=`<span class="badge badge-ai">${ic('sparkles')}${esc(x.ai)}</span>`;
+  if(x.und)b+=ic('paperclip','title="Underlag kopplat"');
+  if(x.sparr)b+=`<span class="diff-bad">${ic('lock')}spärrad</span>`;
+  return b}
+function omrTag(x){const o=OMR[x.omr];return `<span class="omr">${ic(o[1])}${o[0]}</span>`}
+function rad(x,sel,visaOmr){return `<a class="item it ${x.ai?'ai':''} ${sel===x.id?'on':''}" href="#/inkorg/${x.id}" style="padding:8px 10px">
+  <div class="top"><span class="t">${esc(x.t)}</span>${x.belopp?`<span class="num">${kr(x.belopp)}</span>`:''}</div>
+  <div class="meta">${badges(x)}${visaOmr?omrTag(x):''}${when(x)}</div></a>`}
+
+/* ================= Detaljer (gemensamma för alla varianter) ================= */
+function head(x,extra){return `<div class="dhead"><div class="col"><div class="flex"><h1>${esc(x.t)}</h1></div><div class="meta flex mf" style="flex-wrap:wrap">${badges(x)}${omrTag(x)}${when(x)}</div></div>${extra||''}</div>`}
+function aiBox(x,txt){return `<div class="aibox"><div class="who">${ic('sparkles')}Föreslaget av ${esc(x.ai)} via MCP · ${dkort(x.skapad)} · för ${esc(x.vem)}</div><div>${txt}</div></div>`}
+function prev(namn,typ){return `<div class="preview">${ic(typ||'file-text','style="width:28px;height:28px"')}<div>${esc(namn||'Inget underlag')}</div><div class="mf" style="font-size:11px">förhandsvisning</div></div>`}
+function chips(bet,belopp){return `<div class="chips">${bet.map(([k,v])=>`<button class="copy" onclick="kopiera('${esc(v)}')"><span class="k">${k}</span>${esc(v)}${ic('copy')}</button>`).join('')}${belopp?`<button class="copy" onclick="kopiera('${kr(belopp)}')"><span class="k">Belopp</span>${kr(belopp)}${ic('copy')}</button>`:''}</div>`}
+function kont(rows){return `<div class="kont"><table class="table"><thead><tr><th>Konto</th><th></th><th class="num">Debet</th><th class="num">Kredit</th></tr></thead><tbody>${rows.map(([k,n,b])=>`<tr><td>${k}</td><td>${esc(n)}</td><td class="num">${b>0?kr(b):''}</td><td class="num">${b<0?kr(-b):''}</td></tr>`).join('')}</tbody></table></div>`}
+function lank(omr,txt){return `<button class="btn btn-outline" onclick="go('#/${omr}')">${txt||'Öppna i '+OMR[omr][0]}${ic('arrow-up-right')}</button>`}
+function utkastKvar(){return items().filter(x=>x.typ==='utkast').length}
+
+function detalj(x,kompakt){const P=S.panel&&S.panel.id===x.id?S.panel:null;let b='';
+ switch(x.typ){
+ case 'utkast':{const sp=x.sparr,bok=`Bokförs som V${co().nastaV} · ${dkort(x.datum)} ${x.datum.slice(0,4)}`;
+  b=`<div class="two">${x.und?prev(x.und):`<div class="drop" style="height:200px">${ic('upload')}Släpp underlaget här eller välj ett okopplat</div>`}<div class="col" style="gap:12px">
+   ${x.ai?aiBox(x,'Konteringen är AI:s förslag. Granska raderna innan du bokför.'):''}
+   <dl class="dl"><dt>Verifikatdatum</dt><dd>${x.datum}${varning50(x.datum.slice(0,7))?` <span class="warn">· ${Manad(x.datum.slice(0,7))} slut för ${dagar(manSlut(x.datum.slice(0,7)),IDAG)} dagar sedan</span>`:''}</dd><dt>Skapat</dt><dd>${x.skapad} av ${esc(x.vem)}${x.ai?' via '+esc(x.ai):''}</dd></dl>
+   ${kont(x.rader)}
+   ${sp?`<div class="ferr">${ic('lock')}${esc(sp)} <a class="link" onclick="go('#/moms')">Öppna deklarationen</a></div>`:''}
+   ${x.fel?`<div class="note">${ic('info')}${esc(x.fel)}</div>`:''}
+   <div class="acts"><button class="btn btn-default" ${sp?'disabled':''} onclick="bokfor('${x.id}')">Bokför${sp?' <span class="bcount">1 kvar</span>':''}</button><button class="btn btn-outline" onclick="go('#/verifikat')">Öppna utkastet</button><button class="btn btn-destructive-ghost" onclick="klar('${x.id}','Utkastet är raderat. Underlaget ligger kvar som okopplat.')">Radera utkast</button></div>
+   ${sp?'':`<div class="mf" style="font-size:11px">${bok} · nästa utkast öppnas direkt</div>`}</div></div>`;break}
+ case 'lev-utkast':case 'kf-utkast':{const np=x.ny&&hitta(x.ny);
+  b=`<div class="two">${x.und?prev(x.und):x.typ==='kf-utkast'?prev('Förhandsvisning av fakturan','file-output'):''}<div class="col" style="gap:12px">
+   ${x.ai?aiBox(x,x.typ==='lev-utkast'?'Avskriften av fakturan är AI:s. Jämför med originalet innan du registrerar.':'Fakturautkastet är AI:s. Granska innan du utfärdar.'):''}
+   <dl class="dl"><dt>Belopp</dt><dd>${kr(x.belopp)} kr</dd><dt>Uppgifter</dt><dd>${esc(x.s)}</dd>${np?`<dt>${np.slag.replace('Ny ','').replace(/^./,c=>c.toUpperCase())}</dt><dd>${esc(np.t)} <span class="badge badge-ny">ny</span> <a class="link mf" href="#/inkorg/${np.id}">granska</a></dd>`:''}</dl>
+   <div class="note">${ic('info')}${x.typ==='lev-utkast'?'Registreringen görs i leverantörsfakturan, med originalet bredvid.':'Utfärdandet görs i dialogen Granska och utfärda, med PDF och utskick.'}</div>
+   <div class="acts">${x.typ==='lev-utkast'?lank('lev','Granska och registrera'):lank('kund','Granska och utfärda')}<button class="btn btn-destructive-ghost" onclick="klar('${x.id}','Utkastet är raderat.')">Radera utkast</button></div></div></div>`;break}
+ case 'underlag':
+  b=`<div class="triage">${prev(x.t,'image')}<div class="col" style="gap:10px"><h2>Vad är det här?</h2>
+   <div class="tchoice"><button onclick="triage('${x.id}','lev')">${ic('file-input')}Leverantörsfaktura<kbd>L</kbd></button><button onclick="triage('${x.id}','kvitto')">${ic('receipt')}Kvitto<kbd>K</kbd></button><button onclick="triage('${x.id}','kompl')">${ic('paperclip')}Komplettering<kbd>M</kbd></button></div>
+   <div class="mf" style="font-size:11px">Uppladdat ${x.skapad} av ${esc(x.vem)} i ${esc(x.kanal)} · ${esc(x.s)} · arkiverat med SHA-256</div>
+   ${P?`<div class="inl"><b>Dubblett eller fel fil</b><div class="radio-list"><label><input type="radio" name="sk" checked> Dubblett</label><label><input type="radio" name="sk"> Fel fil, inte räkenskapsinformation</label></div><div class="note">${ic('history')}Raderingen loggas med skälet.</div><div class="acts"><button class="btn btn-destructive-ghost" style="border-color:var(--destructive)" onclick="klar('${x.id}','Underlaget är raderat. Raderingen är loggad.')">Radera underlaget</button><button class="btn btn-outline" onclick="S.panel=null;render()">Avbryt</button></div></div>`
+     :`<button class="btn btn-ghost mf" style="justify-content:flex-start" onclick="S.panel={id:'${x.id}'};render()">${ic('trash-2')}Dubblett eller fel fil…</button>`}</div></div>`;break
+ case 'ai-radera':
+  b=`<div class="two">${prev(x.t)}<div class="col" style="gap:12px">
+   ${aiBox(x,'<b>Föreslår att underlaget raderas.</b> '+esc(x.skal))}
+   <label class="label" style="margin:0">Skäl som loggas</label><textarea class="input" rows="3" id="skal">${esc(x.skal)}</textarea>
+   <div class="acts"><button class="btn btn-destructive-ghost" style="border-color:var(--destructive)" onclick="klar('${x.id}','Underlaget är raderat. Skälet är loggat med dig som aktör.')">${ic('trash-2')}Radera</button><button class="btn btn-outline" onclick="klar('${x.id}','Underlaget behålls och ligger kvar som okopplat.',{typ:'underlag',t:'${esc(x.t)}',kanal:'MCP'})">Behåll</button><button class="btn btn-ghost" onclick="go('#/verifikat')">Jämför med V38${ic('arrow-up-right')}</button></div>
+   <div class="note">${ic('info')}AI kan bara föreslå radering. Behåll gör underlaget till ett vanligt okopplat underlag.</div></div></div>`;break
+ case 'ny-part':{const r=hitta(x.ref);
+  b=`<div class="levkort ny" style="max-width:560px"><div class="flex" style="justify-content:space-between"><b>${esc(x.t)}</b><span class="badge badge-ny">${esc(x.slag.toLowerCase())}</span></div>
+   <dl class="dl">${x.f.map(([k,v])=>`<dt>${k}</dt><dd>${esc(v)}</dd>`).join('')}</dl></div>
+   ${aiBox(x,`Föreslagen i ${r?`<a class="link" href="#/inkorg/${r.id}">${esc(r.t)}</a>`:'ett utkast'}. ${x.slag==='Ny leverantör'?'Blir en riktig leverantör när fakturan registreras':'Blir en riktig kund när fakturan utfärdas'}, och raderas av Maya om inget utkast längre hänvisar till den.`)}
+   <div class="acts">${r?`<button class="btn btn-default" onclick="go('#/inkorg/${r.id}')">Granska utkastet</button>`:''}<button class="btn btn-outline" onclick="go('#/${x.omr}')">Ändra uppgifter${ic('arrow-up-right')}</button></div>`;break}
+ case 'lev-betala':
+  b=`<dl class="dl"><dt>Att betala</dt><dd><b>${kr(x.belopp)} kr</b></dd><dt>Förfallodag</dt><dd>${x.frist}</dd></dl>${chips(x.bet,x.belopp)}
+   ${P?`<div class="inl"><b>Registrera betalning</b><div class="g3"><div><label class="label">Betaldag</label><input class="input" value="${IDAG}"></div><div><label class="label">Belopp</label><input class="input" value="${kr(x.belopp)}"></div><div><label class="label">Från konto</label><select class="select"><option>1930 Företagskonto</option></select></div></div>${kont([[2440,'Leverantörsskulder',x.belopp],[1930,'Företagskonto',-x.belopp]])}<div class="acts"><button class="btn btn-default" onclick="klar('${x.id}','Betalningen är bokförd som V${co().nastaV++}.')">Bokför betalning</button><button class="btn btn-outline" onclick="S.panel=null;render()">Avbryt</button></div></div>`
+     :`<div class="acts"><button class="btn btn-default" onclick="S.panel={id:'${x.id}'};render()">Registrera betalning…</button>${lank('lev','Öppna fakturan')}</div>`}`;break
+ case 'kf-forfallen':
+  b=`<dl class="dl"><dt>Kvar att betala</dt><dd><b>${kr(x.belopp)} kr</b></dd><dt>Förföll</dt><dd>${x.frist}</dd><dt>Kontakt</dt><dd>${esc(x.s)}</dd></dl>
+   <div class="note">${ic('info')}Maya skickar inga påminnelser i v1. Kontakta kunden själv.</div>
+   ${P?`<div class="inl"><b>Registrera betalning</b><div class="g2"><div><label class="label">Betaldag</label><input class="input" value="${IDAG}"></div><div><label class="label">Belopp</label><input class="input" value="${kr(x.belopp)}"></div></div>${kont([[1930,'Företagskonto',x.belopp],[1510,'Kundfordringar',-x.belopp]])}<div class="acts"><button class="btn btn-default" onclick="klar('${x.id}','Betalningen är bokförd som V${co().nastaV++}.')">Bokför betalning</button><button class="btn btn-outline" onclick="S.panel=null;render()">Avbryt</button></div></div>`
+     :`<div class="acts"><button class="btn btn-default" onclick="S.panel={id:'${x.id}'};render()">Registrera betalning…</button>${lank('kund','Öppna fakturan')}</div>`}`;break
+ case 'kf-aibet':
+  b=`${aiBox(x,'Hittade en inbetalning på kontoutdraget som matchar faktura 1045 på OCR och belopp.')}
+   <table class="table" style="max-width:640px"><thead><tr><th>Inbetalning</th><th>Faktura 1045 · Hagström &amp; Co</th></tr></thead><tbody><tr><td>${x.datum} · 12 500,00 kr · OCR 10450</td><td>förfaller 2026-10-20 · kvar 12 500,00 kr</td></tr></tbody></table>
+   <div><div class="sec-t">Bokförs som V${co().nastaV} · ${dkort(x.datum)}</div>${kont([[1930,'Företagskonto',12500],[1510,'Kundfordringar',-12500]])}</div>
+   <div class="acts"><button class="btn btn-default" onclick="klar('${x.id}','Betalningen är bokförd som V${co().nastaV++}. Faktura 1045 är betald.')">Godkänn och bokför</button><button class="btn btn-outline" onclick="klar('${x.id}','Förslaget är avvisat.')">Avvisa</button></div>`;break
+ case 'kf-utskick':case 'kf-ejskickad':
+  b=`${x.typ==='kf-utskick'?`<div class="alert destructive">${ic('mail-x')}<div><div class="t">Utskicket misslyckades</div><div>${esc(x.s)}</div></div><span></span></div>`:''}
+   <div class="g2" style="max-width:560px"><div><label class="label">Skicka till</label><input class="input" value="${esc(x.epost)}"></div><div><label class="label">Bilaga</label><div class="flex mf">${ic('file-text')}Faktura_${x.t.slice(8,12)}.pdf</div></div></div>
+   <div class="acts"><button class="btn btn-default" onclick="klar('${x.id}','Fakturan är skickad.')">${x.typ==='kf-utskick'?'Skicka igen':'Skicka'}</button><button class="btn btn-outline" onclick="klar('${x.id}','Fakturan är markerad som skickad på annat sätt.')">Markera som skickad…</button>${lank('kund','Öppna fakturan')}</div>`;break
+ case 'agi-andrad':
+  b=`<div class="alert">${ic('triangle-alert','class="warn"')}<div><div class="t">Lämnad AGI stämmer inte längre med lönen</div><div class="mf">${esc(x.s)}. Lämna en rättad AGI för augusti: ändringen ger ${kr(x.belopp)} kr mer i arbetsgivaravgifter.</div></div><span></span></div>
+   <div class="acts">${lank('lon','Öppna AGI augusti')}</div>`;break
+ case 'agi':case 'skatt':case 'lon-bokf':
+  b=`<dl class="dl"><dt>Belopp</dt><dd><b>${kr(x.belopp)} kr</b></dd><dt>${x.typ==='lon-bokf'?'Utbetalningsdag':'Sista dag'}</dt><dd>${x.frist}</dd><dt>Läge</dt><dd>${esc(x.s)}</dd></dl>
+   ${x.typ==='skatt'?chips(x.bet,x.belopp):''}
+   ${x.typ==='lon-bokf'?`<div><div class="sec-t">Bokförs som V${co().nastaV} · ${dkort(x.frist)}</div>${kont([[7210,'Löner till tjänstemän',52000],[7510,'Arbetsgivaravgifter',16338],[2710,'Personalskatt',-11440],[2731,'Avräkning sociala avgifter',-16338],[1930,'Företagskonto',-40560]])}</div>`:''}
+   <div class="acts">${x.typ==='lon-bokf'?`<button class="btn btn-default" onclick="klar('${x.id}','Lönekörningen är bokförd som V${co().nastaV++}.')">Bokför lönekörningen</button>`:x.typ==='skatt'?`<button class="btn btn-default" onclick="klar('${x.id}','Betalningen till skattekontot är bokförd som V${co().nastaV++}.')">Bokför betalning…</button>`:`<button class="btn btn-default" onclick="go('#/lon')">Öppna AGI${ic('arrow-up-right')}</button><button class="btn btn-outline" onclick="klar('${x.id}','AGI september är markerad som lämnad.')">Markera som lämnad…</button>`}${x.typ!=='agi'?lank('lon'):''}</div>`;break
+ case 'moms':case 'moms-inl':case 'ps':
+  b=`<dl class="dl"><dt>${x.typ==='ps'?'Summa':'Ruta 49'}</dt><dd><b>${kr0(x.belopp)} kr</b></dd><dt>Sista dag</dt><dd>${x.frist}</dd><dt>Läge</dt><dd>${esc(x.s)}</dd></dl>
+   ${x.typ==='moms'?`<div class="alert">${ic('triangle-alert','class="warn"')}<div><div class="t">Rimlighetskontroll</div><div class="mf">Momsen i ruta 10 avviker 4 200 kr från underlaget i ruta 05 × 25 %.</div></div><span></span></div>`:''}
+   <div class="acts">${x.typ==='moms-inl'?`<button class="btn btn-default" onclick="klar('${x.id}','Momsdeklarationen är markerad som inlämnad.')">Markera som inlämnad…</button>`:''}${lank('moms',x.typ==='ps'?'Öppna sammanställningen':'Öppna deklarationen')}</div>`;break
+ }
+ return kompakt?b:`${head(x)}${b}`}
+
+/* ================= Handlingar ================= */
+function kopiera(v){navigator.clipboard?.writeText(v);S.flash=`Kopierade ${v}`;S.flashFel=false;render()}
+function nasta(id,lista){const l=lista||ordning();const i=l.findIndex(x=>x.id===id);return l[i+1]||l[i-1]||null}
+function klar(id,msg,ersatt){const l=ordning(),n=nasta(id,l),A=items(),i=A.findIndex(x=>x.id===id),x=A[i];
+  if(ersatt)A.splice(i,1,{...x,...ersatt,id:x.id+'b',ai:null,skapad:x.skapad,vem:x.vem,s:x.s});else A.splice(i,1);
+  // en föreslagen part försvinner med utkastet som hänvisar till den
+  if(x.ny&&/raderat/.test(msg)){const j=A.findIndex(y=>y.id===x.ny);if(j>=0)A.splice(j,1)}
+  S.flash=msg;S.flashFel=false;S.panel=null;
+  if(S.variant==='C'){delete S.open[id];render();return}
+  const dit=ersatt?x.id+'b':(n&&n.id);go(dit?'#/inkorg/'+dit:'#/inkorg')}
+function bokfor(id){const x=hitta(id);const nr=co().nastaV++;const l=ordning().filter(y=>y.typ==='utkast'&&y.id!==id);
+  const A=items();A.splice(A.indexOf(x),1);S.panel=null;S.flash=`Bokförd som V${nr}. ${l.length} utkast kvar.`;S.flashFel=false;
+  if(S.variant==='C'){delete S.open[id];if(l[0])S.open[l[0].id]=true;render();return}
+  go(l[0]?'#/inkorg/'+l[0].id:'#/inkorg')}
+function triage(id,val){const x=hitta(id);
+  if(val==='lev')return klar(id,'Ett utkast till leverantörsfaktura är skapat med underlaget kopplat.',{typ:'lev-utkast',omr:'lev',t:'Leverantörsfaktura från '+x.t,und:x.t,belopp:0,datum:IDAG,s:'fyll i leverantör och belopp'});
+  if(val==='kvitto')return klar(id,'Ett verifikatutkast är skapat med underlaget kopplat.',{typ:'utkast',omr:'verifikat',t:'Kvitto '+x.t,und:x.t,datum:IDAG,belopp:0,rader:[],fel:'Fyll i raderna i utkastet.'});
+  klar(id,'Välj verifikatet att komplettera i Verifikat.')}
+
+/* ================= Variant A: Brådskan ================= */
+function gruppA(){const L=items(),g=[
+  ['Försenat','alarm-clock','bad',L.filter(x=>forsenad(x)||(x.typ==='lev-betala'&&x.frist<IDAG))],
+  ['Inom 7 dagar','calendar-clock','hot',L.filter(x=>inom7(x)&&!UTKT.includes(x.typ))],
+  ['Att granska','sparkles','',L.filter(x=>['ai-radera','kf-aibet','ny-part'].includes(x.typ))],
+  ['Utkast','pencil','',[]],
+  ['Okopplade underlag','paperclip','',L.filter(x=>x.typ==='underlag').sort((a,b)=>a.skapad<b.skapad?-1:1)],
+  ['Följ upp','eye','',L.filter(x=>['kf-forfallen','kf-utskick','kf-ejskickad','agi-andrad'].includes(x.typ))],
+  ['Senare','calendar','',L.filter(x=>x.frist&&!UTKT.includes(x.typ)&&x.frist>IDAG&&!inom7(x)&&!['kf-forfallen'].includes(x.typ))]];
+  g.forEach(x=>{if(x[0]!=='Utkast')x[3].sort((a,b)=>(a.frist||a.skapad)<(b.frist||b.skapad)?-1:1)});
+  g[3][3]=L.filter(x=>UTKT.includes(x.typ)).sort((a,b)=>a.datum<b.datum?-1:1);return g}
+function ordning(){if(S.variant==='B')return gruppB().flatMap(x=>x[3]);if(S.variant==='C'){const t=tidslinje();return [...t.dat.filter(x=>x.id),...t.utan]}return gruppA().flatMap(x=>x[3])}
+function listaA(sel){const G=gruppA(),n=G.reduce((s,x)=>s+x[3].length,0);
+  return `<div class="lh"><h2>Att göra</h2><span class="badge badge-count">${n}</span></div>${G.filter(x=>x[3].length).map(([t,i,c,l])=>{
+   let body;if(t==='Utkast'){const per={};l.forEach(x=>(per[x.datum.slice(0,7)]=per[x.datum.slice(0,7)]||[]).push(x));
+     body=Object.keys(per).sort().map(m=>`<div class="per">${Manad(m)}${varning50(m)?`<span class="badge badge-warn">slut för ${dagar(manSlut(m),IDAG)} dagar sedan</span>`:''}</div>${per[m].map(x=>rad(x,sel,false)).join('')}`).join('')}
+   else body=l.map(x=>rad(x,sel,true)).join('');
+   return `<div class="ig ${c}">${ic(i)}${t}<span class="n">${l.length}</span></div>${body}`}).join('')}${kommandeLista()}${backup()}`}
+
+/* ================= Variant B: Områdena ================= */
+function gruppB(){const L=items(),f=(...t)=>L.filter(x=>t.includes(x.typ)),srt=l=>l.sort((a,b)=>(a.frist||a.datum||a.skapad)<(b.frist||b.datum||b.skapad)?-1:1);
+  return [
+  ['AI-förslag','sparkles','',srt(f('ai-radera','kf-aibet','ny-part'))],
+  ['Okopplade underlag','paperclip','',srt(f('underlag'))],
+  ['Verifikat','book-open','',srt(f('utkast'))],
+  ['Kundfakturor','file-output','',srt(f('kf-forfallen','kf-utskick','kf-ejskickad','kf-utkast'))],
+  ['Leverantörsfakturor','file-input','',srt(f('lev-betala','lev-utkast'))],
+  ['Lön','wallet','',srt(f('agi','skatt','lon-bokf','agi-andrad'))],
+  ['Moms','landmark','',srt(f('moms','moms-inl','ps'))]]}
+function listaB(sel){const G=gruppB(),n=G.reduce((s,x)=>s+x[3].length,0);
+  return `<div class="lh"><a href="#/inkorg"><h2>Att göra</h2></a><span class="badge badge-count">${n}</span></div>${G.filter(x=>x[3].length).map(([t,i,c,l])=>{const st=S.stang[t],bad=l.some(x=>forsenad(x)||(x.typ==='lev-betala'&&x.frist<IDAG)),hot=l.some(inom7);
+   return `<div class="ig fold ${bad?'bad':hot?'hot':''}" onclick="S.stang['${t}']=!S.stang['${t}'];render()">${ic(st?'chevron-right':'chevron-down')}${ic(i)}${t}${bad?' · försenat':hot?' · inom 7 dagar':''}<span class="n">${l.length}</span></div>${st?'':l.map(x=>rad(x,sel,false)).join('')}`}).join('')}${backup()}`}
+function laget(){const K=NYCK[S.co];return `<div class="col" style="gap:4px"><h1>Läget i ${esc(co().namn)}</h1><div class="mf">${dlang(IDAG)} · saldon enligt bokföringen, inte banken</div></div>
+  <div class="nyck">${K.map(([t,v,s])=>`<div class="stat"><span class="mf">${t}</span><b>${v}</b><span class="sub">${s}</span></div>`).join('')}</div>
+  <div class="cmp"><div class="paper" style="padding:16px;gap:8px"><div class="sec-t">Kommande</div>${KOMMANDE[S.co].map(([d,t,o])=>`<div class="flex"><span class="when" style="width:110px">${dlang(d)}</span>${ic(OMR[o][1],'class="mf"')}<span>${esc(t)}</span></div>`).join('')}</div>
+  <div class="paper" style="padding:16px;gap:8px"><div class="sec-t">Andra företag</div>${FORETAG.filter(f=>f.id!==S.co).map(f=>`<button class="btn btn-ghost" style="justify-content:flex-start" onclick="byt('${f.id}')"><span class="logo sm">${initialer(f.namn)}</span>${esc(f.namn)}<span class="badge badge-count">${ITEMS[f.id].length}</span></button>`).join('')}</div></div>
+  <div class="mf">Välj något i listan till vänster.</div>`}
+
+/* ================= Variant C: Agendan ================= */
+function tidslinje(){const L=items();
+  const dat=L.filter(x=>x.frist&&!UTKT.includes(x.typ)).map(x=>({...x,dag:x.typ==='kf-forfallen'||x.frist<IDAG?'forsenat':x.frist}));
+  KOMMANDE[S.co].forEach(([d,t,o])=>{if(!dat.some(x=>x.frist===d&&x.t.startsWith(t.slice(0,12))))dat.push({dag:d,komm:true,t,omr:o})});
+  dat.sort((a,b)=>a.dag===b.dag?(a.komm?1:-1):a.dag==='forsenat'?-1:b.dag==='forsenat'?1:a.dag<b.dag?-1:1);
+  const utan=[...L.filter(x=>['ai-radera','kf-aibet','ny-part'].includes(x.typ)),...L.filter(x=>x.typ==='kf-utskick'||x.typ==='kf-ejskickad'||x.typ==='agi-andrad'),...L.filter(x=>UTKT.includes(x.typ)).sort((a,b)=>a.datum<b.datum?-1:1),...L.filter(x=>x.typ==='underlag')];
+  return {dat,utan}}
+function kort(x){const o=S.open[x.id];return `<div class="acard ${o?'open':''} ${x.ai?'ai':''}" id="k-${x.id}"><div class="ah" onclick="S.open['${x.id}']=!S.open['${x.id}'];render()">${ic(OMR[x.omr][1],'class="mf"')}<div class="col" style="gap:2px"><b style="font-weight:500">${esc(x.t)}</b><span class="s flex" style="gap:6px;flex-wrap:wrap">${badges(x)}${x.s&&!o?esc(x.s):''}</span></div><span class="col" style="gap:2px;align-items:flex-end">${x.belopp?`<span class="num">${kr(x.belopp)}</span>`:''}${when(x)}</span></div>${o?`<div class="ab">${detalj(x,true)}</div>`:''}</div>`}
+function agenda(){const T=tidslinje(),K=NYCK[S.co];let dag='';
+  const vecka=T.dat.filter(x=>x.dag!=='forsenat'&&dagar(IDAG,x.dag)<=7&&!x.komm).length,fs=T.dat.filter(x=>x.dag==='forsenat').length;
+  return `<div class="agenda"><div class="wrap">${flashBox()}
+  <div class="dhead"><div class="col" style="gap:4px"><h1>${dlang(IDAG)}</h1><div class="mf">${fs?`<span class="diff-bad">${fs} försenade</span> · `:''}${vecka} inom 7 dagar · ${T.utan.length} utan datum</div></div></div>
+  <div class="nyck">${K.map(([t,v,s])=>`<div class="stat"><span class="mf">${t}</span><b>${v}</b><span class="sub">${s}</span></div>`).join('')}</div>
+  <div class="ag-grid"><div>${T.dat.map(x=>{let h='';if(x.dag!==dag){dag=x.dag;h=`<div class="ag-day ${dag==='forsenat'?'bad':dag===IDAG?'idag':''}">${dag==='forsenat'?ic('alarm-clock')+'Försenat':dlang(dag)}<span class="mf">${dag==='forsenat'?'':dagar(IDAG,dag)===0?'i dag':'om '+dagar(IDAG,dag)+' dagar'}</span></div>`}
+     return h+(x.komm?`<div class="akomm">${ic(OMR[x.omr][1])}<span>${esc(x.t)}</span></div>`:kort(x))}).join('')}</div>
+  <div class="ag-side"><div class="ag-day">${ic('inbox')}Utan datum<span class="mf">${T.utan.length}</span></div>${T.utan.map(kort).join('')||'<div class="mf">Inget.</div>'}<div class="foot">${ic('shield-check')}Senaste backup i natt 03:12, verifierad</div></div></div></div></div>`}
+
+/* ================= Skal (variant D från gränssnittsprototypen) ================= */
+const VARIANTS={A:{namn:'Brådskan'},B:{namn:'Områdena'},C:{namn:'Agendan'}};
+const NAV=[['inkorg','Att göra'],['verifikat','Verifikat'],['kund','Kundfakturor'],['lev','Leverantörsfakturor'],['lon','Lön'],['moms','Moms'],['rapporter','Rapporter']];
+const S={variant:(new URLSearchParams(location.search).get('variant')||'A').toUpperCase(),co:'exempel',coMenu:false,flash:'',flashFel:false,panel:null,open:{},stang:{},pal:false,palQ:'',palI:0};
+function route(){const p=(location.hash||'#/inkorg').slice(2).split('/');return {mod:p[0]||'inkorg',id:p[1]||null}}
+function go(hh){if(location.hash===hh)window.dispatchEvent(new HashChangeEvent('hashchange'));else location.hash=hh}
+function flashBox(){return S.flash?`<div class="flash ${S.flashFel?'fel':''}">${ic(S.flashFel?'circle-alert':'circle-check')}${esc(S.flash)}</div>`:''}
+function kommandeLista(){return `<div class="ig">${ic('calendar')}Kommande</div>${KOMMANDE[S.co].map(([d,t,o])=>`<div class="flex mf" style="padding:2px 6px"><span class="when" style="width:84px">${dlang(d)}</span>${ic(OMR[o][1])}<span>${esc(t)}</span></div>`).join('')}`}
+function backup(){return `<div class="foot">${ic('shield-check')}Senaste backup i natt 03:12, verifierad</div>`}
+function coMenu(){return `<div class="dropdown"><div class="lbl">Företag</div>${FORETAG.map(f=>`<button class="mi" onclick="byt('${f.id}')"><span class="logo sm">${initialer(f.namn)}</span><span style="flex:1"><b style="font-weight:500">${esc(f.namn)}</b><br><span class="mf">${f.orgnr}</span></span><span class="badge badge-count" title="Att göra">${ITEMS[f.id].length}</span>${f.id===S.co?ic('check'):''}</button>`).join('')}</div>`}
+function byt(id){S.co=id;S.coMenu=false;S.flash='';S.panel=null;S.open={};go(forvald())}
+function forvald(){if(S.variant!=='A')return '#/inkorg';const f=ordning()[0];return f?'#/inkorg/'+f.id:'#/inkorg'}
+function sida(rt){
+  if(rt.mod!=='inkorg')return `<div style="padding:24px"><div class="placeholder">${ic('construction')}${esc(NAV.find(n=>n[0]===rt.mod)?.[1]||'')} är prototypad i ett eget ticket. Den här prototypen gäller bara Att göra.<a class="link" href="#/inkorg">Tillbaka till Att göra</a></div></div>`;
+  if(S.variant==='C')return agenda();
+  const x=rt.id&&hitta(rt.id),lista=S.variant==='B'?listaB(rt.id):listaA(rt.id);
+  const inner=x?detalj(x):S.variant==='B'?laget():ordning().length?`<div class="empty"><div>${ic('mouse-pointer-click','style="width:20px;height:20px"')}<p>Välj något i listan</p></div></div>`:`<div class="done">${ic('circle-check')}<p>Inget väntar på dig i ${esc(co().namn)}.</p></div>`;
+  return `<div class="split"><div class="list">${lista}</div><div class="detail">${flashBox()}${inner}</div></div>`}
+function skal(rt){const n=items().length;
+  return `<div class="B"><header>
+    <span class="brand"><span class="logo" style="width:24px;height:24px">M</span></span><span class="mf">/</span>
+    <div class="co"><button class="btn btn-ghost" onclick="S.coMenu=!S.coMenu;render()">${esc(co().namn)}${ic('chevrons-up-down')}</button>${S.coMenu?coMenu():''}</div>
+    <nav>${NAV.map(([k,t])=>`<a href="#/${k}" class="${rt.mod===k?'on':''}">${t}${k==='inkorg'&&n?` <span class="badge badge-count">${n}</span>`:''}</a>`).join('')}</nav>
+    <div class="right"><span class="search" onclick="palett()">${ic('search')}Sök verifikat, faktura…<kbd>⌘K</kbd></span><button class="btn btn-ghost btn-icon" onclick="tema()" title="Ljust/mörkt">${ic('sun-moon')}</button></div>
+  </header>${sida(rt)}</div>${S.pal?pal():''}`}
+function opts(){const q=S.palQ.toLowerCase().replace(/\s/g,'');const o=items().map(x=>({g:'Att göra',t:x.t,amt:x.belopp?kr(x.belopp):'',i:OMR[x.omr][1],run:()=>S.variant==='C'?(S.open[x.id]=true,render()):go('#/inkorg/'+x.id)}));
+  return q?o.filter(x=>(x.t+x.amt).toLowerCase().replace(/\s/g,'').includes(q)):o}
+function pal(){const o=opts();return `<div class="pal-bg" onclick="if(event.target===this){S.pal=false;render()}"><div class="pal"><div class="in">${ic('search')}<input id="palq" placeholder="Sök…" value="${esc(S.palQ)}" oninput="S.palQ=this.value;S.palI=0;render();const e=document.getElementById('palq');e.focus();e.setSelectionRange(e.value.length,e.value.length)"></div>
+  <div class="ls"><div class="grp">Att göra</div>${o.map((x,i)=>`<div class="opt ${i===S.palI?'on':''}" onclick="runOpt(${i})">${ic(x.i)}<span class="t">${esc(x.t)}</span>${x.amt?`<span class="amt">${x.amt}</span>`:''}</div>`).join('')||'<div class="opt mf">Inga träffar.</div>'}</div></div></div>`}
+function runOpt(i){const o=opts()[i];S.pal=false;S.palQ='';o&&o.run();render()}
+function palett(){S.pal=true;S.palQ='';S.palI=0;render();setTimeout(()=>document.getElementById('palq')?.focus())}
+
+/* ================= Render, tema, tangenter ================= */
+function render(){const det=document.querySelector('.detail,.agenda'),sc=det?det.scrollTop:0;
+  document.getElementById('app').innerHTML=skal(route());window.lucide&&lucide.createIcons();
+  const d=document.querySelector('.detail,.agenda');if(d)d.scrollTop=sc;
+  const keys=Object.keys(VARIANTS),V=VARIANTS[S.variant];
+  document.getElementById('proto-switcher').innerHTML=`<button onclick="cyk(-1)">←</button><span class="lbl">PROTOTYP · ${S.variant} (${V.namn}) · ${keys.indexOf(S.variant)+1}/${keys.length}</span><button onclick="cyk(1)">→</button>`}
+function cyk(d){const k=Object.keys(VARIANTS);S.variant=k[(k.indexOf(S.variant)+d+k.length)%k.length];S.coMenu=false;S.pal=false;S.panel=null;S.open={};S.flash='';
+  const p=new URLSearchParams(location.search);p.set('variant',S.variant);history.replaceState(null,'','?'+p+forvald());render()}
+function tema(){const r=document.documentElement,cur=r.dataset.theme||(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light');r.dataset.theme=cur==='dark'?'light':'dark'}
+let senast=null;
+window.addEventListener('hashchange',()=>{const rt=route();S.coMenu=false;if(rt.id!==senast)S.panel=null;render();senast=rt.id;S.flash='';S.flashFel=false});
+document.addEventListener('click',e=>{if(S.coMenu&&!e.target.closest('.co')){S.coMenu=false;render()}});
+document.addEventListener('keydown',e=>{const typing=e.target.matches('input,textarea,select,[contenteditable]'),mod=e.metaKey||e.ctrlKey;
+  if(mod&&e.key.toLowerCase()==='k'){e.preventDefault();S.pal?(S.pal=false,render()):palett();return}
+  if(S.pal){const o=opts();if(e.key==='Escape'){S.pal=false;render()}else if(e.key==='ArrowDown'){e.preventDefault();S.palI=Math.min(S.palI+1,o.length-1);render();document.getElementById('palq').focus()}
+    else if(e.key==='ArrowUp'){e.preventDefault();S.palI=Math.max(S.palI-1,0);render();document.getElementById('palq').focus()}else if(e.key==='Enter'){e.preventDefault();runOpt(S.palI)}return}
+  if(e.key==='Escape'&&S.panel){S.panel=null;render();return}
+  if(typing)return;if(e.key==='ArrowLeft')cyk(-1);if(e.key==='ArrowRight')cyk(1);
+  const x=route().id&&hitta(route().id);if(x&&x.typ==='underlag'){const m={l:'lev',k:'kvitto',m:'kompl'}[e.key.toLowerCase()];if(m)triage(x.id,m)}});
+if(!location.hash||location.hash==='#/inkorg')location.hash=forvald();
+render();
+</script>
+</body>
+</html>
