@@ -12,7 +12,7 @@
   Tre varianter, ?variant=A|B|C (eller ← → / knapparna längst ned). Skalet är detsamma i alla tre;
   de skiljer sig i reskontrans lista, hur utkastet redigeras och hur dokumentet och dess handlingar visas.
   Omgång 2: C valdes, men förhandsvisningen ska inte synas hela tiden. Varianterna nu:
-  C: Fakturan bredvid (som förut, jämförelse)   D: Förhandsvisningen som spalt vid behov (knapp eller P)
+  C: Fakturan bredvid (som förut, jämförelse)   D: Förhandsvisningen som spalt vid behov (knapp eller P), med F:s granskningsdialog vid utfärdande (VALD, se #44)
   E: Förhandsvisningen i en låda från höger   F: Miniatyr vid rubriken, och förhandsvisningen visas när fakturan utfärdas
   Externa fakturors underlag står kvar bredvid i alla, eftersom de skrivs av från det.
   Omgång 1 (bortvalda, koden ligger kvar): A: Fakturan är formuläret, dialoger   B: Kunden först, steg för steg
@@ -1023,13 +1023,14 @@ function docKropp(f,d,knapp){return `<div class="flex" style="justify-content:sp
 const pdfFor=f=>f.typ==='extern'?original(f,560):papper(f)+pdfMeta(f);
 
 /* D: spalten tas fram och döljs med en knapp (eller P) */
-const D={namn:'C, förhandsvisning som spalt vid behov',inkorg:inkorgLista,lista:rt=>C.lista(rt),
+const granskaKnapp=(f,fel)=>knappar(f,fel).replace('onclick="utfarda()"',`onclick="S.modal={typ:'granska'};render()"`).replace(/Utfärda(<\/button>| <span)/,'Granska och utfärda$1');
+const D={namn:'C, förhandsvisning som spalt vid behov, granska vid utfärdande (VALD)',inkorg:inkorgLista,lista:rt=>C.lista(rt),
 edit(f){if(f.typ==='extern')return C.edit(f);const {fel,varn}=kontroll(f);
-  const body=`<div class="col" style="gap:14px">${rubrikRad(f,prevKnapp())}${cForm(f,fel,varn)}</div>`;
+  const body=`<div class="col" style="gap:14px">${rubrikRad(f,prevKnapp())}${cForm(f,fel,varn,granskaKnapp(f,fel))}</div>`;
   return S.prev?`<div class="C-edit"><div class="left">${papper(f,{utkast:true})}<div class="mf" style="font-size:11px">${ic('eye')} Uppdateras medan du skriver.</div></div>${body}</div>`:`<div style="max-width:960px">${body}</div>`},
 doc(f){const d=docDelar(f);const k=prevKnapp(f.typ==='extern'?'underlaget':'PDF:en');
   return S.prev?`<div class="C-edit"><div class="left">${pdfFor(f)}</div><div class="col" style="gap:18px">${docKropp(f,d,k)}</div></div>`:`<div class="col" style="gap:18px;max-width:960px">${docKropp(f,d,k)}</div>`},
-modal(){return gemensamModal()}};
+modal(){const m=S.modal;return m&&m.typ==='granska'?F_.modal():gemensamModal()}};
 
 /* E: en låda från höger som ligger över listan, formuläret står kvar */
 const lada=(titel,inner)=>S.prev?`<div class="drawer"><div class="dh"><b style="font-weight:500">${titel}</b><button class="btn btn-ghost btn-icon" onclick="S.prev=false;render()">${ic('x')}</button></div><div class="db">${inner}</div></div>`:'';
@@ -1044,7 +1045,7 @@ modal(){return gemensamModal()}};
 const tumme=(f,opt)=>`<div class="thumb" onclick="S.modal={typ:'prev'};render()" title="Förstora (P)"><div class="inner">${f.typ==='extern'?preview(f.underlag,800):papper(f,opt)}</div><div class="lab">${ic('zoom-in')}Förhandsvisa</div></div>`;
 const F_={namn:'C, miniatyr och granska vid utfärdande',inkorg:inkorgLista,lista:rt=>C.lista(rt),
 edit(f){if(f.typ==='extern')return C.edit(f);const {fel,varn}=kontroll(f);
-  const kn=knappar(f,fel).replace('onclick="utfarda()"',`onclick="S.modal={typ:'granska'};render()"`).replace(/Utfärda(<\/button>| <span)/,'Granska och utfärda$1');
+  const kn=granskaKnapp(f,fel);
   return `<div class="col" style="gap:14px;max-width:960px">${rubrikRad(f,tumme(f,{utkast:true}))}${cForm(f,fel,varn,kn)}</div>`},
 doc(f){const d=docDelar(f);return `<div class="col" style="gap:18px;max-width:960px">${docKropp(f,d,tumme(f))}</div>`},
 modal(){const m=S.modal;
