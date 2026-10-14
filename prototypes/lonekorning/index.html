@@ -1,0 +1,987 @@
+<!doctype html>
+<html lang="sv">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Maya lönekörning</title>
+<!--
+  PROTOTYP, KASTA BORT. Svarar på: Hur ser lönekörningen ut i gränssnittet?
+  (https://github.com/hartwigcarlsson/maya/issues/45). Flödet är beslutat i #21.
+  Bygger på skalet i variant D av gränssnittsprototypen (#24) och mönstren från verifikat (#32),
+  leverantörsfakturor (#43) och kundfakturor (#44): lista och detalj, paneler i dokumentet, rutan "Bokförs som",
+  spärrar vid fältet och en inaktiv huvudknapp som visar antal kvar.
+  Tre varianter, ?variant=A|B|C (eller ← → / knapparna längst ned). Data, beräkning, AGI och anställda är gemensamma;
+  varianterna skiljer sig i hur lönekörningen redigeras och hur månaden hänger ihop:
+  A: Tabell över alla anställda, en rad per person som fälls ut   B: En anställd i taget, med lönespecen bredvid
+  C: Månaden som kedja: lönekörningar → bokföring → AGI → skatt på en sida
+  Allt ligger i minnet; ladda om sidan för att börja om. I dag är 2026-10-14. Perioder t.o.m. juni är låsta.
+  Skattetabellen, engångsskatten och avgiftssatserna är förenklade och bara illustrativa; formen på beräkningen är poängen.
+  Exempel AB: oktoberkörningen är ett AI-utkast, slutlönen för Jonas är fastställd och utbetald men obokförd,
+  augusti rättades efter att AGI lämnats. Konsultbolaget i Lund: ingen lön i september, så nolldeklarationen är försenad.
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://unpkg.com/lucide@0.469.0/dist/umd/lucide.min.js"></script>
+<style>
+/* Tokens från presetet (Stone + Amber), ljust */
+:root{
+  --background:oklch(1 0 0);--foreground:oklch(0.147 0.004 49.25);
+  --card:oklch(1 0 0);--popover:oklch(1 0 0);
+  --primary:oklch(0.555 0.163 48.998);--primary-foreground:oklch(0.987 0.022 95.277);
+  --secondary:oklch(0.967 0.001 286.375);--secondary-foreground:oklch(0.21 0.006 285.885);
+  --muted:oklch(0.97 0.001 106.424);--muted-foreground:oklch(0.553 0.013 58.071);
+  --accent:oklch(0.97 0.001 106.424);--accent-foreground:oklch(0.216 0.006 56.043);
+  --destructive:oklch(0.577 0.245 27.325);
+  --border:oklch(0.923 0.003 48.717);--input:oklch(0.923 0.003 48.717);--ring:oklch(0.709 0.01 56.259);
+  --sidebar:oklch(0.985 0.001 106.423);--sidebar-primary:oklch(0.666 0.179 58.318);--sidebar-accent:oklch(0.97 0.001 106.424);--sidebar-border:oklch(0.923 0.003 48.717);
+  --success:oklch(0.52 0.12 150);
+  --radius:0.45rem;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --background:oklch(0.147 0.004 49.25);--foreground:oklch(0.985 0.001 106.423);
+  --card:oklch(0.216 0.006 56.043);--popover:oklch(0.216 0.006 56.043);
+  --primary:oklch(0.473 0.137 46.201);--primary-foreground:oklch(0.987 0.022 95.277);
+  --secondary:oklch(0.274 0.006 286.033);--secondary-foreground:oklch(0.985 0 0);
+  --muted:oklch(0.268 0.007 34.298);--muted-foreground:oklch(0.709 0.01 56.259);
+  --accent:oklch(0.268 0.007 34.298);--accent-foreground:oklch(0.985 0.001 106.423);
+  --destructive:oklch(0.704 0.191 22.216);
+  --border:oklch(1 0 0 / 10%);--input:oklch(1 0 0 / 15%);--ring:oklch(0.553 0.013 58.071);
+  --sidebar:oklch(0.216 0.006 56.043);--sidebar-primary:oklch(0.769 0.188 70.08);--sidebar-accent:oklch(0.268 0.007 34.298);--sidebar-border:oklch(1 0 0 / 10%);
+  --success:oklch(0.75 0.13 150);
+}}
+:root[data-theme="dark"]{
+  --background:oklch(0.147 0.004 49.25);--foreground:oklch(0.985 0.001 106.423);
+  --card:oklch(0.216 0.006 56.043);--popover:oklch(0.216 0.006 56.043);
+  --primary:oklch(0.473 0.137 46.201);--primary-foreground:oklch(0.987 0.022 95.277);
+  --secondary:oklch(0.274 0.006 286.033);--secondary-foreground:oklch(0.985 0 0);
+  --muted:oklch(0.268 0.007 34.298);--muted-foreground:oklch(0.709 0.01 56.259);
+  --accent:oklch(0.268 0.007 34.298);--accent-foreground:oklch(0.985 0.001 106.423);
+  --destructive:oklch(0.704 0.191 22.216);
+  --border:oklch(1 0 0 / 10%);--input:oklch(1 0 0 / 15%);--ring:oklch(0.553 0.013 58.071);
+  --sidebar:oklch(0.216 0.006 56.043);--sidebar-primary:oklch(0.769 0.188 70.08);--sidebar-accent:oklch(0.268 0.007 34.298);--sidebar-border:oklch(1 0 0 / 10%);
+  --success:oklch(0.75 0.13 150);
+}
+*{box-sizing:border-box;border-color:var(--border)}
+html,body{margin:0;height:100%}
+body{background:var(--background);color:var(--foreground);font:13px/1.5 Inter,system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+button,input,select{font:inherit;color:inherit}
+a{color:inherit;text-decoration:none}
+svg.lucide{width:14px;height:14px;flex-shrink:0;stroke-width:2}
+.num{font-variant-numeric:tabular-nums;text-align:right;white-space:nowrap}
+.mf{color:var(--muted-foreground)}
+h1{font-size:16px;font-weight:600;margin:0;letter-spacing:-.01em}
+h2{font-size:14px;font-weight:500;margin:0}
+
+/* Button */
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:4px;height:28px;padding:0 8px;border-radius:calc(var(--radius) * .8);font-size:13px;font-weight:500;border:1px solid transparent;cursor:pointer;white-space:nowrap;background:transparent;transition:background .1s}
+.btn-default{background:var(--primary);color:var(--primary-foreground)}
+.btn-default:hover{background:color-mix(in oklch,var(--primary) 90%,transparent)}
+.btn-outline{border-color:var(--input);background:var(--background)}
+:root[data-theme="dark"] .btn-outline{background:color-mix(in oklch,var(--input) 30%,transparent)}
+.btn-outline:hover,.btn-ghost:hover{background:var(--accent)}
+.btn-secondary{background:var(--secondary);color:var(--secondary-foreground)}
+.btn-icon{width:28px;padding:0}
+.btn-destructive-ghost{color:var(--destructive)}
+.btn-destructive-ghost:hover{background:color-mix(in oklch,var(--destructive) 10%,transparent)}
+
+/* Badge */
+.badge{display:inline-flex;align-items:center;gap:4px;height:20px;padding:2px 8px;border-radius:999px;font-size:10px;font-weight:500;white-space:nowrap;border:1px solid transparent;vertical-align:middle}
+.badge svg.lucide{width:10px;height:10px}
+.badge-utkast{border:1px dashed var(--muted-foreground);color:var(--muted-foreground)}
+.badge-bokford{background:var(--secondary);color:var(--secondary-foreground)}
+.badge-ai{border-color:var(--border);color:var(--foreground)}
+.badge-rattad{background:color-mix(in oklch,var(--destructive) 12%,transparent);color:var(--destructive)}
+.badge-count{background:var(--primary);color:var(--primary-foreground);height:18px;min-width:18px;padding:0 5px;justify-content:center}
+
+/* Card */
+.card{background:var(--card);border-radius:var(--radius);box-shadow:0 0 0 1px color-mix(in oklch,var(--foreground) 10%,transparent);display:flex;flex-direction:column;gap:16px;padding:16px 0}
+.card-header{padding:0 16px;display:flex;justify-content:space-between;align-items:flex-start;gap:12px}
+.card-title{font-size:14px;font-weight:500}
+.card-desc{color:var(--muted-foreground)}
+.card-content{padding:0 16px}
+.card-footer{padding:0 16px;display:flex;gap:8px;justify-content:flex-end;align-items:center}
+
+/* Input */
+.input{height:28px;border:1px solid var(--input);border-radius:calc(var(--radius) * .8);padding:0 8px;background:transparent;font-size:13px;width:100%}
+:root[data-theme="dark"] .input{background:color-mix(in oklch,var(--input) 30%,transparent)}
+.input:focus,.cell:focus{outline:none;border-color:var(--ring);box-shadow:0 0 0 3px color-mix(in oklch,var(--ring) 50%,transparent)}
+.input[readonly]{background:var(--muted);color:var(--muted-foreground)}
+.label{font-size:13px;font-weight:500;display:block;margin-bottom:6px}
+.field-grid{display:grid;grid-template-columns:160px 1fr 1fr;gap:16px}
+
+/* Table */
+table{border-collapse:collapse;width:100%}
+.table th{height:32px;padding:0 8px;text-align:left;font-weight:500;color:var(--muted-foreground);border-bottom:1px solid var(--border);white-space:nowrap}
+.table td{padding:6px 8px;border-bottom:1px solid var(--border);vertical-align:middle}
+.table tbody tr:last-child td{border-bottom:0}
+.table tr.click{cursor:pointer}
+.table tr.click:hover td{background:color-mix(in oklch,var(--muted) 50%,transparent)}
+.cell{width:100%;height:28px;border:1px solid transparent;border-radius:calc(var(--radius) * .8);padding:0 6px;background:transparent}
+.cell:hover:not([readonly]){border-color:var(--input)}
+.rows td{padding:2px 4px}
+.sumrow td{font-weight:600;border-top:1px solid var(--border);padding:8px}
+.diff-bad{color:var(--destructive);display:inline-flex;gap:4px;align-items:center}
+.diff-ok{color:var(--success);display:inline-flex;gap:4px;align-items:center}
+
+/* Alert */
+.alert{display:grid;grid-template-columns:auto 1fr auto;gap:2px 10px;align-items:start;border:1px solid var(--border);border-radius:var(--radius);padding:10px 12px;background:var(--card)}
+.alert .t{font-weight:500}
+.alert ul{margin:2px 0 0 16px;padding:0;color:var(--muted-foreground)}
+.alert.destructive{color:var(--destructive)}
+.alert.destructive ul{color:color-mix(in oklch,var(--destructive) 85%,var(--foreground))}
+.alert.ok{color:var(--success)}
+
+/* Tabs */
+.tabs{display:inline-flex;background:var(--muted);border-radius:var(--radius);padding:3px;gap:2px}
+.tabs button{height:22px;padding:0 10px;border:0;border-radius:calc(var(--radius) * .7);background:transparent;color:var(--muted-foreground);font-weight:500;cursor:pointer;display:inline-flex;gap:6px;align-items:center}
+.tabs button.on{background:var(--background);color:var(--foreground);box-shadow:0 1px 2px rgba(0,0,0,.08)}
+:root[data-theme="dark"] .tabs button.on{background:var(--input)}
+
+/* Dropdown */
+.dropdown{position:absolute;z-index:20;background:var(--popover);border:1px solid var(--border);border-radius:var(--radius);box-shadow:0 8px 24px rgba(0,0,0,.18);padding:4px;min-width:240px}
+.dropdown .lbl{padding:6px 8px;color:var(--muted-foreground);font-size:11px}
+.dropdown .mi{display:flex;align-items:center;gap:8px;width:100%;padding:6px 8px;border:0;background:transparent;border-radius:calc(var(--radius) * .8);cursor:pointer;text-align:left}
+.dropdown .mi:hover{background:var(--accent)}
+.dropdown .sepl{height:1px;background:var(--border);margin:4px -4px}
+.logo{width:28px;height:28px;border-radius:calc(var(--radius) * .8);background:var(--sidebar-primary);color:var(--primary-foreground);display:grid;place-items:center;font-weight:700;flex-shrink:0}
+.logo.sm{width:22px;height:22px;font-size:11px;background:var(--muted);color:var(--foreground);border:1px solid var(--border)}
+kbd{font:500 10px Inter,system-ui;border:1px solid var(--border);border-radius:4px;padding:1px 5px;background:var(--muted);color:var(--muted-foreground)}
+.placeholder{display:grid;place-items:center;gap:8px;padding:64px;color:var(--muted-foreground);text-align:center;border:1px dashed var(--border);border-radius:var(--radius)}
+
+/* ---------- Switcher (inte en del av designen) ---------- */
+#proto-switcher{position:fixed;left:50%;bottom:14px;transform:translateX(-50%);z-index:999;display:flex;align-items:center;gap:6px;
+  background:#111;color:#fff;border-radius:999px;padding:6px 8px;box-shadow:0 6px 24px rgba(0,0,0,.35);font:12px system-ui;border:2px dashed #f5c400}
+#proto-switcher button{background:#333;color:#fff;border:0;border-radius:999px;padding:4px 10px;cursor:pointer}
+#proto-switcher .lbl{padding:0 8px;white-space:nowrap}
+
+/* ---------- Variant B: Inkorg först ---------- */
+.B{display:flex;flex-direction:column;height:100vh}
+.B header{display:flex;align-items:center;gap:12px;padding:0 12px;height:48px;border-bottom:1px solid var(--border);background:var(--background)}
+.B .brand{display:flex;align-items:center;gap:8px;font-weight:600}
+.B .co{position:relative}
+.B .co .dropdown{top:34px;left:0}
+.B nav{display:flex;gap:2px}
+.B nav a{display:inline-flex;align-items:center;gap:6px;height:28px;padding:0 10px;border-radius:calc(var(--radius) * .8);color:var(--muted-foreground);font-weight:500}
+.B nav a:hover{color:var(--foreground);background:var(--accent)}
+.B nav a.on{color:var(--foreground);background:var(--accent)}
+.B header .right{margin-left:auto;display:flex;gap:4px;align-items:center}
+.B .split{flex:1;display:grid;grid-template-columns:360px 1fr;min-height:0}
+.B .list{border-right:1px solid var(--border);overflow:auto;padding:12px;display:flex;flex-direction:column;gap:6px;background:var(--sidebar)}
+.B .list .lh{display:flex;justify-content:space-between;align-items:center;padding:4px 4px 8px}
+.B .sect{display:flex;align-items:center;gap:6px;color:var(--muted-foreground);font-size:11px;font-weight:500;padding:10px 4px 2px}
+.B .item{display:flex;flex-direction:column;gap:6px;padding:10px 12px;border-radius:calc(var(--radius) * .8);border:1px solid transparent;background:color-mix(in oklch,var(--muted) 50%,transparent)}
+.B .item:hover{background:var(--muted)}
+.B .item.on{border-color:var(--ring);background:var(--card)}
+.B .item .top{display:flex;justify-content:space-between;gap:8px;font-weight:500}
+.B .item .meta{display:flex;gap:6px;align-items:center;color:var(--muted-foreground);flex-wrap:wrap}
+.B .item.plain{background:transparent;border-color:var(--border)}
+.B .detail{overflow:auto;padding:20px 28px 90px;display:flex;flex-direction:column;gap:16px}
+.B .empty{display:grid;place-items:center;height:100%;color:var(--muted-foreground);text-align:center;gap:8px}
+
+.search{display:inline-flex;align-items:center;gap:8px;height:28px;padding:0 8px;min-width:240px;border:1px solid var(--input);border-radius:calc(var(--radius) * .8);color:var(--muted-foreground);cursor:pointer;background:color-mix(in oklch,var(--muted) 50%,transparent)}
+.search kbd{margin-left:auto}
+.pal-bg{position:fixed;inset:0;background:rgba(0,0,0,.5);display:flex;justify-content:center;align-items:flex-start;padding-top:14vh;z-index:50}
+.pal{width:520px;max-width:92vw;background:var(--popover);border-radius:var(--radius);box-shadow:0 0 0 1px color-mix(in oklch,var(--foreground) 10%,transparent),0 16px 48px rgba(0,0,0,.4);overflow:hidden}
+.pal .in{display:flex;align-items:center;gap:8px;padding:0 12px;border-bottom:1px solid var(--border);color:var(--muted-foreground)}
+.pal input{flex:1;height:40px;border:0;background:transparent;outline:none;font-size:13px;color:var(--foreground)}
+.pal .ls{max-height:340px;overflow:auto;padding:4px}
+.pal .opt{display:flex;align-items:center;gap:8px;height:30px;padding:0 8px;border-radius:calc(var(--radius) * .8);cursor:pointer}
+.pal .opt.on{background:var(--accent)}
+.pal .opt kbd,.pal .opt .amt{margin-left:auto}
+.pal .opt .amt{color:var(--muted-foreground);font-variant-numeric:tabular-nums}
+.pal .opt .t{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pal .grp{padding:8px 8px 4px;font-size:11px;color:var(--muted-foreground);font-weight:500}
+.pal .ft{display:flex;gap:12px;padding:6px 12px;border-top:1px solid var(--border);color:var(--muted-foreground);font-size:11px}
+
+/* ---------- Gemensamt för verifikatprototypen ---------- */
+.B .detail{position:relative}
+.warn{color:var(--sidebar-primary)}
+.badge-warn{background:color-mix(in oklch,var(--sidebar-primary) 14%,transparent);color:var(--sidebar-primary)}
+.badge-lock{background:var(--muted);color:var(--muted-foreground);border-color:var(--border)}
+.dl{display:grid;grid-template-columns:130px 1fr;gap:6px 16px}
+.dl dt{color:var(--muted-foreground)}
+.dl dd{margin:0}
+.link{text-decoration:underline;text-underline-offset:2px;cursor:pointer}
+.sec-t{font-size:11px;font-weight:500;color:var(--muted-foreground);text-transform:uppercase;letter-spacing:.04em;margin-bottom:6px}
+.paper{background:var(--card);border-radius:var(--radius);box-shadow:0 0 0 1px color-mix(in oklch,var(--foreground) 10%,transparent),0 2px 8px rgba(0,0,0,.04);padding:24px 28px;display:flex;flex-direction:column;gap:20px;max-width:860px}
+.ro td{padding:6px 8px}
+.hist{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px}
+.hist li{display:grid;grid-template-columns:18px 130px 1fr;gap:8px;align-items:start}
+.hist li .t{color:var(--muted-foreground);font-variant-numeric:tabular-nums}
+.ufile{display:flex;align-items:center;gap:8px;padding:6px 8px;border:1px solid var(--border);border-radius:calc(var(--radius) * .8)}
+.ufile .mf{margin-left:auto;font-size:11px}
+.ufile.kompl{border-style:dashed}
+.preview{display:grid;place-items:center;gap:6px;background:var(--muted);color:var(--muted-foreground);border-radius:var(--radius);text-align:center}
+.drop{display:grid;place-items:center;gap:6px;border:1px dashed var(--ring);border-radius:var(--radius);color:var(--muted-foreground);padding:16px;text-align:center}
+.err .input,.input.err{border-color:var(--destructive)}
+tr.err td{background:color-mix(in oklch,var(--destructive) 6%,transparent)}
+.cell.err{border-color:var(--destructive)}
+.ferr{color:var(--destructive);font-size:11px;margin-top:3px;display:flex;gap:4px;align-items:center}
+.ferr svg.lucide{width:11px;height:11px}
+.btn[disabled]{opacity:.5;cursor:not-allowed}
+.dialog{width:560px;max-width:94vw;background:var(--popover);border-radius:var(--radius);box-shadow:0 0 0 1px color-mix(in oklch,var(--foreground) 10%,transparent),0 16px 48px rgba(0,0,0,.4);display:flex;flex-direction:column;gap:14px;padding:18px 20px}
+.dialog .ft{display:flex;gap:8px;justify-content:flex-end}
+.pick{display:flex;flex-direction:column;gap:4px;max-height:220px;overflow:auto}
+.pick label{display:flex;gap:8px;align-items:center;padding:6px 8px;border-radius:calc(var(--radius) * .8);border:1px solid var(--border);cursor:pointer}
+.pick label:hover{background:var(--accent)}
+.note{display:flex;gap:8px;align-items:flex-start;color:var(--muted-foreground);font-size:12px}
+.note svg.lucide{margin-top:2px}
+.flex{display:flex;gap:8px;align-items:center}
+.col{display:flex;flex-direction:column;gap:8px}
+
+/* A: kontrollista i en högerspalt */
+.A-edit{display:grid;grid-template-columns:1fr 250px;gap:24px;align-items:start}
+.rail{position:sticky;top:0;display:flex;flex-direction:column;gap:10px;padding:14px;border:1px solid var(--border);border-radius:var(--radius);background:var(--sidebar)}
+.rail .chk{display:grid;grid-template-columns:16px 1fr;gap:6px;align-items:start}
+.rail .chk.ok{color:var(--muted-foreground)}
+.rail .chk.bad{color:var(--foreground)}
+.rail .chk.bad svg.lucide{color:var(--destructive)}
+.rail .chk.ok svg.lucide{color:var(--success)}
+.rail .chk .fix{display:block;font-size:11px;color:var(--muted-foreground)}
+
+/* B: tabell som lista */
+.tlist{width:100%;border-collapse:collapse}
+.tlist td{padding:6px 6px;border-bottom:1px solid var(--border);vertical-align:top}
+.tlist tr{cursor:pointer}
+.tlist tr:hover td{background:var(--muted)}
+.tlist tr.on td{background:var(--card);box-shadow:inset 0 0 0 0 var(--ring)}
+.tlist tr.on td:first-child{box-shadow:inset 2px 0 0 var(--sidebar-primary)}
+.tlist th{font-weight:500;color:var(--muted-foreground);text-align:left;padding:4px 6px;border-bottom:1px solid var(--border);font-size:11px}
+.B .list.wide{padding:8px}
+.cmp{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.cmp .paper{padding:16px}
+
+/* C: underlag bredvid */
+.C-edit{display:grid;grid-template-columns:minmax(260px,42%) 1fr;gap:20px;align-items:start}
+.C-edit .left{position:sticky;top:0;display:flex;flex-direction:column;gap:8px}
+.C-edit .left .preview{height:420px}
+.per{display:flex;align-items:center;gap:6px;font-size:11px;font-weight:500;color:var(--muted-foreground);padding:12px 4px 2px}
+.per .badge{margin-left:auto}
+.pop{position:absolute;z-index:20;background:var(--popover);border:1px solid var(--border);border-radius:var(--radius);box-shadow:0 8px 24px rgba(0,0,0,.18);padding:8px;width:300px;display:flex;flex-direction:column;gap:6px}
+.inl{border:1px solid var(--ring);border-radius:var(--radius);padding:14px;display:flex;flex-direction:column;gap:12px;background:var(--card)}
+.bcount{background:color-mix(in oklch,var(--primary-foreground) 25%,transparent);border-radius:999px;padding:0 6px;font-size:11px}
+/* ---------- Leverantörsfakturor ---------- */
+.badge-obetald{background:var(--secondary);color:var(--secondary-foreground)}
+.badge-forfallen{background:color-mix(in oklch,var(--destructive) 12%,transparent);color:var(--destructive)}
+.badge-betald{background:color-mix(in oklch,var(--success) 14%,transparent);color:var(--success)}
+.badge-ny{background:color-mix(in oklch,var(--sidebar-primary) 14%,transparent);color:var(--sidebar-primary);border:1px dashed var(--sidebar-primary)}
+.copy{display:inline-flex;align-items:center;gap:6px;height:24px;padding:0 8px;border:1px solid var(--border);border-radius:calc(var(--radius) * .8);background:var(--background);cursor:pointer;font-variant-numeric:tabular-nums}
+.copy:hover{background:var(--accent)}
+.copy .k{color:var(--muted-foreground);font-size:11px}
+.levkort{border:1px solid var(--border);border-radius:var(--radius);padding:12px;display:flex;flex-direction:column;gap:8px}
+.levkort.ny{border:1px dashed var(--sidebar-primary);background:color-mix(in oklch,var(--sidebar-primary) 5%,transparent)}
+.g2{display:grid;grid-template-columns:1fr 1fr;gap:10px 14px}
+.g3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px 14px}
+.g4{display:grid;grid-template-columns:repeat(4,1fr);gap:10px 14px}
+.kont{border:1px solid var(--border);border-radius:var(--radius);padding:10px 12px;background:var(--sidebar)}
+.kont .table td,.kont .table th{padding:3px 8px;height:auto}
+.select{height:28px;border:1px solid var(--input);border-radius:calc(var(--radius) * .8);padding:0 6px;background:var(--background);width:100%}
+.seg{display:inline-flex;border:1px solid var(--border);border-radius:var(--radius);overflow:hidden}
+.seg button{border:0;border-right:1px solid var(--border);background:var(--background);padding:6px 12px;cursor:pointer;display:inline-flex;gap:6px;align-items:center}
+.seg button:last-child{border-right:0}
+.seg button.on{background:var(--accent);font-weight:500}
+.seg button:hover{background:var(--accent)}
+.triage{display:grid;grid-template-columns:1fr 280px;gap:20px;align-items:start}
+.tchoice{display:flex;flex-direction:column;gap:6px}
+.tchoice button{display:flex;align-items:center;gap:10px;padding:10px 12px;border:1px solid var(--border);border-radius:var(--radius);background:var(--card);cursor:pointer;text-align:left}
+.tchoice button:hover{background:var(--accent)}
+.tchoice kbd{margin-left:auto}
+.levgrp{display:flex;justify-content:space-between;align-items:center;padding:10px 6px 4px;font-weight:500;cursor:pointer}
+.levgrp:hover{color:var(--sidebar-primary)}
+.bet{display:grid;grid-template-columns:100px 1fr 120px 60px;gap:8px;padding:4px 0;border-bottom:1px solid var(--border)}
+.A-reg{display:grid;grid-template-columns:1fr minmax(240px,36%);gap:20px;align-items:start}
+.A-reg .orig{position:sticky;top:0;display:flex;flex-direction:column;gap:8px}
+.steg{display:flex;flex-direction:column;gap:10px;border:1px solid var(--border);border-radius:var(--radius);padding:12px 14px}
+.steg .st{display:flex;gap:8px;align-items:center;font-weight:500}
+.steg .st .n{width:20px;height:20px;border-radius:999px;background:var(--muted);display:grid;place-items:center;font-size:11px}
+.steg.klar .st .n{background:var(--success);color:white}
+/* ---------- Kundfakturor ---------- */
+.badge-tillgodo{background:color-mix(in oklch,var(--sidebar-primary) 14%,transparent);color:var(--sidebar-primary)}
+textarea{font:inherit;color:inherit}
+textarea.input{height:auto;padding:6px 8px;resize:vertical;line-height:1.45}
+.newmenu{position:relative}
+.newmenu .dropdown{right:0;top:32px}
+/* Fakturan som PDF: alltid ljus, den är ett papper */
+.inv{position:relative;background:#fff;color:#1c1917;border-radius:4px;box-shadow:0 0 0 1px rgba(0,0,0,.1),0 2px 10px rgba(0,0,0,.06);padding:26px 28px;font-size:10.5px;line-height:1.45;display:flex;flex-direction:column;gap:14px;overflow:hidden}
+.inv .h{display:flex;justify-content:space-between;gap:16px;align-items:flex-start}
+.inv .lg{width:42px;height:42px;border-radius:6px;background:#c2410c;color:#fff;display:grid;place-items:center;font-weight:700;font-size:14px}
+.inv .tt{font-size:19px;font-weight:600;letter-spacing:-.01em;margin-bottom:4px}
+.inv table{width:100%}
+.inv td,.inv th{padding:3px 4px;border-bottom:1px solid #e7e5e4;text-align:left;vertical-align:top}
+.inv th{font-weight:500;color:#78716c}
+.inv .r{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+.inv .kv{display:grid;grid-template-columns:auto auto;gap:1px 12px;align-content:start}
+.inv .kv>span:nth-child(odd){color:#78716c}
+.inv .adr{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.inv .lbl2{color:#78716c;font-size:9.5px;text-transform:uppercase;letter-spacing:.05em;margin-bottom:2px}
+.inv .sum{display:grid;grid-template-columns:1fr auto;gap:2px 16px;margin-left:auto;min-width:220px}
+.inv .sum .big{font-size:13px;font-weight:600;border-top:1px solid #1c1917;padding-top:4px}
+.inv .pay{display:grid;grid-template-columns:repeat(4,auto);gap:2px 18px;border:1px solid #e7e5e4;border-radius:4px;padding:8px 10px;justify-content:start}
+.inv .pay span:nth-child(-n+4){color:#78716c;font-size:9.5px}
+.inv .foot{border-top:1px solid #e7e5e4;padding-top:8px;color:#78716c;font-size:9.5px;display:flex;flex-wrap:wrap;gap:2px 14px}
+.inv .wm{position:absolute;top:42%;left:50%;transform:translate(-50%,-50%) rotate(-24deg);font-size:72px;font-weight:700;color:rgba(194,65,12,.09);pointer-events:none;letter-spacing:.12em}
+.inv .miss{background:rgba(220,38,38,.09);color:#b91c1c;border-radius:3px;padding:0 3px}
+.inv .omv{border-left:3px solid #c2410c;padding:4px 8px;background:#fff7ed}
+.inv .ed{border:1px dashed #d6d3d1;border-radius:3px;background:#fffbeb;height:20px;padding:0 4px;font:inherit;font-size:10.5px;width:100%;color:#1c1917}
+.inv .ed:focus{outline:none;border:1px solid #c2410c;background:#fff}
+.inv .ed.err{border-color:#dc2626;background:#fef2f2}
+.inv select.ed{padding:0 2px}
+.inv .addrow{color:#c2410c;cursor:pointer;font-weight:500}
+.C-edit .left .inv{padding:18px;font-size:10px;gap:10px}
+.C-edit .left .inv .tt{font-size:16px}
+.pal-bg .dialog{max-height:86vh;overflow:auto}
+.drawer{position:fixed;top:48px;right:0;bottom:0;width:600px;max-width:92vw;background:var(--background);border-left:1px solid var(--border);box-shadow:-12px 0 32px rgba(0,0,0,.25);z-index:30;display:flex;flex-direction:column}
+.drawer .dh{display:flex;justify-content:space-between;align-items:center;padding:10px 14px;border-bottom:1px solid var(--border)}
+.drawer .db{overflow:auto;padding:16px;background:var(--muted);flex:1}
+.thumb{width:132px;height:176px;overflow:hidden;border-radius:4px;cursor:zoom-in;position:relative;flex-shrink:0;box-shadow:0 0 0 1px var(--border);background:#fff}
+.thumb .inner{transform:scale(.22);transform-origin:0 0;width:600px;pointer-events:none}
+.thumb .lab{position:absolute;bottom:0;left:0;right:0;background:rgba(0,0,0,.65);color:#fff;font-size:11px;padding:3px 6px;display:flex;gap:4px;align-items:center}
+.thumb:hover{box-shadow:0 0 0 2px var(--ring)}
+.pdfmeta{display:flex;align-items:center;gap:6px;color:var(--muted-foreground);font-size:11px}
+/* A: formulär i fakturan, kontrollista i höger */
+.A-ed{display:grid;grid-template-columns:minmax(520px,1fr) 340px;gap:20px;align-items:start}
+.toolbar{display:flex;gap:6px;align-items:center;flex-wrap:wrap;padding:8px 10px;border:1px solid var(--border);border-radius:var(--radius);background:var(--sidebar);position:sticky;top:0;z-index:5}
+.A-doc{display:grid;grid-template-columns:minmax(480px,640px) 1fr;gap:20px;align-items:start}
+/* B: steg och tidslinje */
+.stepbar{display:flex;gap:6px;flex-wrap:wrap}
+.stepbar button{display:inline-flex;align-items:center;gap:8px;height:30px;padding:0 12px;border:1px solid var(--border);border-radius:999px;background:var(--background);cursor:pointer;font-weight:500;color:var(--muted-foreground)}
+.stepbar button.on{border-color:var(--ring);color:var(--foreground);background:var(--card);box-shadow:0 0 0 2px color-mix(in oklch,var(--ring) 30%,transparent)}
+.stepbar .n{width:18px;height:18px;border-radius:999px;background:var(--muted);display:grid;place-items:center;font-size:10px}
+.stepbar .klar .n{background:var(--success);color:#fff}
+.stepbar .bad .n{background:var(--destructive);color:#fff}
+.tl{display:flex;align-items:center;gap:0;flex-wrap:wrap}
+.tl .st{display:flex;flex-direction:column;gap:2px;padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius);min-width:110px}
+.tl .st.on{border-color:var(--success)}
+.tl .st.cur{border-color:var(--sidebar-primary);background:color-mix(in oklch,var(--sidebar-primary) 6%,transparent)}
+.tl .st.off{border-style:dashed;color:var(--muted-foreground)}
+.tl .st .t{font-weight:500;display:flex;gap:6px;align-items:center}
+.tl .st .d{font-size:11px;color:var(--muted-foreground)}
+.tl .ar{width:16px;height:1px;background:var(--border)}
+.kundhead{display:flex;justify-content:space-between;align-items:center;padding:10px 6px 4px;font-weight:500;cursor:pointer;border-radius:calc(var(--radius) * .8)}
+.kundhead:hover{color:var(--sidebar-primary)}
+.kundhead.on{color:var(--sidebar-primary)}
+.alloc{display:grid;grid-template-columns:70px 1fr 110px 110px;gap:6px;padding:4px 0;border-bottom:1px solid var(--border);align-items:center}
+.stat{display:flex;flex-direction:column;gap:2px;padding:10px 12px;border:1px solid var(--border);border-radius:var(--radius)}
+.stat b{font-size:16px;font-weight:600;font-variant-numeric:tabular-nums}
+.chips{display:flex;flex-wrap:wrap;gap:4px}
+.radio-list{display:flex;flex-direction:column;gap:4px}
+.radio-list label{display:flex;gap:8px;align-items:center;padding:6px 8px;border:1px solid var(--border);border-radius:calc(var(--radius) * .8);cursor:pointer}
+.radio-list label:hover{background:var(--accent)}
+/* ---------- Lönekörning ---------- */
+.lt td,.lt th{padding:5px 8px}
+.lt tr.row{cursor:pointer}
+.lt tr.row:hover td{background:color-mix(in oklch,var(--muted) 50%,transparent)}
+.lt tr.row.open td{background:var(--sidebar);border-bottom-color:transparent}
+.lt tr.exp>td{background:var(--sidebar);padding:4px 12px 14px}
+.lt tr.bad td:first-child{box-shadow:inset 2px 0 0 var(--destructive)}
+.redit td{padding:2px 4px;vertical-align:middle}
+.redit .cell{height:26px}
+.redit .typ{white-space:nowrap;font-weight:500;width:130px}
+.calc td{padding:2px 8px;font-size:12px}
+.calc .fk{color:var(--muted-foreground);font-size:11px}
+.B-run{display:grid;grid-template-columns:210px minmax(380px,1fr) 330px;gap:16px;align-items:start}
+.B-run .emps{display:flex;flex-direction:column;gap:4px;position:sticky;top:0}
+.B-run .emp{display:flex;flex-direction:column;gap:2px;padding:8px 10px;border-radius:calc(var(--radius) * .8);border:1px solid var(--border);cursor:pointer;background:var(--card)}
+.B-run .emp:hover{background:var(--accent)}
+.B-run .emp.on{border-color:var(--ring);box-shadow:0 0 0 2px color-mix(in oklch,var(--ring) 30%,transparent)}
+.B-run .emp .r{display:flex;justify-content:space-between;gap:6px}
+.B-run .right{position:sticky;top:0}
+.inv.spec{font-size:10px;padding:18px 20px;gap:10px}
+.inv.spec .tt{font-size:15px}
+.dot{width:7px;height:7px;border-radius:99px;background:var(--destructive);display:inline-block}
+.mcard{border:1px solid var(--border);border-radius:var(--radius);padding:14px 16px;display:flex;flex-direction:column;gap:12px;background:var(--card)}
+.mcard .mh{display:flex;justify-content:space-between;align-items:flex-start;gap:12px}
+.chain{display:flex;align-items:stretch;gap:0;flex-wrap:wrap}
+.chain .st{display:flex;flex-direction:column;gap:2px;padding:8px 12px;border:1px solid var(--border);border-radius:var(--radius);min-width:150px;cursor:pointer;background:var(--card)}
+.chain .st:hover{background:var(--accent)}
+.chain .st.ok{border-color:color-mix(in oklch,var(--success) 60%,transparent)}
+.chain .st.cur{border-color:var(--sidebar-primary);background:color-mix(in oklch,var(--sidebar-primary) 6%,transparent)}
+.chain .st.bad{border-color:var(--destructive);background:color-mix(in oklch,var(--destructive) 5%,transparent)}
+.chain .st .t{font-weight:500;display:flex;gap:6px;align-items:center}
+.chain .st .d{font-size:11px;color:var(--muted-foreground)}
+.chain .ar{align-self:center;width:18px;height:1px;background:var(--border)}
+pre.xml{font:11px/1.45 ui-monospace,SFMono-Regular,Menlo,monospace;background:var(--muted);border-radius:var(--radius);padding:10px 12px;overflow:auto;max-height:340px;margin:0;white-space:pre}
+.stats{display:grid;grid-template-columns:repeat(5,1fr);gap:8px}
+.mchip{display:inline-flex;gap:4px;align-items:center;font-size:11px;color:var(--muted-foreground)}
+.mchip svg.lucide{width:12px;height:12px}
+.mchip.ok{color:var(--success)}
+.mchip.bad{color:var(--destructive)}
+.mchip.warn{color:var(--sidebar-primary)}
+.kv2{display:grid;grid-template-columns:170px 1fr;gap:6px 14px;align-items:center}
+.kv2 dt{color:var(--muted-foreground)}
+.kv2 dd{margin:0}
+.lh{flex-wrap:wrap;gap:6px}
+</style>
+</head>
+<body>
+<div id="app"></div>
+<div id="proto-switcher"></div>
+<script>
+/* ================= Data (i minnet) ================= */
+const IDAG_S='2026-10-14', LAST_TOM='2026-06', ANV='Anna Berg';
+const FORETAG=[
+  {id:'exempel',namn:'Exempel AB',orgnr:'559999-9991',arb:{reg:true,fran:'2024-01-01',sasong:false},plats:'Storgatan 1',ort:'Stockholm',vnr:52},
+  {id:'lund',namn:'Konsultbolaget i Lund AB',orgnr:'559888-1234',arb:{reg:true,fran:'2026-03-01',sasong:false},plats:'Stora Södergatan 8',ort:'Lund',vnr:15},
+];
+const KONTON={1930:'Företagskonto',2640:'Ingående moms',2710:'Personalskatt',2731:'Avräkning lagstadgade sociala avgifter',5410:'Förbrukningsinventarier',5611:'Drivmedel',6110:'Kontorsmateriel',
+  7210:'Löner till tjänstemän',7220:'Löner till företagsledare',7240:'Styrelsearvoden',7285:'Semesterlöner',7331:'Skattefria bilersättningar',7385:'Kostnad för fri bil',7389:'Övriga förmåner',7399:'Motkonto förmåner',7510:'Arbetsgivaravgifter'};
+const SATS={std:31.42,aldre:10.21,ungdom:20.81};
+const SATS_T={std:'31,42 %',aldre:'10,21 % (född 1959 eller tidigare)',ungdom:'20,81 % (19–23 år)'};
+const FTYP={bil:['Bilförmån','013','7385'],drivmedel:['Drivmedelsförmån','018','7389'],bostad_smahus:['Bostad, småhus','041','7389'],bostad:['Bostad, ej småhus','043','7389'],kost:['Kostförmån','012','7389'],ovrig:['Övrig förmån','012','7389']};
+const RADTYP={manad:'Månadslön',tim:'Timlön',semester:'Semester',sjuk:'Sjukfrånvaro',vab:'VAB',foraldra:'Föräldraledighet',forman:'Förmån',utlagg:'Utlägg',mil:'Milersättning',arvode:'Styrelsearvode',korr:'Korrigering',netto:'Nettolöneavdrag'};
+function P(o){return Object.assign({typ:'manad',belopp:0,ledare:false,tabell:null,kol:1,jamk:null,sido:false,giltig:'',sem:{dagar:25,saldo:0,sparade:0},bank:'',epost:'',anst:'2020-01-01',slut:'',sys:100,vecka:40,adress:'',hist:[]},o)}
+const ANST={
+  exempel:[
+    P({id:'erik',namn:'Erik Holm',pnr:'19740312-1234',belopp:55000,ledare:true,tabell:33,kol:1,giltig:'2026-12-31',sem:{dagar:25,saldo:18,sparade:4},bank:'SEB 5001 ···· 345 67',epost:'erik@exempel.se',anst:'2019-04-01',adress:'Björkvägen 4, 112 33 Stockholm',hist:[{tid:'2026-01-01',t:'Månadslön 52 000 → 55 000 kr, gäller från 2026-01-01',v:'Anna Berg'}]}),
+    P({id:'sara',namn:'Sara Lind',pnr:'19880922-4321',belopp:42000,tabell:33,kol:1,giltig:'2026-12-31',sem:{dagar:25,saldo:21,sparade:0},bank:'',epost:'sara@exempel.se',anst:'2022-08-15',adress:'Ringvägen 12, 118 60 Stockholm'}),
+    P({id:'maja',namn:'Maja Ström',pnr:'20050214-1236',belopp:26000,tabell:null,kol:1,sem:{dagar:25,saldo:6,sparade:0},bank:'Swedbank 8327-9 ···· 112',epost:'maja@exempel.se',anst:'2026-05-01',adress:'Kungsgatan 40, 111 35 Stockholm',hist:[{tid:'2026-05-01',t:'Anställd. Ingående semestersaldo 6 dagar (8/12 av 25, avrundat nedåt för betalda dagar)',v:'Anna Berg'}]}),
+    P({id:'jonas',namn:'Jonas Ek',pnr:'19991105-3456',typ:'timme',belopp:185,tabell:33,kol:1,giltig:'2026-12-31',bank:'Nordea 3300 ···· 556',epost:'jonas.ek@gmail.com',anst:'2025-02-01',slut:'2026-10-10',adress:'Sveavägen 99, 113 50 Stockholm',hist:[{tid:'2026-09-30',t:'Slutdatum satt till 2026-10-10',v:'Anna Berg'}]}),
+    P({id:'lars',namn:'Lars Berg',pnr:'19560708-8888',typ:'styrelse',belopp:8000,sido:true,kol:3,giltig:'2026-12-31',bank:'Handelsbanken 6123 ···· 001',epost:'lars.berg@telia.com',anst:'2018-05-20',adress:'Strandvägen 7, 114 56 Stockholm'}),
+  ],
+  lund:[
+    P({id:'per',namn:'Per Nilsson',pnr:'19800101-9999',belopp:35000,ledare:true,tabell:32,kol:1,giltig:'2026-12-31',sem:{dagar:25,saldo:20,sparade:0},bank:'Sparbanken Skåne ···· 778',epost:'per@konsultlund.se',anst:'2026-03-01',adress:'Clemenstorget 3, 222 21 Lund'}),
+  ],
+};
+let kseq=10;
+function K(o){return Object.assign({id:'k'+(kseq++),typ:'ordinarie',namn:'',status:'utkast',rader:{},specar:[],ver:[],historik:[],kanal:'webb',tabell:'Skattetabeller 2026 (hämtade 2025-12-03)'},o)}
+const h=(tid,vem,t,i)=>({tid,vem,t,i});
+const KOR={
+  exempel:[
+    K({id:'k4',period:'2026-10',utbet:'2026-10-25',kanal:'Claude (MCP)',rader:{
+      erik:[{t:'manad'},{t:'forman',ftyp:'bil',belopp:4200}],
+      sara:[{t:'manad'},{t:'sjuk',fran:'2026-10-06',dagar:3},{t:'utlagg',text:'Kontorsmaterial',belopp:450,moms:90,konto:'6110',underlag:'kvitto_clasohlson.jpg'},{t:'mil',km:120}],
+      maja:[{t:'manad'},{t:'semester',dagar:2},{t:'vab',datum:'2026-10-06',dagar:1,omf:100}],
+      lars:[{t:'arvode',belopp:8000}]},
+      historik:[h('2026-10-13 21:04','Claude (MCP) för Anna Berg','Skapade utkastet med fyra anställda','sparkles'),h('2026-10-13 21:05','Claude (MCP) för Anna Berg','La till sjukfrånvaro 3 dagar och utlägg för Sara Lind','sparkles')]}),
+    K({id:'k3',typ:'extra',namn:'Slutlön Jonas Ek',period:'2026-10',utbet:'2026-10-10',status:'faststalld',rader:{jonas:[{t:'tim',antal:64,apris:185}]},
+      specar:[{ver:1,tid:'2026-10-08 15:12',ersatt:false,skickad:{jonas:'2026-10-08 15:12'}}],
+      historik:[h('2026-10-08 15:02',ANV,'Skapade lönekörningen','plus'),h('2026-10-08 15:12',ANV,'Fastställde. Lönespecifikation v1 skapad och skickad till jonas.ek@gmail.com','lock')]}),
+    K({id:'k2',period:'2026-09',utbet:'2026-09-25',status:'bokford',rader:{erik:[{t:'manad'},{t:'forman',ftyp:'bil',belopp:4200}],sara:[{t:'manad'}],maja:[{t:'manad'}],jonas:[{t:'tim',antal:142,apris:185}]},
+      specar:[{ver:1,tid:'2026-09-22 10:40',ersatt:false,skickad:{erik:'2026-09-22 10:40',sara:'2026-09-22 10:40',maja:'2026-09-22 10:40',jonas:'2026-09-22 10:40'}}],ver:[{typ:'Lönekörning',nr:47,datum:'2026-09-25'}],
+      historik:[h('2026-09-22 10:40',ANV,'Fastställde. Lönespecifikationer v1 skickade','lock'),h('2026-09-25 08:15',ANV,'Bokförde som V47','stamp')]}),
+    K({id:'k1',period:'2026-08',utbet:'2026-08-25',status:'bokford',rader:{erik:[{t:'manad'},{t:'forman',ftyp:'bil',belopp:4200}],sara:[{t:'manad'},{t:'sjuk',fran:'2026-08-11',dagar:2}],maja:[{t:'manad'}],jonas:[{t:'tim',antal:120,apris:185}]},
+      specar:[{ver:1,tid:'2026-08-21 09:30',ersatt:true,skickad:{}},{ver:2,tid:'2026-10-02 14:20',ersatt:false,skickad:{sara:'2026-10-02 14:21'}}],ver:[{typ:'Lönekörning',nr:38,datum:'2026-08-25'},{typ:'Rättelse av V38',nr:51,datum:'2026-10-02'},{typ:'Lönekörning',nr:52,datum:'2026-08-25'}],
+      historik:[h('2026-08-21 09:30',ANV,'Fastställde. Lönespecifikationer v1 skickade','lock'),h('2026-08-25 08:02',ANV,'Bokförde som V38','stamp'),h('2026-10-02 14:10',ANV,'Rättade V38 med V51 (orsak: sjukfrånvaron för Sara Lind saknades). Lönekörningen blev fastställd igen','undo-2'),h('2026-10-02 14:18',ANV,'Öppnade lönekörningen igen och la till sjukfrånvaro för Sara Lind','pencil'),h('2026-10-02 14:20',ANV,'Fastställde. Lönespecifikation v2 ersätter v1','lock'),h('2026-10-02 14:22',ANV,'Bokförde som V52 med verifikatdatum 25 aug (utbetalningsdagen)','stamp')]}),
+  ],
+  lund:[
+    K({id:'l1',period:'2026-08',utbet:'2026-08-25',status:'bokford',rader:{per:[{t:'manad'}]},specar:[{ver:1,tid:'2026-08-20 18:00',ersatt:false,skickad:{per:'2026-08-20 18:00'}}],ver:[{typ:'Lönekörning',nr:11,datum:'2026-08-25'}],historik:[h('2026-08-25 07:50','Per Nilsson','Bokförde som V11','stamp')]}),
+  ],
+};
+// AGI per period: lämnad med datum, och om perioden ändrats efter att filen lämnades
+const AGI={
+  exempel:{'2026-08':{lamnad:'2026-09-10',andrad:'2026-10-02',iu:['erik','sara','maja','jonas']},'2026-09':{lamnad:'2026-10-09',iu:['erik','sara','maja','jonas']}},
+  lund:{'2026-08':{lamnad:'2026-09-11',iu:['per']}},
+};
+const SKATT={exempel:{'2026-08':{nr:41,datum:'2026-09-11'},'2026-09':{nr:50,datum:'2026-10-09'}},lund:{'2026-08':{nr:13,datum:'2026-09-12'}}};
+const PERIODER=['2026-10','2026-09','2026-08'];
+const NAV=[['inkorg','Att göra'],['verifikat','Verifikat'],['kundfakturor','Kundfakturor'],['leverantorsfakturor','Leverantörsfakturor'],['lon','Lön'],['moms','Moms'],['rapporter','Rapporter']];
+const ic=(n,extra)=>`<i data-lucide="${n}"${extra?' '+extra:''}></i>`;
+
+/* ================= Tillstånd ================= */
+const params=new URLSearchParams(location.search);
+const S={variant:(params.get('variant')||'A').toUpperCase(),co:'exempel',flik:'korningar',coMenu:false,pal:false,palQ:'',palI:0,flash:'',panel:null,modal:null,open:{},emp:null,edit:null,xml:false};
+const co=()=>FORETAG.find(f=>f.id===S.co);
+const kor=()=>KOR[S.co], anst=()=>ANST[S.co];
+const hittaK=id=>kor().find(k=>k.id===id), hittaA=id=>anst().find(a=>a.id===id);
+const agi=p=>(AGI[S.co][p]=AGI[S.co][p]||{});
+function route(){const p=(location.hash||'#/lon').slice(2).split('/');return {mod:p[0]||'inkorg',id:p.slice(1).join('/')||null}}
+function go(hh){if(location.hash===hh)window.dispatchEvent(new HashChangeEvent('hashchange'));else location.hash=hh}
+const modBas=()=>route().mod==='inkorg'?'#/inkorg/':'#/lon/';
+const initialer=s=>s.split(/\s+/).filter(w=>w!=='AB'&&w!=='i').slice(0,2).map(w=>w[0]).join('').toUpperCase();
+
+/* ================= Hjälpare ================= */
+const fmt=new Intl.NumberFormat('sv-SE',{minimumFractionDigits:2,maximumFractionDigits:2});
+const fmt0=new Intl.NumberFormat('sv-SE',{maximumFractionDigits:0});
+const n=s=>{const x=parseFloat(String(s??'').replace(/\s/g,'').replace('−','-').replace(',','.'));return isNaN(x)?0:x};
+const kr=x=>fmt.format(x||0), kr0=x=>fmt0.format(x||0);
+const r2=x=>Math.round(x*100)/100;
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const MAN=['januari','februari','mars','april','maj','juni','juli','augusti','september','oktober','november','december'];
+const MK=['jan','feb','mar','apr','maj','jun','jul','aug','sep','okt','nov','dec'];
+const manad=p=>MAN[+p.slice(5,7)-1]+' '+p.slice(0,4);
+const Manad=p=>{const m=manad(p);return m[0].toUpperCase()+m.slice(1)};
+const dkort=d=>d?(+d.slice(8,10))+' '+MK[+d.slice(5,7)-1]:'';
+const dagMellan=(a,b)=>Math.round((new Date(b+'T12:00:00')-new Date(a+'T12:00:00'))/864e5);
+const nu=()=>IDAG_S+' '+new Date().toTimeString().slice(0,5);
+const nastaMan=p=>{let y=+p.slice(0,4),m=+p.slice(5,7)+1;if(m>12){m=1;y++}return y+'-'+String(m).padStart(2,'0')};
+const dagarIMan=p=>new Date(+p.slice(0,4),+p.slice(5,7),0).getDate();
+const frist=p=>{const nm=nastaMan(p);return nm+'-'+(['01','08'].includes(nm.slice(5,7))?'17':'12')};
+const last=d=>d&&d.slice(0,7)<=LAST_TOM;
+const fodd=a=>+a.pnr.slice(0,4);
+const avgKat=a=>fodd(a)<=1959?'aldre':(fodd(a)>=2003&&fodd(a)<=2007?'ungdom':'std');
+const sum=(l,f)=>r2(l.reduce((s,x)=>s+(f?f(x):x),0));
+
+/* ================= Beräkning ================= */
+// Förenklad skattetabell, bara för att prototypen ska ge rimliga belopp
+function tabSkatt(x,a){if(a.jamk)return Math.floor(x*a.jamk/100);if(a.sido)return Math.floor(x*0.30);if(!a.tabell)return null;
+  const s=a.kol===3?0.25:0.31,av=(a.kol===3?1700:1500)+(a.tabell-32)*120;return Math.max(0,Math.round(x*s-av))}
+function prorata(a,p){const d=dagarIMan(p),start=p+'-01',slut=p+'-'+d;let fr=1,ti=d;
+  if(a.anst>start&&a.anst<=slut)fr=+a.anst.slice(8);if(a.slut&&a.slut>=start&&a.slut<slut)ti=+a.slut.slice(8);return {f:(ti-fr+1)/d,dgr:ti-fr+1,tot:d}}
+function calc(k,a){
+  const rows=k.rader[a.id]||[],L=[],fel=[],varn=[],frv=[];
+  const dag=a.typ==='manad'?a.belopp*12/365:0,lk=a.ledare?'7220':'7210';
+  const push=(text,belopp,konto,kat,fk,i)=>L.push({text,belopp:r2(belopp),konto,kat,fk,i});
+  rows.forEach((r,i)=>{switch(r.t){
+    case 'manad':{const pr=prorata(a,k.period);push('Månadslön'+(pr.f<1?` (${pr.dgr} av ${pr.tot} dagar)`:''),a.belopp*pr.f,lk,'kontant','011',i);break}
+    case 'tim':{const b=n(r.antal)*n(r.apris);if(!n(r.antal))fel.push({t:'Ange antal timmar',a:a.id,i});
+      push(`Timlön ${n(r.antal)} h × ${kr(n(r.apris))}`,b,'7210','kontant','011',i);push('Semesterersättning 12 %',b*0.12,'7285','kontant','011',i);break}
+    case 'semester':{const d=n(r.dagar);if(a.typ!=='manad'){varn.push({t:'Semestertillägg gäller bara månadslön; timlön får 12 % semesterersättning.',a:a.id});break}
+      push(`Semestertillägg 0,43 % × ${d} dagar`,a.belopp*0.0043*d,'7285','kontant','011',i);
+      if(d>a.sem.saldo)fel.push({t:`${d} semesterdagar men bara ${a.sem.saldo} kvar i saldot`,a:a.id,i});break}
+    case 'sjuk':{const d=n(r.dagar);if(!d){fel.push({t:'Ange antal sjukdagar',a:a.id,i});break}
+      if(a.typ!=='manad'){varn.push({t:'Sjuklön för timlön räknas på schemalagda timmar; inte med i prototypen.',a:a.id});break}
+      const dd=Math.min(d,14);push(`Sjukavdrag ${d} dagar`,-dag*d,lk,'kontant','011',i);push(`Sjuklön 80 % dag 1–${dd}`,0.8*dag*dd,lk,'kontant','011',i);push('Karensavdrag (20 % av en veckas sjuklön)',-0.2*0.8*a.belopp*12/52,lk,'kontant','011',i);
+      if(d>14)varn.push({t:'Från dag 15 betalar Försäkringskassan. Anmäl sjukfallet senast dag 21.',a:a.id});break}
+    case 'vab':case 'foraldra':{const d=n(r.dagar),o=n(r.omf)||100;if(!r.datum)fel.push({t:'Ange datum för frånvaron',a:a.id,i});
+      push(`Löneavdrag ${RADTYP[r.t].toLowerCase()} ${d} dagar × ${o} %`,-dag*d*o/100,lk,'kontant','011',i);frv.push({typ:RADTYP[r.t],datum:r.datum,dagar:d,omf:o});break}
+    case 'forman':{const f=FTYP[r.ftyp]||FTYP.ovrig;if(!n(r.belopp))fel.push({t:'Ange förmånens värde',a:a.id,i});push(f[0],n(r.belopp),f[2],'forman',f[1],i);break}
+    case 'utlagg':{const b=n(r.belopp),m=n(r.moms);if(!r.underlag)fel.push({t:'Utlägget saknar underlag',a:a.id,i});if(!b)fel.push({t:'Ange utläggets belopp',a:a.id,i});
+      L.push({text:'Utlägg: '+(r.text||'—'),belopp:b,konto:r.konto,kat:'skattefri',fk:'',i,moms:m});break}
+    case 'mil':push(`Milersättning ${n(r.km)} km × 2,50 kr`,n(r.km)*2.5,'7331','skattefri','050',i);break;
+    case 'arvode':push('Styrelsearvode',n(r.belopp),'7240','kontant','023',i);break;
+    case 'korr':push('Korrigering: '+(r.text||'—')+' (engångsskatt)',n(r.belopp),lk,'engang','011',i);if(!r.text)fel.push({t:'Korrigeringen behöver en text',a:a.id,i});break;
+    case 'netto':push('Nettolöneavdrag: '+(r.text||'—'),-n(r.belopp),'7399','netto','',i);break;
+  }});
+  const kontant=sum(L.filter(x=>x.kat==='kontant'),x=>x.belopp),forman=sum(L.filter(x=>x.kat==='forman'),x=>x.belopp),
+    eng=sum(L.filter(x=>x.kat==='engang'),x=>x.belopp),skfri=sum(L.filter(x=>x.kat==='skattefri'),x=>x.belopp),nav=sum(L.filter(x=>x.kat==='netto'),x=>x.belopp);
+  let skatt=0;const ts=tabSkatt(kontant+forman,a);
+  if(ts===null){if(kontant+forman>0)fel.push({t:'Skatteuppgifter saknas: fyll i tabell och kolumn från A-skattebeskedet',a:a.id,anst:true})}else skatt=ts;
+  skatt+=Math.floor(Math.max(0,eng)*0.32);
+  if(a.giltig&&a.giltig<k.utbet)fel.push({t:`Skattebeslutet gällde t.o.m. ${a.giltig}`,a:a.id,anst:true});
+  const netto=r2(kontant+eng-skatt+skfri+nav);if(netto<0)fel.push({t:'Nettolönen blir negativ',a:a.id});
+  if(!a.bank&&netto>0)varn.push({t:'Bankkonto saknas i registret; nettolönen betalas på annat sätt.',a:a.id});
+  if(a.slut&&a.slut<k.period+'-01')fel.push({t:`Anställningen slutade ${a.slut}`,a:a.id});
+  const kat=avgKat(a),grund=r2(kontant+forman+eng);
+  return {L,fel,varn,frv,kontant,forman,eng,skfri,nav,brutto:r2(kontant+eng),skatt,netto,grund,kat,avg:r2(grund*SATS[kat]/100)};
+}
+const deltagare=k=>Object.keys(k.rader).map(hittaA).filter(Boolean);
+function sammanst(k){const C=deltagare(k).map(a=>({a,c:calc(k,a)}));
+  const fel=C.flatMap(x=>x.c.fel.map(e=>({...e,namn:x.a.namn}))),varn=C.flatMap(x=>x.c.varn.map(e=>({...e,namn:x.a.namn})));
+  if(!C.length)fel.push({t:'Lönekörningen har inga anställda'});
+  if(last(k.utbet))fel.push({t:`Utbetalningsdagen ligger i en låst period (t.o.m. ${manad(LAST_TOM)})`,datum:true});
+  const ag=AGI[S.co][k.period];if(ag&&ag.lamnad&&k.status==='utkast')varn.push({t:`AGI för ${manad(k.period)} är redan lämnad ${ag.lamnad}. Lämna en ny fil när lönekörningen är bokförd.`});
+  // avgifter per ålderskategori med öresavrundning per sats, som Skatteverket
+  const avgK={};C.forEach(x=>{avgK[x.c.kat]=r2((avgK[x.c.kat]||0)+x.c.grund)});
+  const avg=sum(Object.entries(avgK),([kk,b])=>r2(b*SATS[kk]/100));
+  return {C,fel,varn,avgK,avg,brutto:sum(C,x=>x.c.brutto),skatt:sum(C,x=>x.c.skatt),netto:sum(C,x=>x.c.netto),forman:sum(C,x=>x.c.forman),skfri:sum(C,x=>x.c.skfri)};
+}
+function dk(list){const m=new Map();list.forEach(([k,b])=>{if(!k||!b)return;m.set(k,r2((m.get(k)||0)+b))});return [...m].filter(([,b])=>b).map(([konto,b])=>({konto,debet:b>0?b:0,kredit:b<0?-b:0}))}
+function kontering(k){const s=sammanst(k),l=[];
+  s.C.forEach(({c})=>c.L.forEach(x=>{if(x.kat==='forman'){l.push([x.konto,x.belopp],['7399',-x.belopp])}else if(x.kat==='netto'){l.push(['7399',x.belopp])}
+    else if(x.moms){l.push([x.konto,x.belopp-x.moms],['2640',x.moms])}else l.push([x.konto,x.belopp])}));
+  l.push(['2710',-s.skatt],['7510',s.avg],['2731',-s.avg],['1930',-s.netto]);return dk(l)}
+function roTab(rows){const d=sum(rows,x=>x.debet),k=sum(rows,x=>x.kredit);
+  return `<table class="table ro"><thead><tr><th>Konto</th><th class="num">Debet</th><th class="num">Kredit</th></tr></thead><tbody>${rows.map(r=>`<tr><td>${r.konto} <span class="mf">${esc(KONTON[r.konto]||'')}</span></td><td class="num">${r.debet?kr(r.debet):''}</td><td class="num">${r.kredit?kr(r.kredit):''}</td></tr>`).join('')}
+  <tr class="sumrow"><td>Summa</td><td class="num">${kr(d)}</td><td class="num">${kr(k)}</td></tr></tbody></table>`}
+const vnrNasta=()=>co().vnr+1;
+function bokforsSom(k){const ver=[...k.ver].reverse().find(v=>v.typ==='Lönekörning');const b=k.status==='bokford'&&ver;
+  return `<div class="kont"><div class="flex" style="justify-content:space-between;margin-bottom:4px"><b style="font-weight:500">${b?`Bokförd som <span class="link" onclick="inteHar('Verifikatet')">V${ver.nr}</span> · ${dkort(ver.datum)}`:`Bokförs som V${vnrNasta()} · ${dkort(k.utbet)} (utbetalningsdagen)`}</b><span class="mf">lönespecifikationerna blir underlag</span></div>${roTab(kontering(k))}</div>`}
+
+/* ================= Status och AGI ================= */
+const STATUS={utkast:['Utkast','badge-utkast','pencil-line'],faststalld:['Fastställd','badge-warn','lock'],bokford:['Bokförd','badge-bokford','stamp']};
+const sBadge=k=>{const s=STATUS[k.status];return `<span class="badge ${s[1]}">${ic(s[2])}${s[0]}</span>`};
+const aiTag=k=>k.kanal!=='webb'&&k.status==='utkast'?`<span class="badge badge-ai">${ic('sparkles')}AI</span>`:'';
+const kTitel=k=>k.typ==='extra'?k.namn:'Lön '+manad(k.period);
+const kanBokforas=k=>IDAG_S>=k.utbet;
+function agiInfo(p){const runs=kor().filter(k=>k.utbet.slice(0,7)===p),bokf=runs.filter(k=>k.status==='bokford'),hinder=runs.filter(k=>k.status==='faststalld'),utk=runs.filter(k=>k.status==='utkast');
+  const ag=AGI[S.co][p]||{},c=co();
+  const iu={};bokf.forEach(k=>deltagare(k).forEach(a=>{const x=calc(k,a);const u=iu[a.id]=iu[a.id]||{a,fk:{},frv:[]};
+    const add=(f,b)=>{if(b)u.fk[f]=r2((u.fk[f]||0)+b)};x.L.forEach(l=>{if(l.fk&&l.fk!=='023'&&l.fk!=='050'&&l.kat!=='forman')add('011',l.belopp);else if(l.fk)add(l.fk,l.belopp)});add('001',x.skatt);u.frv.push(...x.frv)}));
+  const bort=hinder.length?[]:(ag.iu||[]).filter(id=>!iu[id]).map(hittaA).filter(Boolean);
+  const avgK={};bokf.forEach(k=>{const s=sammanst(k);Object.entries(s.avgK).forEach(([kk,b])=>avgK[kk]=r2((avgK[kk]||0)+b))});
+  const fk487=sum(Object.entries(avgK),([kk,b])=>r2(b*SATS[kk]/100)),fk497=sum(Object.values(iu),u=>u.fk['001']||0);
+  const reg=c.arb.reg&&p>=c.arb.fran.slice(0,7),noll=reg&&!runs.length&&!c.arb.sasong;
+  const behovs=runs.length>0||noll;
+  return {p,runs,bokf,hinder,utk,iu:Object.values(iu),bort,avgK,fk487,fk497,noll,behovs,ag,frist:frist(p),status:ag.lamnad?(ag.andrad?'andrad':'lamnad'):'ej'};
+}
+const agiBadge=i=>!i.behovs?`<span class="badge badge-lock">ingen AGI</span>`:i.status==='lamnad'?`<span class="badge badge-betald">${ic('check')}lämnad ${dkort(i.ag.lamnad)}</span>`:i.status==='andrad'?`<span class="badge badge-forfallen">${ic('triangle-alert')}ändrad efter lämnad</span>`:
+  (IDAG_S>i.frist?`<span class="badge badge-forfallen">försenad · ${dkort(i.frist)}</span>`:`<span class="badge badge-obetald">lämnas senast ${dkort(i.frist)}</span>`);
+function xmlFor(i){const c=co(),org='16'+c.orgnr.replace('-',''),per=i.p.replace('-','');const ind='    ';
+  const iu=i.iu.map(u=>`  <agd:Blankett>
+${ind}<agd:Arendeinformation><agd:Arendeagare>${org}</agd:Arendeagare><agd:Period>${per}</agd:Period></agd:Arendeinformation>
+${ind}<agd:Blankettinnehall><agd:IU>
+${ind}  <agd:ArbetsgivareIUGROUP><agd:AgRegistreradId faltkod="201">${org}</agd:AgRegistreradId></agd:ArbetsgivareIUGROUP>
+${ind}  <agd:BetalningsmottagarId faltkod="215">${u.a.pnr.replace('-','')}</agd:BetalningsmottagarId>
+${ind}  <agd:RedovisningsPeriod faltkod="006">${per}</agd:RedovisningsPeriod>
+${ind}  <agd:Specifikationsnummer faltkod="570">1</agd:Specifikationsnummer>
+${Object.entries(u.fk).sort().map(([f,b])=>`${ind}  <agd:${FKNAMN[f]||'Falt'} faltkod="${f}">${Math.round(b)}</agd:${FKNAMN[f]||'Falt'}>`).join('\n')}
+${u.frv.map(f=>`${ind}  <!-- frånvarouppgift ${f.typ} ${f.datum} ${f.omf} % (FK821–827) -->`).join('\n')}${u.frv.length?'\n':''}${ind}  <agd:ArbetsplatsensAdress faltkod="245">${esc(c.plats)}</agd:ArbetsplatsensAdress><agd:ArbetsplatsensOrt faltkod="246">${esc(c.ort)}</agd:ArbetsplatsensOrt>
+${ind}</agd:IU></agd:Blankettinnehall>
+  </agd:Blankett>`).join('\n');
+  const bort=i.bort.map(a=>`  <agd:Blankett><!-- borttag av IU för ${esc(a.namn)} --><agd:IU><agd:BetalningsmottagarId faltkod="215">${a.pnr.replace('-','')}</agd:BetalningsmottagarId><agd:Specifikationsnummer faltkod="570">1</agd:Specifikationsnummer><agd:Borttag faltkod="205">1</agd:Borttag></agd:IU></agd:Blankett>`).join('\n');
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<Skatteverket omrade="Arbetsgivardeklaration" xmlns="http://xmls.skatteverket.se/se/skatteverket/da/instans/schema/1.1" xmlns:agd="http://xmls.skatteverket.se/se/skatteverket/da/komponent/schema/1.1">
+  <agd:Avsandare><agd:Programnamn>Maya</agd:Programnamn><agd:Organisationsnummer>${org}</agd:Organisationsnummer><agd:TekniskKontaktperson>…</agd:TekniskKontaktperson><agd:Skapad>${IDAG_S}T10:00:00</agd:Skapad></agd:Avsandare>
+  <agd:Blankettgemensamt><agd:Arbetsgivare><agd:AgRegistreradId>${org}</agd:AgRegistreradId><agd:Kontaktperson>…</agd:Kontaktperson></agd:Arbetsgivare></agd:Blankettgemensamt>
+  <agd:Blankett>
+    <agd:Arendeinformation><agd:Arendeagare>${org}</agd:Arendeagare><agd:Period>${per}</agd:Period></agd:Arendeinformation>
+    <agd:Blankettinnehall><agd:HU>
+      <agd:ArbetsgivareHUGROUP><agd:AgRegistreradId faltkod="201">${org}</agd:AgRegistreradId></agd:ArbetsgivareHUGROUP>
+      <agd:RedovisningsPeriod faltkod="006">${per}</agd:RedovisningsPeriod>
+      <agd:SummaArbAvgSlf faltkod="487">${Math.floor(i.fk487)}</agd:SummaArbAvgSlf>
+      <agd:SummaSkatteavdr faltkod="497">${Math.round(i.fk497)}</agd:SummaSkatteavdr>
+    </agd:HU></agd:Blankettinnehall>
+  </agd:Blankett>
+${iu}${bort?'\n'+bort:''}
+</Skatteverket>`}
+const FKNAMN={'001':'AvdrPrelSkatt','011':'KontantErsattningUlagAG','012':'SkatteplOvrigaFormanerUlagAG','013':'SkatteplBilformanUlagAG','018':'DrivmVidBilformanUlagAG','023':'StyrelsearvodeUlagAG','041':'BostadsformanSmahusUlagAG','043':'BostadsformanEjSmahusUlagAG','050':'BilersattningEjUlagAG'};
+const FKTXT={'001':'Avdragen skatt','011':'Kontant ersättning','012':'Övriga förmåner','013':'Bilförmån','018':'Drivmedel vid bilförmån','023':'Styrelsearvode','041':'Bostadsförmån, småhus','043':'Bostadsförmån, ej småhus','050':'Skattefri milersättning'};
+
+/* ================= Handlingar ================= */
+function inteHar(t){S.flash=t+' prototypas i ett annat ticket.';render()}
+function setRad(kid,aid,i,f,v){const r=hittaK(kid).rader[aid][i];r[f]=['ftyp','konto','text','datum','fran','underlag'].includes(f)?v:v;render(true)}
+function nyRad(kid,aid,t){if(!t)return;const a=hittaA(aid),r={t};
+  if(t==='tim')Object.assign(r,{antal:'',apris:a.belopp});if(t==='forman')Object.assign(r,{ftyp:'ovrig',belopp:''});if(t==='utlagg')Object.assign(r,{text:'',belopp:'',moms:'',konto:'6110',underlag:''});
+  if(t==='vab'||t==='foraldra')Object.assign(r,{datum:'',dagar:1,omf:100});if(t==='arvode')r.belopp=a.typ==='styrelse'?a.belopp:'';if(t==='sjuk')Object.assign(r,{fran:'',dagar:''});if(t==='semester')r.dagar='';
+  hittaK(kid).rader[aid].push(r);render()}
+function taBortRad(kid,aid,i){hittaK(kid).rader[aid].splice(i,1);render()}
+function laggTill(kid,aid){const k=hittaK(kid),a=hittaA(aid);k.rader[aid]=standardRader(a);k.historik.push(h(nu(),ANV,'La till '+a.namn,'user-plus'));S.emp=aid;S.open[aid]=true;render()}
+function taBortAnst(kid,aid){const k=hittaK(kid);delete k.rader[aid];k.historik.push(h(nu(),ANV,'Tog bort '+hittaA(aid).namn+' ur lönekörningen','user-minus'));if(S.emp===aid)S.emp=null;render()}
+const standardRader=a=>a.typ==='manad'?[{t:'manad'}]:a.typ==='timme'?[{t:'tim',antal:'',apris:a.belopp}]:[{t:'arvode',belopp:a.belopp}];
+const aktiva=p=>anst().filter(a=>!(a.slut&&a.slut<p+'-01')&&a.anst<=p+'-31');
+function faststall(kid){const k=hittaK(kid),p=S.panel,tid=nu();k.status='faststalld';k.specar.forEach(s=>s.ersatt=true);
+  const ver=k.specar.length+1,skickad={};if(p.skicka)deltagare(k).forEach(a=>{if(a.epost)skickad[a.id]=tid});
+  k.specar.push({ver,tid,ersatt:false,skickad});k.historik.push(h(tid,ANV,`Fastställde. Lönespecifikationer v${ver} skapade${ver>1?` och ersätter v${ver-1}`:''}${p.skicka?' och skickade':''}`,'lock'));
+  S.panel=null;S.flash=`Lönekörningen är fastställd. ${deltagare(k).length} lönespecifikationer (v${ver}) skapade${p.skicka?' och skickade':''}.`+(kanBokforas(k)?'':` Den kan bokföras från ${dkort(k.utbet)}.`);render()}
+function oppnaIgen(kid){const k=hittaK(kid);k.status='utkast';k.historik.push(h(nu(),ANV,'Öppnade lönekörningen igen. Lönespecifikationerna gäller tills den fastställs på nytt','lock-open'));S.panel=null;S.flash='Lönekörningen är ett utkast igen.';render()}
+function bokfor(kid){const k=hittaK(kid),c=co();c.vnr++;k.ver.push({typ:'Lönekörning',nr:c.vnr,datum:k.utbet});k.status='bokford';
+  k.historik.push(h(nu(),ANV,`Bokförde som V${c.vnr} med verifikatdatum ${k.utbet}`,'stamp'));const ag=AGI[S.co][k.period];if(ag&&ag.lamnad){ag.andrad=IDAG_S}
+  S.panel=null;S.flash=`Bokförd som V${c.vnr} · ${dkort(k.utbet)}.`+(ag&&ag.lamnad?` AGI för ${manad(k.period)} är redan lämnad; lämna en ny fil.`:'');nastaEfter();render()}
+function ratta(kid){const k=hittaK(kid),p=S.panel,c=co(),gammal=[...k.ver].reverse().find(v=>v.typ==='Lönekörning');
+  if(p.hur==='om'){c.vnr++;k.ver.push({typ:'Rättelse av V'+gammal.nr,nr:c.vnr,datum:IDAG_S});k.status='faststalld';
+    k.historik.push(h(nu(),ANV,`Rättade V${gammal.nr} med V${c.vnr}${p.orsak?' (orsak: '+p.orsak+')':''}. Lönekörningen blev fastställd igen`,'undo-2'));
+    const ag=AGI[S.co][k.period];if(ag&&ag.lamnad)ag.andrad=IDAG_S;S.panel=null;S.flash=`V${gammal.nr} är vänt med V${c.vnr}. Öppna lönekörningen igen för att ändra den.`}
+  else{const a=hittaA(p.aid);let mal=kor().find(x=>x.status==='utkast'&&x.typ==='ordinarie'&&x.period>k.period);
+    if(!mal){mal=K({period:nastaMan(IDAG_S.slice(0,7)),utbet:nastaMan(IDAG_S.slice(0,7))+'-25'});kor().unshift(mal)}
+    mal.rader[a.id]=mal.rader[a.id]||standardRader(a);mal.rader[a.id].push({t:'korr',text:p.text||('Rättelse '+kTitel(k).toLowerCase()),belopp:p.belopp});
+    k.historik.push(h(nu(),ANV,`Korrigering ${kr(n(p.belopp))} kr för ${a.namn} lagd i ${kTitel(mal)}`,'arrow-right'));S.panel=null;S.flash=`Korrigeringsraden ligger i ${kTitel(mal)}.`}
+  render()}
+function radera(kid){KOR[S.co]=kor().filter(k=>k.id!==kid);S.panel=null;S.flash='Utkastet raderades.';go('#/lon')}
+function skapaKorning(){const p=S.panel;const ny=K({typ:p.typ,namn:p.typ==='extra'?(p.namn||'Extra lönekörning'):'',period:p.utbet.slice(0,7),utbet:p.utbet});
+  p.valda.forEach(id=>ny.rader[id]=standardRader(hittaA(id)));ny.historik.push(h(nu(),ANV,'Skapade lönekörningen','plus'));kor().unshift(ny);S.panel=null;go(S.variant==='C'?'#/lon/m-'+ny.period:'#/lon/'+ny.id)}
+function skapaXml(p){S.xml=p;const i=agiInfo(p);S.flash=`agi_${co().orgnr.replace('-','')}_${p.replace('-','')}.xml är skapad och validerad mot XSD 1.1${i.noll?' (nolldeklaration)':''}.`;agi(p).fil=nu();render()}
+function lamna(p){const ag=agi(p),d=S.panel.datum;ag.lamnad=d;delete ag.andrad;ag.iu=agiInfo(p).iu.map(u=>u.a.id);S.panel=null;S.flash=`AGI för ${manad(p)} är markerad som lämnad ${d}.`;nastaEfter();render()}
+function betalaSkatt(p){const c=co();c.vnr++;SKATT[S.co][p]={nr:c.vnr,datum:S.panel.datum};S.panel=null;S.flash=`Betalningen till skattekontot är bokförd som V${c.vnr}.`;render()}
+function nastaEfter(){if(route().mod!=='inkorg')return;const x=attGora().flatMap(([, , l])=>l)[0];S.flash+=x?'':' Inget kvar att göra för lön.';go('#/inkorg'+(x?'/'+x.id:''))}
+function sparaAnst(aid){const a=hittaA(aid),e=S.edit,ch=[];
+  Object.entries(e.v).forEach(([f,v])=>{const gam=f==='tabell'||f==='kol'||f==='belopp'?String(a[f]??''):a[f]??'';if(String(v)!==String(gam)){ch.push(`${FALT[f]} ${gam||'—'} → ${v||'—'}`);a[f]=['tabell','kol','belopp'].includes(f)?(v===''?null:+v):v}});
+  if(ch.length)a.hist.unshift({tid:e.fran,t:ch.join('; ')+', gäller från '+e.fran,v:ANV});S.edit=null;S.flash=ch.length?'Ändringen är sparad och loggad.':'Inget ändrades.';render()}
+const FALT={belopp:'Lön',tabell:'Skattetabell',kol:'Kolumn',giltig:'Skattebeslut gäller t.o.m.',bank:'Bankkonto',epost:'E-post',slut:'Slutdatum',adress:'Adress'};
+
+/* ================= Gemensamma byggstenar ================= */
+function ferrRad(c,i){return c.fel.filter(e=>e.i===i).map(e=>`<div class="ferr">${ic('circle-alert')}<span>${esc(e.t)}</span></div>`).join('')}
+function falt(k,a,i,f,val,w,typ){const ro=k.status!=='utkast';return `<input class="cell ${typ==='num'?'num':''}" style="width:${w||90}px" ${ro?'readonly':''} value="${esc(val??'')}" onchange="setRad('${k.id}','${a.id}',${i},'${f}',this.value)">`}
+function radFalt(k,a,r,i){const ro=k.status!=='utkast',sel=(f,o,v)=>`<select class="cell" style="width:auto" ${ro?'disabled':''} onchange="setRad('${k.id}','${a.id}',${i},'${f}',this.value)">${o.map(([x,t])=>`<option value="${x}" ${x===v?'selected':''}>${t}</option>`).join('')}</select>`;
+  switch(r.t){
+    case 'manad':{const pr=prorata(a,k.period);return `<span class="mf">${kr(a.belopp)} kr/mån från registret${pr.f<1?` · ${pr.dgr} av ${pr.tot} dagar`:''}</span>`}
+    case 'tim':return `${falt(k,a,i,'antal',r.antal,60,'num')} h × ${falt(k,a,i,'apris',r.apris,70,'num')} kr`;
+    case 'semester':return `${falt(k,a,i,'dagar',r.dagar,50,'num')} dagar <span class="mf">· saldo ${a.sem.saldo} betalda dagar</span>`;
+    case 'sjuk':return `från ${falt(k,a,i,'fran',r.fran,100)} ${falt(k,a,i,'dagar',r.dagar,50,'num')} dagar`;
+    case 'vab':case 'foraldra':return `${falt(k,a,i,'datum',r.datum,100)} ${falt(k,a,i,'dagar',r.dagar,44,'num')} dagar × ${falt(k,a,i,'omf',r.omf,50,'num')} %`;
+    case 'forman':return `${sel('ftyp',Object.entries(FTYP).map(([x,v])=>[x,v[0]]),r.ftyp)} värde ${falt(k,a,i,'belopp',r.belopp,80,'num')} kr/mån`;
+    case 'utlagg':return `${falt(k,a,i,'text',r.text,140)} ${falt(k,a,i,'belopp',r.belopp,70,'num')} kr, varav moms ${falt(k,a,i,'moms',r.moms,60,'num')} ${sel('konto',['5410','5611','6110'].map(x=>[x,x+' '+KONTON[x]]),r.konto)}
+      ${r.underlag?`<span class="badge badge-lock">${ic('paperclip')}${esc(r.underlag)}</span>`:ro?'':`<button class="btn btn-ghost" onclick="setRad('${k.id}','${a.id}',${i},'underlag','kvitto_${Date.now()%1000}.pdf')">${ic('paperclip')}Underlag</button>`}`;
+    case 'mil':return `${falt(k,a,i,'km',r.km,60,'num')} km i egen bil`;
+    case 'arvode':return `${falt(k,a,i,'belopp',r.belopp,90,'num')} kr`;
+    case 'korr':return `${falt(k,a,i,'text',r.text,180)} ${falt(k,a,i,'belopp',r.belopp,80,'num')} kr <span class="mf">engångsskatt</span>`;
+    case 'netto':return `${falt(k,a,i,'text',r.text,160)} ${falt(k,a,i,'belopp',r.belopp,80,'num')} kr`;
+  }return ''}
+function radEditor(k,a,opt){const c=calc(k,a),ro=k.status!=='utkast',rows=k.rader[a.id]||[];
+  const typer=Object.entries(RADTYP).filter(([t])=>!(t==='manad'&&a.typ!=='manad')&&!(t==='tim'&&a.typ!=='timme'));
+  return `<table class="redit" style="width:100%"><tbody>${rows.map((r,i)=>`<tr class="${c.fel.some(e=>e.i===i)?'err':''}"><td class="typ">${RADTYP[r.t]}</td><td>${radFalt(k,a,r,i)}${ferrRad(c,i)}</td><td class="num" style="width:100px">${kr(sum(c.L.filter(x=>x.i===i),x=>x.belopp))}</td><td style="width:30px">${ro||r.t==='manad'?'':`<button class="btn btn-ghost btn-icon" title="Ta bort raden" onclick="taBortRad('${k.id}','${a.id}',${i})">${ic('x')}</button>`}</td></tr>`).join('')}</tbody></table>
+  ${ro?'':`<div class="flex" style="margin-top:6px"><select class="select" style="width:auto" onchange="nyRad('${k.id}','${a.id}',this.value)"><option value="">+ Lägg till rad…</option>${typer.map(([t,x])=>`<option value="${t}">${x}</option>`).join('')}</select>
+    ${opt&&opt.taBort?`<button class="btn btn-destructive-ghost" onclick="taBortAnst('${k.id}','${a.id}')">${ic('user-minus')}Ta bort ur lönekörningen</button>`:''}</div>`}
+  ${c.fel.filter(e=>e.i===undefined).map(e=>`<div class="ferr">${ic('circle-alert')}<span>${esc(e.t)}${e.anst?` · <span class="link" onclick="go('#/lon/a-${a.id}')">öppna ${esc(a.namn)} i registret</span>`:''}</span></div>`).join('')}
+  ${c.varn.map(v=>`<div class="note warn" style="margin-top:4px">${ic('triangle-alert')}<span>${esc(v.t)}</span></div>`).join('')}
+  ${opt&&opt.calc===false?'':calcTab(a,c)}`}
+function calcTab(a,c){return `<table class="calc" style="margin-top:8px;width:100%"><tbody>
+  ${c.L.map(x=>`<tr><td>${esc(x.text)}</td><td class="fk">${x.konto}${x.fk?' · FK'+x.fk:''}</td><td class="num">${kr(x.belopp)}</td></tr>`).join('')}
+  <tr><td><b style="font-weight:500">Bruttolön</b></td><td></td><td class="num"><b style="font-weight:500">${kr(c.brutto)}</b></td></tr>
+  ${c.forman?`<tr><td class="mf">Förmåner (skattepliktiga, betalas inte ut)</td><td></td><td class="num mf">${kr(c.forman)}</td></tr>`:''}
+  <tr><td>Skatteavdrag <span class="mf">${a.jamk?'jämkning '+a.jamk+' %':a.sido?'sidoinkomst 30 %':a.tabell?`tabell ${a.tabell} kolumn ${a.kol} på ${kr0(c.kontant+c.forman)} kr`:'saknas'}${c.eng?` + engångsskatt 32 % på ${kr0(c.eng)} kr`:''}</span></td><td class="fk">2710 · FK001</td><td class="num">−${kr(c.skatt)}</td></tr>
+  ${c.skfri?`<tr><td>Skattefria ersättningar</td><td></td><td class="num">${kr(c.skfri)}</td></tr>`:''}
+  ${c.nav?`<tr><td>Nettolöneavdrag</td><td></td><td class="num">${kr(c.nav)}</td></tr>`:''}
+  <tr class="sumrow"><td>Nettolön</td><td class="fk">1930</td><td class="num">${kr(c.netto)}</td></tr>
+  <tr><td class="mf">Arbetsgivaravgifter ${SATS_T[c.kat]} på ${kr0(c.grund)} kr</td><td class="fk">7510</td><td class="num mf">${kr(c.avg)}</td></tr></tbody></table>`}
+function specPapper(k,a,ver){const c=calc(k,a),f=co();const v=ver||(k.status==='utkast'?null:k.specar[k.specar.length-1]);
+  return `<div class="inv spec">${!v?'<div class="wm">UTKAST</div>':v.ersatt?'<div class="wm">ERSATT</div>':''}
+  <div class="h"><div><div class="tt">Lönespecifikation</div><div>${esc(f.namn)} · ${f.orgnr}</div></div><div class="kv"><span>Utbetalning</span><span>${k.utbet}</span><span>Period</span><span>${manad(k.period)}</span>${v?`<span>Version</span><span>${v.ver}${v.ersatt?' (ersatt)':''}</span>`:''}</div></div>
+  <div><div class="lbl2">Anställd</div><b>${esc(a.namn)}</b><br>${a.pnr}<br>${esc(a.adress)}</div>
+  <table><thead><tr><th>Löneart</th><th class="r">Belopp</th></tr></thead><tbody>${c.L.map(x=>`<tr><td>${esc(x.text)}</td><td class="r">${kr(x.belopp)}</td></tr>`).join('')}</tbody></table>
+  <div class="sum"><span>Bruttolön</span><span class="r">${kr(c.brutto)}</span>${c.forman?`<span>Förmåner</span><span class="r">${kr(c.forman)}</span>`:''}<span>Skatteavdrag</span><span class="r">−${kr(c.skatt)}</span>${c.skfri?`<span>Skattefritt</span><span class="r">${kr(c.skfri)}</span>`:''}<span class="big">Att utbetala</span><span class="big r">${kr(c.netto)}</span></div>
+  <div class="pay"><span>Skattetabell</span><span>Semester kvar</span><span>Sparade dagar</span><span>Konto</span><span>${a.sido?'30 %':a.tabell?a.tabell+' kol '+a.kol:'—'}</span><span>${a.sem.saldo} dagar</span><span>${a.sem.sparade}</span><span>${a.bank?esc(a.bank):'<span class="miss">saknas</span>'}</span></div>
+  <div class="foot"><span>${esc(f.namn)}</span><span>${esc(f.plats)}, ${esc(f.ort)}</span>${c.frv.map(x=>`<span>Frånvaro: ${x.typ} ${x.datum}</span>`).join('')}</div></div>`}
+function huvud(k){const s=sammanst(k);
+  return `<div class="flex" style="justify-content:space-between;align-items:flex-start"><div class="col" style="gap:4px"><div class="flex"><h1>${esc(kTitel(k))}</h1>${sBadge(k)}${aiTag(k)}${k.typ==='extra'?'<span class="badge badge-lock">extra</span>':''}</div>
+    <div class="mf">Utbetalning ${k.utbet} · AGI-period ${manad(k.utbet.slice(0,7))} · ${deltagare(k).length} anställda · ${k.tabell}${k.kanal!=='webb'?' · skapad av '+esc(k.kanal):''}</div></div>${knappar(k,s)}</div>${panel(k)}`}
+function knappar(k,s){const kvar=s.fel.length;
+  if(k.status==='utkast')return `<div class="flex"><button class="btn btn-destructive-ghost" onclick="S.panel={typ:'radera',id:'${k.id}'};render()">${ic('trash-2')}Radera</button><button class="btn btn-default" ${kvar?'disabled':''} onclick="S.panel={typ:'faststall',id:'${k.id}',skicka:true};render()">${ic('lock')}Fastställ${kvar?` <span class="bcount">${kvar} kvar</span>`:''}</button></div>`;
+  if(k.status==='faststalld')return `<div class="flex"><button class="btn btn-outline" onclick="S.panel={typ:'oppna',id:'${k.id}'};render()">${ic('lock-open')}Öppna igen</button><button class="btn btn-default" ${kanBokforas(k)?'':'disabled'} title="${kanBokforas(k)?'':'Tidigast på utbetalningsdagen'}" onclick="S.panel={typ:'bokfor',id:'${k.id}'};render()">${ic('stamp')}Bokför${kanBokforas(k)?'':' från '+dkort(k.utbet)}</button></div>`;
+  return `<div class="flex"><button class="btn btn-outline" onclick="S.panel={typ:'ratta',id:'${k.id}',hur:'om',aid:'${deltagare(k)[0]?.id}',belopp:'',text:'',orsak:''};render()">${ic('undo-2')}Rätta…</button></div>`}
+function panel(k){const p=S.panel;if(!p||p.id!==k.id)return '';const s=sammanst(k),ag=AGI[S.co][k.period];let b='';
+  const x=`<button class="btn btn-ghost btn-icon" onclick="S.panel=null;render()">${ic('x')}</button>`;
+  if(p.typ==='faststall')b=`<div class="flex" style="justify-content:space-between"><h2>Fastställ lönekörningen</h2>${x}</div>
+    <div class="stats">${stat('Bruttolön',s.brutto)}${stat('Skatteavdrag',s.skatt)}${stat('Nettolön att betala',s.netto)}${stat('Arbetsgivaravgifter',s.avg)}${stat('Anställda',deltagare(k).length,1)}</div>
+    <div class="note">${ic('info')}<span>Lönekörningen låses och ${deltagare(k).length} lönespecifikationer skapas som PDF${k.specar.length?` (v${k.specar.length+1}, v${k.specar.length} märks som ersatt)`:''}. Den bokförs av dig ${kanBokforas(k)?'direkt efteråt':'tidigast '+k.utbet}. Den kan öppnas igen tills den bokförs.</span></div>
+    ${s.varn.map(v=>`<div class="note warn">${ic('triangle-alert')}<span>${v.namn?esc(v.namn)+': ':''}${esc(v.t)}</span></div>`).join('')}
+    <label class="flex" style="font-size:12px"><input type="checkbox" ${p.skicka?'checked':''} onchange="S.panel.skicka=this.checked">Skicka lönespecifikationerna till de anställdas e-post</label>
+    <div class="flex" style="justify-content:flex-end"><button class="btn btn-outline" onclick="S.panel=null;render()">Avbryt</button><button class="btn btn-default" onclick="faststall('${k.id}')">${ic('lock')}Fastställ</button></div>`;
+  if(p.typ==='oppna')b=`<div class="flex" style="justify-content:space-between"><h2>Öppna lönekörningen igen?</h2>${x}</div><div class="note">${ic('info')}<span>Den blir ett utkast. Lönespecifikationerna v${k.specar.length} ligger kvar och märks som ersatta när du fastställer igen.${Object.keys(k.specar.at(-1)?.skickad||{}).length?' De har redan skickats; den nya versionen behöver skickas igen.':''}</span></div>
+    <div class="flex" style="justify-content:flex-end"><button class="btn btn-outline" onclick="S.panel=null;render()">Avbryt</button><button class="btn btn-default" onclick="oppnaIgen('${k.id}')">${ic('lock-open')}Öppna igen</button></div>`;
+  if(p.typ==='bokfor')b=`<div class="flex" style="justify-content:space-between"><h2>Bokför lönekörningen</h2>${x}</div>${bokforsSom(k)}
+    <div class="note">${ic('info')}<span>Verifikatdatum är utbetalningsdagen ${k.utbet}, också när du bokför senare. Lönespecifikationerna v${k.specar.length} blir underlag. Betalningen till skattekontot bokförs som ett eget verifikat.</span></div>
+    ${ag&&ag.lamnad?`<div class="note warn">${ic('triangle-alert')}<span>AGI för ${manad(k.period)} är redan lämnad. Perioden markeras som ändrad och du lämnar en ny fil.</span></div>`:''}
+    <div class="flex" style="justify-content:flex-end"><button class="btn btn-outline" onclick="S.panel=null;render()">Avbryt</button><button class="btn btn-default" onclick="bokfor('${k.id}')">${ic('stamp')}Bokför V${vnrNasta()}</button></div>`;
+  if(p.typ==='radera')b=`<div class="flex" style="justify-content:space-between"><h2>Radera utkastet?</h2>${x}</div><div class="note">${ic('info')}<span>Raderingen loggas. Inga lönespecifikationer eller verifikat finns ännu.</span></div><div class="flex" style="justify-content:flex-end"><button class="btn btn-outline" onclick="S.panel=null;render()">Avbryt</button><button class="btn btn-default" style="background:var(--destructive)" onclick="radera('${k.id}')">${ic('trash-2')}Radera utkast</button></div>`;
+  if(p.typ==='ratta'){const gam=[...k.ver].reverse().find(v=>v.typ==='Lönekörning');b=`<div class="flex" style="justify-content:space-between"><h2>Rätta lönekörningen</h2>${x}</div>
+    <div class="radio-list"><label><input type="radio" name="hur" ${p.hur==='om'?'checked':''} onchange="S.panel.hur='om';render()"><span><b style="font-weight:500">Rätta den här lönekörningen</b><br><span class="mf">V${gam.nr} vänds, lönekörningen blir fastställd igen och du öppnar, ändrar och bokför den på nytt med nya lönespecifikationer</span></span></label>
+    <label><input type="radio" name="hur" ${p.hur==='senare'?'checked':''} onchange="S.panel.hur='senare';render()"><span><b style="font-weight:500">Korrigera i en senare lönekörning</b><br><span class="mf">en korrigeringsrad med engångsskatt läggs i nästa ordinarie utkast; den här lönekörningen ändras inte</span></span></label></div>
+    ${p.hur==='om'?`<div><label class="label">Orsak (valfri, loggas)</label><input class="input" value="${esc(p.orsak)}" onchange="S.panel.orsak=this.value"></div>`:`<div class="g3"><div><label class="label">Anställd</label><select class="select" onchange="S.panel.aid=this.value">${deltagare(k).map(a=>`<option value="${a.id}" ${a.id===p.aid?'selected':''}>${esc(a.namn)}</option>`).join('')}</select></div><div><label class="label">Belopp (+ tillägg, − avdrag)</label><input class="input num" value="${esc(p.belopp)}" onchange="S.panel.belopp=this.value"></div><div><label class="label">Text på lönespecen</label><input class="input" placeholder="Retroaktivt tillägg ${MAN[+k.period.slice(5)-1]}" value="${esc(p.text)}" onchange="S.panel.text=this.value"></div></div>`}
+    ${ag&&ag.lamnad?`<div class="note warn">${ic('triangle-alert')}<span>${p.hur==='om'?`AGI för ${manad(k.period)} är lämnad ${ag.lamnad}. När lönekörningen bokförts igen lämnar du en ny fil; IU med samma specifikationsnummer ersätter de gamla.`:'Korrigeringen redovisas i den senare periodens AGI.'}</span></div>`:''}
+    <div class="flex" style="justify-content:flex-end"><button class="btn btn-outline" onclick="S.panel=null;render()">Avbryt</button><button class="btn btn-default" ${p.hur==='senare'&&!n(p.belopp)?'disabled':''} onclick="ratta('${k.id}')">${ic(p.hur==='om'?'undo-2':'arrow-right')}${p.hur==='om'?`Vänd V${gam.nr}`:'Lägg korrigeringen'}</button></div>`}
+  return `<div class="inl">${b}</div>`}
+const stat=(t,v,heltal)=>`<div class="stat"><span class="mf">${t}</span><b>${heltal?v:kr(v)}</b></div>`;
+function specLista(k){if(!k.specar.length)return '';
+  return `<div><div class="sec-t">Lönespecifikationer</div>${[...k.specar].reverse().map(v=>`<div style="margin-bottom:8px"><div class="flex" style="margin-bottom:4px"><b style="font-weight:500">Version ${v.ver}</b><span class="mf">${v.tid}</span>${v.ersatt?'<span class="badge badge-lock">ersatt</span>':''}</div>
+    ${deltagare(k).map(a=>`<div class="ufile ${v.ersatt?'kompl':''}">${ic('file-text')}<span>lonespec_${a.id}_${k.period.replace('-','')}_v${v.ver}.pdf</span><span class="link" onclick="S.modal={typ:'spec',kid:'${k.id}',aid:'${a.id}',ver:${v.ver}};render()">visa</span>
+      <span class="mf">${v.skickad[a.id]?'skickad '+v.skickad[a.id]+' till '+esc(a.epost):v.ersatt?'':`<span class="link" onclick="skickaSpec('${k.id}','${a.id}',${v.ver})">skicka till ${esc(a.epost||'—')}</span> · ladda ner`}</span></div>`).join('')}</div>`).join('')}</div>`}
+function skickaSpec(kid,aid,ver){const k=hittaK(kid),v=k.specar.find(x=>x.ver===ver),a=hittaA(aid),t=nu();v.skickad[aid]=t;k.historik.push(h(t,ANV,`Skickade lönespecifikation v${ver} till ${a.epost}`,'send'));S.flash='Lönespecifikationen skickades.';render()}
+function historik(k){return `<div><div class="sec-t">Historik</div><ul class="hist">${[...k.historik].reverse().map(x=>`<li>${ic(x.i)}<span class="t">${x.tid}</span><span>${esc(x.t)} <span class="mf">· ${esc(x.vem)}</span></span></li>`).join('')}</ul></div>`}
+function verLista(k){return k.ver.length?`<div><div class="sec-t">Verifikat</div><div class="chips">${k.ver.map(v=>`<span class="badge badge-bokford">${v.typ} V${v.nr} · ${v.datum}</span>`).join('')}</div></div>`:''}
+function felLista(s){return s.fel.length?`<div class="alert destructive">${ic('circle-alert')}<div><div class="t">${s.fel.length} att åtgärda innan lönekörningen kan fastställas</div><ul>${s.fel.map(e=>`<li>${e.namn?esc(e.namn)+': ':''}${esc(e.t)}</li>`).join('')}</ul></div></div>`:''}
+function saknas(k){if(k.status!=='utkast')return '';const ut=aktiva(k.period).filter(a=>!k.rader[a.id]&&!(k.typ==='extra'));
+  return ut.length?`<div class="note">${ic('user-plus')}<span>Inte med: ${ut.map(a=>`<span class="link" onclick="laggTill('${k.id}','${a.id}')">${esc(a.namn)}</span>`).join(', ')}</span></div>`:''}
+function totRad(s){return `<div class="stats">${stat('Bruttolön',s.brutto)}${stat('Skatteavdrag',s.skatt)}${stat('Nettolön',s.netto)}${stat('Förmåner',s.forman)}${stat('Arbetsgivaravgifter',s.avg)}</div>`}
+
+/* ================= AGI-vy (gemensam) ================= */
+function agiKropp(p,kompakt){const i=agiInfo(p),ag=i.ag,c=co();let b='';
+  if(!i.behovs)return `<div class="note">${ic('info')}<span>Ingen AGI för ${manad(p)}: ${!c.arb.reg||p<c.arb.fran.slice(0,7)?'företaget var inte registrerat som arbetsgivare':'säsongsregistrerat och ingen utbetalning'}.</span></div>`;
+  if(i.hinder.length)b+=`<div class="alert destructive">${ic('circle-alert')}<div><div class="t">Filen kan inte skapas</div><ul>${i.hinder.map(k=>`<li><span class="link" onclick="go('${S.variant==='C'?'#/lon/m-'+k.period:'#/lon/'+k.id}')">${esc(kTitel(k))}</span> är fastställd men inte bokförd${kanBokforas(k)?'':' (kan bokföras från '+dkort(k.utbet)+')'}</li>`).join('')}</ul></div></div>`;
+  if(i.utk.length)b+=`<div class="note warn">${ic('triangle-alert')}<span>${i.utk.map(k=>esc(kTitel(k))).join(', ')} är utkast och kommer inte med förrän ${i.utk.length>1?'de':'den'} bokförts.</span></div>`;
+  if(i.status==='andrad')b+=`<div class="note warn">${ic('triangle-alert')}<span>Lämnad ${ag.lamnad}, men en lönekörning i perioden ändrades ${ag.andrad}. Skapa en ny fil och lämna den; varje IU har specifikationsnummer 1 och ersätter den gamla.</span></div>`;
+  if(i.noll)b+=`<div class="note">${ic('info')}<span>Ingen lön betalades ut i ${manad(p)}. Företaget är registrerat som arbetsgivare sedan ${c.arb.fran}, så en nolldeklaration ska lämnas: en HU med 0 i FK487 och FK497.</span></div>`;
+  b+=`<div class="g4">${stat('Arbetsgivaravgifter · FK487',Math.floor(i.fk487))}${stat('Avdragen skatt · FK497',i.fk497)}${stat('Att betala till skattekontot',Math.floor(i.fk487)+i.fk497)}${stat('Individuppgifter',i.iu.length,1)}</div>`;
+  if(!kompakt||i.iu.length)b+=`<table class="table"><thead><tr><th>Individuppgift</th><th>FK570</th>${['011','012','013','023','050','001'].map(f=>`<th class="num" title="${FKTXT[f]}">FK${f}</th>`).join('')}<th>Frånvaro</th></tr></thead><tbody>
+    ${i.iu.map(u=>`<tr><td>${esc(u.a.namn)} <span class="mf">${u.a.pnr}</span></td><td>1</td>${['011','012','013','023','050','001'].map(f=>`<td class="num">${u.fk[f]?kr0(u.fk[f]):''}</td>`).join('')}<td class="mf">${u.frv.map(f=>f.typ+' '+dkort(f.datum)).join(', ')}</td></tr>`).join('')}
+    ${i.bort.map(a=>`<tr><td>${esc(a.namn)}</td><td colspan="8"><span class="badge badge-forfallen">borttag FK205</span> fanns i den lämnade filen men inte längre</td></tr>`).join('')}
+    ${!i.iu.length&&!i.bort.length?`<tr><td colspan="9" class="mf">Inga individuppgifter.</td></tr>`:''}</tbody></table>
+    <div class="mf" style="font-size:11px">Avgifter per ålderskategori: ${Object.entries(i.avgK).map(([kk,bb])=>`${SATS_T[kk]} på ${kr0(bb)} kr = ${kr(r2(bb*SATS[kk]/100))}`).join(' · ')||'—'}. Arbetsplats ${esc(c.plats)}, ${esc(c.ort)} (FK245/246).</div>`;
+  const kan=!i.hinder.length,lp=S.panel&&S.panel.typ==='lamna'&&S.panel.p===p;
+  b+=`<div class="flex"><button class="btn ${i.status==='lamnad'?'btn-outline':'btn-default'}" ${kan?'':'disabled'} onclick="skapaXml('${p}')">${ic('file-code-2')}${ag.fil?'Skapa filen igen':'Skapa XML-fil'}</button>
+    ${ag.fil&&i.status!=='lamnad'?`<button class="btn btn-default" onclick="S.panel={typ:'lamna',p:'${p}',datum:'${IDAG_S}'};render()">${ic('check')}Markera som lämnad…</button>`:''}
+    ${ag.fil?`<span class="mf">skapad ${ag.fil} · <span class="link" onclick="S.xml=S.xml==='${p}'?false:'${p}';render()">${S.xml===p?'dölj':'visa'} XML</span> · ladda upp och signera i Skatteverkets e-tjänst</span>`:`<span class="mf">${kan?'filen valideras mot XSD 1.1 innan du laddar ner den':''}</span>`}</div>`;
+  if(lp)b+=`<div class="inl"><div class="flex" style="justify-content:space-between"><h2>Markera AGI ${manad(p)} som lämnad</h2><button class="btn btn-ghost btn-icon" onclick="S.panel=null;render()">${ic('x')}</button></div><div class="g3"><div><label class="label">Lämnad datum</label><input class="input" value="${S.panel.datum}" onchange="S.panel.datum=this.value"></div></div>
+    <div class="note">${ic('info')}<span>Maya kan inte se om filen signerats i e-tjänsten; markeringen är din uppgift. Ändras en lönekörning i perioden efteråt flaggas den.</span></div><div class="flex" style="justify-content:flex-end"><button class="btn btn-outline" onclick="S.panel=null;render()">Avbryt</button><button class="btn btn-default" onclick="lamna('${p}')">${ic('check')}Markera som lämnad</button></div></div>`;
+  if(S.xml===p)b+=`<pre class="xml">${esc(xmlFor(i))}</pre>`;
+  return b}
+function skattKropp(p){const i=agiInfo(p),sk=SKATT[S.co][p],bel=Math.floor(i.fk487)+i.fk497,sp=S.panel&&S.panel.typ==='skatt'&&S.panel.p===p;
+  if(!bel)return `<div class="mf">${i.runs.length&&i.bokf.length<i.runs.length?'Beloppet räknas fram när lönekörningarna i perioden är bokförda.':'Inget att betala för '+manad(p)+'.'}</div>`;
+  return `<div class="flex" style="justify-content:space-between"><span>${kr(bel)} kr till skattekontot senast ${i.frist} <span class="mf">(${kr(Math.floor(i.fk487))} avgifter + ${kr(i.fk497)} skatt)</span></span>
+    ${sk?`<span class="badge badge-betald">${ic('check')}bokförd V${sk.nr} · ${sk.datum}</span>`:`<button class="btn btn-outline" onclick="S.panel={typ:'skatt',p:'${p}',datum:'${IDAG_S}'};render()">${ic('landmark')}Bokför betalning…</button>`}</div>
+    ${sp?`<div class="inl"><div class="flex" style="justify-content:space-between"><h2>Betalning till skattekontot</h2><button class="btn btn-ghost btn-icon" onclick="S.panel=null;render()">${ic('x')}</button></div><div class="g3"><div><label class="label">Betaldag</label><input class="input" value="${S.panel.datum}" onchange="S.panel.datum=this.value"></div></div>
+    <div class="kont"><b style="font-weight:500">Bokförs som V${vnrNasta()} · ${dkort(S.panel.datum)}</b>${roTab(dk([['2710',i.fk497],['2731',Math.floor(i.fk487)],['1930',-bel]]))}</div>
+    <div class="flex" style="justify-content:flex-end"><button class="btn btn-outline" onclick="S.panel=null;render()">Avbryt</button><button class="btn btn-default" onclick="betalaSkatt('${p}')">${ic('stamp')}Bokför</button></div></div>`:''}`}
+function agiSida(p){const i=agiInfo(p);return `<div class="flex" style="justify-content:space-between"><div class="col" style="gap:4px"><div class="flex"><h1>Arbetsgivardeklaration ${manad(p)}</h1>${agiBadge(i)}</div><div class="mf">${i.bokf.length} bokförda lönekörningar med utbetalning i perioden · frist ${i.frist}</div></div></div>
+  ${agiKropp(p)}<div><div class="sec-t">Skatteinbetalning</div>${skattKropp(p)}</div>`}
+
+/* ================= Anställda (gemensamt) ================= */
+function anstLista(rt){const l=anst();return `<div class="col" style="gap:4px">${l.map(a=>`<a class="item ${rt.id==='a-'+a.id?'on':''}" href="#/lon/a-${a.id}" style="padding:8px 10px"><div class="top"><span>${esc(a.namn)}</span><span class="num mf">${a.typ==='timme'?kr0(a.belopp)+' kr/h':a.typ==='styrelse'?'styrelse':kr0(a.belopp)+' kr'}</span></div>
+  <div class="meta">${a.ledare?'<span class="badge badge-lock">företagsledare</span>':''}${a.slut?`<span class="badge badge-warn">slutar ${dkort(a.slut)}</span>`:''}${!a.tabell&&!a.sido&&!a.jamk?'<span class="badge badge-forfallen">skatt saknas</span>':''}<span>${a.pnr}</span></div></a>`).join('')}
+  <button class="btn btn-outline" style="margin-top:6px" onclick="inteHar('Ny anställd')">${ic('user-plus')}Ny anställd</button></div>`}
+function anstSida(a){const e=S.edit&&S.edit.id===a.id?S.edit:null;
+  const f=(k,t)=>`<dt>${t}</dt><dd>${e&&k in e.v?`<input class="input" value="${esc(e.v[k]??'')}" onchange="S.edit.v['${k}']=this.value">`:esc(a[k]??'')||'<span class="mf">—</span>'}</dd>`;
+  return `<div class="flex" style="justify-content:space-between"><div class="col" style="gap:4px"><div class="flex"><h1>${esc(a.namn)}</h1>${a.ledare?'<span class="badge badge-lock">företagsledare</span>':''}</div><div class="mf">${a.pnr} · anställd sedan ${a.anst}${a.slut?' · slutar '+a.slut:''}</div></div>
+  ${e?'':`<button class="btn btn-outline" onclick="S.edit={id:'${a.id}',fran:'${IDAG_S}',v:{belopp:'${a.belopp}',tabell:'${a.tabell??''}',kol:'${a.kol}',giltig:'${a.giltig}',bank:'${esc(a.bank)}',epost:'${esc(a.epost)}',slut:'${a.slut}'}};render()">${ic('pencil')}Ändra…</button>`}</div>
+  ${e?`<div class="inl"><div class="flex"><b style="font-weight:500">Ändringen gäller från</b><input class="input" style="width:130px" value="${e.fran}" onchange="S.edit.fran=this.value"><span class="mf">loggas med datum; lönekörningar med utbetalning från och med dagen använder de nya uppgifterna</span></div></div>`:''}
+  <div class="paper"><div><div class="sec-t">Lön och anställning</div><dl class="kv2">${f('belopp',a.typ==='timme'?'Timlön (kr)':a.typ==='styrelse'?'Arvode per gång (kr)':'Månadslön (kr)')}<dt>Lönetyp</dt><dd>${{manad:'Månadslön',timme:'Timlön, 12 % semesterersättning',styrelse:'Styrelsearvode'}[a.typ]}</dd><dt>Sysselsättning</dt><dd>${a.sys} % · ${a.vecka} h/vecka</dd>${f('slut','Slutdatum')}<dt>Arbetsgivaravgift</dt><dd>${SATS_T[avgKat(a)]}</dd></dl></div>
+  <div><div class="sec-t">Skatt (från A-skattebeskedet)</div><dl class="kv2">${a.sido?'<dt>Avdrag</dt><dd>Sidoinkomst, 30 %</dd>':f('tabell','Skattetabell')+f('kol','Kolumn')}<dt>Jämkning</dt><dd>${a.jamk?a.jamk+' %':'<span class="mf">ingen</span>'}</dd>${f('giltig','Beslutet gäller t.o.m.')}</dl>
+    ${!a.tabell&&!a.sido&&!a.jamk?`<div class="note warn" style="margin-top:6px">${ic('triangle-alert')}<span>Skatteuppgifter saknas. Kolumn ${fodd(a)>=1960?'1':'3'} föreslås utifrån åldern; tabellen står på A-skattebeskedet.</span></div>`:''}</div>
+  <div><div class="sec-t">Semester</div><dl class="kv2"><dt>Dagar per år</dt><dd>${a.sem.dagar}</dd><dt>Saldo betalda dagar</dt><dd>${a.sem.saldo}</dd><dt>Sparade dagar</dt><dd>${a.sem.sparade}${a.sem.sparade>=4?' <span class="mf">· äldsta sparade dagar måste tas ut inom fem år</span>':''}</dd></dl></div>
+  <div><div class="sec-t">Utbetalning och kontakt</div><dl class="kv2">${f('bank','Bankkonto (visas bara)')}${f('epost','E-post för lönespecar')}<dt>Adress</dt><dd>${esc(a.adress)}</dd></dl></div>
+  ${e?`<div class="flex" style="justify-content:flex-end"><button class="btn btn-outline" onclick="S.edit=null;render()">Avbryt</button><button class="btn btn-default" onclick="sparaAnst('${a.id}')">Spara</button></div>`:''}
+  <div><div class="sec-t">Ändringar</div><ul class="hist">${a.hist.map(x=>`<li>${ic('history')}<span class="t">${x.tid}</span><span>${esc(x.t)} <span class="mf">· ${esc(x.v)}</span></span></li>`).join('')||'<li class="mf">Inga ändringar.</li>'}</ul></div>
+  <div><div class="sec-t">Lönekörningar</div>${kor().filter(k=>k.rader[a.id]).map(k=>`<div class="flex" style="margin-bottom:4px"><span class="link" onclick="go('${S.variant==='C'?'#/lon/m-'+k.period:'#/lon/'+k.id}')">${esc(kTitel(k))}</span>${sBadge(k)}<span class="mf num">netto ${kr(calc(k,a).netto)}</span></div>`).join('')||'<span class="mf">Inga.</span>'}
+  ${kor().some(k=>k.rader[a.id])?`<div class="note" style="margin-top:6px">${ic('info')}<span>Har lönekörningar och kan därför bara avslutas och arkiveras, inte raderas.</span></div>`:''}</div></div>`}
+
+/* ================= Att göra ================= */
+function attGora(){const l=kor(),ut=[];
+  const agiP=PERIODER.map(agiInfo).filter(i=>i.behovs&&i.status==='ej'&&dagMellan(IDAG_S,i.frist)<=7);
+  const skP=PERIODER.map(agiInfo).filter(i=>i.ag.lamnad&&!SKATT[S.co][i.p]&&(Math.floor(i.fk487)+i.fk497)>0&&dagMellan(IDAG_S,i.frist)<=7);
+  return [
+    ['Arbetsgivardeklaration att lämna','file-code-2',agiP.map(i=>({id:'agi-'+i.p,t:'AGI '+manad(i.p)+(i.noll?' (nolldeklaration)':''),m:IDAG_S>i.frist?`försenad, skulle lämnats ${i.frist}`:'senast '+i.frist,bad:IDAG_S>i.frist}))],
+    ['Skatt att betala','landmark',skP.map(i=>({id:'agi-'+i.p,t:'Skatt och avgifter '+manad(i.p),m:'senast '+i.frist,amt:Math.floor(i.fk487)+i.fk497}))],
+    ['Lämnad AGI som ändrats','triangle-alert',PERIODER.map(agiInfo).filter(i=>i.status==='andrad').map(i=>({id:'agi-'+i.p,t:'AGI '+manad(i.p),m:`lämnad ${i.ag.lamnad}, ändrad ${i.ag.andrad}`,bad:true}))],
+    ['Fastställda, utbetalningsdagen har passerat','stamp',l.filter(k=>k.status==='faststalld'&&kanBokforas(k)).map(k=>({id:k.id,t:kTitel(k),m:'utbetald '+k.utbet+', inte bokförd',amt:sammanst(k).netto}))],
+    ['Utkast','pencil-line',l.filter(k=>k.status==='utkast').map(k=>({id:k.id,t:kTitel(k),m:(k.kanal!=='webb'?'AI · ':'')+'utbetalning '+k.utbet+(sammanst(k).fel.length?` · ${sammanst(k).fel.length} att åtgärda`:''),amt:sammanst(k).netto,ai:k.kanal!=='webb'}))],
+  ]}
+const antalAttGora=()=>attGora().reduce((a,[, ,l])=>a+l.length,0);
+function inkorgLista(rt){return `<div class="lh"><h2>Att göra</h2><span class="mf">lön</span></div>`+attGora().map(([t,i,l])=>l.length?`<div class="sect">${ic(i)}${t} · ${l.length}</div>`+l.map(x=>`<a class="item ${rt.id===x.id?'on':''}" href="#/inkorg/${x.id}" style="padding:8px 10px"><div class="top"><span>${esc(x.t)}</span><span class="num">${x.amt!==undefined?kr(x.amt):''}</span></div><div class="meta">${x.ai?`<span class="badge badge-ai">${ic('sparkles')}AI</span>`:''}<span class="${x.bad?'diff-bad':''}">${esc(x.m)}</span></div></a>`).join(''):'').join('')
+  +`<div class="sect">${ic('calendar-clock')}Kommande</div>`+kor().filter(k=>k.status!=='bokford'&&!kanBokforas(k)).map(k=>`<div class="item plain"><div class="top"><span>Utbetalning ${esc(kTitel(k).toLowerCase())}</span><span class="mf">${dkort(k.utbet)}</span></div></div>`).join('')
+  +`<div class="item plain"><div class="top"><span>AGI och skatt oktober</span><span class="mf">${dkort(frist('2026-10'))}</span></div></div>`}
+
+/* ================= Listor ================= */
+function flikar(t){return `<div class="tabs" style="margin-bottom:6px">${t.map(([k,x])=>`<button class="${S.flik===k?'on':''}" onclick="S.flik='${k}';render()">${x}</button>`).join('')}</div>`}
+function korItem(k,rt){const s=sammanst(k);return `<a class="item ${rt.id===k.id?'on':''}" href="#/lon/${k.id}" style="padding:8px 10px"><div class="top"><span>${esc(kTitel(k))}</span><span class="num">${kr(s.netto)}</span></div><div class="meta">${sBadge(k)}${aiTag(k)}<span>utbetalning ${dkort(k.utbet)} · ${deltagare(k).length} anst.</span>${s.fel.length&&k.status==='utkast'?`<span class="diff-bad">${s.fel.length} att åtgärda</span>`:''}</div></a>`}
+function agiItem(p,rt){const i=agiInfo(p);return `<a class="item plain ${rt.id==='agi-'+p?'on':''}" href="#/lon/agi-${p}" style="padding:8px 10px"><div class="top"><span>${ic('file-code-2')} AGI ${manad(p)}</span><span class="num">${kr(Math.floor(i.fk487)+i.fk497)}</span></div><div class="meta">${agiBadge(i)}${SKATT[S.co][p]?'<span class="mchip ok">'+ic('check')+'skatt betald</span>':''}</div></a>`}
+const nyKnapp=()=>`<button class="btn btn-default" onclick="S.panel={typ:'ny',typK:'ordinarie',typ2:'ordinarie',utbet:'2026-11-25',namn:'',valda:aktiva('2026-11').map(a=>a.id)};S.panel.typ='ny';go('#/lon/ny')">${ic('plus')}Ny lönekörning</button>`;
+function listaA(rt){if(S.flik==='anstallda')return flikar([['korningar','Per månad'],['anstallda','Anställda']])+anstLista(rt);
+  return `<div class="lh">${flikar([['korningar','Per månad'],['anstallda','Anställda']])}${nyKnapp()}</div>`+PERIODER.map(p=>{const ks=kor().filter(k=>k.utbet.slice(0,7)===p);return `<div class="sect">${ic('calendar')}${Manad(p)}</div>${ks.map(k=>korItem(k,rt)).join('')}${agiItem(p,rt)}`}).join('')}
+function listaB(rt){const t=[['korningar','Lönekörningar'],['agi','Deklarationer'],['anstallda','Anställda']];
+  if(S.flik==='anstallda')return flikar(t)+anstLista(rt);
+  if(S.flik==='agi')return flikar(t)+PERIODER.map(p=>agiItem(p,rt)).join('');
+  const g=[['Att hantera',kor().filter(k=>k.status!=='bokford')],['Bokförda',kor().filter(k=>k.status==='bokford')]];
+  return `<div class="lh">${flikar(t)}${nyKnapp()}</div>`+g.map(([x,l])=>l.length?`<div class="sect">${x} · ${l.length}</div>`+l.map(k=>korItem(k,rt)).join(''):'').join('')}
+function listaC(rt){const t=[['korningar','Månader'],['anstallda','Anställda']];if(S.flik==='anstallda')return flikar(t)+anstLista(rt);
+  return `<div class="lh">${flikar(t)}${nyKnapp()}</div>`+PERIODER.map(p=>{const i=agiInfo(p),ks=kor().filter(k=>k.utbet.slice(0,7)===p),sk=SKATT[S.co][p];
+    const st=ks.map(k=>k.status),chip=(ok,t,cls)=>`<span class="mchip ${cls||(ok?'ok':'')}">${ic(ok?'circle-check':'circle-dashed')}${t}</span>`;
+    return `<a class="item ${rt.id==='m-'+p?'on':''}" href="#/lon/m-${p}"><div class="top"><span>${Manad(p)}</span><span class="num">${kr(sum(ks,k=>sammanst(k).netto))}</span></div>
+      <div class="meta">${ks.length?chip(!st.includes('utkast')&&!st.includes('faststalld'),`${ks.length} lönekörning${ks.length>1?'ar':''}`,st.includes('utkast')||st.includes('faststalld')?'warn':''):chip(false,'ingen lön')}
+      ${i.behovs?chip(i.status==='lamnad','AGI',i.status==='andrad'||(i.status==='ej'&&IDAG_S>i.frist)?'bad':''):''}${i.behovs&&(Math.floor(i.fk487)+i.fk497)?chip(!!sk,'skatt'):''}</div></a>`}).join('')}
+
+/* ================= Variant A: tabell över alla anställda ================= */
+function runA(k){const s=sammanst(k),ro=k.status!=='utkast';
+  return `${huvud(k)}${felLista(s)}${s.varn.filter(v=>!v.namn).map(v=>`<div class="note warn">${ic('triangle-alert')}<span>${esc(v.t)}</span></div>`).join('')}
+  <table class="table lt"><thead><tr><th>Anställd</th><th class="num">Lön</th><th class="num">Frånvaro</th><th class="num">Förmåner</th><th class="num">Skattefritt</th><th class="num">Bruttolön</th><th class="num">Skatt</th><th class="num">Nettolön</th><th class="num">Avgifter</th><th></th></tr></thead><tbody>
+  ${s.C.map(({a,c})=>{const op=S.open[a.id],fr=sum(c.L.filter(x=>x.belopp<0&&x.kat==='kontant'),x=>x.belopp)+sum(c.L.filter(x=>/^Sjuklön/.test(x.text)),x=>x.belopp);
+    return `<tr class="row ${op?'open':''} ${c.fel.length?'bad':''}" onclick="S.open['${a.id}']=!S.open['${a.id}'];render()"><td>${ic(op?'chevron-down':'chevron-right')} ${esc(a.namn)} ${c.fel.length?`<span class="dot" title="${c.fel.length} att åtgärda"></span>`:''}${c.varn.length&&!c.fel.length?ic('triangle-alert','class="warn"'):''}</td>
+    <td class="num">${kr(sum(c.L.filter(x=>x.kat==='kontant'&&x.belopp>0&&!/^Sjuklön/.test(x.text)),x=>x.belopp))}</td><td class="num">${fr?kr(fr):''}</td><td class="num">${c.forman?kr(c.forman):''}</td><td class="num">${c.skfri?kr(c.skfri):''}</td>
+    <td class="num">${kr(c.brutto)}</td><td class="num">${kr(c.skatt)}</td><td class="num"><b style="font-weight:500">${kr(c.netto)}</b></td><td class="num mf">${kr(c.avg)}</td><td><span class="link" onclick="event.stopPropagation();S.modal={typ:'spec',kid:'${k.id}',aid:'${a.id}'};render()">spec</span></td></tr>
+    ${op?`<tr class="exp"><td colspan="10">${radEditor(k,a,{taBort:!ro})}</td></tr>`:''}`}).join('')}
+  <tr class="sumrow"><td>Summa</td><td></td><td></td><td class="num">${kr(s.forman)}</td><td class="num">${kr(s.skfri)}</td><td class="num">${kr(s.brutto)}</td><td class="num">${kr(s.skatt)}</td><td class="num">${kr(s.netto)}</td><td class="num">${kr(s.avg)}</td><td></td></tr></tbody></table>
+  ${saknas(k)}${bokforsSom(k)}${verLista(k)}${specLista(k)}${historik(k)}`}
+
+/* ================= Variant B: en anställd i taget, lönespecen bredvid ================= */
+function runB(k){const s=sammanst(k),ro=k.status!=='utkast';const C=s.C;if(!C.find(x=>x.a.id===S.emp))S.emp=C[0]?.a.id||null;const cur=C.find(x=>x.a.id===S.emp);
+  return `${huvud(k)}${totRad(s)}
+  <div class="B-run"><div class="emps">${C.map(({a,c})=>`<div class="emp ${a.id===S.emp?'on':''}" onclick="S.emp='${a.id}';render()"><div class="r"><b style="font-weight:500">${esc(a.namn)}</b>${c.fel.length?`<span class="dot"></span>`:''}</div><div class="r mf"><span>${a.typ==='timme'?'timlön':a.typ==='styrelse'?'arvode':'månadslön'}</span><span class="num">${kr(c.netto)}</span></div></div>`).join('')}
+    ${ro?'':aktiva(k.period).filter(a=>!k.rader[a.id]).map(a=>`<div class="emp" style="border-style:dashed" onclick="laggTill('${k.id}','${a.id}')"><div class="r mf"><span>${ic('user-plus')} ${esc(a.namn)}</span></div></div>`).join('')}
+    ${s.fel.length?`<div class="note" style="color:var(--destructive);margin-top:6px">${ic('circle-alert')}<span>${s.fel.length} att åtgärda</span></div>`:''}</div>
+    <div class="col" style="gap:12px">${cur?`<div class="flex" style="justify-content:space-between"><h2>${esc(cur.a.name||cur.a.namn)}</h2><span class="mf">${cur.a.pnr} · <span class="link" onclick="go('#/lon/a-${cur.a.id}')">registret</span></span></div>${radEditor(k,cur.a,{taBort:!ro,calc:true})}`:'<div class="mf">Ingen anställd vald.</div>'}
+      ${bokforsSom(k)}${verLista(k)}${specLista(k)}${historik(k)}</div>
+    <div class="right">${cur?specPapper(k,cur.a):''}<div class="mf" style="font-size:11px;margin-top:6px">${ro?'Arkiverad PDF · genereras aldrig om':'Förhandsvisning; PDF:en skapas när lönekörningen fastställs'}</div></div></div>`}
+
+/* ================= Variant C: månaden som kedja ================= */
+function monthC(p){const ks=kor().filter(k=>k.utbet.slice(0,7)===p),i=agiInfo(p),sk=SKATT[S.co][p];
+  const allaB=ks.length&&ks.every(k=>k.status==='bokford'),bel=Math.floor(i.fk487)+i.fk497;
+  const st=(cls,t,d,anchor)=>`<div class="st ${cls}" onclick="document.getElementById('${anchor}')?.scrollIntoView({behavior:'smooth'})"><span class="t">${t}</span><span class="d">${d}</span></div>`;
+  return `<div class="col" style="gap:4px"><h1>Lön ${manad(p)}</h1><div class="mf">AGI och skatt senast ${i.frist}</div></div>
+  <div class="chain">${st(ks.some(k=>k.status==='utkast')?'cur':ks.length?'ok':'',`${ic('users')}Lönekörningar`,ks.length?ks.map(k=>STATUS[k.status][0].toLowerCase()).join(', '):'ingen lön','c-kor')}<span class="ar"></span>
+    ${st(allaB?'ok':ks.some(k=>k.status==='faststalld')?'cur':'',`${ic('stamp')}Bokförda`,ks.length?`${ks.filter(k=>k.status==='bokford').length} av ${ks.length}`:'—','c-kor')}<span class="ar"></span>
+    ${st(!i.behovs?'':i.status==='lamnad'?'ok':i.status==='andrad'||IDAG_S>i.frist?'bad':'cur',`${ic('file-code-2')}AGI`,!i.behovs?'behövs inte':i.status==='lamnad'?'lämnad '+dkort(i.ag.lamnad):i.status==='andrad'?'ändrad, lämna igen':(i.noll?'nolldeklaration · ':'')+'senast '+dkort(i.frist),'c-agi')}<span class="ar"></span>
+    ${st(!bel?'':sk?'ok':'',`${ic('landmark')}Skatt`,!bel?(ks.length&&!allaB?'när lönen bokförts':'inget att betala'):sk?'bokförd V'+sk.nr:kr0(bel)+' kr senast '+dkort(i.frist),'c-skatt')}</div>
+  ${ks.some(k=>k.status==='faststalld')?`<div class="note warn">${ic('lock')}<span>${manad(p)} kan inte låsas så länge ${ks.filter(k=>k.status==='faststalld').map(k=>esc(kTitel(k))).join(', ')} är fastställd men inte bokförd.</span></div>`:''}
+  <div id="c-kor" class="col" style="gap:12px">${ks.map(k=>korKortC(k)).join('')||`<div class="placeholder">${ic('users')}Ingen lönekörning i ${manad(p)}.<button class="btn btn-outline" onclick="S.panel={typ:'ny',typ2:'ordinarie',utbet:'${p}-25',namn:'',valda:aktiva('${p}').map(a=>a.id)};go('#/lon/ny')">${ic('plus')}Ny lönekörning</button></div>`}</div>
+  <div id="c-agi" class="mcard"><div class="mh"><h2>Arbetsgivardeklaration</h2>${agiBadge(i)}</div>${agiKropp(p,true)}</div>
+  <div id="c-skatt" class="mcard"><div class="mh"><h2>Skatteinbetalning</h2></div>${skattKropp(p)}</div>`}
+function korKortC(k){const s=sammanst(k),ro=k.status!=='utkast',pe=S.panel&&S.panel.typ==='rader'&&S.panel.id===k.id?S.panel.aid:null;
+  return `<div class="mcard">${huvud(k)}
+  <table class="table lt"><thead><tr><th>Anställd</th><th class="num">Bruttolön</th><th class="num">Förmåner</th><th class="num">Skatt</th><th class="num">Nettolön</th><th class="num">Avgifter</th><th></th></tr></thead><tbody>
+  ${s.C.map(({a,c})=>`<tr class="${c.fel.length?'bad':''} ${pe===a.id?'open':''}"><td>${esc(a.namn)} ${c.fel.length?`<span class="diff-bad" style="font-size:11px">${ic('circle-alert')}${esc(c.fel[0].t)}${c.fel.length>1?' +'+(c.fel.length-1):''}</span>`:''}</td><td class="num">${kr(c.brutto)}</td><td class="num">${c.forman?kr(c.forman):''}</td><td class="num">${kr(c.skatt)}</td><td class="num">${kr(c.netto)}</td><td class="num mf">${kr(c.avg)}</td>
+    <td style="white-space:nowrap"><button class="btn btn-ghost" onclick="S.panel=${pe===a.id?'null':`{typ:'rader',id:'${k.id}',aid:'${a.id}'}`};render()">${ic(ro?'eye':'pencil')}${ro?'Visa':'Ändra'}</button><button class="btn btn-ghost btn-icon" title="Lönespec" onclick="S.modal={typ:'spec',kid:'${k.id}',aid:'${a.id}'};render()">${ic('file-text')}</button></td></tr>
+    ${pe===a.id?`<tr class="exp"><td colspan="7"><div class="inl" style="margin-top:6px"><div class="flex" style="justify-content:space-between"><h2>${esc(a.namn)}</h2><button class="btn btn-ghost btn-icon" onclick="S.panel=null;render()">${ic('x')}</button></div>${radEditor(k,a,{taBort:!ro})}</div></td></tr>`:''}`).join('')}
+  <tr class="sumrow"><td>Summa</td><td class="num">${kr(s.brutto)}</td><td class="num">${kr(s.forman)}</td><td class="num">${kr(s.skatt)}</td><td class="num">${kr(s.netto)}</td><td class="num">${kr(s.avg)}</td><td></td></tr></tbody></table>
+  ${saknas(k)}<details><summary class="mf" style="cursor:pointer">Kontering, lönespecifikationer och historik</summary><div class="col" style="gap:12px;margin-top:10px">${bokforsSom(k)}${verLista(k)}${specLista(k)}${historik(k)}</div></details></div>`}
+
+/* ================= Ny lönekörning (gemensam) ================= */
+function nySida(){const p=S.panel&&S.panel.typ==='ny'?S.panel:(S.panel={typ:'ny',typ2:'ordinarie',utbet:'2026-11-25',namn:'',valda:aktiva('2026-11').map(a=>a.id)});
+  const per=p.utbet.slice(0,7),dubbel=p.typ2==='ordinarie'&&kor().some(k=>k.typ==='ordinarie'&&k.period===per),fel=[];
+  if(dubbel)fel.push(`Det finns redan en ordinarie lönekörning för ${manad(per)}. Gör en extra lönekörning i stället.`);
+  if(last(p.utbet))fel.push(`Utbetalningsdagen ligger i en låst period.`);if(!p.valda.length)fel.push('Välj minst en anställd.');
+  const ag=AGI[S.co][per];
+  return `<h1>Ny lönekörning</h1><div class="paper" style="max-width:640px">
+  <div class="seg"><button class="${p.typ2==='ordinarie'?'on':''}" onclick="S.panel.typ2='ordinarie';render()">Ordinarie</button><button class="${p.typ2==='extra'?'on':''}" onclick="S.panel.typ2='extra';render()">Extra</button></div>
+  <div class="g2"><div><label class="label">Utbetalningsdag</label><input class="input ${dubbel||last(p.utbet)?'err':''}" value="${p.utbet}" onchange="S.panel.utbet=this.value;render()"><div class="mf" style="font-size:11px;margin-top:3px">AGI-period ${manad(per)} · skattetabeller ${per.slice(0,4)}${per.slice(5)==='01'?' (eller föregående års)':''}</div></div>
+  ${p.typ2==='extra'?`<div><label class="label">Namn</label><input class="input" placeholder="t.ex. Slutlön, Retroaktiv lön" value="${esc(p.namn)}" onchange="S.panel.namn=this.value"></div>`:''}</div>
+  <div><label class="label">Anställda</label><div class="pick">${anst().map(a=>{const akt=aktiva(per).includes(a);return `<label style="${akt?'':'opacity:.5'}"><input type="checkbox" ${p.valda.includes(a.id)?'checked':''} ${akt?'':'disabled'} onchange="S.panel.valda=this.checked?[...S.panel.valda,'${a.id}']:S.panel.valda.filter(x=>x!=='${a.id}');render()">${esc(a.namn)}<span class="mf" style="margin-left:auto">${akt?{manad:'månadslön',timme:'timlön',styrelse:'styrelsearvode'}[a.typ]:'slutat '+a.slut}</span></label>`}).join('')}</div></div>
+  ${fel.map(t=>`<div class="ferr">${ic('circle-alert')}<span>${t}</span></div>`).join('')}
+  ${ag&&ag.lamnad?`<div class="note warn">${ic('triangle-alert')}<span>AGI för ${manad(per)} är redan lämnad.</span></div>`:''}
+  <div class="flex" style="justify-content:flex-end"><button class="btn btn-outline" onclick="history.back()">Avbryt</button><button class="btn btn-default" ${fel.length?'disabled':''} onclick="skapaKorning()">${ic('plus')}Skapa utkast</button></div></div>`}
+
+/* ================= Varianter ================= */
+const A={namn:'Tabell över alla anställda',lista:listaA,run:runA};
+const B={namn:'En anställd i taget, lönespecen bredvid',lista:listaB,run:runB};
+const C={namn:'Månaden som kedja',lista:listaC,run:k=>monthC(k.period)};
+const VARIANTS={A,B,C};
+
+/* ================= Skal (variant D från gränssnittsprototypen) ================= */
+function coMenu(){return `<div class="dropdown"><div class="lbl">Företag</div>${FORETAG.map(f=>`<button class="mi" onclick="byt('${f.id}')"><span class="logo sm">${initialer(f.namn)}</span><span style="flex:1"><b style="font-weight:500">${esc(f.namn)}</b><br><span class="mf">${f.orgnr}</span></span>${f.id===S.co?ic('check'):''}</button>`).join('')}</div>`}
+function byt(id){S.co=id;S.coMenu=false;S.flash='';S.panel=null;S.emp=null;S.open={};go('#/inkorg')}
+const flashBox=()=>S.flash?`<div class="alert ok">${ic('circle-check')}<div class="t">${esc(S.flash)}</div><button class="btn btn-ghost btn-icon" onclick="S.flash='';render()">${ic('x')}</button></div>`:'';
+function detalj(rt,V){const id=rt.id;if(!id)return null;
+  if(id==='ny')return nySida();
+  if(id.startsWith('a-')){const a=hittaA(id.slice(2));return a?anstSida(a):null}
+  if(id.startsWith('agi-')){const p=id.slice(4);return S.variant==='C'&&rt.mod==='lon'?monthC(p):agiSida(p)}
+  if(id.startsWith('m-'))return monthC(id.slice(2));
+  const k=hittaK(id);return k?V.run(k):null}
+function skal(rt,V){const mod=rt.mod;let page;
+  if(mod!=='inkorg'&&mod!=='lon')page=`<div style="padding:24px"><div class="placeholder">${ic('construction')}Sidan prototypas i ett eget ticket.</div></div>`;
+  else{const inner=detalj(rt,V);
+    const det=inner?`<div class="detail">${flashBox()}${inner}</div>`:`<div class="detail">${flashBox()}<div class="empty"><div>${ic('mouse-pointer-click','style="width:20px;height:20px"')}<p>Välj något i listan</p></div></div></div>`;
+    page=`<div class="split"><div class="list">${mod==='inkorg'?inkorgLista(rt):V.lista(rt)}</div>${det}</div>`}
+  const antal=antalAttGora();
+  return `<div class="B"><header>
+    <span class="brand"><span class="logo" style="width:24px;height:24px">M</span></span><span class="mf">/</span>
+    <div class="co"><button class="btn btn-ghost" onclick="S.coMenu=!S.coMenu;render()">${esc(co().namn)}${ic('chevrons-up-down')}</button>${S.coMenu?coMenu():''}</div>
+    <nav>${NAV.map(([k,t])=>`<a href="#/${k}" class="${mod===k?'on':''}">${t}${k==='inkorg'&&antal?`<span class="badge badge-count">${antal}</span>`:''}</a>`).join('')}</nav>
+    <div class="right"><span class="search" onclick="palett()">${ic('search')}Sök verifikat, anställd…<kbd>⌘K</kbd></span><button class="btn btn-ghost btn-icon" onclick="tema()" title="Ljust/mörkt">${ic('sun-moon')}</button></div>
+  </header>${page}</div>${modal()}${S.pal?pal():''}`}
+function modal(){const m=S.modal;if(!m)return '';
+  if(m.typ==='spec'){const k=hittaK(m.kid),a=hittaA(m.aid),v=m.ver?k.specar.find(x=>x.ver===m.ver):null;
+    return `<div class="pal-bg" onclick="if(event.target===this){S.modal=null;render()}"><div class="dialog" style="width:620px"><div class="flex" style="justify-content:space-between"><h2>Lönespecifikation · ${esc(a.namn)}</h2><button class="btn btn-ghost btn-icon" onclick="S.modal=null;render()">${ic('x')}</button></div>${specPapper(k,a,v)}</div></div>`}
+  return ''}
+/* Snabbsökning */
+function opts(){const q=S.palQ.toLowerCase();
+  const o=[{g:'Förslag',t:'Ny lönekörning',i:'plus',run:()=>go('#/lon/ny')},...kor().map(k=>({g:'Lönekörningar',t:kTitel(k),amt:kr(sammanst(k).netto),i:'users',run:()=>go(S.variant==='C'?'#/lon/m-'+k.period:'#/lon/'+k.id)})),
+    ...PERIODER.map(p=>({g:'Arbetsgivardeklarationer',t:'AGI '+manad(p),i:'file-code-2',run:()=>go('#/lon/agi-'+p)})),...anst().map(a=>({g:'Anställda',t:a.namn,s:a.pnr,i:'user',run:()=>{S.flik='anstallda';go('#/lon/a-'+a.id)}}))];
+  if(!q)return o.slice(0,10);const norm=t=>String(t).toLowerCase().replace(/\s/g,'');const qq=norm(q);return o.filter(x=>norm(x.t+' '+(x.amt||'')+' '+(x.s||'')).includes(qq)).slice(0,14)}
+function pal(){const o=opts();let g='';
+  return `<div class="pal-bg" onclick="if(event.target===this){S.pal=false;render()}"><div class="pal"><div class="in">${ic('search')}<input id="palq" placeholder="Sök lönekörning, anställd, period…" value="${esc(S.palQ)}" oninput="S.palQ=this.value;S.palI=0;render();const e=document.getElementById('palq');e.focus();e.setSelectionRange(e.value.length,e.value.length)"></div>
+    <div class="ls">${o.map((x,i)=>{const hh=x.g!==g?(g=x.g,`<div class="grp">${x.g}</div>`):'';return hh+`<div class="opt ${i===S.palI?'on':''}" onclick="runOpt(${i})">${ic(x.i)}<span class="t">${esc(x.t)}</span>${x.amt?`<span class="amt">${x.amt}</span>`:''}</div>`}).join('')||'<div class="opt mf">Inga träffar.</div>'}</div></div></div>`}
+function runOpt(i){const o=opts()[i];S.pal=false;S.palQ='';o&&o.run();render()}
+function palett(){S.pal=true;S.palQ='';S.palI=0;render();setTimeout(()=>document.getElementById('palq')?.focus())}
+
+/* ================= Render, tema, tangenter ================= */
+let ritar=false;
+function render(keepFocus){if(ritar)return;ritar=true;try{rita(keepFocus)}finally{ritar=false}}
+function rita(keepFocus){
+  const a=document.activeElement,all=[...document.querySelectorAll('input,textarea')],idx=keepFocus&&a?all.indexOf(a):-1,pos=idx>=0?a.selectionStart:null;
+  const V=VARIANTS[S.variant]||A;const det=document.querySelector('.detail'),sc=det?det.scrollTop:0;
+  document.getElementById('app').innerHTML=skal(route(),V);
+  window.lucide&&lucide.createIcons();
+  if(keepFocus){const d=document.querySelector('.detail');if(d)d.scrollTop=sc}
+  if(idx>=0){const e=document.querySelectorAll('input,textarea')[idx];if(e){e.focus();try{e.setSelectionRange(pos,pos)}catch{}}}
+  const keys=Object.keys(VARIANTS);
+  document.getElementById('proto-switcher').innerHTML=`<button onclick="cyk(-1)">←</button><span class="lbl">PROTOTYP · ${S.variant} (${V.namn}) · ${keys.indexOf(S.variant)+1}/${keys.length}</span><button onclick="cyk(1)">→</button>`;
+}
+function cyk(d){const k=Object.keys(VARIANTS);S.variant=k[(k.indexOf(S.variant)+d+k.length)%k.length];S.coMenu=false;S.pal=false;S.modal=null;if(S.panel&&S.panel.typ!=='ny')S.panel=null;
+  const rt=route();if(S.variant==='C'&&rt.mod==='lon'&&rt.id&&hittaK(rt.id))location.hash='#/lon/m-'+hittaK(rt.id).period;
+  else if(S.variant!=='C'&&rt.id&&rt.id.startsWith('m-')){const k=kor().find(x=>x.period===rt.id.slice(2));location.hash=k?'#/lon/'+k.id:'#/lon'}
+  if(S.flik==='agi'&&S.variant!=='B')S.flik='korningar';
+  const p=new URLSearchParams(location.search);p.set('variant',S.variant);history.replaceState(null,'','?'+p+location.hash);render()}
+function tema(){const r=document.documentElement,cur=r.dataset.theme||(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light');r.dataset.theme=cur==='dark'?'light':'dark'}
+let senast=null;
+window.addEventListener('hashchange',()=>{const rt=route();S.coMenu=false;S.modal=null;
+  if(rt.id!==senast){if(!(S.panel&&S.panel.typ==='ny'&&rt.id==='ny'))S.panel=null;S.xml=false;S.edit=null}
+  if(S.variant==='C'&&rt.mod==='lon'&&rt.id&&hittaK(rt.id)){location.hash='#/lon/m-'+hittaK(rt.id).period;return}
+  render();senast=rt.id;S.flash=''});
+document.addEventListener('click',e=>{if(S.coMenu&&!e.target.closest('.co')){S.coMenu=false;render()}});
+document.addEventListener('keydown',e=>{
+  const typing=e.target.matches('input,textarea,select,[contenteditable]');const mod=e.metaKey||e.ctrlKey;
+  if(mod&&e.key.toLowerCase()==='k'){e.preventDefault();S.pal?(S.pal=false,render()):palett();return}
+  if(S.pal){const o=opts();
+    if(e.key==='Escape'){S.pal=false;render()}
+    else if(e.key==='ArrowDown'){e.preventDefault();S.palI=Math.min(S.palI+1,o.length-1);render();document.getElementById('palq').focus()}
+    else if(e.key==='ArrowUp'){e.preventDefault();S.palI=Math.max(S.palI-1,0);render();document.getElementById('palq').focus()}
+    else if(e.key==='Enter'){e.preventDefault();runOpt(S.palI)}
+    return}
+  if(e.key==='Escape'&&(S.modal||S.panel)){S.modal=null;S.panel=null;render();return}
+  if(typing)return;
+  if(e.key==='ArrowLeft')cyk(-1);
+  if(e.key==='ArrowRight')cyk(1);
+});
+if(!location.hash)location.hash='#/lon/k4';
+if(S.variant==='C'&&route().id&&hittaK(route().id))location.hash='#/lon/m-'+hittaK(route().id).period;
+render();
+</script>
+</body>
+</html>
