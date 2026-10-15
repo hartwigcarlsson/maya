@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # Checks the BFL: line of a commit message or a resolution comment, see docs/bfl-kontroll.md.
-# Usage: scripts/check-bfl-line <file>
+# Usage: scripts/check-bfl-line <file>             a commit message
+#        scripts/check-bfl-line --comment <file>   a resolution comment, which must also open
+#                                                  with '## Beslut' and is refused from a stale checkout
 #
 # Every krav-id must exist in docs/bfl-kontroll.md. A part that defers krav elsewhere must
 # point at something that cites each id:
@@ -8,20 +10,32 @@
 #   "T2 i fogen <Område> på #1" open map #1 has a Not yet specified area **<Område>** naming T2
 set -euo pipefail
 
-kontroll="$(git rev-parse --show-toplevel)/docs/bfl-kontroll.md"
+here=$(dirname "$0")
+comment=false
+if [ "${1:-}" = "--comment" ]; then
+  comment=true
+  shift
+  "$here/stale-checkout" --require
+fi
+
+kontroll="$here/../docs/bfl-kontroll.md"
 known=$(grep -oE '^- \*\*[^*]+\*\*' "$kontroll" | sed -E 's/^- \*\*|\*\*$//g')
 line=$(grep -E '^BFL: .+' "$1" | head -n 1 || true)
 status=0
-
-if [ -z "$line" ]; then
-  echo "check-bfl-line: needs a 'BFL:' line, see docs/bfl-kontroll.md" >&2
-  exit 1
-fi
 
 fail() {
   echo "check-bfl-line: $*" >&2
   status=1
 }
+
+if $comment && [ "$(grep -m 1 -v '^[[:space:]]*$' "$1" || true)" != "## Beslut" ]; then
+  fail "a resolution comment opens with '## Beslut' and is written in Swedish"
+fi
+
+if [ -z "$line" ]; then
+  echo "check-bfl-line: needs a 'BFL:' line, see docs/bfl-kontroll.md" >&2
+  exit 1
+fi
 
 # mentions <text> <id>: the id stands as a whole word in the text.
 mentions() {

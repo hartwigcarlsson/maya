@@ -7,6 +7,8 @@
 # prototype branches are never merged, so links into them stay.
 set -euo pipefail
 
+"$(dirname "$0")/stale-checkout" --require
+
 status=0
 while IFS= read -r link; do
   echo "check-links: relative link '$link' does not resolve in an issue; use a full URL" >&2

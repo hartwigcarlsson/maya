@@ -75,6 +75,9 @@ def main():
     if len(sys.argv) < 3:
         sys.exit(__doc__)
     issue, command, args = sys.argv[1], sys.argv[2], sys.argv[3:]
+    guard = os.path.join(os.path.dirname(os.path.abspath(__file__)), "stale-checkout")
+    if subprocess.run([guard, "--require"]).returncode != 0:
+        sys.exit(1)
     if command in ("add", "replace") and args:
         check_links(args[-1])
     body = fetch(issue)
