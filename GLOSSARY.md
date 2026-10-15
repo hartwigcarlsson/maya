@@ -52,8 +52,12 @@ _Avoid_: Bolag, organisation, tenant, klient
 Den period ett företags bokföring avslutas för, med ingående och utgående balanser.
 _Avoid_: Bokföringsår, verksamhetsår
 
+**Stänga**:
+Att avsluta ett räkenskapsår så att årets resultat bokförs, alla dess perioder låses, nästa års ingående balans skrivs och årsarkivet skapas; ett stängt räkenskapsår öppnas aldrig igen.
+_Avoid_: Låsa året, bokslut (som handling), årsavslut
+
 **Ingående balans**:
-Saldot på varje balanskonto när ett räkenskapsår börjar; den är inget verifikat, och för företagets första räkenskapsår i Maya skrivs den in eller importeras.
+Saldot på varje balanskonto när ett räkenskapsår börjar; den är inget verifikat. För företagets första räkenskapsår i Maya skrivs den in eller importeras, och för senare år skrivs den när föregående år stängs och är preliminär fram till dess.
 _Avoid_: IB-verifikat, öppningsverifikat, startsaldo
 
 **Import**:
@@ -105,7 +109,7 @@ Den handling som styrker en affärshändelse (kvitto, faktura, avtal) och som ar
 _Avoid_: Bilaga, kvitto (som samlingsnamn), dokument
 
 **Årsarkiv**:
-Ett oföränderligt, fristående paket med ett räkenskapsårs bokföring, underlag och behandlingshistorik som skapas när året stängs och går att läsa och skriva ut utan Maya.
+Ett oföränderligt, fristående paket med ett räkenskapsårs bokföring, underlag och behandlingshistorik som skapas när året stängs och går att läsa och skriva ut utan Maya; en senare komplettering läggs i ett tillägg till arkivet i stället för att ändra det.
 _Avoid_: Bokslutsexport, årsbackup, säkerhetskopia
 
 **Bokföringsmetod**:
