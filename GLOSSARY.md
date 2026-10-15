@@ -20,6 +20,10 @@ _Avoid_: Baskonto, standardkonto
 Ett konto som finns i företagets kontoplan men inte kan bokföras på förrän någon aktiverar det; ett utkast får använda det.
 _Avoid_: Dolt konto, spärrat konto
 
+**Installation**:
+En Maya-server med sina användare och företag; backup och återställning gäller alltid hela installationen, aldrig ett enskilt företag.
+_Avoid_: Instans, server (som samlingsnamn), tenant
+
 **Användare**:
 En person som loggar in i Maya och har åtkomst till ett eller flera företag; en användare raderas aldrig, bara avaktiveras.
 _Avoid_: Konto, kund, medlem
@@ -111,6 +115,10 @@ _Avoid_: Bilaga, kvitto (som samlingsnamn), dokument
 **Årsarkiv**:
 Ett oföränderligt, fristående paket med ett räkenskapsårs bokföring, underlag och behandlingshistorik som skapas när året stängs och går att läsa och skriva ut utan Maya; en senare komplettering läggs i ett tillägg till arkivet i stället för att ändra det.
 _Avoid_: Bokslutsexport, årsbackup, säkerhetskopia
+
+**Arkivplan**:
+Beskrivningen av var ett företags räkenskapsinformation, säkerhetskopior och årsarkiv finns, hur de nås och vem som ansvarar för dem; den ingår i systemdokumentationen och i varje årsarkiv.
+_Avoid_: Lagringsplan, backupplan
 
 **Bokföringsmetod**:
 Företagets val mellan fakturametoden och kontantmetoden, som styr när fakturor bokförs.
