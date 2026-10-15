@@ -1,0 +1,864 @@
+<!doctype html>
+<html lang="sv">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Maya rapporter</title>
+<!--
+  PROTOTYP, KASTA BORT. Svarar på: Hur ser balans- och resultatrapporten ut?
+  (https://github.com/hartwigcarlsson/maya/issues/69). Grupperingen är beslutad i kontoplanen (#17): den inbyggda
+  INK2-kopplingstabellen. Bygger på skalet i variant D av gränssnittsprototypen (#24) och klicket från rad till
+  konto och verifikat i momsdeklarationen (#46).
+  Tre varianter, ?variant=A|B|C (eller ← → / knapparna längst ned). Data, kopplingstabell, kolumner, utkast och
+  export är gemensamma; varianterna skiljer sig i vad rapporten utgår från:
+  A: Dokumentet. Rapporten som ett utskrivbart dokument med fällbara nivåer; ett konto öppnar verifikaten i en panel (VALD, se #69)
+  B: Månaderna. En tabell med årets månader som kolumner; en cell öppnar verifikaten för raden och månaden
+  C: Utforskaren. Trädet till vänster, den valda raden till höger med nyckeltal, månadsstaplar, underrader och verifikat
+  "Med utkast" är bortvalt (#69): rapporterna visar aldrig utkast. Kryssrutan ligger kvar i koden.
+  Allt ligger i minnet; ladda om sidan för att börja om. I dag är 2026-10-15.
+  Exempel AB har brutet räkenskapsår (juli–juni). 2024/25 är första året i Maya (ingående balans inskriven, inga
+  jämförelsesiffror) och stängt. 2025/26 är slut men inte stängt: skatten är ett utkast och årets resultat är inte
+  bokfört, så 2026/27 har preliminär ingående balans. 2026/27 har två utkast: avskrivning september och ett AI-utkast.
+  Kopplingstabellen är ett urval och radnumren förenklade; beloppen är påhittade. Formen är poängen.
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://unpkg.com/lucide@0.469.0/dist/umd/lucide.min.js"></script>
+<style>
+<style>
+/* Tokens från presetet (Stone + Amber), ljust */
+:root{
+  --background:oklch(1 0 0);--foreground:oklch(0.147 0.004 49.25);
+  --card:oklch(1 0 0);--popover:oklch(1 0 0);
+  --primary:oklch(0.555 0.163 48.998);--primary-foreground:oklch(0.987 0.022 95.277);
+  --secondary:oklch(0.967 0.001 286.375);--secondary-foreground:oklch(0.21 0.006 285.885);
+  --muted:oklch(0.97 0.001 106.424);--muted-foreground:oklch(0.553 0.013 58.071);
+  --accent:oklch(0.97 0.001 106.424);--accent-foreground:oklch(0.216 0.006 56.043);
+  --destructive:oklch(0.577 0.245 27.325);
+  --border:oklch(0.923 0.003 48.717);--input:oklch(0.923 0.003 48.717);--ring:oklch(0.709 0.01 56.259);
+  --sidebar:oklch(0.985 0.001 106.423);--sidebar-primary:oklch(0.666 0.179 58.318);--sidebar-accent:oklch(0.97 0.001 106.424);--sidebar-border:oklch(0.923 0.003 48.717);
+  --success:oklch(0.52 0.12 150);
+  --radius:0.45rem;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --background:oklch(0.147 0.004 49.25);--foreground:oklch(0.985 0.001 106.423);
+  --card:oklch(0.216 0.006 56.043);--popover:oklch(0.216 0.006 56.043);
+  --primary:oklch(0.473 0.137 46.201);--primary-foreground:oklch(0.987 0.022 95.277);
+  --secondary:oklch(0.274 0.006 286.033);--secondary-foreground:oklch(0.985 0 0);
+  --muted:oklch(0.268 0.007 34.298);--muted-foreground:oklch(0.709 0.01 56.259);
+  --accent:oklch(0.268 0.007 34.298);--accent-foreground:oklch(0.985 0.001 106.423);
+  --destructive:oklch(0.704 0.191 22.216);
+  --border:oklch(1 0 0 / 10%);--input:oklch(1 0 0 / 15%);--ring:oklch(0.553 0.013 58.071);
+  --sidebar:oklch(0.216 0.006 56.043);--sidebar-primary:oklch(0.769 0.188 70.08);--sidebar-accent:oklch(0.268 0.007 34.298);--sidebar-border:oklch(1 0 0 / 10%);
+  --success:oklch(0.75 0.13 150);
+}}
+:root[data-theme="dark"]{
+  --background:oklch(0.147 0.004 49.25);--foreground:oklch(0.985 0.001 106.423);
+  --card:oklch(0.216 0.006 56.043);--popover:oklch(0.216 0.006 56.043);
+  --primary:oklch(0.473 0.137 46.201);--primary-foreground:oklch(0.987 0.022 95.277);
+  --secondary:oklch(0.274 0.006 286.033);--secondary-foreground:oklch(0.985 0 0);
+  --muted:oklch(0.268 0.007 34.298);--muted-foreground:oklch(0.709 0.01 56.259);
+  --accent:oklch(0.268 0.007 34.298);--accent-foreground:oklch(0.985 0.001 106.423);
+  --destructive:oklch(0.704 0.191 22.216);
+  --border:oklch(1 0 0 / 10%);--input:oklch(1 0 0 / 15%);--ring:oklch(0.553 0.013 58.071);
+  --sidebar:oklch(0.216 0.006 56.043);--sidebar-primary:oklch(0.769 0.188 70.08);--sidebar-accent:oklch(0.268 0.007 34.298);--sidebar-border:oklch(1 0 0 / 10%);
+  --success:oklch(0.75 0.13 150);
+}
+*{box-sizing:border-box;border-color:var(--border)}
+html,body{margin:0;height:100%}
+body{background:var(--background);color:var(--foreground);font:13px/1.5 Inter,system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+button,input,select{font:inherit;color:inherit}
+a{color:inherit;text-decoration:none}
+svg.lucide{width:14px;height:14px;flex-shrink:0;stroke-width:2}
+.num{font-variant-numeric:tabular-nums;text-align:right;white-space:nowrap}
+.mf{color:var(--muted-foreground)}
+h1{font-size:16px;font-weight:600;margin:0;letter-spacing:-.01em}
+h2{font-size:14px;font-weight:500;margin:0}
+
+/* Button */
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:4px;height:28px;padding:0 8px;border-radius:calc(var(--radius) * .8);font-size:13px;font-weight:500;border:1px solid transparent;cursor:pointer;white-space:nowrap;background:transparent;transition:background .1s}
+.btn-default{background:var(--primary);color:var(--primary-foreground)}
+.btn-default:hover{background:color-mix(in oklch,var(--primary) 90%,transparent)}
+.btn-outline{border-color:var(--input);background:var(--background)}
+:root[data-theme="dark"] .btn-outline{background:color-mix(in oklch,var(--input) 30%,transparent)}
+.btn-outline:hover,.btn-ghost:hover{background:var(--accent)}
+.btn-secondary{background:var(--secondary);color:var(--secondary-foreground)}
+.btn-icon{width:28px;padding:0}
+.btn-destructive-ghost{color:var(--destructive)}
+.btn-destructive-ghost:hover{background:color-mix(in oklch,var(--destructive) 10%,transparent)}
+
+/* Badge */
+.badge{display:inline-flex;align-items:center;gap:4px;height:20px;padding:2px 8px;border-radius:999px;font-size:10px;font-weight:500;white-space:nowrap;border:1px solid transparent;vertical-align:middle}
+.badge svg.lucide{width:10px;height:10px}
+.badge-utkast{border:1px dashed var(--muted-foreground);color:var(--muted-foreground)}
+.badge-bokford{background:var(--secondary);color:var(--secondary-foreground)}
+.badge-ai{border-color:var(--border);color:var(--foreground)}
+.badge-rattad{background:color-mix(in oklch,var(--destructive) 12%,transparent);color:var(--destructive)}
+.badge-count{background:var(--primary);color:var(--primary-foreground);height:18px;min-width:18px;padding:0 5px;justify-content:center}
+
+/* Card */
+.card{background:var(--card);border-radius:var(--radius);box-shadow:0 0 0 1px color-mix(in oklch,var(--foreground) 10%,transparent);display:flex;flex-direction:column;gap:16px;padding:16px 0}
+.card-header{padding:0 16px;display:flex;justify-content:space-between;align-items:flex-start;gap:12px}
+.card-title{font-size:14px;font-weight:500}
+.card-desc{color:var(--muted-foreground)}
+.card-content{padding:0 16px}
+.card-footer{padding:0 16px;display:flex;gap:8px;justify-content:flex-end;align-items:center}
+
+/* Input */
+.input{height:28px;border:1px solid var(--input);border-radius:calc(var(--radius) * .8);padding:0 8px;background:transparent;font-size:13px;width:100%}
+:root[data-theme="dark"] .input{background:color-mix(in oklch,var(--input) 30%,transparent)}
+.input:focus,.cell:focus{outline:none;border-color:var(--ring);box-shadow:0 0 0 3px color-mix(in oklch,var(--ring) 50%,transparent)}
+.input[readonly]{background:var(--muted);color:var(--muted-foreground)}
+.label{font-size:13px;font-weight:500;display:block;margin-bottom:6px}
+.field-grid{display:grid;grid-template-columns:160px 1fr 1fr;gap:16px}
+
+/* Table */
+table{border-collapse:collapse;width:100%}
+.table th{height:32px;padding:0 8px;text-align:left;font-weight:500;color:var(--muted-foreground);border-bottom:1px solid var(--border);white-space:nowrap}
+.table td{padding:6px 8px;border-bottom:1px solid var(--border);vertical-align:middle}
+.table tbody tr:last-child td{border-bottom:0}
+.table tr.click{cursor:pointer}
+.table tr.click:hover td{background:color-mix(in oklch,var(--muted) 50%,transparent)}
+.cell{width:100%;height:28px;border:1px solid transparent;border-radius:calc(var(--radius) * .8);padding:0 6px;background:transparent}
+.cell:hover:not([readonly]){border-color:var(--input)}
+.rows td{padding:2px 4px}
+.sumrow td{font-weight:600;border-top:1px solid var(--border);padding:8px}
+.diff-bad{color:var(--destructive);display:inline-flex;gap:4px;align-items:center}
+.diff-ok{color:var(--success);display:inline-flex;gap:4px;align-items:center}
+
+/* Alert */
+.alert{display:grid;grid-template-columns:auto 1fr auto;gap:2px 10px;align-items:start;border:1px solid var(--border);border-radius:var(--radius);padding:10px 12px;background:var(--card)}
+.alert .t{font-weight:500}
+.alert ul{margin:2px 0 0 16px;padding:0;color:var(--muted-foreground)}
+.alert.destructive{color:var(--destructive)}
+.alert.destructive ul{color:color-mix(in oklch,var(--destructive) 85%,var(--foreground))}
+.alert.ok{color:var(--success)}
+
+/* Tabs */
+.tabs{display:inline-flex;background:var(--muted);border-radius:var(--radius);padding:3px;gap:2px}
+.tabs button{height:22px;padding:0 10px;border:0;border-radius:calc(var(--radius) * .7);background:transparent;color:var(--muted-foreground);font-weight:500;cursor:pointer;display:inline-flex;gap:6px;align-items:center}
+.tabs button.on{background:var(--background);color:var(--foreground);box-shadow:0 1px 2px rgba(0,0,0,.08)}
+:root[data-theme="dark"] .tabs button.on{background:var(--input)}
+
+/* Dropdown */
+.dropdown{position:absolute;z-index:20;background:var(--popover);border:1px solid var(--border);border-radius:var(--radius);box-shadow:0 8px 24px rgba(0,0,0,.18);padding:4px;min-width:240px}
+.dropdown .lbl{padding:6px 8px;color:var(--muted-foreground);font-size:11px}
+.dropdown .mi{display:flex;align-items:center;gap:8px;width:100%;padding:6px 8px;border:0;background:transparent;border-radius:calc(var(--radius) * .8);cursor:pointer;text-align:left}
+.dropdown .mi:hover{background:var(--accent)}
+.dropdown .sepl{height:1px;background:var(--border);margin:4px -4px}
+.logo{width:28px;height:28px;border-radius:calc(var(--radius) * .8);background:var(--sidebar-primary);color:var(--primary-foreground);display:grid;place-items:center;font-weight:700;flex-shrink:0}
+.logo.sm{width:22px;height:22px;font-size:11px;background:var(--muted);color:var(--foreground);border:1px solid var(--border)}
+kbd{font:500 10px Inter,system-ui;border:1px solid var(--border);border-radius:4px;padding:1px 5px;background:var(--muted);color:var(--muted-foreground)}
+.placeholder{display:grid;place-items:center;gap:8px;padding:64px;color:var(--muted-foreground);text-align:center;border:1px dashed var(--border);border-radius:var(--radius)}
+
+/* ---------- Switcher (inte en del av designen) ---------- */
+#proto-switcher{position:fixed;left:50%;bottom:14px;transform:translateX(-50%);z-index:999;display:flex;align-items:center;gap:6px;
+  background:#111;color:#fff;border-radius:999px;padding:6px 8px;box-shadow:0 6px 24px rgba(0,0,0,.35);font:12px system-ui;border:2px dashed #f5c400}
+#proto-switcher button{background:#333;color:#fff;border:0;border-radius:999px;padding:4px 10px;cursor:pointer}
+#proto-switcher .lbl{padding:0 8px;white-space:nowrap}
+
+/* ---------- Variant B: Inkorg först ---------- */
+.B{display:flex;flex-direction:column;height:100vh}
+.B header{display:flex;align-items:center;gap:12px;padding:0 12px;height:48px;border-bottom:1px solid var(--border);background:var(--background)}
+.B .brand{display:flex;align-items:center;gap:8px;font-weight:600}
+.B .co{position:relative}
+.B .co .dropdown{top:34px;left:0}
+.B nav{display:flex;gap:2px}
+.B nav a{display:inline-flex;align-items:center;gap:6px;height:28px;padding:0 10px;border-radius:calc(var(--radius) * .8);color:var(--muted-foreground);font-weight:500}
+.B nav a:hover{color:var(--foreground);background:var(--accent)}
+.B nav a.on{color:var(--foreground);background:var(--accent)}
+.B header .right{margin-left:auto;display:flex;gap:4px;align-items:center}
+.B .split{flex:1;display:grid;grid-template-columns:360px 1fr;min-height:0}
+.B .list{border-right:1px solid var(--border);overflow:auto;padding:12px;display:flex;flex-direction:column;gap:6px;background:var(--sidebar)}
+.B .list .lh{display:flex;justify-content:space-between;align-items:center;padding:4px 4px 8px}
+.B .sect{display:flex;align-items:center;gap:6px;color:var(--muted-foreground);font-size:11px;font-weight:500;padding:10px 4px 2px}
+.B .item{display:flex;flex-direction:column;gap:6px;padding:10px 12px;border-radius:calc(var(--radius) * .8);border:1px solid transparent;background:color-mix(in oklch,var(--muted) 50%,transparent)}
+.B .item:hover{background:var(--muted)}
+.B .item.on{border-color:var(--ring);background:var(--card)}
+.B .item .top{display:flex;justify-content:space-between;gap:8px;font-weight:500}
+.B .item .meta{display:flex;gap:6px;align-items:center;color:var(--muted-foreground);flex-wrap:wrap}
+.B .item.plain{background:transparent;border-color:var(--border)}
+.B .detail{overflow:auto;padding:20px 28px 90px;display:flex;flex-direction:column;gap:16px}
+.B .empty{display:grid;place-items:center;height:100%;color:var(--muted-foreground);text-align:center;gap:8px}
+
+.search{display:inline-flex;align-items:center;gap:8px;height:28px;padding:0 8px;min-width:240px;border:1px solid var(--input);border-radius:calc(var(--radius) * .8);color:var(--muted-foreground);cursor:pointer;background:color-mix(in oklch,var(--muted) 50%,transparent)}
+.search kbd{margin-left:auto}
+.pal-bg{position:fixed;inset:0;background:rgba(0,0,0,.5);display:flex;justify-content:center;align-items:flex-start;padding-top:14vh;z-index:50}
+.pal{width:520px;max-width:92vw;background:var(--popover);border-radius:var(--radius);box-shadow:0 0 0 1px color-mix(in oklch,var(--foreground) 10%,transparent),0 16px 48px rgba(0,0,0,.4);overflow:hidden}
+.pal .in{display:flex;align-items:center;gap:8px;padding:0 12px;border-bottom:1px solid var(--border);color:var(--muted-foreground)}
+.pal input{flex:1;height:40px;border:0;background:transparent;outline:none;font-size:13px;color:var(--foreground)}
+.pal .ls{max-height:340px;overflow:auto;padding:4px}
+.pal .opt{display:flex;align-items:center;gap:8px;height:30px;padding:0 8px;border-radius:calc(var(--radius) * .8);cursor:pointer}
+.pal .opt.on{background:var(--accent)}
+.pal .opt kbd,.pal .opt .amt{margin-left:auto}
+.pal .opt .amt{color:var(--muted-foreground);font-variant-numeric:tabular-nums}
+.pal .opt .t{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pal .grp{padding:8px 8px 4px;font-size:11px;color:var(--muted-foreground);font-weight:500}
+.pal .ft{display:flex;gap:12px;padding:6px 12px;border-top:1px solid var(--border);color:var(--muted-foreground);font-size:11px}
+
+/* ---------- Gemensamt för verifikatprototypen ---------- */
+.B .detail{position:relative}
+.warn{color:var(--sidebar-primary)}
+.badge-warn{background:color-mix(in oklch,var(--sidebar-primary) 14%,transparent);color:var(--sidebar-primary)}
+.badge-lock{background:var(--muted);color:var(--muted-foreground);border-color:var(--border)}
+.dl{display:grid;grid-template-columns:130px 1fr;gap:6px 16px}
+.dl dt{color:var(--muted-foreground)}
+.dl dd{margin:0}
+.link{text-decoration:underline;text-underline-offset:2px;cursor:pointer}
+.sec-t{font-size:11px;font-weight:500;color:var(--muted-foreground);text-transform:uppercase;letter-spacing:.04em;margin-bottom:6px}
+.paper{background:var(--card);border-radius:var(--radius);box-shadow:0 0 0 1px color-mix(in oklch,var(--foreground) 10%,transparent),0 2px 8px rgba(0,0,0,.04);padding:24px 28px;display:flex;flex-direction:column;gap:20px;max-width:860px}
+.ro td{padding:6px 8px}
+.hist{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px}
+.hist li{display:grid;grid-template-columns:18px 130px 1fr;gap:8px;align-items:start}
+.hist li .t{color:var(--muted-foreground);font-variant-numeric:tabular-nums}
+.ufile{display:flex;align-items:center;gap:8px;padding:6px 8px;border:1px solid var(--border);border-radius:calc(var(--radius) * .8)}
+.ufile .mf{margin-left:auto;font-size:11px}
+.ufile.kompl{border-style:dashed}
+.preview{display:grid;place-items:center;gap:6px;background:var(--muted);color:var(--muted-foreground);border-radius:var(--radius);text-align:center}
+.drop{display:grid;place-items:center;gap:6px;border:1px dashed var(--ring);border-radius:var(--radius);color:var(--muted-foreground);padding:16px;text-align:center}
+.err .input,.input.err{border-color:var(--destructive)}
+tr.err td{background:color-mix(in oklch,var(--destructive) 6%,transparent)}
+.cell.err{border-color:var(--destructive)}
+.ferr{color:var(--destructive);font-size:11px;margin-top:3px;display:flex;gap:4px;align-items:center}
+.ferr svg.lucide{width:11px;height:11px}
+.btn[disabled]{opacity:.5;cursor:not-allowed}
+.dialog{width:560px;max-width:94vw;background:var(--popover);border-radius:var(--radius);box-shadow:0 0 0 1px color-mix(in oklch,var(--foreground) 10%,transparent),0 16px 48px rgba(0,0,0,.4);display:flex;flex-direction:column;gap:14px;padding:18px 20px}
+.dialog .ft{display:flex;gap:8px;justify-content:flex-end}
+.pick{display:flex;flex-direction:column;gap:4px;max-height:220px;overflow:auto}
+.pick label{display:flex;gap:8px;align-items:center;padding:6px 8px;border-radius:calc(var(--radius) * .8);border:1px solid var(--border);cursor:pointer}
+.pick label:hover{background:var(--accent)}
+.note{display:flex;gap:8px;align-items:flex-start;color:var(--muted-foreground);font-size:12px}
+.note svg.lucide{margin-top:2px}
+.flex{display:flex;gap:8px;align-items:center}
+.col{display:flex;flex-direction:column;gap:8px}
+
+/* A: kontrollista i en högerspalt */
+.A-edit{display:grid;grid-template-columns:1fr 250px;gap:24px;align-items:start}
+.rail{position:sticky;top:0;display:flex;flex-direction:column;gap:10px;padding:14px;border:1px solid var(--border);border-radius:var(--radius);background:var(--sidebar)}
+.rail .chk{display:grid;grid-template-columns:16px 1fr;gap:6px;align-items:start}
+.rail .chk.ok{color:var(--muted-foreground)}
+.rail .chk.bad{color:var(--foreground)}
+.rail .chk.bad svg.lucide{color:var(--destructive)}
+.rail .chk.ok svg.lucide{color:var(--success)}
+.rail .chk .fix{display:block;font-size:11px;color:var(--muted-foreground)}
+
+/* B: tabell som lista */
+.tlist{width:100%;border-collapse:collapse}
+.tlist td{padding:6px 6px;border-bottom:1px solid var(--border);vertical-align:top}
+.tlist tr{cursor:pointer}
+.tlist tr:hover td{background:var(--muted)}
+.tlist tr.on td{background:var(--card);box-shadow:inset 0 0 0 0 var(--ring)}
+.tlist tr.on td:first-child{box-shadow:inset 2px 0 0 var(--sidebar-primary)}
+.tlist th{font-weight:500;color:var(--muted-foreground);text-align:left;padding:4px 6px;border-bottom:1px solid var(--border);font-size:11px}
+.B .list.wide{padding:8px}
+.cmp{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.cmp .paper{padding:16px}
+
+/* C: underlag bredvid */
+.C-edit{display:grid;grid-template-columns:minmax(260px,42%) 1fr;gap:20px;align-items:start}
+.C-edit .left{position:sticky;top:0;display:flex;flex-direction:column;gap:8px}
+.C-edit .left .preview{height:420px}
+.per{display:flex;align-items:center;gap:6px;font-size:11px;font-weight:500;color:var(--muted-foreground);padding:12px 4px 2px}
+.per .badge{margin-left:auto}
+.pop{position:absolute;z-index:20;background:var(--popover);border:1px solid var(--border);border-radius:var(--radius);box-shadow:0 8px 24px rgba(0,0,0,.18);padding:8px;width:300px;display:flex;flex-direction:column;gap:6px}
+.inl{border:1px solid var(--ring);border-radius:var(--radius);padding:14px;display:flex;flex-direction:column;gap:12px;background:var(--card)}
+.bcount{background:color-mix(in oklch,var(--primary-foreground) 25%,transparent);border-radius:999px;padding:0 6px;font-size:11px}
+/* ---------- Leverantörsfakturor ---------- */
+.badge-obetald{background:var(--secondary);color:var(--secondary-foreground)}
+.badge-forfallen{background:color-mix(in oklch,var(--destructive) 12%,transparent);color:var(--destructive)}
+.badge-betald{background:color-mix(in oklch,var(--success) 14%,transparent);color:var(--success)}
+.badge-ny{background:color-mix(in oklch,var(--sidebar-primary) 14%,transparent);color:var(--sidebar-primary);border:1px dashed var(--sidebar-primary)}
+.copy{display:inline-flex;align-items:center;gap:6px;height:24px;padding:0 8px;border:1px solid var(--border);border-radius:calc(var(--radius) * .8);background:var(--background);cursor:pointer;font-variant-numeric:tabular-nums}
+.copy:hover{background:var(--accent)}
+.copy .k{color:var(--muted-foreground);font-size:11px}
+.levkort{border:1px solid var(--border);border-radius:var(--radius);padding:12px;display:flex;flex-direction:column;gap:8px}
+.levkort.ny{border:1px dashed var(--sidebar-primary);background:color-mix(in oklch,var(--sidebar-primary) 5%,transparent)}
+.g2{display:grid;grid-template-columns:1fr 1fr;gap:10px 14px}
+.g3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px 14px}
+.g4{display:grid;grid-template-columns:repeat(4,1fr);gap:10px 14px}
+.kont{border:1px solid var(--border);border-radius:var(--radius);padding:10px 12px;background:var(--sidebar)}
+.kont .table td,.kont .table th{padding:3px 8px;height:auto}
+.select{height:28px;border:1px solid var(--input);border-radius:calc(var(--radius) * .8);padding:0 6px;background:var(--background);width:100%}
+.seg{display:inline-flex;border:1px solid var(--border);border-radius:var(--radius);overflow:hidden}
+.seg button{border:0;border-right:1px solid var(--border);background:var(--background);padding:6px 12px;cursor:pointer;display:inline-flex;gap:6px;align-items:center}
+.seg button:last-child{border-right:0}
+.seg button.on{background:var(--accent);font-weight:500}
+.seg button:hover{background:var(--accent)}
+.triage{display:grid;grid-template-columns:1fr 280px;gap:20px;align-items:start}
+.tchoice{display:flex;flex-direction:column;gap:6px}
+.tchoice button{display:flex;align-items:center;gap:10px;padding:10px 12px;border:1px solid var(--border);border-radius:var(--radius);background:var(--card);cursor:pointer;text-align:left}
+.tchoice button:hover{background:var(--accent)}
+.tchoice kbd{margin-left:auto}
+.levgrp{display:flex;justify-content:space-between;align-items:center;padding:10px 6px 4px;font-weight:500;cursor:pointer}
+.levgrp:hover{color:var(--sidebar-primary)}
+.bet{display:grid;grid-template-columns:100px 1fr 120px 60px;gap:8px;padding:4px 0;border-bottom:1px solid var(--border)}
+.A-reg{display:grid;grid-template-columns:1fr minmax(240px,36%);gap:20px;align-items:start}
+.A-reg .orig{position:sticky;top:0;display:flex;flex-direction:column;gap:8px}
+.steg{display:flex;flex-direction:column;gap:10px;border:1px solid var(--border);border-radius:var(--radius);padding:12px 14px}
+.steg .st{display:flex;gap:8px;align-items:center;font-weight:500}
+.steg .st .n{width:20px;height:20px;border-radius:999px;background:var(--muted);display:grid;place-items:center;font-size:11px}
+.steg.klar .st .n{background:var(--success);color:white}
+/* ---------- Kundfakturor ---------- */
+.badge-tillgodo{background:color-mix(in oklch,var(--sidebar-primary) 14%,transparent);color:var(--sidebar-primary)}
+textarea{font:inherit;color:inherit}
+textarea.input{height:auto;padding:6px 8px;resize:vertical;line-height:1.45}
+.newmenu{position:relative}
+.newmenu .dropdown{right:0;top:32px}
+/* Fakturan som PDF: alltid ljus, den är ett papper */
+.inv{position:relative;background:#fff;color:#1c1917;border-radius:4px;box-shadow:0 0 0 1px rgba(0,0,0,.1),0 2px 10px rgba(0,0,0,.06);padding:26px 28px;font-size:10.5px;line-height:1.45;display:flex;flex-direction:column;gap:14px;overflow:hidden}
+.inv .h{display:flex;justify-content:space-between;gap:16px;align-items:flex-start}
+.inv .lg{width:42px;height:42px;border-radius:6px;background:#c2410c;color:#fff;display:grid;place-items:center;font-weight:700;font-size:14px}
+.inv .tt{font-size:19px;font-weight:600;letter-spacing:-.01em;margin-bottom:4px}
+.inv table{width:100%}
+.inv td,.inv th{padding:3px 4px;border-bottom:1px solid #e7e5e4;text-align:left;vertical-align:top}
+.inv th{font-weight:500;color:#78716c}
+.inv .r{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+.inv .kv{display:grid;grid-template-columns:auto auto;gap:1px 12px;align-content:start}
+.inv .kv>span:nth-child(odd){color:#78716c}
+.inv .adr{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.inv .lbl2{color:#78716c;font-size:9.5px;text-transform:uppercase;letter-spacing:.05em;margin-bottom:2px}
+.inv .sum{display:grid;grid-template-columns:1fr auto;gap:2px 16px;margin-left:auto;min-width:220px}
+.inv .sum .big{font-size:13px;font-weight:600;border-top:1px solid #1c1917;padding-top:4px}
+.inv .pay{display:grid;grid-template-columns:repeat(4,auto);gap:2px 18px;border:1px solid #e7e5e4;border-radius:4px;padding:8px 10px;justify-content:start}
+.inv .pay span:nth-child(-n+4){color:#78716c;font-size:9.5px}
+.inv .foot{border-top:1px solid #e7e5e4;padding-top:8px;color:#78716c;font-size:9.5px;display:flex;flex-wrap:wrap;gap:2px 14px}
+.inv .wm{position:absolute;top:42%;left:50%;transform:translate(-50%,-50%) rotate(-24deg);font-size:72px;font-weight:700;color:rgba(194,65,12,.09);pointer-events:none;letter-spacing:.12em}
+.inv .miss{background:rgba(220,38,38,.09);color:#b91c1c;border-radius:3px;padding:0 3px}
+.inv .omv{border-left:3px solid #c2410c;padding:4px 8px;background:#fff7ed}
+.inv .ed{border:1px dashed #d6d3d1;border-radius:3px;background:#fffbeb;height:20px;padding:0 4px;font:inherit;font-size:10.5px;width:100%;color:#1c1917}
+.inv .ed:focus{outline:none;border:1px solid #c2410c;background:#fff}
+.inv .ed.err{border-color:#dc2626;background:#fef2f2}
+.inv select.ed{padding:0 2px}
+.inv .addrow{color:#c2410c;cursor:pointer;font-weight:500}
+.C-edit .left .inv{padding:18px;font-size:10px;gap:10px}
+.C-edit .left .inv .tt{font-size:16px}
+.pal-bg .dialog{max-height:86vh;overflow:auto}
+.drawer{position:fixed;top:48px;right:0;bottom:0;width:600px;max-width:92vw;background:var(--background);border-left:1px solid var(--border);box-shadow:-12px 0 32px rgba(0,0,0,.25);z-index:30;display:flex;flex-direction:column}
+.drawer .dh{display:flex;justify-content:space-between;align-items:center;padding:10px 14px;border-bottom:1px solid var(--border)}
+.drawer .db{overflow:auto;padding:16px;background:var(--muted);flex:1}
+.thumb{width:132px;height:176px;overflow:hidden;border-radius:4px;cursor:zoom-in;position:relative;flex-shrink:0;box-shadow:0 0 0 1px var(--border);background:#fff}
+.thumb .inner{transform:scale(.22);transform-origin:0 0;width:600px;pointer-events:none}
+.thumb .lab{position:absolute;bottom:0;left:0;right:0;background:rgba(0,0,0,.65);color:#fff;font-size:11px;padding:3px 6px;display:flex;gap:4px;align-items:center}
+.thumb:hover{box-shadow:0 0 0 2px var(--ring)}
+.pdfmeta{display:flex;align-items:center;gap:6px;color:var(--muted-foreground);font-size:11px}
+/* A: formulär i fakturan, kontrollista i höger */
+.A-ed{display:grid;grid-template-columns:minmax(520px,1fr) 340px;gap:20px;align-items:start}
+.toolbar{display:flex;gap:6px;align-items:center;flex-wrap:wrap;padding:8px 10px;border:1px solid var(--border);border-radius:var(--radius);background:var(--sidebar);position:sticky;top:0;z-index:5}
+.A-doc{display:grid;grid-template-columns:minmax(480px,640px) 1fr;gap:20px;align-items:start}
+/* B: steg och tidslinje */
+.stepbar{display:flex;gap:6px;flex-wrap:wrap}
+.stepbar button{display:inline-flex;align-items:center;gap:8px;height:30px;padding:0 12px;border:1px solid var(--border);border-radius:999px;background:var(--background);cursor:pointer;font-weight:500;color:var(--muted-foreground)}
+.stepbar button.on{border-color:var(--ring);color:var(--foreground);background:var(--card);box-shadow:0 0 0 2px color-mix(in oklch,var(--ring) 30%,transparent)}
+.stepbar .n{width:18px;height:18px;border-radius:999px;background:var(--muted);display:grid;place-items:center;font-size:10px}
+.stepbar .klar .n{background:var(--success);color:#fff}
+.stepbar .bad .n{background:var(--destructive);color:#fff}
+.tl{display:flex;align-items:center;gap:0;flex-wrap:wrap}
+.tl .st{display:flex;flex-direction:column;gap:2px;padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius);min-width:110px}
+.tl .st.on{border-color:var(--success)}
+.tl .st.cur{border-color:var(--sidebar-primary);background:color-mix(in oklch,var(--sidebar-primary) 6%,transparent)}
+.tl .st.off{border-style:dashed;color:var(--muted-foreground)}
+.tl .st .t{font-weight:500;display:flex;gap:6px;align-items:center}
+.tl .st .d{font-size:11px;color:var(--muted-foreground)}
+.tl .ar{width:16px;height:1px;background:var(--border)}
+.kundhead{display:flex;justify-content:space-between;align-items:center;padding:10px 6px 4px;font-weight:500;cursor:pointer;border-radius:calc(var(--radius) * .8)}
+.kundhead:hover{color:var(--sidebar-primary)}
+.kundhead.on{color:var(--sidebar-primary)}
+.alloc{display:grid;grid-template-columns:70px 1fr 110px 110px;gap:6px;padding:4px 0;border-bottom:1px solid var(--border);align-items:center}
+.stat{display:flex;flex-direction:column;gap:2px;padding:10px 12px;border:1px solid var(--border);border-radius:var(--radius)}
+.stat b{font-size:16px;font-weight:600;font-variant-numeric:tabular-nums}
+.chips{display:flex;flex-wrap:wrap;gap:4px}
+.radio-list{display:flex;flex-direction:column;gap:4px}
+.radio-list label{display:flex;gap:8px;align-items:center;padding:6px 8px;border:1px solid var(--border);border-radius:calc(var(--radius) * .8);cursor:pointer}
+.radio-list label:hover{background:var(--accent)}
+/* ---------- Lönekörning ---------- */
+.lt td,.lt th{padding:5px 8px}
+.lt tr.row{cursor:pointer}
+.lt tr.row:hover td{background:color-mix(in oklch,var(--muted) 50%,transparent)}
+.lt tr.row.open td{background:var(--sidebar);border-bottom-color:transparent}
+.lt tr.exp>td{background:var(--sidebar);padding:4px 12px 14px}
+.lt tr.bad td:first-child{box-shadow:inset 2px 0 0 var(--destructive)}
+.redit td{padding:2px 4px;vertical-align:middle}
+.redit .cell{height:26px}
+.redit .typ{white-space:nowrap;font-weight:500;width:130px}
+.calc td{padding:2px 8px;font-size:12px}
+.calc .fk{color:var(--muted-foreground);font-size:11px}
+.B-run{display:grid;grid-template-columns:210px minmax(380px,1fr) 330px;gap:16px;align-items:start}
+.B-run .emps{display:flex;flex-direction:column;gap:4px;position:sticky;top:0}
+.B-run .emp{display:flex;flex-direction:column;gap:2px;padding:8px 10px;border-radius:calc(var(--radius) * .8);border:1px solid var(--border);cursor:pointer;background:var(--card)}
+.B-run .emp:hover{background:var(--accent)}
+.B-run .emp.on{border-color:var(--ring);box-shadow:0 0 0 2px color-mix(in oklch,var(--ring) 30%,transparent)}
+.B-run .emp .r{display:flex;justify-content:space-between;gap:6px}
+.B-run .right{position:sticky;top:0}
+.inv.spec{font-size:10px;padding:18px 20px;gap:10px}
+.inv.spec .tt{font-size:15px}
+.dot{width:7px;height:7px;border-radius:99px;background:var(--destructive);display:inline-block}
+.mcard{border:1px solid var(--border);border-radius:var(--radius);padding:14px 16px;display:flex;flex-direction:column;gap:12px;background:var(--card)}
+.mcard .mh{display:flex;justify-content:space-between;align-items:flex-start;gap:12px}
+.chain{display:flex;align-items:stretch;gap:0;flex-wrap:wrap}
+.chain .st{display:flex;flex-direction:column;gap:2px;padding:8px 12px;border:1px solid var(--border);border-radius:var(--radius);min-width:150px;cursor:pointer;background:var(--card)}
+.chain .st:hover{background:var(--accent)}
+.chain .st.ok{border-color:color-mix(in oklch,var(--success) 60%,transparent)}
+.chain .st.cur{border-color:var(--sidebar-primary);background:color-mix(in oklch,var(--sidebar-primary) 6%,transparent)}
+.chain .st.bad{border-color:var(--destructive);background:color-mix(in oklch,var(--destructive) 5%,transparent)}
+.chain .st .t{font-weight:500;display:flex;gap:6px;align-items:center}
+.chain .st .d{font-size:11px;color:var(--muted-foreground)}
+.chain .ar{align-self:center;width:18px;height:1px;background:var(--border)}
+pre.xml{font:11px/1.45 ui-monospace,SFMono-Regular,Menlo,monospace;background:var(--muted);border-radius:var(--radius);padding:10px 12px;overflow:auto;max-height:340px;margin:0;white-space:pre}
+.stats{display:grid;grid-template-columns:repeat(5,1fr);gap:8px}
+.mchip{display:inline-flex;gap:4px;align-items:center;font-size:11px;color:var(--muted-foreground)}
+.mchip svg.lucide{width:12px;height:12px}
+.mchip.ok{color:var(--success)}
+.mchip.bad{color:var(--destructive)}
+.mchip.warn{color:var(--sidebar-primary)}
+.kv2{display:grid;grid-template-columns:170px 1fr;gap:6px 14px;align-items:center}
+.kv2 dt{color:var(--muted-foreground)}
+.kv2 dd{margin:0}
+.lh{flex-wrap:wrap;gap:6px}
+</style>
+</style>
+<style>
+/* Rapporterna */
+.tb{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.tb .grp{display:flex;gap:6px;align-items:center}
+.tb .lab{font-size:11px;color:var(--muted-foreground)}
+.tb .sp{flex:1}
+.select{height:30px;border:1px solid var(--border);border-radius:var(--radius);background:var(--background);color:var(--foreground);padding:0 8px;font-size:12px}
+.seg button.on{background:var(--accent);font-weight:500}
+.seg button{font-size:12px;padding:5px 10px}
+.chkl{display:inline-flex;gap:6px;align-items:center;font-size:12px;cursor:pointer;user-select:none}
+.paper2{background:var(--card);border-radius:var(--radius);box-shadow:0 0 0 1px color-mix(in oklch,var(--foreground) 10%,transparent);padding:24px 28px;display:flex;flex-direction:column;gap:14px}
+.paper2 .ph{display:flex;justify-content:space-between;gap:16px;align-items:flex-start}
+.paper2 .tt{font-size:18px;font-weight:600}
+.rt{width:100%;border-collapse:collapse;font-size:12.5px}
+.rt th{font-weight:500;font-size:11px;color:var(--muted-foreground);text-align:right;padding:4px 8px;border-bottom:1px solid var(--foreground);vertical-align:bottom;white-space:nowrap}
+.rt th:first-child{text-align:left}
+.rt th .s{display:block;font-weight:400}
+.rt th.fg,.rt td.fg{color:var(--muted-foreground)}
+.rt td{padding:3px 8px;text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+.rt td:first-child{text-align:left;white-space:normal}
+.rt tr.click{cursor:pointer}
+.rt tr.click:hover td{background:var(--accent)}
+.rt tr.on td{background:color-mix(in oklch,var(--sidebar-primary) 12%,transparent)}
+.rt tr.side td{font-weight:700;text-transform:uppercase;letter-spacing:.03em;font-size:11.5px;padding-top:14px}
+.rt tr.grupp td{font-weight:600;padding-top:8px}
+.rt tr.sub td{font-weight:500;font-style:italic}
+.rt tr.rad td:first-child{padding-left:22px}
+.rt tr.konto td{color:var(--muted-foreground);font-size:12px}
+.rt tr.konto td:first-child{padding-left:42px}
+.rt tr.summa td{font-weight:600;border-top:1px solid var(--border)}
+.rt tr.sum td{font-weight:700;border-top:1px solid var(--foreground);padding-top:6px;padding-bottom:6px}
+.rt tr.sum.big td{border-top:2px solid var(--foreground);border-bottom:2px solid var(--foreground);font-size:13.5px}
+.rt tr.ars td{font-style:italic}
+.rt tr.chk td{color:var(--muted-foreground);font-size:11px;border-top:1px dashed var(--border)}
+.rt .rn{display:inline-block;min-width:30px;font-size:10px;color:var(--muted-foreground);font-weight:500}
+.rt .chev{display:inline-block;width:14px;color:var(--muted-foreground)}
+.rt .chev svg.lucide{width:12px;height:12px}
+td.utk,.utk{position:relative}
+td.utk::after{content:"";position:absolute;right:1px;top:50%;width:5px;height:5px;margin-top:-2px;border-radius:50%;background:var(--sidebar-primary)}
+.neg{color:inherit}
+.mx{overflow:auto;border:1px solid var(--border);border-radius:var(--radius);background:var(--card)}
+.mx table{border-collapse:separate;border-spacing:0;font-size:12px;min-width:100%}
+.mx th,.mx td{padding:4px 8px;text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums;border-bottom:1px solid color-mix(in oklch,var(--border) 60%,transparent)}
+.mx th{position:sticky;top:0;background:var(--muted);font-weight:500;font-size:11px;color:var(--muted-foreground);z-index:2}
+.mx th:first-child,.mx td:first-child{position:sticky;left:0;text-align:left;background:var(--card);z-index:1;min-width:280px;max-width:320px;white-space:normal;border-right:1px solid var(--border)}
+.mx th:first-child{z-index:3;background:var(--muted)}
+.mx td.c{cursor:pointer}
+.mx td.c:hover{background:var(--accent)}
+.mx td.on{background:color-mix(in oklch,var(--sidebar-primary) 16%,transparent);box-shadow:inset 0 0 0 1px var(--sidebar-primary)}
+.mx td.fut,.mx th.fut{color:color-mix(in oklch,var(--muted-foreground) 50%,transparent)}
+.mx td.tot,.mx th.tot{border-left:1px solid var(--border);font-weight:600}
+.mx tr.grupp td{font-weight:600;background:color-mix(in oklch,var(--muted) 50%,var(--card))}
+.mx tr.grupp td:first-child{background:color-mix(in oklch,var(--muted) 50%,var(--card))}
+.mx tr.side td{font-weight:700;text-transform:uppercase;font-size:11px;letter-spacing:.03em;background:var(--muted)}
+.mx tr.side td:first-child{background:var(--muted)}
+.mx tr.rad td:first-child{padding-left:20px}
+.mx tr.konto td{color:var(--muted-foreground)}
+.mx tr.konto td:first-child{padding-left:38px}
+.mx tr.sum td{font-weight:700;border-top:1px solid var(--foreground)}
+.mx tr.sum.big td{border-bottom:2px solid var(--foreground)}
+.mx .tg{cursor:pointer}
+.mx .spark{display:inline-block;vertical-align:middle;margin-left:6px}
+.tree{display:flex;flex-direction:column;gap:1px;font-size:12px}
+.tree .n{display:grid;grid-template-columns:14px 1fr auto;gap:4px;align-items:center;padding:4px 6px;border-radius:4px;cursor:pointer}
+.tree .n:hover{background:var(--accent)}
+.tree .n.on{background:color-mix(in oklch,var(--sidebar-primary) 14%,transparent);box-shadow:inset 3px 0 0 var(--sidebar-primary)}
+.tree .n .a{font-variant-numeric:tabular-nums;color:var(--muted-foreground)}
+.tree .n.sum{font-weight:700;border-top:1px solid var(--border);margin-top:2px}
+.tree .n.grupp{font-weight:600}
+.tree .n.side{font-weight:700;text-transform:uppercase;font-size:11px;margin-top:6px}
+.tree .n.konto{color:var(--muted-foreground)}
+.tree .tsec{font-size:11px;font-weight:500;text-transform:uppercase;letter-spacing:.04em;color:var(--muted-foreground);padding:10px 6px 4px;display:flex;justify-content:space-between}
+.crumb{font-size:12px;color:var(--muted-foreground);display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+.crumb a{cursor:pointer}
+.crumb a:hover{text-decoration:underline}
+.bars{display:flex;flex-direction:column;gap:6px}
+.bars svg{width:100%;height:170px}
+.bars .lg{display:flex;gap:14px;font-size:11px;color:var(--muted-foreground)}
+.bars .lg i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:4px;vertical-align:-1px}
+.share{height:6px;border-radius:3px;background:var(--muted);overflow:hidden;width:90px;display:inline-block;vertical-align:middle}
+.share>span{display:block;height:100%;background:var(--sidebar-primary)}
+.vt{width:100%;border-collapse:collapse;font-size:12px}
+.vt th{font-weight:500;font-size:11px;color:var(--muted-foreground);text-align:left;padding:4px 6px;border-bottom:1px solid var(--border)}
+.vt td{padding:4px 6px;border-bottom:1px solid color-mix(in oklch,var(--border) 60%,transparent);vertical-align:top}
+.vt .r{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+.vt tr.ib td{font-style:italic;color:var(--muted-foreground)}
+.vt tr.u td{background:repeating-linear-gradient(-45deg,transparent 0 6px,color-mix(in oklch,var(--sidebar-primary) 7%,transparent) 6px 12px)}
+.vt tr.s td{font-weight:600;border-top:1px solid var(--foreground);border-bottom:0}
+.vt a{color:var(--sidebar-primary);cursor:pointer}
+.pdf{background:#fff;color:#111;width:100%;padding:34px 40px;font-size:11px;box-shadow:0 1px 6px rgba(0,0,0,.2);position:relative;font-family:Inter,sans-serif}
+.pdf .rt th{color:#555;border-bottom-color:#111}
+.pdf .rt td,.pdf .rt th{padding:2px 6px}
+.pdf .rt tr.konto td{color:#444}
+.pdf .rt tr.sum td{border-top-color:#111}
+.pdf .rt tr.sum.big td{border-color:#111}
+.pdf .rt .rn,.pdf .mf{color:#666}
+.pdf .wm{position:absolute;top:42%;left:0;right:0;text-align:center;font-size:44px;font-weight:700;color:rgba(200,0,0,.12);transform:rotate(-18deg);pointer-events:none}
+.pdf .ft{display:flex;justify-content:space-between;border-top:1px solid #999;padding-top:6px;margin-top:18px;color:#666;font-size:9.5px}
+.pdfwrap{background:#9a9a9a;padding:18px;border-radius:var(--radius);max-height:62vh;overflow:auto}
+.banner{display:flex;gap:8px;align-items:flex-start;padding:8px 12px;border-radius:var(--radius);font-size:12px;border:1px solid var(--border);background:var(--muted)}
+.banner.utk{border-color:var(--sidebar-primary);background:color-mix(in oklch,var(--sidebar-primary) 10%,transparent)}
+.kpis{display:grid;grid-template-columns:repeat(5,1fr);gap:8px}
+.kpis .stat{cursor:pointer}
+.kpis .stat:hover{background:var(--accent)}
+.kpis .stat .d{font-size:11px}
+.up{color:var(--success)}.down{color:var(--destructive)}
+.exp{position:relative}
+.exp .dropdown{right:0;left:auto;top:34px;min-width:220px}
+</style>
+</head>
+<body>
+<div id="app"></div>
+<div id="proto-switcher"></div>
+<script>
+/* ================= Hjälpare ================= */
+const IDAG_S='2026-10-15', ANV='Anna Berg';
+const fmt=new Intl.NumberFormat('sv-SE',{minimumFractionDigits:2,maximumFractionDigits:2});
+const fmt0=new Intl.NumberFormat('sv-SE',{maximumFractionDigits:0});
+const kr=x=>fmt.format(x||0), kr0=x=>fmt0.format(x||0);
+const r2=x=>Math.round(x*100)/100;
+const sum=(l,f)=>r2(l.reduce((s,x)=>s+(f?f(x):x),0));
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const ic=(n,extra)=>`<i data-lucide="${n}"${extra?' '+extra:''}></i>`;
+const MAN=['januari','februari','mars','april','maj','juni','juli','augusti','september','oktober','november','december'];
+const MK=['jan','feb','mar','apr','maj','jun','jul','aug','sep','okt','nov','dec'];
+const manad=m=>MAN[+m.slice(5,7)-1]+' '+m.slice(0,4);
+const Manad=m=>{const x=manad(m);return x[0].toUpperCase()+x.slice(1)};
+const mk=m=>MK[+m.slice(5,7)-1];
+const dagarIMan=m=>new Date(+m.slice(0,4),+m.slice(5,7),0).getDate();
+const sistaDag=m=>m+'-'+String(dagarIMan(m)).padStart(2,'0');
+const addMan=(m,k)=>{let y=+m.slice(0,4),mm=+m.slice(5,7)+k;while(mm>12){mm-=12;y++}while(mm<1){mm+=12;y--}return y+'-'+String(mm).padStart(2,'0')};
+const range=(a,b)=>{const o=[];let m=a;while(m<=b){o.push(m);m=addMan(m,1)}return o};
+const perLabel=(a,b)=>a===b?manad(a):(a.slice(0,4)===b.slice(0,4)?MAN[+a.slice(5)-1]:manad(a))+'–'+manad(b);
+const initialer=s=>s.split(/\s+/).filter(w=>w!=='AB'&&w!=='i').slice(0,2).map(w=>w[0]).join('').toUpperCase();
+const badge=([t,c])=>`<span class="badge ${c}">${t}</span>`;
+let seed=11;const rnd=()=>(seed=seed*16807%2147483647)/2147483647;
+const rund=(x,s=100)=>Math.round(x/s)*s;
+
+/* ================= Kontoplan och INK2-kopplingstabell (urval) ================= */
+const KONTON={1220:'Inventarier och verktyg',1229:'Ackumulerade avskrivningar på inventarier och verktyg',1510:'Kundfordringar',1710:'Förutbetalda hyreskostnader',1930:'Företagskonto',
+ 2081:'Aktiekapital',2091:'Balanserad vinst eller förlust',2098:'Vinst eller förlust från föregående år',2099:'Årets resultat',2440:'Leverantörsskulder',2510:'Skatteskulder',
+ 2611:'Utgående moms på försäljning inom Sverige, 25 %',2641:'Debiterad ingående moms',2650:'Redovisningskonto för moms',2710:'Personalskatt',2731:'Avräkning lagstadgade sociala avgifter',2920:'Upplupna semesterlöner',2990:'Övriga upplupna kostnader och förutbetalda intäkter',
+ 3001:'Försäljning inom Sverige, 25 % moms',3308:'Försäljning tjänster till land inom EU',3740:'Öres- och kronutjämning',5010:'Lokalhyra',6110:'Kontorsmateriel',6212:'Mobiltelefon',6540:'IT-tjänster',6550:'Konsultarvoden',6570:'Bankkostnader',
+ 7210:'Löner till tjänstemän',7290:'Förändring av semesterlöneskuld',7510:'Arbetsgivaravgifter',7832:'Avskrivningar på inventarier och verktyg',8310:'Ränteintäkter från omsättningstillgångar',8410:'Räntekostnader för långfristiga skulder',8910:'Skatt som belastar årets resultat',8999:'Årets resultat'};
+// [från, till, INK2R-rad, text]; versioneras per blankettutgåva (#17 beslut 7)
+const INK2=[[1200,1299,'2.4','Maskiner, inventarier och övriga materiella anläggningstillgångar'],[1500,1559,'2.19','Kundfordringar'],[1600,1699,'2.21','Övriga fordringar'],[1700,1799,'2.23','Förutbetalda kostnader och upplupna intäkter'],[1900,1999,'2.26','Kassa, bank och redovisningsmedel'],
+ [2080,2089,'2.27','Bundet eget kapital'],[2090,2099,'2.28','Fritt eget kapital'],[2110,2149,'2.29','Periodiseringsfonder'],[2440,2449,'2.45','Leverantörsskulder'],[2500,2599,'2.49','Skatteskulder'],[2600,2899,'2.50','Övriga skulder'],[2900,2999,'2.51','Upplupna kostnader och förutbetalda intäkter'],
+ [3000,3799,'3.1','Nettoomsättning'],[3900,3999,'3.4','Övriga rörelseintäkter'],[4000,4799,'3.5','Råvaror och förnödenheter'],[5000,6999,'3.7','Övriga externa kostnader'],[7000,7699,'3.8','Personalkostnader'],[7700,7899,'3.9','Av- och nedskrivningar av materiella och immateriella anläggningstillgångar'],[7900,7999,'3.11','Övriga rörelsekostnader'],
+ [8300,8399,'3.16','Övriga ränteintäkter och liknande resultatposter'],[8400,8499,'3.17','Räntekostnader och liknande resultatposter'],[8810,8819,'3.21','Förändring av periodiseringsfonder'],[8900,8989,'3.25','Skatt på årets resultat']];
+const INK2V='INK2R 2025';
+const RRDEF=[{t:'Rörelsens intäkter',r:['3.1','3.4']},{t:'Rörelsens kostnader',r:['3.5','3.7','3.8','3.9','3.11']},{s:'Rörelseresultat'},{t:'Finansiella poster',r:['3.16','3.17']},{s:'Resultat efter finansiella poster'},{t:'Bokslutsdispositioner',r:['3.21']},{s:'Resultat före skatt'},{t:'Skatt',r:['3.25']},{s:'Årets resultat',big:1}];
+const BRDEF=[{t:'Tillgångar',sign:1,g:[{t:'Anläggningstillgångar',sub:[{t:'Materiella anläggningstillgångar',r:['2.4']}]},{t:'Omsättningstillgångar',sub:[{t:'Kortfristiga fordringar',r:['2.19','2.21','2.23']},{t:'Kassa och bank',r:['2.26']}]}]},
+ {t:'Eget kapital och skulder',sign:-1,g:[{t:'Eget kapital',sub:[{t:'Bundet eget kapital',r:['2.27']},{t:'Fritt eget kapital',r:['2.28','ARS']}]},{t:'Obeskattade reserver',sub:[{t:null,r:['2.29']}]},{t:'Kortfristiga skulder',sub:[{t:null,r:['2.45','2.49','2.50','2.51']}]}]}];
+
+/* ================= Data (i minnet) ================= */
+const CO={namn:'Exempel AB',orgnr:'559999-9991',metod:'fakturametoden'};
+const AR=[{id:'2024',fran:'2024-07',till:'2025-06',status:'stangt',stangd:'2025-11-20'},{id:'2025',fran:'2025-07',till:'2026-06',status:'slut'},{id:'2026',fran:'2026-07',till:'2027-06',status:'oppet'}];
+const arAv=m=>AR.find(a=>m>=a.fran&&m<=a.till);
+const prevAr=a=>AR[AR.indexOf(a)-1]||null;
+const VER=[];let vid=0;
+const v=(datum,text,rader,x)=>{if(datum>IDAG_S)return;rader=rader.map(([k,b])=>[k,r2(b)]);VER.push({id:++vid,datum,text,rader,...(x||{})})};
+const IB={2024:{1220:120000,1229:-30000,1510:160000,1930:380000,2081:-50000,2098:-145000,2440:-12500,2650:-38000,2710:-13500,2731:-14139,2920:-40000,2990:-30000}};
+IB[2024][2091]=-sum(Object.values(IB[2024]));
+function generera(){
+  let oppna=160000; // kundfordringar från föregående månad
+  for(const m of range('2024-07','2026-10')){
+    const d=x=>m+'-'+String(x).padStart(2,'0');
+    v(d(1),'Hyra kontor '+manad(m),[[5010,15000],[2641,3750],[1930,-18750]]);
+    if(oppna)v(d(20),'Inbetalningar kundfakturor',[[1930,oppna],[1510,-oppna]]);
+    oppna=0;const n=2+Math.floor(rnd()*3);
+    for(let i=0;i<n;i++){const b=rund(22000+rnd()*30000);v(d(4+i*6),'Kundfaktura '+(['Nordbygg AB','Hallå Media AB','Lindqvist & Co','Stad AB'][i]),[[1510,b*1.25],[3001,-b],[2611,-b*.25]]);oppna+=b*1.25}
+    if(+m.slice(5)%3===2){v(d(26),'Kundfaktura Baltic Data OÜ, EU-tjänst',[[1510,40000],[3308,-40000]]);oppna+=40000}
+    const it=rund(1800+rnd()*1500,10);v(d(3),'Leverantörsfaktura Fortnox-värd AB',[[6540,it],[2641,it*.25],[1930,-it*1.25]]);
+    v(d(8),'Leverantörsfaktura Telia',[[6212,890],[2641,222.5],[1930,-1112.5]]);
+    if(rnd()<.6){const x=rund(300+rnd()*1200,10);v(d(14),'Kvitto Clas Ohlson',[[6110,x],[2641,x*.25],[1930,-x*1.25]],{manuell:1})}
+    if(+m.slice(5)%4===0)v(d(17),'Leverantörsfaktura Revisorn i Väst AB',[[6550,12000],[2641,3000],[1930,-15000]]);
+    v(d(28),'Bankavgifter',[[6570,150],[1930,-150]]);
+    v(d(12),'Skattedeklaration '+manad(addMan(m,-1)),[[2710,13500],[2731,14139],[1930,-27639]]);
+    v(d(25),'Lönekörning '+manad(m),[[7210,45000],[2710,-13500],[1930,-31500]]);
+    v(d(25),'Arbetsgivaravgifter '+manad(m),[[7510,14139],[2731,-14139]]);
+    if(!(m==='2026-09'))v(sistaDag(m),'Avskrivning '+manad(m),[[7832,1250],[1229,-1250]],{maya:1});
+    if(+m.slice(5)%3===0){v(sistaDag(m),'Ränta företagskonto',[[1930,350],[8310,-350]]);
+      const q=range(addMan(m,-2),m),s=k=>sum(VER.filter(x=>q.includes(x.datum.slice(0,7))&&!x.utkast).flatMap(x=>x.rader).filter(r=>r[0]===k),r=>r[1]);
+      const u=s(2611),i=s(2641),mo=Math.trunc(-(u+i));const rest=r2(-(u+i)-mo);
+      v(sistaDag(m),'Momsavräkning '+perLabel(q[0],m),[[2611,-u],[2641,-i],[2650,-mo],...(rest?[[3740,-rest]]:[])],{maya:1,moms:{m,mo}})}
+    // momsen betalas den 12:e andra månaden efter kvartalet
+    const mv=VER.find(x=>x.moms&&addMan(x.moms.m,2)===m);if(mv)v(d(12),'Moms '+perLabel(addMan(mv.moms.m,-2),mv.moms.m)+' till skattekontot',[[2650,mv.moms.mo],[1930,-mv.moms.mo]]);
+    if(m==='2024-08')v(d(12),'Moms kv 2 2024 till skattekontot',[[2650,38000],[1930,-38000]]);
+    if(m==='2024-07')v(d(10),'Betalning leverantörsfaktura Revisorn i Väst AB',[[2440,12500],[1930,-12500]]);
+    if(m.slice(5)==='06'){v(sistaDag(m),'Förändring av semesterlöneskuld',[[7290,2500],[2920,-2500]]);
+      const a=arAv(m),res=-sum(VER.filter(x=>!x.utkast&&x.datum.slice(0,7)>=a.fran&&x.datum.slice(0,7)<=m).flatMap(x=>x.rader).filter(r=>r[0]>=3000&&r[0]<=8899),r=>r[1]);
+      const skatt=rund(res*.206);
+      if(a.id==='2024'){v(sistaDag(m),'Skatt på årets resultat',[[8910,skatt],[2510,-skatt]]);v(sistaDag(m),'Årets resultat',[[8999,res-skatt],[2099,-(res-skatt)]],{maya:1,bokslut:1});a.res=res-skatt}
+      else v(sistaDag(m),'Skatt på årets resultat',[[8910,skatt],[2510,-skatt]],{utkast:1})}
+    if(m==='2025-09')v(d(18),'Vinstdisposition enligt årsstämman',[[2099,AR[0].res],[2098,-AR[0].res]]);
+    if(m==='2026-02')v(d(12),'Slutlig skatt 2024/25',[[2510,rund(AR[0].res/.794*.206)],[1930,-rund(AR[0].res/.794*.206)]]);
+  }
+  v('2026-09-30','Avskrivning september 2026',[[7832,1250],[1229,-1250]],{utkast:1,maya:1});
+  v('2026-10-08','Leverantörsfaktura Adobe Systems',[[6540,1200],[2641,300],[2440,-1500]],{utkast:1,ai:1});
+  VER.sort((a,b)=>a.datum<b.datum?-1:a.datum>b.datum?1:a.id-b.id);
+  const nr={};for(const x of VER){if(x.utkast)continue;const a=arAv(x.datum.slice(0,7));nr[a.id]=(nr[a.id]||0)+1;x.nr=nr[a.id]}
+  // ingående balanser: 2025 ur stängningen, 2026 preliminär (årets resultat 2025/26 på 2099, #68 beslut 9)
+  for(const a of AR.slice(1)){const p=prevAr(a),ib={...IB[p.id]};
+    for(const x of VER)if(!x.utkast&&arAv(x.datum.slice(0,7))===p)for(const [k,b] of x.rader){const t=k<3000?k:2099;ib[t]=r2((ib[t]||0)+b)}
+    IB[a.id]=ib;a.prelIB=p.status!=='stangt'}
+}
+generera();
+const KLIST=[...new Set([...Object.keys(KONTON).map(Number),...VER.flatMap(x=>x.rader.map(r=>r[0]))])].sort((a,b)=>a-b);
+
+/* ================= Beräkning ================= */
+const MC={};
+function mmap(m,utk){const key=m+(utk?'u':'');if(MC[key])return MC[key];const o={};for(const x of VER){if(x.datum.slice(0,7)!==m)continue;if(x.utkast&&!utk)continue;for(const [k,b] of x.rader)o[k]=(o[k]||0)+b}return MC[key]=o}
+const sr=(ks,ms,utk)=>r2(ms.reduce((s,m)=>{const o=mmap(m,utk);return s+ks.reduce((t,k)=>t+(o[k]||0),0)},0));
+const ibs=(a,ks)=>r2(ks.reduce((s,k)=>s+(IB[a.id][k]||0),0));
+const inR=(f,t)=>KLIST.filter(k=>k>=f&&k<=t);
+function radNode(pre,rad,sign){if(rad==='ARS')return {id:pre+'/ARS',t:'Årets resultat',kind:'rad',ars:1,rn:'',konton:inR(3000,8999),sign,children:[]};
+  const [f,t,,text]=INK2.find(x=>x[2]===rad),ks=inR(f,t);
+  return {id:pre+'/'+rad,t:text,rn:rad,kind:'rad',konton:ks,sign,children:ks.map(k=>({id:pre+'/'+rad+'/'+k,t:k+' '+(KONTON[k]||''),k,kind:'konto',konton:[k],sign}))}}
+function trad(typ){
+  if(typ==='rr'){const out=[];let acc=[],tom=false;RRDEF.forEach((d,i)=>{
+      if(d.s){if(!tom)out.push({id:'rr/s'+i,t:d.s,kind:'sum',big:d.big,konton:[...acc],sign:-1});return}
+      const ch=d.r.map(r=>radNode('rr/'+i,r,-1)).filter(n=>n.konton.length),ks=ch.flatMap(n=>n.konton);tom=!ks.length;
+      if(ks.length){acc.push(...ks);out.push({id:'rr/'+i,t:d.t,kind:'grupp',konton:ks,sign:-1,children:ch})}});return out}
+  return BRDEF.map((s,i)=>{const g=s.g.map((gg,j)=>{const subs=gg.sub.map((ss,l)=>{const ch=ss.r.map(r=>radNode('br/'+i+'/'+j+'/'+l,r,s.sign)).filter(n=>n.konton.length);
+        return {id:'br/'+i+'/'+j+'/'+l,t:ss.t,kind:'sub',konton:ch.flatMap(n=>n.konton),sign:s.sign,children:ch}}).filter(x=>x.konton.length);
+      const ch=subs.flatMap(x=>x.t?[x]:x.children);return {id:'br/'+i+'/'+j,t:gg.t,kind:'grupp',konton:subs.flatMap(x=>x.konton),sign:s.sign,children:ch}}).filter(x=>x.konton.length);
+    return {id:'br/'+i,t:s.t,kind:'side',konton:g.flatMap(x=>x.konton),sign:s.sign,children:g}})}
+const TR={rr:trad('rr'),br:trad('br')};
+const flat=ns=>ns.flatMap(n=>[n,...flat(n.children||[])]);
+const nod=id=>flat([...TR.rr,...TR.br]).find(n=>n.id===id);
+const parents=id=>flat([...TR.rr,...TR.br]).filter(n=>id.startsWith(n.id+'/')).sort((a,b)=>a.id.length-b.id.length);
+
+/* ================= Tillstånd ================= */
+const params=new URLSearchParams(location.search);
+const S={variant:(params.get('variant')||'A').toUpperCase(),rap:'rr',ar:'2026',tom:'2026-09',visa:'bada',jmf:'fg',utk:false,niva:2,open:{},drill:null,modal:null,exp:false,sel:null,coMenu:false,flash:''};
+const ar=()=>AR.find(a=>a.id===S.ar);
+const sistaMan=a=>{const t=IDAG_S.slice(0,7);return a.till<t?a.till:t};
+function kolumner(){const a=ar(),p=prevAr(a),tom=S.tom,ms=range(a.fran,tom),pTom=addMan(tom,-12),pms=p?range(p.fran,pTom):null;
+  if(S.rap==='rr'){const L=[];
+    if(S.visa!=='ack')L.push({id:'per',t:Manad(tom),s:'perioden',ms:[tom],v:(k,u)=>sr(k,[tom],u)});
+    if(S.visa!=='per')L.push({id:'ack',t:perLabel(a.fran,tom),s:'ackumulerat',ms,v:(k,u)=>sr(k,ms,u)});
+    if(S.jmf==='fg'){if(S.visa!=='ack')L.push({id:'fper',t:p?Manad(pTom):'Föregående år',s:'perioden',fg:1,ms:p?[pTom]:[],v:(k,u)=>p?sr(k,[pTom],u):null});
+      if(S.visa!=='per')L.push({id:'fack',t:p?perLabel(p.fran,pTom):'Föregående år',s:'ackumulerat',fg:1,ms:pms||[],v:(k,u)=>p?sr(k,pms,u):null})}
+    return L}
+  const L=[{id:'ib',t:'Ingående balans',s:a.fran+'-01'+(a.prelIB?' · preliminär':''),ib:1,ms:[],v:k=>ibs(a,k)},{id:'rel',t:'Förändring',s:perLabel(a.fran,tom),ms,v:(k,u)=>sr(k,ms,u)},{id:'ub',t:'Utgående balans',s:sistaDag(tom),ms,ibp:a,v:(k,u)=>r2(ibs(a,k)+sr(k,ms,u))}];
+  if(S.jmf==='fg')L.push({id:'fub',t:'Föregående år',s:p?sistaDag(pTom):'finns inte i Maya',fg:1,ms:pms||[],ibp:p,v:(k,u)=>p?r2(ibs(p,k)+sr(k,pms,u)):null});
+  return L}
+const val=(n,c,u=S.utk)=>{const x=c.v(n.konton,u);return x==null?null:r2(n.sign*x)};
+const cellU=(n,c)=>S.utk&&!c.ib&&val(n,c,true)!==val(n,c,false);
+const zero=(n,C)=>C.every(c=>!val(n,c))&&!(S.utk&&C.some(c=>val(n,c,false)));
+const fmtV=x=>x==null?'–':kr0(x);
+const antalUtk=()=>{const a=ar(),ms=range(a.fran,S.tom);return VER.filter(x=>x.utkast&&ms.includes(x.datum.slice(0,7))).length};
+function rubrikTxt(){return S.rap==='rr'?'Resultaträkning':'Balansräkning'}
+function arTxt(a){return a.fran+'-01 – '+sistaDag(a.till)}
+function statusAr(a){if(a.status==='stangt')return ['stängt '+a.stangd,'badge-lock'];if(a.status==='slut')return ['ej stängt','badge-warn'];return ['öppet','badge-bokford']}
+
+/* ================= Gemensamt: verktygsrad, banderoller, verifikat, export ================= */
+function arVal(){return `<select class="select" onchange="S.ar=this.value;S.tom=sistaMan(ar());S.drill=null;render()">${AR.map(a=>`<option value="${a.id}" ${a.id===S.ar?'selected':''}>${a.id}/${String(+a.id+1).slice(2)}</option>`).join('')}</select>`}
+function tomVal(){const a=ar();return `<select class="select" onchange="S.tom=this.value;S.drill=null;render()">${range(a.fran,sistaMan(a)).map(m=>`<option value="${m}" ${m===S.tom?'selected':''}>${Manad(m)}${m===IDAG_S.slice(0,7)?' (pågår)':''}</option>`).join('')}</select>`}
+const seg=(k,opts)=>`<div class="seg">${opts.map(([v,t])=>`<button class="${S[k]===v?'on':''}" onclick="S.${k}=${typeof v==='number'?v:`'${v}'`};S.open={};render()">${t}</button>`).join('')}</div>`;
+function toolbar(o={}){
+  return `<div class="tb">
+    <div class="grp"><span class="lab">År</span>${arVal()}</div>
+    <div class="grp"><span class="lab">${o.mx?'T.o.m.':'Period t.o.m.'}</span>${tomVal()}</div>
+    ${S.rap==='rr'&&!o.mx?`<div class="grp">${seg('visa',[['per','Månad'],['ack','Ackumulerat'],['bada','Båda']])}</div>`:''}
+    <div class="grp"><span class="lab">Jämför</span>${seg('jmf',[['ingen','Inget'],['fg','Föregående år']])}</div>
+    ${o.niva?`<div class="grp"><span class="lab">Nivå</span>${seg('niva',[[1,'Rubriker'],[2,'INK2-rader'],[3,'Konton']])}</div>`:''}
+    <label class="chkl"><input type="checkbox" ${S.utk?'checked':''} onchange="S.utk=this.checked;render()">Med utkast${antalUtk()?` (${antalUtk()})`:''}</label>
+    <span class="sp"></span>${exportKnapp()}</div>`}
+function exportKnapp(){return `<div class="exp"><button class="btn btn-outline" onclick="event.stopPropagation();S.exp=!S.exp;render()">${ic('download')}Exportera${ic('chevron-down')}</button>${S.exp?`<div class="dropdown"><button class="mi" onclick="S.exp=false;S.modal='pdf';render()">${ic('file-text')}<span style="flex:1">PDF<br><span class="mf">för utskrift och arkiv</span></span></button><button class="mi" onclick="S.exp=false;S.modal='csv';render()">${ic('sheet')}<span style="flex:1">CSV<br><span class="mf">en rad per konto, för kalkylark</span></span></button><div class="sepl"></div><button class="mi" onclick="S.exp=false;S.modal='pdf';render()">${ic('printer')}<span style="flex:1">Skriv ut</span></button></div>`:''}</div>`}
+function banderoller(){const a=ar(),B=[];
+  if(S.rap==='br'&&a.prelIB)B.push(`<div class="banner">${ic('info')}<span><b>Ingående balans är preliminär.</b> ${prevAr(a).id}/${String(+a.id).slice(2)} är inte stängt, så den räknas ur förra årets utgående saldon och årets resultat ligger på 2099. <a class="link" onclick="S.ar='${prevAr(a).id}';S.tom=sistaMan(ar());render()">Visa ${prevAr(a).id}/${String(+a.id).slice(2)}</a></span></div>`);
+  if(S.rap==='br'){const n=nod('br/1/0/0/ARS'),c=kolumner().find(c=>c.id==='ub');if(n&&val(n,c))B.push(`<div class="banner">${ic('info')}<span>Årets resultat är inte bokfört på 2099 förrän året stängs. Balansräkningen visar det som en egen rad under fritt eget kapital så att den går jämnt ut.</span></div>`)}
+  if(a.status==='stangt')B.push(`<div class="banner">${ic('archive')}<span>Räkenskapsåret är stängt. Rapporten räknas ur bokföringen; i <a class="link">årsarkivet</a> finns den som den var vid stängningen.</span></div>`);
+  if(!prevAr(a)&&S.jmf==='fg')B.push(`<div class="banner">${ic('info')}<span>${a.id}/${String(+a.id+1).slice(2)} är första året i Maya, så det finns inga jämförelsesiffror. Tidigare år ligger kvar i det gamla systemet.</span></div>`);
+  if(S.utk&&antalUtk())B.push(`<div class="banner utk">${ic('pencil-line')}<span><b>Innehåller ${antalUtk()} utkast som inte är bokförda.</b> Belopp som utkasten påverkar är märkta med ●. En export får vattenstämpeln "Innehåller utkast".</span></div>`);
+  return B.join('')}
+function verRader(ks,ms,utk){const o=[];for(const x of VER){if(!ms.includes(x.datum.slice(0,7)))continue;if(x.utkast&&!utk)continue;for(const [k,b] of x.rader)if(ks.includes(k))o.push({x,k,b})}return o}
+function verTabell(n,c,titelMs){const ks=n.konton,ms=titelMs||c.ms,rader=verRader(ks,ms,S.utk),flera=ks.length>1,ib=c.ibp?ibs(c.ibp,ks):0;let s=ib;
+  const vis=rader.length>200?rader.slice(-200):rader;
+  return `<table class="vt"><thead><tr><th>Datum</th><th>Ver</th><th>Text</th>${flera?'<th>Konto</th>':''}<th class="r">Debet</th><th class="r">Kredit</th><th class="r">Saldo</th></tr></thead><tbody>
+  ${c.ibp?`<tr class="ib"><td>${c.ibp.fran}-01</td><td></td><td>Ingående balans${c.ibp.prelIB?' (preliminär)':''}</td>${flera?'<td></td>':''}<td></td><td></td><td class="r">${kr(ib)}</td></tr>`:''}
+  ${rader.length>200?`<tr><td colspan="7" class="mf">${rader.length-200} tidigare rader visas inte. Visa alla i huvudboken.</td></tr>`:''}
+  ${(rader.length>200?(s=r2(ib+sum(rader.slice(0,-200),r=>r.b)),vis):vis).map(r=>{s=r2(s+r.b);return `<tr class="${r.x.utkast?'u':''}"><td>${r.x.datum}</td><td>${r.x.utkast?`<span class="badge ${r.x.ai?'badge-ai':'badge-utkast'}">${r.x.ai?ic('sparkles')+'AI-utkast':'utkast'}</span>`:`<a onclick="go('#/verifikat')">V${r.x.nr}</a>`}</td><td>${esc(r.x.text)}${r.x.manuell?' <span class="badge badge-warn">manuellt</span>':''}</td>${flera?`<td>${r.k}</td>`:''}<td class="r">${r.b>0?kr(r.b):''}</td><td class="r">${r.b<0?kr(-r.b):''}</td><td class="r">${kr(s)}</td></tr>`}).join('')||`<tr><td colspan="7" class="mf">Inga rader i perioden.</td></tr>`}
+  <tr class="s"><td colspan="${flera?4:3}">${c.ibp?'Utgående balans':'Summa'}</td><td class="r">${kr(sum(rader.filter(r=>r.b>0),r=>r.b))}</td><td class="r">${kr(-sum(rader.filter(r=>r.b<0),r=>r.b))}</td><td class="r">${kr(s)}</td></tr></tbody></table>`}
+function drillInfo(n){if(n.ars)return `<div class="note">${ic('info')}<span>Årets resultat räknas ur alla resultatkonton (3000–8999) för perioden. Det bokförs på 2099 när året stängs. <a class="link" onclick="S.rap='rr';S.drill=null;S.sel=null;render()">Visa resultaträkningen</a></span></div>`;
+  const iv=n.kind==='konto'?'':n.kind==='rad'?(()=>{const x=INK2.find(z=>z[2]===n.rn);return `INK2-rad ${n.rn} räknas ur konto ${x[0]}–${x[1]} enligt kopplingstabellen ${INK2V}. `})():'';
+  return `<div class="mf" style="font-size:12px">${iv}${S.rap==='rr'?'I resultaträkningen visas intäkter med plus och kostnader med minus; tabellen visar debet och kredit.':'Tabellen visar debet och kredit; skulder och eget kapital har kreditsaldo.'}</div>`}
+function drawer(){const d=S.drill;if(!d)return '';const n=nod(d.id);if(!n)return '';const C=kolumner(),c=C.find(x=>x.id===d.col)||C.find(x=>!x.fg&&x.ms.length)||C[0];
+  const ms=d.m?[d.m]:null,titel=d.m?Manad(d.m):c.t+' · '+c.s;
+  return `<div class="drawer"><div class="dh"><div class="col" style="gap:2px"><b>${esc(n.rn?n.rn+' '+n.t:n.t)}</b><span class="mf">${esc(titel)} · ${fmtV(d.m?r2(n.sign*sr(n.konton,[d.m],S.utk)):val(n,c))} kr</span></div><button class="btn btn-ghost btn-icon" onclick="S.drill=null;render()">${ic('x')}</button></div>
+  <div class="db" style="background:var(--background);display:flex;flex-direction:column;gap:12px">${drillInfo(n)}
+  ${!d.m&&C.filter(x=>x.ms.length||x.ib).length>1?`<div class="seg">${C.filter(x=>x.ms.length).map(x=>`<button class="${x.id===c.id?'on':''}" onclick="S.drill.col='${x.id}';render()">${esc(x.t)}</button>`).join('')}</div>`:''}
+  ${n.ars?'':verTabell(n,d.m?{ms,ibp:S.rap==='br'?null:null}:c,ms)}
+  ${n.kind!=='konto'&&!n.ars?`<div class="mf">Kontona i raden: ${n.konton.filter(k=>sr([k],c.ms,S.utk)||(c.ibp&&ibs(c.ibp,[k]))).map(k=>`<a class="link" onclick="S.drill={id:'${n.id}/${k}',col:'${c.id}'${d.m?`,m:'${d.m}'`:''}};render()">${k}</a>`).join(', ')||'inga'}</div>`:''}</div></div>`}
+
+/* ---------- export ---------- */
+function pdfRader(ns,C,dj){return ns.map(n=>{if(zero(n,C))return '';const vals=C.map(c=>`<td class="${c.fg?'fg':''}">${fmtV(val(n,c))}</td>`).join('');
+  if(n.kind==='sum')return `<tr class="sum ${n.big?'big':''}"><td>${esc(n.t)}</td>${vals}</tr>`;
+  if(n.kind==='side'||n.kind==='grupp'||n.kind==='sub')return `<tr class="${n.kind}"><td>${esc(n.t)}</td>${C.map(()=>'<td></td>').join('')}</tr>${pdfRader(n.children,C,dj)}<tr class="summa"><td>Summa ${esc(n.t.toLowerCase())}</td>${vals}</tr>`;
+  if(n.kind==='rad')return `<tr class="rad ${n.ars?'ars':''}"><td><span class="rn">${n.rn}</span>${esc(n.t)}</td>${vals}</tr>${S.niva>=3?pdfRader(n.children,C,dj):''}`;
+  return `<tr class="konto"><td>${esc(n.t)}</td>${vals}</tr>`}).join('')}
+function pdfDok(){const a=ar(),C=kolumner();
+  return `<div class="pdfwrap"><div class="pdf">${S.utk&&antalUtk()?'<div class="wm">INNEHÅLLER UTKAST</div>':''}
+  <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:12px"><div><div style="font-size:16px;font-weight:700">${rubrikTxt()}</div><div>${esc(CO.namn)} · ${CO.orgnr}</div></div>
+  <div style="text-align:right" class="mf">Räkenskapsår ${arTxt(a)}<br>Period ${perLabel(a.fran,S.tom)}${S.rap==='br'&&a.prelIB?'<br>Ingående balans preliminär':''}${S.utk&&antalUtk()?`<br><b style="color:#b00">Innehåller ${antalUtk()} utkast som inte är bokförda</b>`:'<br>Bara bokförda verifikat'}</div></div>
+  <table class="rt"><thead><tr><th>Belopp i kronor</th>${C.map(c=>`<th class="${c.fg?'fg':''}">${esc(c.t)}<span class="s">${esc(c.s)}</span></th>`).join('')}</tr></thead><tbody>${pdfRader(TR[S.rap],C)}</tbody></table>
+  <div class="ft"><span>Skapad ${IDAG_S} 10:12 av ${ANV} · Maya 1.0 · gruppering ${INK2V}</span><span>Sida 1 av 1</span></div></div></div>
+  <div class="mf">PDF/A-2b ur en inbyggd Typst-mall, samma som i årsarkivet. Nivån (${['','rubriker','INK2-rader','konton'][S.niva]}), kolumnerna och utkastvalet följer det som visas.</div>`}
+function csvTxt(){const a=ar(),C=kolumner(),out=[['Rapport','Räkenskapsår','Rubrik','INK2-rad','Radtext','Konto','Kontonamn',...C.map(c=>c.t+' ('+c.s+')')]];
+  const walk=(ns,path)=>ns.forEach(n=>{if(n.kind==='konto'){if(zero(n,C))return;const p=parents(n.id);const rad=p.find(x=>x.kind==='rad'),g=p.filter(x=>x.kind!=='rad').map(x=>x.t).filter(Boolean).join(' / ');
+      out.push([rubrikTxt(),a.id+'/'+String(+a.id+1).slice(2),g,rad.rn,rad.t,n.k,KONTON[n.k]||'',...C.map(c=>{const x=val(n,c);return x==null?'':fmt.format(x).replace(/\s/g,'')})])}
+    else if(n.ars){out.push([rubrikTxt(),a.id+'/'+String(+a.id+1).slice(2),'Eget kapital / Fritt eget kapital','','Årets resultat (ej bokfört)','','',...C.map(c=>{const x=val(n,c);return x==null?'':fmt.format(x).replace(/\s/g,'')})])}
+    else walk(n.children||[])});walk(TR[S.rap]);
+  return '﻿'+out.map(r=>r.map(x=>/[;"\n]/.test(String(x))?'"'+String(x).replace(/"/g,'""')+'"':x).join(';')).join('\n')}
+function modal(){if(!S.modal)return '';const x=`<button class="btn btn-ghost btn-icon" onclick="S.modal=null;render()">${ic('x')}</button>`;let t,b;
+  const fn=`${S.rap==='rr'?'resultatrakning':'balansrakning'}_${CO.orgnr.replace('-','')}_${S.ar}_${S.tom.replace('-','')}${S.utk&&antalUtk()?'_utkast':''}`;
+  if(S.modal==='pdf'){t=fn+'.pdf';b=pdfDok()}
+  if(S.modal==='csv'){t=fn+'.csv';b=`<pre class="xml" style="max-height:52vh">${esc(csvTxt().slice(1))}</pre><div class="mf">UTF-8 med BOM, semikolon och decimalkomma så att Excel och Numbers öppnar den på svenska. En rad per konto med rubrik och INK2-rad som kolumner; summor räknas i kalkylarket. Utkast ingår bara om "Med utkast" är valt, och filnamnet säger det.</div>`}
+  return `<div class="pal-bg" onclick="if(event.target===this){S.modal=null;render()}"><div class="dialog" style="width:860px;max-height:90vh;overflow:auto"><div class="flex" style="justify-content:space-between"><h2>${esc(t)}</h2>${x}</div>${b}<div class="flex" style="justify-content:flex-end;gap:8px"><button class="btn btn-outline" onclick="S.modal=null;render()">Stäng</button><button class="btn btn-default" onclick="S.modal=null;S.flash='Filen är nedladdad (prototyp: ingen fil skapas).';render()">${ic('download')}Ladda ner</button></div></div></div>`}
+
+/* ================= Variant A: Dokumentet ================= */
+const djup={side:0,grupp:1,sub:1,rad:2,konto:3,sum:0};
+const oppen=n=>n.kind==='side'||n.kind==='sub'?true:(S.open[n.id]??(djup[n.kind]<S.niva));
+function raderA(ns,C){return ns.map(n=>{if(zero(n,C))return '';
+  const vals=C.map(c=>`<td class="${c.fg?'fg':''} ${cellU(n,c)?'utk':''}">${fmtV(val(n,c))}</td>`).join(''),blank=C.map(()=>'<td></td>').join('');
+  const chev=o=>`<span class="chev">${ic(o?'chevron-down':'chevron-right')}</span>`,tg=`onclick="S.open['${n.id}']=${!oppen(n)};render()"`;
+  if(n.kind==='sum')return `<tr class="sum ${n.big?'big':''}"><td>${esc(n.t)}</td>${vals}</tr>`;
+  if(n.kind==='side')return `<tr class="side"><td>${esc(n.t)}</td>${blank}</tr>${raderA(n.children,C)}<tr class="sum"><td>Summa ${esc(n.t.toLowerCase())}</td>${vals}</tr>`;
+  if(n.kind==='sub')return `<tr class="sub"><td>${esc(n.t)}</td>${blank}</tr>${raderA(n.children,C)}<tr class="summa"><td>Summa ${esc(n.t.toLowerCase())}</td>${vals}</tr>`;
+  if(n.kind==='grupp')return oppen(n)?`<tr class="grupp click" ${tg}><td>${chev(1)}${esc(n.t)}</td>${blank}</tr>${raderA(n.children,C)}<tr class="summa"><td>Summa ${esc(n.t.toLowerCase())}</td>${vals}</tr>`:`<tr class="grupp click" ${tg}><td>${chev(0)}${esc(n.t)}</td>${vals}</tr>`;
+  if(n.kind==='rad')return n.ars?`<tr class="rad ars click ${S.drill?.id===n.id?'on':''}" onclick="S.drill={id:'${n.id}'};render()"><td><span class="chev"></span><span class="rn"></span>Årets resultat <span class="mf">(ej bokfört på 2099)</span></td>${vals}</tr>`
+    :`<tr class="rad click ${S.drill?.id===n.id?'on':''}" ${tg}><td>${chev(oppen(n))}<span class="rn">${n.rn}</span>${esc(n.t)}</td>${vals}</tr>${oppen(n)?raderA(n.children,C):''}`;
+  return `<tr class="konto click ${S.drill?.id===n.id?'on':''}" onclick="S.drill={id:'${n.id}'};render()"><td>${esc(n.t)}</td>${vals}</tr>`}).join('')}
+function kontrollRad(C){if(S.rap!=='br')return '';const [t,e]=TR.br;return `<tr class="chk"><td>Tillgångar − eget kapital och skulder</td>${C.map(c=>{const x=val(t,c),y=val(e,c);return `<td>${x==null?'–':Math.abs(r2(x-y))<.005?'0 ✓':kr(x-y)}</td>`}).join('')}</tr>`}
+function rapportLista(){const L=[['rr','Resultaträkning','chart-column'],['br','Balansräkning','scale']],O=[['Huvudbok','book-open'],['Grundbok','list-ordered'],['Saldospecifikation','list-checks'],['Kontoplan','list-tree']];
+  return `<div class="lh"><h2>Rapporter</h2></div><div class="sect">${ic('file-bar-chart')}Bokslut</div>${L.map(([k,t,i])=>`<a class="item ${S.rap===k?'on':''}" onclick="S.rap='${k}';S.drill=null;S.open={};S.sel=null;render()" style="padding:8px 10px;cursor:pointer"><div class="top"><span>${ic(i)} ${t}</span></div><div class="meta"><span>${k==='rr'?'Årets resultat '+kr0(val(TR.rr.at(-1),{v:(k,u)=>sr(k,range(ar().fran,S.tom),u)}))+' kr':'Summa tillgångar '+kr0(val(TR.br[0],{v:(k,u)=>r2(ibs(ar(),k)+sr(k,range(ar().fran,S.tom),u))}))+' kr'}</span></div></a>`).join('')}
+  <div class="sect">${ic('book')}Bokföring</div>${O.map(([t,i])=>`<a class="item plain" style="padding:8px 10px;opacity:.6"><div class="top"><span>${ic(i)} ${t}</span><span class="mf">eget ticket</span></div></a>`).join('')}`}
+function sidaA(){const a=ar(),C=kolumner();
+  return `<div class="split"><div class="list">${rapportLista()}</div><div class="detail">${flashBox()}
+  <div class="flex" style="justify-content:space-between;align-items:flex-start"><div class="col" style="gap:4px"><div class="flex"><h1>${rubrikTxt()}</h1>${badge(statusAr(a))}</div><div class="mf">${esc(CO.namn)} · räkenskapsår ${arTxt(a)} · ${CO.metod}</div></div></div>
+  ${toolbar({niva:1})}${banderoller()}
+  <div class="paper2"><div class="ph"><div><div class="tt">${rubrikTxt()}</div><div class="mf">${esc(CO.namn)} · ${CO.orgnr}</div></div><div class="mf" style="text-align:right">Period ${perLabel(a.fran,S.tom)}<br>Belopp i kronor · ${S.utk?'med utkast':'bara bokfört'}</div></div>
+  <table class="rt"><thead><tr><th></th>${C.map(c=>`<th class="${c.fg?'fg':''}">${esc(c.t)}<span class="s">${esc(c.s)}</span></th>`).join('')}</tr></thead><tbody>${raderA(TR[S.rap],C)}${kontrollRad(C)}</tbody></table>
+  <div class="mf">Klicka på en rubrik eller INK2-rad för att fälla ut den, och på ett konto för att se verifikaten. Grupperingen följer kopplingstabellen ${INK2V}.</div></div>
+  ${drawer()}</div></div>`}
+
+/* ================= Variant B: Månaderna ================= */
+function spark(vs){const w=60,h=16,mx=Math.max(1,...vs.map(Math.abs));return `<svg class="spark" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">${vs.map((x,i)=>{const bh=Math.max(1,Math.abs(x)/mx*(h/2));return `<rect x="${i*w/vs.length+.5}" y="${x>=0?h/2-bh:h/2}" width="${w/vs.length-1}" height="${bh}" fill="${x>=0?'var(--sidebar-primary)':'var(--destructive)'}" opacity=".7"/>`}).join('')}</svg>`}
+function sidaB(){const a=ar(),ms=range(a.fran,a.till),tom=S.tom,p=prevAr(a),br=S.rap==='br';
+  const cell=(n,m)=>{if(m>tom)return {x:null};const x=br?r2(n.sign*(ibs(a,n.konton)+sr(n.konton,range(a.fran,m),S.utk))):r2(n.sign*sr(n.konton,[m],S.utk));
+    const u=S.utk&&x!==(br?r2(n.sign*(ibs(a,n.konton)+sr(n.konton,range(a.fran,m),false))):r2(n.sign*sr(n.konton,[m],false)));return {x,u}};
+  const tot=n=>br?null:r2(n.sign*sr(n.konton,range(a.fran,tom),S.utk)),fg=n=>p?(br?r2(n.sign*(ibs(p,n.konton)+sr(n.konton,range(p.fran,addMan(tom,-12)),S.utk))):r2(n.sign*sr(n.konton,range(p.fran,addMan(tom,-12)),S.utk))):null;
+  const nz=n=>ms.some(m=>cell(n,m).x)||(br&&ibs(a,n.konton))||(S.jmf==='fg'&&fg(n));
+  const row=(n,cls,label,tg)=>{const vs=ms.filter(m=>m<=tom).map(m=>br?cell(n,m).x:cell(n,m).x||0);
+    return `<tr class="${cls}"><td ${tg?`class="tg" ${tg}`:''}>${label}${!br&&n.kind!=='konto'&&n.kind!=='side'?spark(vs):''}</td>${br?`<td>${kr0(r2(n.sign*ibs(a,n.konton)))}</td>`:''}${ms.map(m=>{const c=cell(n,m),on=S.drill&&S.drill.id===n.id&&S.drill.m===m;return `<td class="${m>tom?'fut':'c'} ${c.u?'utk':''} ${on?'on':''}" ${m>tom||n.kind==='sum'&&!br?'':`onclick="S.drill={id:'${n.id}',m:'${m}'};render()"`}>${m>tom?'':fmtV(c.x)}</td>`}).join('')}
+      ${br?'':`<td class="tot">${fmtV(tot(n))}</td>`}${S.jmf==='fg'?`<td class="tot fg">${fmtV(fg(n))}</td>`:''}</tr>`};
+  const chev=n=>`<span class="chev">${ic(S.open[n.id]?'chevron-down':'chevron-right')}</span>`,tg=n=>`onclick="S.open['${n.id}']=${!S.open[n.id]};render()"`;
+  const walk=ns=>ns.map(n=>{if(!nz(n)&&n.kind!=='sum')return '';
+    if(n.kind==='sum')return row(n,'sum '+(n.big?'big':''),esc(n.t));
+    if(n.kind==='side')return row(n,'side',esc(n.t))+walk(n.children);
+    if(n.kind==='grupp'||n.kind==='sub')return row(n,'grupp',esc(n.t))+walk(n.children);
+    if(n.kind==='rad')return row(n,'rad',n.ars?'Årets resultat <span class="mf">(ej bokfört)</span>':`${chev(n)}<span class="rt"><span class="rn">${n.rn}</span></span>${esc(n.t)}`,n.ars?null:tg(n))+(S.open[n.id]?walk(n.children):'');
+    return row(n,'konto',esc(n.t))}).join('');
+  return `<div style="padding:20px 28px 90px;display:flex;flex-direction:column;gap:14px;overflow:auto;flex:1">${flashBox()}
+    <div class="flex" style="justify-content:space-between;align-items:flex-end"><div class="col" style="gap:6px"><div class="flex"><h1>Rapporter</h1>${badge(statusAr(a))}</div>
+      <div class="tabs" style="width:max-content">${[['rr','Resultaträkning'],['br','Balansräkning']].map(([k,t])=>`<button class="${S.rap===k?'on':''}" onclick="S.rap='${k}';S.drill=null;render()">${t}</button>`).join('')}</div></div>
+      <div class="mf">${esc(CO.namn)} · räkenskapsår ${arTxt(a)}</div></div>
+    ${toolbar({mx:1})}${banderoller()}
+    <div class="mx"><table><thead><tr><th>${br?'Saldo vid månadens slut':'Belopp per månad'}</th>${br?`<th>IB${a.prelIB?' (prel.)':''}</th>`:''}${ms.map(m=>`<th class="${m>tom?'fut':''}">${mk(m)} ${m.slice(2,4)}</th>`).join('')}${br?'':`<th class="tot">${perLabel(a.fran,tom).replace(/ \d{4}/g,'')}<br><span style="font-weight:400">ackumulerat</span></th>`}${S.jmf==='fg'?`<th class="tot fg">Föreg. år<br><span style="font-weight:400">${p?(br?sistaDag(addMan(tom,-12)):'samma period'):'saknas'}</span></th>`:''}</tr></thead>
+    <tbody>${walk(TR[S.rap])}</tbody></table></div>
+    <div class="mf">Klicka på en INK2-rad för att fälla ut kontona och på en cell för att se verifikaten för månaden. Kommande månader är tomma.</div>
+    ${drawer()}</div>`}
+
+/* ================= Variant C: Utforskaren ================= */
+function stapel(n){const a=ar(),p=prevAr(a),ms=range(a.fran,a.till),br=S.rap==='br'||n.id.startsWith('br');
+  const f=(yr,m)=>br?r2(n.sign*(ibs(yr,n.konton)+sr(n.konton,range(yr.fran,m),S.utk))):r2(n.sign*sr(n.konton,[m],S.utk));
+  const cur=ms.map(m=>m<=S.tom?f(a,m):null),prv=ms.map(m=>p?f(p,addMan(m,-12)):null);
+  const all=[...cur,...prv].filter(x=>x!=null),mx=Math.max(1,...all.map(Math.abs)),mn=Math.min(0,...all),W=640,H=150,y0=H-20-(mn<0?(-mn/(mx-mn))*(H-30):0),sc=(H-30)/(mx-(mn<0?mn:0));
+  const bw=W/12;return `<div class="bars"><svg viewBox="0 0 ${W} ${H+14}">${ms.map((m,i)=>{const x=i*bw;const b=(v,dx,col)=>v==null?'':`<rect x="${x+dx}" y="${v>=0?y0-v*sc:y0}" width="${bw/2-6}" height="${Math.max(1,Math.abs(v)*sc)}" fill="${col}" rx="2"><title>${Manad(m)}: ${kr0(v)}</title></rect>`;
+    return b(prv[i],4,'color-mix(in oklch,var(--muted-foreground) 35%,transparent)')+b(cur[i],bw/2,'var(--sidebar-primary)')+`<text x="${x+bw/2}" y="${H+8}" text-anchor="middle" font-size="10" fill="var(--muted-foreground)">${mk(m)}</text>`}).join('')}<line x1="0" x2="${W}" y1="${y0}" y2="${y0}" stroke="var(--border)"/></svg>
+    <div class="lg"><span><i style="background:var(--sidebar-primary)"></i>${a.id}/${String(+a.id+1).slice(2)}</span>${p?`<span><i style="background:color-mix(in oklch,var(--muted-foreground) 35%,transparent)"></i>${p.id}/${String(+p.id+1).slice(2)}</span>`:'<span>Föregående år finns inte i Maya</span>'}<span>${br?'saldo vid månadens slut':'belopp per månad'}</span></div></div>`}
+function tradC(){const C=kolumner();
+  const item=(n,d)=>{if(zero(n,C)&&n.kind!=='sum')return '';const c=C.find(x=>x.id==='ack'||x.id==='ub')||C[0],o=S.open[n.id]??(n.kind==='side'||n.kind==='grupp'||n.kind==='sub');
+    const harBarn=n.children&&n.children.length&&!n.ars;
+    return `<div class="n ${n.kind} ${S.sel===n.id?'on':''}" style="padding-left:${6+d*12}px" onclick="S.sel='${n.id}';S.rap='${n.id.slice(0,2)}';render()"><span ${harBarn?`onclick="event.stopPropagation();S.open['${n.id}']=${!o};render()"`:''}>${harBarn?ic(o?'chevron-down':'chevron-right'):''}</span><span>${n.rn?`<span class="mf" style="font-size:10px">${n.rn}</span> `:''}${esc(n.ars?'Årets resultat (ej bokfört)':n.t)}</span><span class="a">${fmtV(val(n,c))}</span></div>${harBarn&&o?n.children.map(x=>item(x,d+1)).join(''):''}`};
+  const rap=S.rap;const save=S.rap;
+  S.rap='rr';const Crr=kolumner();const rr=TR.rr.map(n=>item(n,0)).join('');S.rap='br';const br=TR.br.map(n=>item(n,0)).join('');S.rap=save;
+  return `<div class="lh"><h2>Rapporter</h2></div><div class="tb" style="gap:6px">${arVal()}${tomVal()}</div>
+  <div class="tree"><div class="tsec"><span>Resultaträkning</span><span>ack.</span></div>${rr}<div class="tsec"><span>Balansräkning</span><span>UB</span></div>${br}</div>`}
+function sidaC(){const a=ar();if(!S.sel)S.sel=TR.rr.at(-1).id;const n=nod(S.sel)||TR.rr.at(-1);S.rap=n.id.slice(0,2);const C=kolumner(),p=prevAr(a);
+  const huvud=C.filter(c=>!c.fg),fgc=C.filter(c=>c.fg);
+  const kpi=(t,id,cid,neg)=>{const x=nod(id);if(!x)return '';const save=S.rap;S.rap=id.slice(0,2);const K=kolumner(),c=K.find(k=>k.id===cid),f=K.find(k=>k.id==='f'+cid.replace(/^ub$/,'ub'))||K.find(k=>k.fg&&(cid==='ub'?k.id==='fub':k.id==='fack'));const v=val(x,c),fv=f?val(x,f):null;S.rap=save;
+    const d=fv?Math.round((v-fv)/Math.abs(fv)*100):null;return `<div class="stat" onclick="S.sel='${id}';render()"><span class="mf">${t}</span><b>${kr0(v)}</b><span class="d ${d==null?'mf':d>=0?'up':'down'}">${d==null?'ingen jämförelse':(d>=0?'+':'')+d+' % mot föreg. år'}</span></div>`};
+  const kids=(n.children||[]).filter(x=>!zero(x,C)),hc=C.find(c=>c.id==='ack'||c.id==='ub')||C[0],tot=Math.abs(val(n,hc))||1;
+  const crumb=[...parents(n.id),n].map(x=>`<a onclick="S.sel='${x.id}';render()">${esc(x.rn?x.rn+' '+x.t:x.t)}</a>`).join(ic('chevron-right','style="width:12px;height:12px"'));
+  return `<div class="split"><div class="list">${tradC()}</div><div class="detail">${flashBox()}
+  <div class="kpis">${kpi('Nettoomsättning','rr/0/3.1','ack')}${kpi('Rörelseresultat','rr/s2','ack')}${kpi('Årets resultat',TR.rr.at(-1).id,'ack')}${kpi('Kassa och bank','br/0/1/1/2.26','ub')}${kpi('Eget kapital','br/1/0','ub')}</div>
+  <div class="flex" style="justify-content:space-between;align-items:center"><div class="crumb">${S.rap==='rr'?'Resultaträkning':'Balansräkning'} ${ic('chevron-right','style="width:12px;height:12px"')} ${crumb}</div>
+    <div class="flex" style="gap:8px"><div class="grp">${seg('jmf',[['ingen','Inget'],['fg','Föregående år']])}</div><label class="chkl"><input type="checkbox" ${S.utk?'checked':''} onchange="S.utk=this.checked;render()">Med utkast${antalUtk()?` (${antalUtk()})`:''}</label>${exportKnapp()}</div></div>
+  ${banderoller()}
+  <div class="col" style="gap:4px"><h1>${esc(n.ars?'Årets resultat (ej bokfört på 2099)':(n.rn?n.rn+' ':'')+n.t)}</h1><div class="mf">${n.kind==='konto'?'Konto':n.kind==='rad'?'INK2-rad':n.kind==='sum'?'Summa':'Rubrik'} · ${S.rap==='rr'?'Resultaträkning':'Balansräkning'} · räkenskapsår ${arTxt(a)}</div></div>
+  <div class="stats" style="grid-template-columns:repeat(${C.length+(fgc.length?1:0)},1fr)">${C.map(c=>`<div class="stat"><span class="mf">${esc(c.t)} · ${esc(c.s)}</span><b class="${cellU(n,c)?'utk':''}" style="${c.fg?'color:var(--muted-foreground)':''}">${fmtV(val(n,c))}${cellU(n,c)?' <span style="color:var(--sidebar-primary);font-size:10px">●</span>':''}</b></div>`).join('')}
+    ${fgc.length?(()=>{const c=huvud.find(x=>x.id==='ack'||x.id==='ub')||huvud[0],f=fgc.find(x=>x.id==='fack'||x.id==='fub')||fgc[0],x=val(n,c),y=val(n,f);return `<div class="stat"><span class="mf">Förändring mot föreg. år</span><b>${y==null?'–':(x-y>=0?'+':'')+kr0(x-y)}</b></div>`})():''}</div>
+  ${n.kind!=='sum'||true?stapel(n):''}
+  ${kids.length?`<div><div class="sec-t">${n.kind==='rad'?'Konton':'Underrader'}</div><table class="vt"><thead><tr><th>${n.kind==='rad'?'Konto':'Rad'}</th>${C.map(c=>`<th class="r">${esc(c.t)}</th>`).join('')}<th>Andel</th></tr></thead><tbody>${kids.map(k=>`<tr style="cursor:pointer" onclick="S.sel='${k.id}';render()"><td><a>${esc(k.ars?'Årets resultat (ej bokfört)':(k.rn?k.rn+' ':'')+k.t)}</a></td>${C.map(c=>`<td class="r ${c.fg?'mf':''}">${fmtV(val(k,c))}</td>`).join('')}<td><span class="share"><span style="width:${Math.min(100,Math.abs(val(k,hc))/tot*100)}%"></span></span></td></tr>`).join('')}</tbody></table></div>`:''}
+  ${n.kind==='konto'||n.kind==='rad'&&!n.ars?`<div><div class="sec-t">Verifikat · ${esc(hc.t)}</div>${drillInfo(n)}${verTabell(n,hc)}</div>`:''}
+  ${n.ars||n.kind==='sum'?drillInfo(n.ars?n:{kind:'sum'}):''}
+  </div></div>`}
+
+/* ================= Skal (variant D från gränssnittsprototypen) ================= */
+const VARIANTS={A:{namn:'Dokumentet',sida:sidaA},B:{namn:'Månaderna',sida:sidaB},C:{namn:'Utforskaren',sida:sidaC}};
+const NAV=[['inkorg','Att göra'],['verifikat','Verifikat'],['kundfakturor','Kundfakturor'],['leverantorsfakturor','Leverantörsfakturor'],['lon','Lön'],['moms','Moms'],['rapporter','Rapporter']];
+function route(){const p=(location.hash||'#/rapporter').slice(2).split('/');return {mod:p[0]||'rapporter'}}
+function go(hh){location.hash=hh}
+function flashBox(){if(!S.flash)return '';const f=S.flash;S.flash='';return `<div class="alert ok">${ic('circle-check')}<div>${esc(f)}</div></div>`}
+function coMenu(){return `<div class="dropdown"><div class="lbl">Företag</div><button class="mi"><span class="logo sm">${initialer(CO.namn)}</span><span style="flex:1"><b style="font-weight:500">${esc(CO.namn)}</b><br><span class="mf">${CO.orgnr}</span></span>${ic('check')}</button></div>`}
+function skal(rt){const mod=rt.mod;
+  const page=mod!=='rapporter'?`<div style="padding:24px"><div class="placeholder">${ic('construction')}Sidan prototypas i ett eget ticket. <a class="link" href="#/rapporter">Tillbaka till rapporterna</a></div></div>`:VARIANTS[S.variant].sida();
+  return `<div class="B"><header>
+    <span class="brand"><span class="logo" style="width:24px;height:24px">M</span></span><span class="mf">/</span>
+    <div class="co"><button class="btn btn-ghost" onclick="S.coMenu=!S.coMenu;render()">${esc(CO.namn)}${ic('chevrons-up-down')}</button>${S.coMenu?coMenu():''}</div>
+    <nav>${NAV.map(([k,t])=>`<a href="#/${k}" class="${mod===k?'on':''}">${t}</a>`).join('')}</nav>
+    <div class="right"><span class="search">${ic('search')}Sök verifikat, faktura…<kbd>⌘K</kbd></span><button class="btn btn-ghost btn-icon" onclick="tema()" title="Ljust/mörkt">${ic('sun-moon')}</button></div>
+  </header>${page}</div>${modal()}`}
+
+/* ================= Render, tema, tangenter ================= */
+function render(){const det=document.querySelector('.detail')||document.querySelector('.B>div:last-child'),sc=det?det.scrollTop:0;
+  document.getElementById('app').innerHTML=skal(route());window.lucide&&lucide.createIcons();
+  const d=document.querySelector('.detail')||document.querySelector('.B>div:last-child');if(d)d.scrollTop=sc;
+  const keys=Object.keys(VARIANTS),V=VARIANTS[S.variant];
+  document.getElementById('proto-switcher').innerHTML=`<button onclick="cyk(-1)">←</button><span class="lbl">PROTOTYP · ${S.variant} (${V.namn}) · ${keys.indexOf(S.variant)+1}/${keys.length}</span><button onclick="cyk(1)">→</button>`}
+function cyk(d){const k=Object.keys(VARIANTS);S.variant=k[(k.indexOf(S.variant)+d+k.length)%k.length];S.drill=null;S.modal=null;S.exp=false;S.open={};
+  const p=new URLSearchParams(location.search);p.set('variant',S.variant);history.replaceState(null,'','?'+p+location.hash);render()}
+function tema(){const r=document.documentElement,cur=r.dataset.theme||(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light');r.dataset.theme=cur==='dark'?'light':'dark'}
+window.addEventListener('hashchange',()=>{S.coMenu=false;S.modal=null;S.drill=null;render()});
+document.addEventListener('click',e=>{if(S.coMenu&&!e.target.closest('.co')){S.coMenu=false;render()}if(S.exp&&!e.target.closest('.exp')){S.exp=false;render()}});
+document.addEventListener('keydown',e=>{if(e.target.matches('input,textarea,select,[contenteditable]'))return;
+  if(e.key==='Escape'&&(S.modal||S.drill)){S.modal=null;S.drill=null;render();return}
+  if(e.key==='ArrowLeft')cyk(-1);if(e.key==='ArrowRight')cyk(1)});
+if(!VARIANTS[S.variant])S.variant='A';
+if(!location.hash)location.hash='#/rapporter';
+render();
+</script>
+</body>
+</html>
