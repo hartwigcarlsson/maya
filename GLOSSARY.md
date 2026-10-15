@@ -56,6 +56,10 @@ _Avoid_: Bokföringsår, verksamhetsår
 Saldot på varje balanskonto när ett räkenskapsår börjar; den är inget verifikat, och för företagets första räkenskapsår i Maya skrivs den in eller importeras.
 _Avoid_: IB-verifikat, öppningsverifikat, startsaldo
 
+**Import**:
+När ett företags bokföring för ett räkenskapsår förs över från ett annat system med en SIE4-fil; den görs en gång i ett tomt företag, bokför de överförda verifikaten och arkiverar filen tillsammans med en avstämning av alla summor.
+_Avoid_: Migrering (som term), inläsning, SIE-import (i UI)
+
 **Verifikat**:
 En bokföringspost som dokumenterar en affärshändelse med debet- och kreditrader; ett bokfört verifikat ändras aldrig, bara rättas genom ett nytt verifikat.
 _Avoid_: Verifikation, voucher, transaktion, journal entry
@@ -83,6 +87,10 @@ _Avoid_: Makulering, korrigering, ändring
 **Komplettering**:
 Ett underlag som kopplas till ett verifikat efter att det har bokförts, utan att verifikatet i övrigt förändras.
 _Avoid_: Tillägg, bilaga
+
+**Källreferens**:
+Ett importerat verifikats serie, nummer, registreringsdatum och signatur i det system det kom från; den visas på verifikatet men ersätter aldrig verifikationsnumret.
+_Avoid_: Originalnummer, externt id, gammalt verifikationsnummer
 
 **Dimension**:
 En uppdelning av bokföringen utöver kontot, som kostnadsställe eller projekt, där en verifikatrad märks med ett objekt; Maya för inga dimensioner, och en import släpper dem.
