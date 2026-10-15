@@ -194,3 +194,35 @@ _Avoid_: Momskod, momsmappning, momsattribut
 **Periodisk sammanställning**:
 Företagets redovisning till Skatteverket per kalenderkvartal av tjänster sålda till köpare i andra EU-länder, per köpare och momsreg-nr; den räknas ur kundreskontran och har samma statusar som momsdeklarationen.
 _Avoid_: PS, EU-rapport, EU-sammanställning
+
+**Anläggningstillgång**:
+En tillgång som är avsedd att användas stadigvarande i företaget och bokförs på ett konto i BAS-klasserna 10–12; den skrivs av över sin nyttjandeperiod om den har en.
+_Avoid_: Inventarie (som samlingsnamn), tillgång (utan förled), asset
+
+**Anläggningsregister**:
+Företagets register över anläggningstillgångar med anskaffningsvärde, avskrivningsplan, av- och nedskrivningar och avyttringar; allt i det bokförs in i huvudboken.
+_Avoid_: Inventarieförteckning, tillgångslista, anläggningsreskontra
+
+**Okopplad anskaffning**:
+En bokförd debetrad på ett anskaffningskonto för anläggningstillgångar som ännu inte hör till någon anläggningstillgång i anläggningsregistret.
+_Avoid_: Ny tillgång, oregistrerad inventarie
+
+**Nyttjandeperiod**:
+Det antal månader som en anläggningstillgång väntas användas och skrivs av linjärt över, räknat från den månad den tas i bruk.
+_Avoid_: Livslängd, avskrivningstid, ekonomisk livslängd
+
+**Restvärde**:
+Det belopp som en anläggningstillgång väntas vara värd när nyttjandeperioden är slut och som inte skrivs av.
+_Avoid_: Slutvärde, skrotvärde, bokfört värde
+
+**Avskrivning**:
+Den del av en anläggningstillgångs anskaffningsvärde som förbrukas under en period och bokförs som kostnad enligt avskrivningsplanen; skattemässiga överavskrivningar ingår inte.
+_Avoid_: Värdeminskning, nedskrivning, överavskrivning
+
+**Nedskrivning**:
+En engångsminskning av en anläggningstillgångs värde utöver avskrivningen, när värdet varaktigt har sjunkit under det bokförda värdet.
+_Avoid_: Avskrivning, värdejustering
+
+**Avyttring**:
+När en anläggningstillgång säljs eller utrangeras och lämnar anläggningsregistret, med vinst eller förlust mot det bokförda värdet.
+_Avoid_: Försäljning (som samlingsnamn), utrangering (som samlingsnamn), borttagning
