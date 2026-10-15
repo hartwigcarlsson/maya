@@ -84,6 +84,10 @@ _Avoid_: Makulering, korrigering, ändring
 Ett underlag som kopplas till ett verifikat efter att det har bokförts, utan att verifikatet i övrigt förändras.
 _Avoid_: Tillägg, bilaga
 
+**Dimension**:
+En uppdelning av bokföringen utöver kontot, som kostnadsställe eller projekt, där en verifikatrad märks med ett objekt; Maya för inga dimensioner, och en import släpper dem.
+_Avoid_: Kostnadsbärare, objekt (som samlingsnamn), tagg
+
 **Period**:
 En kalendermånad inom ett räkenskapsår; en låst period kan inte få fler verifikat.
 _Avoid_: Redovisningsperiod, månad (som term)
