@@ -16,6 +16,10 @@ _Avoid_: Användarkonto, anpassat konto, underkonto (som samlingsnamn)
 Ett konto som BAS markerar som en del av basuppsättningen (■). Grundkontona är aktiva när ett nytt företag läggs upp.
 _Avoid_: Baskonto, standardkonto
 
+**Reserverat konto**:
+Ett konto som Maya lägger in i varje företags kontoplan för sina egna flöden; det kan inte skapas som eget konto, och det kan inte byta namn, inaktiveras eller få en annan koppling.
+_Avoid_: Systemkonto, Maya-konto, spärrat konto
+
 **Inaktivt konto**:
 Ett konto som finns i företagets kontoplan men inte kan bokföras på förrän någon aktiverar det; ett utkast får använda det.
 _Avoid_: Dolt konto, spärrat konto
@@ -208,8 +212,16 @@ Verifikatet som en momsdeklaration bokför på momsperiodens sista dag och som f
 _Avoid_: Momsomföring, momsbokning, nollställning
 
 **Kopplingstabell för moms**:
-Den inbyggda tabell som anger vilken ruta i momsdeklarationen varje konto bidrar till; den är densamma för alla företag.
+Företagets tabell över vilken ruta i momsdeklarationen varje konto bidrar till, högst en per konto; den kopieras från Mayas standardtabell när företaget läggs upp.
 _Avoid_: Momskod, momsmappning, momsattribut
+
+**Förvald moms**:
+Det momskonto, eller ingen moms, som Maya föreslår när ett visst konto konteras; den bestäms per företag och påverkar aldrig momsdeklarationens rutor.
+_Avoid_: Momskod, momsmappning, standardmoms
+
+**Justeringspar**:
+Två motsatta rader med samma belopp, en på ett konto som är kopplat till en ruta och en på ett reserverat konto i samma kontogrupp, som lägger ett underlag i rutan utan att ändra resultatet.
+_Avoid_: Spegelkonto, motkontopar, momsjustering
 
 **Periodisk sammanställning**:
 Företagets redovisning till Skatteverket per kalenderkvartal av tjänster sålda till köpare i andra EU-länder, per köpare och momsreg-nr; den räknas ur kundreskontran och har samma statusar som momsdeklarationen.
