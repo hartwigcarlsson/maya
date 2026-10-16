@@ -1,0 +1,871 @@
+<!doctype html>
+<html lang="sv">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Maya kontoplan</title>
+<!--
+  PROTOTYP, KASTA BORT. Svarar på: Hur ser kontoplanen ut i gränssnittet?
+  (https://github.com/hartwigcarlsson/maya/issues/82). Reglerna är beslutade i kontoplanen (#17) och momsrutorna (#72):
+  namn, aktiv/inaktiv (bara med nollsaldo), förvald moms och momsruta ändras på kontosidan; INK2-raden visas men ändras
+  inte; låsta kopplingar och reserverade konton syns men kan inte ändras; allt i webben, aldrig av AI.
+  Bygger på skalet i variant D av gränssnittsprototypen (#24). Kontosidan ligger under Inställningar (kugghjulet).
+  Tre varianter, ?variant=A|B|C (eller ← → / knapparna längst ned). Data, regler, varningar, historik, nytt konto och
+  utskriften är gemensamma; varianterna skiljer sig i vad sidan utgår från:
+  A: Tabellen. Hela kontoplanen som en tät tabell per kontoklass, där varje cell ändras på plats (VALD utan saldokolumn, se #82)
+  B: Kontokortet. Lista och detalj som resten av Maya; kontot som ett dokument med paneler för varje ändring
+  C: Momskopplingen. Två flikar: kontona som träd (namn och aktiv) och momsdeklarationens rutor med sina konton
+  Allt ligger i minnet; ladda om sidan för att börja om. I dag är 2026-10-16.
+  Exempel AB har kalenderår. Momsperioden är kvartal: Q3 2026 är deklarerad 2026-10-12 men juli–september är inte låsta.
+  Företaget lades upp 2025 med BAS 2025, och Maya 1.4 lade till två konton ur BAS 2026 som inaktiva (påhittade här).
+  Urval på ~190 av BAS cirka 1 300 konton; namn, INK2-rader och belopp är förenklade. 3998/3999 är preliminära nummer
+  för det reserverade justeringsparet i grupp 3 (väljs i specen). Formen är poängen.
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://unpkg.com/lucide@0.469.0/dist/umd/lucide.min.js"></script>
+<style>
+/* Tokens från presetet (Stone + Amber), ljust */
+:root{
+  --background:oklch(1 0 0);--foreground:oklch(0.147 0.004 49.25);
+  --card:oklch(1 0 0);--popover:oklch(1 0 0);
+  --primary:oklch(0.555 0.163 48.998);--primary-foreground:oklch(0.987 0.022 95.277);
+  --secondary:oklch(0.967 0.001 286.375);--secondary-foreground:oklch(0.21 0.006 285.885);
+  --muted:oklch(0.97 0.001 106.424);--muted-foreground:oklch(0.553 0.013 58.071);
+  --accent:oklch(0.97 0.001 106.424);--accent-foreground:oklch(0.216 0.006 56.043);
+  --destructive:oklch(0.577 0.245 27.325);
+  --border:oklch(0.923 0.003 48.717);--input:oklch(0.923 0.003 48.717);--ring:oklch(0.709 0.01 56.259);
+  --sidebar:oklch(0.985 0.001 106.423);--sidebar-primary:oklch(0.666 0.179 58.318);--sidebar-accent:oklch(0.97 0.001 106.424);--sidebar-border:oklch(0.923 0.003 48.717);
+  --success:oklch(0.52 0.12 150);
+  --radius:0.45rem;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --background:oklch(0.147 0.004 49.25);--foreground:oklch(0.985 0.001 106.423);
+  --card:oklch(0.216 0.006 56.043);--popover:oklch(0.216 0.006 56.043);
+  --primary:oklch(0.473 0.137 46.201);--primary-foreground:oklch(0.987 0.022 95.277);
+  --secondary:oklch(0.274 0.006 286.033);--secondary-foreground:oklch(0.985 0 0);
+  --muted:oklch(0.268 0.007 34.298);--muted-foreground:oklch(0.709 0.01 56.259);
+  --accent:oklch(0.268 0.007 34.298);--accent-foreground:oklch(0.985 0.001 106.423);
+  --destructive:oklch(0.704 0.191 22.216);
+  --border:oklch(1 0 0 / 10%);--input:oklch(1 0 0 / 15%);--ring:oklch(0.553 0.013 58.071);
+  --sidebar:oklch(0.216 0.006 56.043);--sidebar-primary:oklch(0.769 0.188 70.08);--sidebar-accent:oklch(0.268 0.007 34.298);--sidebar-border:oklch(1 0 0 / 10%);
+  --success:oklch(0.75 0.13 150);
+}}
+:root[data-theme="dark"]{
+  --background:oklch(0.147 0.004 49.25);--foreground:oklch(0.985 0.001 106.423);
+  --card:oklch(0.216 0.006 56.043);--popover:oklch(0.216 0.006 56.043);
+  --primary:oklch(0.473 0.137 46.201);--primary-foreground:oklch(0.987 0.022 95.277);
+  --secondary:oklch(0.274 0.006 286.033);--secondary-foreground:oklch(0.985 0 0);
+  --muted:oklch(0.268 0.007 34.298);--muted-foreground:oklch(0.709 0.01 56.259);
+  --accent:oklch(0.268 0.007 34.298);--accent-foreground:oklch(0.985 0.001 106.423);
+  --destructive:oklch(0.704 0.191 22.216);
+  --border:oklch(1 0 0 / 10%);--input:oklch(1 0 0 / 15%);--ring:oklch(0.553 0.013 58.071);
+  --sidebar:oklch(0.216 0.006 56.043);--sidebar-primary:oklch(0.769 0.188 70.08);--sidebar-accent:oklch(0.268 0.007 34.298);--sidebar-border:oklch(1 0 0 / 10%);
+  --success:oklch(0.75 0.13 150);
+}
+*{box-sizing:border-box;border-color:var(--border)}
+html,body{margin:0;height:100%}
+body{background:var(--background);color:var(--foreground);font:13px/1.5 Inter,system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+button,input,select{font:inherit;color:inherit}
+a{color:inherit;text-decoration:none}
+svg.lucide{width:14px;height:14px;flex-shrink:0;stroke-width:2}
+.num{font-variant-numeric:tabular-nums;text-align:right;white-space:nowrap}
+.mf{color:var(--muted-foreground)}
+h1{font-size:16px;font-weight:600;margin:0;letter-spacing:-.01em}
+h2{font-size:14px;font-weight:500;margin:0}
+
+/* Button */
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:4px;height:28px;padding:0 8px;border-radius:calc(var(--radius) * .8);font-size:13px;font-weight:500;border:1px solid transparent;cursor:pointer;white-space:nowrap;background:transparent;transition:background .1s}
+.btn-default{background:var(--primary);color:var(--primary-foreground)}
+.btn-default:hover{background:color-mix(in oklch,var(--primary) 90%,transparent)}
+.btn-outline{border-color:var(--input);background:var(--background)}
+:root[data-theme="dark"] .btn-outline{background:color-mix(in oklch,var(--input) 30%,transparent)}
+.btn-outline:hover,.btn-ghost:hover{background:var(--accent)}
+.btn-secondary{background:var(--secondary);color:var(--secondary-foreground)}
+.btn-icon{width:28px;padding:0}
+.btn-destructive-ghost{color:var(--destructive)}
+.btn-destructive-ghost:hover{background:color-mix(in oklch,var(--destructive) 10%,transparent)}
+
+/* Badge */
+.badge{display:inline-flex;align-items:center;gap:4px;height:20px;padding:2px 8px;border-radius:999px;font-size:10px;font-weight:500;white-space:nowrap;border:1px solid transparent;vertical-align:middle}
+.badge svg.lucide{width:10px;height:10px}
+.badge-utkast{border:1px dashed var(--muted-foreground);color:var(--muted-foreground)}
+.badge-bokford{background:var(--secondary);color:var(--secondary-foreground)}
+.badge-ai{border-color:var(--border);color:var(--foreground)}
+.badge-rattad{background:color-mix(in oklch,var(--destructive) 12%,transparent);color:var(--destructive)}
+.badge-count{background:var(--primary);color:var(--primary-foreground);height:18px;min-width:18px;padding:0 5px;justify-content:center}
+
+/* Card */
+.card{background:var(--card);border-radius:var(--radius);box-shadow:0 0 0 1px color-mix(in oklch,var(--foreground) 10%,transparent);display:flex;flex-direction:column;gap:16px;padding:16px 0}
+.card-header{padding:0 16px;display:flex;justify-content:space-between;align-items:flex-start;gap:12px}
+.card-title{font-size:14px;font-weight:500}
+.card-desc{color:var(--muted-foreground)}
+.card-content{padding:0 16px}
+.card-footer{padding:0 16px;display:flex;gap:8px;justify-content:flex-end;align-items:center}
+
+/* Input */
+.input{height:28px;border:1px solid var(--input);border-radius:calc(var(--radius) * .8);padding:0 8px;background:transparent;font-size:13px;width:100%}
+:root[data-theme="dark"] .input{background:color-mix(in oklch,var(--input) 30%,transparent)}
+.input:focus,.cell:focus{outline:none;border-color:var(--ring);box-shadow:0 0 0 3px color-mix(in oklch,var(--ring) 50%,transparent)}
+.input[readonly]{background:var(--muted);color:var(--muted-foreground)}
+.label{font-size:13px;font-weight:500;display:block;margin-bottom:6px}
+.field-grid{display:grid;grid-template-columns:160px 1fr 1fr;gap:16px}
+
+/* Table */
+table{border-collapse:collapse;width:100%}
+.table th{height:32px;padding:0 8px;text-align:left;font-weight:500;color:var(--muted-foreground);border-bottom:1px solid var(--border);white-space:nowrap}
+.table td{padding:6px 8px;border-bottom:1px solid var(--border);vertical-align:middle}
+.table tbody tr:last-child td{border-bottom:0}
+.table tr.click{cursor:pointer}
+.table tr.click:hover td{background:color-mix(in oklch,var(--muted) 50%,transparent)}
+.cell{width:100%;height:28px;border:1px solid transparent;border-radius:calc(var(--radius) * .8);padding:0 6px;background:transparent}
+.cell:hover:not([readonly]){border-color:var(--input)}
+.rows td{padding:2px 4px}
+.sumrow td{font-weight:600;border-top:1px solid var(--border);padding:8px}
+.diff-bad{color:var(--destructive);display:inline-flex;gap:4px;align-items:center}
+.diff-ok{color:var(--success);display:inline-flex;gap:4px;align-items:center}
+
+/* Alert */
+.alert{display:grid;grid-template-columns:auto 1fr auto;gap:2px 10px;align-items:start;border:1px solid var(--border);border-radius:var(--radius);padding:10px 12px;background:var(--card)}
+.alert .t{font-weight:500}
+.alert ul{margin:2px 0 0 16px;padding:0;color:var(--muted-foreground)}
+.alert.destructive{color:var(--destructive)}
+.alert.destructive ul{color:color-mix(in oklch,var(--destructive) 85%,var(--foreground))}
+.alert.ok{color:var(--success)}
+
+/* Tabs */
+.tabs{display:inline-flex;background:var(--muted);border-radius:var(--radius);padding:3px;gap:2px}
+.tabs button{height:22px;padding:0 10px;border:0;border-radius:calc(var(--radius) * .7);background:transparent;color:var(--muted-foreground);font-weight:500;cursor:pointer;display:inline-flex;gap:6px;align-items:center}
+.tabs button.on{background:var(--background);color:var(--foreground);box-shadow:0 1px 2px rgba(0,0,0,.08)}
+:root[data-theme="dark"] .tabs button.on{background:var(--input)}
+
+/* Dropdown */
+.dropdown{position:absolute;z-index:20;background:var(--popover);border:1px solid var(--border);border-radius:var(--radius);box-shadow:0 8px 24px rgba(0,0,0,.18);padding:4px;min-width:240px}
+.dropdown .lbl{padding:6px 8px;color:var(--muted-foreground);font-size:11px}
+.dropdown .mi{display:flex;align-items:center;gap:8px;width:100%;padding:6px 8px;border:0;background:transparent;border-radius:calc(var(--radius) * .8);cursor:pointer;text-align:left}
+.dropdown .mi:hover{background:var(--accent)}
+.dropdown .sepl{height:1px;background:var(--border);margin:4px -4px}
+.logo{width:28px;height:28px;border-radius:calc(var(--radius) * .8);background:var(--sidebar-primary);color:var(--primary-foreground);display:grid;place-items:center;font-weight:700;flex-shrink:0}
+.logo.sm{width:22px;height:22px;font-size:11px;background:var(--muted);color:var(--foreground);border:1px solid var(--border)}
+kbd{font:500 10px Inter,system-ui;border:1px solid var(--border);border-radius:4px;padding:1px 5px;background:var(--muted);color:var(--muted-foreground)}
+.placeholder{display:grid;place-items:center;gap:8px;padding:64px;color:var(--muted-foreground);text-align:center;border:1px dashed var(--border);border-radius:var(--radius)}
+
+/* ---------- Switcher (inte en del av designen) ---------- */
+#proto-switcher{position:fixed;left:50%;bottom:14px;transform:translateX(-50%);z-index:999;display:flex;align-items:center;gap:6px;
+  background:#111;color:#fff;border-radius:999px;padding:6px 8px;box-shadow:0 6px 24px rgba(0,0,0,.35);font:12px system-ui;border:2px dashed #f5c400}
+#proto-switcher button{background:#333;color:#fff;border:0;border-radius:999px;padding:4px 10px;cursor:pointer}
+#proto-switcher .lbl{padding:0 8px;white-space:nowrap}
+
+/* ---------- Variant B: Inkorg först ---------- */
+.B{display:flex;flex-direction:column;height:100vh}
+.B header{display:flex;align-items:center;gap:12px;padding:0 12px;height:48px;border-bottom:1px solid var(--border);background:var(--background)}
+.B .brand{display:flex;align-items:center;gap:8px;font-weight:600}
+.B .co{position:relative}
+.B .co .dropdown{top:34px;left:0}
+.B nav{display:flex;gap:2px}
+.B nav a{display:inline-flex;align-items:center;gap:6px;height:28px;padding:0 10px;border-radius:calc(var(--radius) * .8);color:var(--muted-foreground);font-weight:500}
+.B nav a:hover{color:var(--foreground);background:var(--accent)}
+.B nav a.on{color:var(--foreground);background:var(--accent)}
+.B header .right{margin-left:auto;display:flex;gap:4px;align-items:center}
+.B .split{flex:1;display:grid;grid-template-columns:360px 1fr;min-height:0}
+.B .list{border-right:1px solid var(--border);overflow:auto;padding:12px;display:flex;flex-direction:column;gap:6px;background:var(--sidebar)}
+.B .list .lh{display:flex;justify-content:space-between;align-items:center;padding:4px 4px 8px}
+.B .sect{display:flex;align-items:center;gap:6px;color:var(--muted-foreground);font-size:11px;font-weight:500;padding:10px 4px 2px}
+.B .item{display:flex;flex-direction:column;gap:6px;padding:10px 12px;border-radius:calc(var(--radius) * .8);border:1px solid transparent;background:color-mix(in oklch,var(--muted) 50%,transparent)}
+.B .item:hover{background:var(--muted)}
+.B .item.on{border-color:var(--ring);background:var(--card)}
+.B .item .top{display:flex;justify-content:space-between;gap:8px;font-weight:500}
+.B .item .meta{display:flex;gap:6px;align-items:center;color:var(--muted-foreground);flex-wrap:wrap}
+.B .item.plain{background:transparent;border-color:var(--border)}
+.B .detail{overflow:auto;padding:20px 28px 90px;display:flex;flex-direction:column;gap:16px}
+.B .empty{display:grid;place-items:center;height:100%;color:var(--muted-foreground);text-align:center;gap:8px}
+
+.search{display:inline-flex;align-items:center;gap:8px;height:28px;padding:0 8px;min-width:240px;border:1px solid var(--input);border-radius:calc(var(--radius) * .8);color:var(--muted-foreground);cursor:pointer;background:color-mix(in oklch,var(--muted) 50%,transparent)}
+.search kbd{margin-left:auto}
+.pal-bg{position:fixed;inset:0;background:rgba(0,0,0,.5);display:flex;justify-content:center;align-items:flex-start;padding-top:14vh;z-index:50}
+.pal{width:520px;max-width:92vw;background:var(--popover);border-radius:var(--radius);box-shadow:0 0 0 1px color-mix(in oklch,var(--foreground) 10%,transparent),0 16px 48px rgba(0,0,0,.4);overflow:hidden}
+.pal .in{display:flex;align-items:center;gap:8px;padding:0 12px;border-bottom:1px solid var(--border);color:var(--muted-foreground)}
+.pal input{flex:1;height:40px;border:0;background:transparent;outline:none;font-size:13px;color:var(--foreground)}
+.pal .ls{max-height:340px;overflow:auto;padding:4px}
+.pal .opt{display:flex;align-items:center;gap:8px;height:30px;padding:0 8px;border-radius:calc(var(--radius) * .8);cursor:pointer}
+.pal .opt.on{background:var(--accent)}
+.pal .opt kbd,.pal .opt .amt{margin-left:auto}
+.pal .opt .amt{color:var(--muted-foreground);font-variant-numeric:tabular-nums}
+.pal .opt .t{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pal .grp{padding:8px 8px 4px;font-size:11px;color:var(--muted-foreground);font-weight:500}
+.pal .ft{display:flex;gap:12px;padding:6px 12px;border-top:1px solid var(--border);color:var(--muted-foreground);font-size:11px}
+
+/* ---------- Gemensamt för verifikatprototypen ---------- */
+.B .detail{position:relative}
+.warn{color:var(--sidebar-primary)}
+.badge-warn{background:color-mix(in oklch,var(--sidebar-primary) 14%,transparent);color:var(--sidebar-primary)}
+.badge-lock{background:var(--muted);color:var(--muted-foreground);border-color:var(--border)}
+.dl{display:grid;grid-template-columns:130px 1fr;gap:6px 16px}
+.dl dt{color:var(--muted-foreground)}
+.dl dd{margin:0}
+.link{text-decoration:underline;text-underline-offset:2px;cursor:pointer}
+.sec-t{font-size:11px;font-weight:500;color:var(--muted-foreground);text-transform:uppercase;letter-spacing:.04em;margin-bottom:6px}
+.paper{background:var(--card);border-radius:var(--radius);box-shadow:0 0 0 1px color-mix(in oklch,var(--foreground) 10%,transparent),0 2px 8px rgba(0,0,0,.04);padding:24px 28px;display:flex;flex-direction:column;gap:20px;max-width:860px}
+.ro td{padding:6px 8px}
+.hist{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px}
+.hist li{display:grid;grid-template-columns:18px 130px 1fr;gap:8px;align-items:start}
+.hist li .t{color:var(--muted-foreground);font-variant-numeric:tabular-nums}
+.ufile{display:flex;align-items:center;gap:8px;padding:6px 8px;border:1px solid var(--border);border-radius:calc(var(--radius) * .8)}
+.ufile .mf{margin-left:auto;font-size:11px}
+.ufile.kompl{border-style:dashed}
+.preview{display:grid;place-items:center;gap:6px;background:var(--muted);color:var(--muted-foreground);border-radius:var(--radius);text-align:center}
+.drop{display:grid;place-items:center;gap:6px;border:1px dashed var(--ring);border-radius:var(--radius);color:var(--muted-foreground);padding:16px;text-align:center}
+.err .input,.input.err{border-color:var(--destructive)}
+tr.err td{background:color-mix(in oklch,var(--destructive) 6%,transparent)}
+.cell.err{border-color:var(--destructive)}
+.ferr{color:var(--destructive);font-size:11px;margin-top:3px;display:flex;gap:4px;align-items:center}
+.ferr svg.lucide{width:11px;height:11px}
+.btn[disabled]{opacity:.5;cursor:not-allowed}
+.dialog{width:560px;max-width:94vw;background:var(--popover);border-radius:var(--radius);box-shadow:0 0 0 1px color-mix(in oklch,var(--foreground) 10%,transparent),0 16px 48px rgba(0,0,0,.4);display:flex;flex-direction:column;gap:14px;padding:18px 20px}
+.dialog .ft{display:flex;gap:8px;justify-content:flex-end}
+.pick{display:flex;flex-direction:column;gap:4px;max-height:220px;overflow:auto}
+.pick label{display:flex;gap:8px;align-items:center;padding:6px 8px;border-radius:calc(var(--radius) * .8);border:1px solid var(--border);cursor:pointer}
+.pick label:hover{background:var(--accent)}
+.note{display:flex;gap:8px;align-items:flex-start;color:var(--muted-foreground);font-size:12px}
+.note svg.lucide{margin-top:2px}
+.flex{display:flex;gap:8px;align-items:center}
+.col{display:flex;flex-direction:column;gap:8px}
+
+/* A: kontrollista i en högerspalt */
+.A-edit{display:grid;grid-template-columns:1fr 250px;gap:24px;align-items:start}
+.rail{position:sticky;top:0;display:flex;flex-direction:column;gap:10px;padding:14px;border:1px solid var(--border);border-radius:var(--radius);background:var(--sidebar)}
+.rail .chk{display:grid;grid-template-columns:16px 1fr;gap:6px;align-items:start}
+.rail .chk.ok{color:var(--muted-foreground)}
+.rail .chk.bad{color:var(--foreground)}
+.rail .chk.bad svg.lucide{color:var(--destructive)}
+.rail .chk.ok svg.lucide{color:var(--success)}
+.rail .chk .fix{display:block;font-size:11px;color:var(--muted-foreground)}
+
+/* B: tabell som lista */
+.tlist{width:100%;border-collapse:collapse}
+.tlist td{padding:6px 6px;border-bottom:1px solid var(--border);vertical-align:top}
+.tlist tr{cursor:pointer}
+.tlist tr:hover td{background:var(--muted)}
+.tlist tr.on td{background:var(--card);box-shadow:inset 0 0 0 0 var(--ring)}
+.tlist tr.on td:first-child{box-shadow:inset 2px 0 0 var(--sidebar-primary)}
+.tlist th{font-weight:500;color:var(--muted-foreground);text-align:left;padding:4px 6px;border-bottom:1px solid var(--border);font-size:11px}
+.B .list.wide{padding:8px}
+.cmp{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.cmp .paper{padding:16px}
+
+/* C: underlag bredvid */
+.C-edit{display:grid;grid-template-columns:minmax(260px,42%) 1fr;gap:20px;align-items:start}
+.C-edit .left{position:sticky;top:0;display:flex;flex-direction:column;gap:8px}
+.C-edit .left .preview{height:420px}
+.per{display:flex;align-items:center;gap:6px;font-size:11px;font-weight:500;color:var(--muted-foreground);padding:12px 4px 2px}
+.per .badge{margin-left:auto}
+.pop{position:absolute;z-index:20;background:var(--popover);border:1px solid var(--border);border-radius:var(--radius);box-shadow:0 8px 24px rgba(0,0,0,.18);padding:8px;width:300px;display:flex;flex-direction:column;gap:6px}
+.inl{border:1px solid var(--ring);border-radius:var(--radius);padding:14px;display:flex;flex-direction:column;gap:12px;background:var(--card)}
+.bcount{background:color-mix(in oklch,var(--primary-foreground) 25%,transparent);border-radius:999px;padding:0 6px;font-size:11px}
+/* ---------- Leverantörsfakturor ---------- */
+.badge-obetald{background:var(--secondary);color:var(--secondary-foreground)}
+.badge-forfallen{background:color-mix(in oklch,var(--destructive) 12%,transparent);color:var(--destructive)}
+.badge-betald{background:color-mix(in oklch,var(--success) 14%,transparent);color:var(--success)}
+.badge-ny{background:color-mix(in oklch,var(--sidebar-primary) 14%,transparent);color:var(--sidebar-primary);border:1px dashed var(--sidebar-primary)}
+.copy{display:inline-flex;align-items:center;gap:6px;height:24px;padding:0 8px;border:1px solid var(--border);border-radius:calc(var(--radius) * .8);background:var(--background);cursor:pointer;font-variant-numeric:tabular-nums}
+.copy:hover{background:var(--accent)}
+.copy .k{color:var(--muted-foreground);font-size:11px}
+.levkort{border:1px solid var(--border);border-radius:var(--radius);padding:12px;display:flex;flex-direction:column;gap:8px}
+.levkort.ny{border:1px dashed var(--sidebar-primary);background:color-mix(in oklch,var(--sidebar-primary) 5%,transparent)}
+.g2{display:grid;grid-template-columns:1fr 1fr;gap:10px 14px}
+.g3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px 14px}
+.g4{display:grid;grid-template-columns:repeat(4,1fr);gap:10px 14px}
+.kont{border:1px solid var(--border);border-radius:var(--radius);padding:10px 12px;background:var(--sidebar)}
+.kont .table td,.kont .table th{padding:3px 8px;height:auto}
+.select{height:28px;border:1px solid var(--input);border-radius:calc(var(--radius) * .8);padding:0 6px;background:var(--background);width:100%}
+.seg{display:inline-flex;border:1px solid var(--border);border-radius:var(--radius);overflow:hidden}
+.seg button{border:0;border-right:1px solid var(--border);background:var(--background);padding:6px 12px;cursor:pointer;display:inline-flex;gap:6px;align-items:center}
+.seg button:last-child{border-right:0}
+.seg button.on{background:var(--accent);font-weight:500}
+.seg button:hover{background:var(--accent)}
+.triage{display:grid;grid-template-columns:1fr 280px;gap:20px;align-items:start}
+.tchoice{display:flex;flex-direction:column;gap:6px}
+.tchoice button{display:flex;align-items:center;gap:10px;padding:10px 12px;border:1px solid var(--border);border-radius:var(--radius);background:var(--card);cursor:pointer;text-align:left}
+.tchoice button:hover{background:var(--accent)}
+.tchoice kbd{margin-left:auto}
+.levgrp{display:flex;justify-content:space-between;align-items:center;padding:10px 6px 4px;font-weight:500;cursor:pointer}
+.levgrp:hover{color:var(--sidebar-primary)}
+.bet{display:grid;grid-template-columns:100px 1fr 120px 60px;gap:8px;padding:4px 0;border-bottom:1px solid var(--border)}
+.A-reg{display:grid;grid-template-columns:1fr minmax(240px,36%);gap:20px;align-items:start}
+.A-reg .orig{position:sticky;top:0;display:flex;flex-direction:column;gap:8px}
+.steg{display:flex;flex-direction:column;gap:10px;border:1px solid var(--border);border-radius:var(--radius);padding:12px 14px}
+.steg .st{display:flex;gap:8px;align-items:center;font-weight:500}
+.steg .st .n{width:20px;height:20px;border-radius:999px;background:var(--muted);display:grid;place-items:center;font-size:11px}
+.steg.klar .st .n{background:var(--success);color:white}
+/* ---------- Kundfakturor ---------- */
+.badge-tillgodo{background:color-mix(in oklch,var(--sidebar-primary) 14%,transparent);color:var(--sidebar-primary)}
+textarea{font:inherit;color:inherit}
+textarea.input{height:auto;padding:6px 8px;resize:vertical;line-height:1.45}
+.newmenu{position:relative}
+.newmenu .dropdown{right:0;top:32px}
+/* Fakturan som PDF: alltid ljus, den är ett papper */
+.inv{position:relative;background:#fff;color:#1c1917;border-radius:4px;box-shadow:0 0 0 1px rgba(0,0,0,.1),0 2px 10px rgba(0,0,0,.06);padding:26px 28px;font-size:10.5px;line-height:1.45;display:flex;flex-direction:column;gap:14px;overflow:hidden}
+.inv .h{display:flex;justify-content:space-between;gap:16px;align-items:flex-start}
+.inv .lg{width:42px;height:42px;border-radius:6px;background:#c2410c;color:#fff;display:grid;place-items:center;font-weight:700;font-size:14px}
+.inv .tt{font-size:19px;font-weight:600;letter-spacing:-.01em;margin-bottom:4px}
+.inv table{width:100%}
+.inv td,.inv th{padding:3px 4px;border-bottom:1px solid #e7e5e4;text-align:left;vertical-align:top}
+.inv th{font-weight:500;color:#78716c}
+.inv .r{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+.inv .kv{display:grid;grid-template-columns:auto auto;gap:1px 12px;align-content:start}
+.inv .kv>span:nth-child(odd){color:#78716c}
+.inv .adr{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.inv .lbl2{color:#78716c;font-size:9.5px;text-transform:uppercase;letter-spacing:.05em;margin-bottom:2px}
+.inv .sum{display:grid;grid-template-columns:1fr auto;gap:2px 16px;margin-left:auto;min-width:220px}
+.inv .sum .big{font-size:13px;font-weight:600;border-top:1px solid #1c1917;padding-top:4px}
+.inv .pay{display:grid;grid-template-columns:repeat(4,auto);gap:2px 18px;border:1px solid #e7e5e4;border-radius:4px;padding:8px 10px;justify-content:start}
+.inv .pay span:nth-child(-n+4){color:#78716c;font-size:9.5px}
+.inv .foot{border-top:1px solid #e7e5e4;padding-top:8px;color:#78716c;font-size:9.5px;display:flex;flex-wrap:wrap;gap:2px 14px}
+.inv .wm{position:absolute;top:42%;left:50%;transform:translate(-50%,-50%) rotate(-24deg);font-size:72px;font-weight:700;color:rgba(194,65,12,.09);pointer-events:none;letter-spacing:.12em}
+.inv .miss{background:rgba(220,38,38,.09);color:#b91c1c;border-radius:3px;padding:0 3px}
+.inv .omv{border-left:3px solid #c2410c;padding:4px 8px;background:#fff7ed}
+.inv .ed{border:1px dashed #d6d3d1;border-radius:3px;background:#fffbeb;height:20px;padding:0 4px;font:inherit;font-size:10.5px;width:100%;color:#1c1917}
+.inv .ed:focus{outline:none;border:1px solid #c2410c;background:#fff}
+.inv .ed.err{border-color:#dc2626;background:#fef2f2}
+.inv select.ed{padding:0 2px}
+.inv .addrow{color:#c2410c;cursor:pointer;font-weight:500}
+.C-edit .left .inv{padding:18px;font-size:10px;gap:10px}
+.C-edit .left .inv .tt{font-size:16px}
+.pal-bg .dialog{max-height:86vh;overflow:auto}
+.drawer{position:fixed;top:48px;right:0;bottom:0;width:600px;max-width:92vw;background:var(--background);border-left:1px solid var(--border);box-shadow:-12px 0 32px rgba(0,0,0,.25);z-index:30;display:flex;flex-direction:column}
+.drawer .dh{display:flex;justify-content:space-between;align-items:center;padding:10px 14px;border-bottom:1px solid var(--border)}
+.drawer .db{overflow:auto;padding:16px;background:var(--muted);flex:1}
+.thumb{width:132px;height:176px;overflow:hidden;border-radius:4px;cursor:zoom-in;position:relative;flex-shrink:0;box-shadow:0 0 0 1px var(--border);background:#fff}
+.thumb .inner{transform:scale(.22);transform-origin:0 0;width:600px;pointer-events:none}
+.thumb .lab{position:absolute;bottom:0;left:0;right:0;background:rgba(0,0,0,.65);color:#fff;font-size:11px;padding:3px 6px;display:flex;gap:4px;align-items:center}
+.thumb:hover{box-shadow:0 0 0 2px var(--ring)}
+.pdfmeta{display:flex;align-items:center;gap:6px;color:var(--muted-foreground);font-size:11px}
+/* A: formulär i fakturan, kontrollista i höger */
+.A-ed{display:grid;grid-template-columns:minmax(520px,1fr) 340px;gap:20px;align-items:start}
+.toolbar{display:flex;gap:6px;align-items:center;flex-wrap:wrap;padding:8px 10px;border:1px solid var(--border);border-radius:var(--radius);background:var(--sidebar);position:sticky;top:0;z-index:5}
+.A-doc{display:grid;grid-template-columns:minmax(480px,640px) 1fr;gap:20px;align-items:start}
+/* B: steg och tidslinje */
+.stepbar{display:flex;gap:6px;flex-wrap:wrap}
+.stepbar button{display:inline-flex;align-items:center;gap:8px;height:30px;padding:0 12px;border:1px solid var(--border);border-radius:999px;background:var(--background);cursor:pointer;font-weight:500;color:var(--muted-foreground)}
+.stepbar button.on{border-color:var(--ring);color:var(--foreground);background:var(--card);box-shadow:0 0 0 2px color-mix(in oklch,var(--ring) 30%,transparent)}
+.stepbar .n{width:18px;height:18px;border-radius:999px;background:var(--muted);display:grid;place-items:center;font-size:10px}
+.stepbar .klar .n{background:var(--success);color:#fff}
+.stepbar .bad .n{background:var(--destructive);color:#fff}
+.tl{display:flex;align-items:center;gap:0;flex-wrap:wrap}
+.tl .st{display:flex;flex-direction:column;gap:2px;padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius);min-width:110px}
+.tl .st.on{border-color:var(--success)}
+.tl .st.cur{border-color:var(--sidebar-primary);background:color-mix(in oklch,var(--sidebar-primary) 6%,transparent)}
+.tl .st.off{border-style:dashed;color:var(--muted-foreground)}
+.tl .st .t{font-weight:500;display:flex;gap:6px;align-items:center}
+.tl .st .d{font-size:11px;color:var(--muted-foreground)}
+.tl .ar{width:16px;height:1px;background:var(--border)}
+.kundhead{display:flex;justify-content:space-between;align-items:center;padding:10px 6px 4px;font-weight:500;cursor:pointer;border-radius:calc(var(--radius) * .8)}
+.kundhead:hover{color:var(--sidebar-primary)}
+.kundhead.on{color:var(--sidebar-primary)}
+.alloc{display:grid;grid-template-columns:70px 1fr 110px 110px;gap:6px;padding:4px 0;border-bottom:1px solid var(--border);align-items:center}
+.stat{display:flex;flex-direction:column;gap:2px;padding:10px 12px;border:1px solid var(--border);border-radius:var(--radius)}
+.stat b{font-size:16px;font-weight:600;font-variant-numeric:tabular-nums}
+.chips{display:flex;flex-wrap:wrap;gap:4px}
+.radio-list{display:flex;flex-direction:column;gap:4px}
+.radio-list label{display:flex;gap:8px;align-items:center;padding:6px 8px;border:1px solid var(--border);border-radius:calc(var(--radius) * .8);cursor:pointer}
+.radio-list label:hover{background:var(--accent)}
+/* ---------- Lönekörning ---------- */
+.lt td,.lt th{padding:5px 8px}
+.lt tr.row{cursor:pointer}
+.lt tr.row:hover td{background:color-mix(in oklch,var(--muted) 50%,transparent)}
+.lt tr.row.open td{background:var(--sidebar);border-bottom-color:transparent}
+.lt tr.exp>td{background:var(--sidebar);padding:4px 12px 14px}
+.lt tr.bad td:first-child{box-shadow:inset 2px 0 0 var(--destructive)}
+.redit td{padding:2px 4px;vertical-align:middle}
+.redit .cell{height:26px}
+.redit .typ{white-space:nowrap;font-weight:500;width:130px}
+.calc td{padding:2px 8px;font-size:12px}
+.calc .fk{color:var(--muted-foreground);font-size:11px}
+.B-run{display:grid;grid-template-columns:210px minmax(380px,1fr) 330px;gap:16px;align-items:start}
+.B-run .emps{display:flex;flex-direction:column;gap:4px;position:sticky;top:0}
+.B-run .emp{display:flex;flex-direction:column;gap:2px;padding:8px 10px;border-radius:calc(var(--radius) * .8);border:1px solid var(--border);cursor:pointer;background:var(--card)}
+.B-run .emp:hover{background:var(--accent)}
+.B-run .emp.on{border-color:var(--ring);box-shadow:0 0 0 2px color-mix(in oklch,var(--ring) 30%,transparent)}
+.B-run .emp .r{display:flex;justify-content:space-between;gap:6px}
+.B-run .right{position:sticky;top:0}
+.inv.spec{font-size:10px;padding:18px 20px;gap:10px}
+.inv.spec .tt{font-size:15px}
+.dot{width:7px;height:7px;border-radius:99px;background:var(--destructive);display:inline-block}
+.mcard{border:1px solid var(--border);border-radius:var(--radius);padding:14px 16px;display:flex;flex-direction:column;gap:12px;background:var(--card)}
+.mcard .mh{display:flex;justify-content:space-between;align-items:flex-start;gap:12px}
+.chain{display:flex;align-items:stretch;gap:0;flex-wrap:wrap}
+.chain .st{display:flex;flex-direction:column;gap:2px;padding:8px 12px;border:1px solid var(--border);border-radius:var(--radius);min-width:150px;cursor:pointer;background:var(--card)}
+.chain .st:hover{background:var(--accent)}
+.chain .st.ok{border-color:color-mix(in oklch,var(--success) 60%,transparent)}
+.chain .st.cur{border-color:var(--sidebar-primary);background:color-mix(in oklch,var(--sidebar-primary) 6%,transparent)}
+.chain .st.bad{border-color:var(--destructive);background:color-mix(in oklch,var(--destructive) 5%,transparent)}
+.chain .st .t{font-weight:500;display:flex;gap:6px;align-items:center}
+.chain .st .d{font-size:11px;color:var(--muted-foreground)}
+.chain .ar{align-self:center;width:18px;height:1px;background:var(--border)}
+pre.xml{font:11px/1.45 ui-monospace,SFMono-Regular,Menlo,monospace;background:var(--muted);border-radius:var(--radius);padding:10px 12px;overflow:auto;max-height:340px;margin:0;white-space:pre}
+.stats{display:grid;grid-template-columns:repeat(5,1fr);gap:8px}
+.mchip{display:inline-flex;gap:4px;align-items:center;font-size:11px;color:var(--muted-foreground)}
+.mchip svg.lucide{width:12px;height:12px}
+.mchip.ok{color:var(--success)}
+.mchip.bad{color:var(--destructive)}
+.mchip.warn{color:var(--sidebar-primary)}
+.kv2{display:grid;grid-template-columns:170px 1fr;gap:6px 14px;align-items:center}
+.kv2 dt{color:var(--muted-foreground)}
+.kv2 dd{margin:0}
+.lh{flex-wrap:wrap;gap:6px}
+/* ---------- Kontoplan ---------- */
+.B>.page{flex:1;min-height:0;display:flex;flex-direction:column}
+.subnav{display:flex;gap:2px;align-items:center;padding:6px 12px;border-bottom:1px solid var(--border);background:var(--sidebar)}
+.subnav .t{font-weight:600;margin-right:10px;display:flex;gap:6px;align-items:center}
+.subnav a{height:26px;display:inline-flex;align-items:center;padding:0 10px;border-radius:calc(var(--radius) * .8);color:var(--muted-foreground);font-weight:500;cursor:pointer}
+.subnav a.on,.subnav a:hover{background:var(--accent);color:var(--foreground)}
+.scroll{overflow:auto;min-height:0}
+.badge-res{background:color-mix(in oklch,var(--primary) 12%,transparent);color:var(--primary)}
+.badge-eget{border:1px solid var(--border);color:var(--foreground)}
+.badge-inaktiv{border:1px dashed var(--muted-foreground);color:var(--muted-foreground)}
+.badge-ny{background:color-mix(in oklch,var(--sidebar-primary) 14%,transparent);color:var(--sidebar-primary);border:1px dashed var(--sidebar-primary)}
+.fbar{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+.chip{display:inline-flex;align-items:center;gap:5px;height:26px;padding:0 9px;border:1px solid var(--border);border-radius:999px;background:var(--background);cursor:pointer;font-weight:500;color:var(--muted-foreground)}
+.chip.on{border-color:var(--ring);color:var(--foreground);background:var(--accent)}
+.chip .n{font-variant-numeric:tabular-nums;font-size:11px}
+.sbox{display:flex;align-items:center;gap:6px;height:28px;padding:0 8px;border:1px solid var(--input);border-radius:calc(var(--radius) * .8);min-width:260px;background:var(--background)}
+.sbox input{border:0;outline:none;background:transparent;flex:1;height:26px}
+.sbox:focus-within{border-color:var(--ring);box-shadow:0 0 0 3px color-mix(in oklch,var(--ring) 40%,transparent)}
+.lockt{display:inline-flex;gap:4px;align-items:center;color:var(--muted-foreground)}
+.lockt svg.lucide{width:12px;height:12px}
+.sw{position:relative;width:28px;height:16px;border-radius:99px;background:var(--input);border:0;cursor:pointer;flex-shrink:0;padding:0}
+.sw::after{content:'';position:absolute;top:2px;left:2px;width:12px;height:12px;border-radius:99px;background:var(--background);transition:left .1s;box-shadow:0 1px 2px rgba(0,0,0,.2)}
+.sw.on{background:var(--success)}
+.sw.on::after{left:14px}
+.sw[disabled]{opacity:.45;cursor:not-allowed}
+/* A */
+.At{width:100%;border-collapse:separate;border-spacing:0}
+.At th{position:sticky;top:0;z-index:2;background:var(--background);height:32px;padding:0 6px;text-align:left;font-weight:500;color:var(--muted-foreground);border-bottom:1px solid var(--border);white-space:nowrap;font-size:12px}
+.At td{padding:1px 6px;border-bottom:1px solid color-mix(in oklch,var(--border) 70%,transparent);vertical-align:middle;height:30px}
+.At tr.kl td{background:var(--sidebar);font-weight:600;cursor:pointer;height:32px;position:sticky;top:32px;z-index:1}
+.At tr.off td{color:var(--muted-foreground)}
+.At tr.off .cell,.At tr.off .select{opacity:.75}
+.At tr:hover:not(.kl) td{background:color-mix(in oklch,var(--muted) 50%,transparent)}
+.At tr.hl td{background:color-mix(in oklch,var(--sidebar-primary) 8%,transparent)}
+.At .nr{font-variant-numeric:tabular-nums;font-weight:500;width:54px}
+.At .select{height:26px;border-color:transparent;background:transparent}
+.At .select:hover{border-color:var(--input)}
+.At .cell{height:26px}
+.At .ink{color:var(--muted-foreground);font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:180px}
+.At .w{width:22px}
+.morebar{padding:10px 8px;color:var(--muted-foreground);display:flex;gap:8px;align-items:center}
+/* B */
+.Bl .grp{display:flex;justify-content:space-between;font-size:11px;font-weight:500;color:var(--muted-foreground);padding:10px 6px 2px}
+.Bl .row{display:grid;grid-template-columns:40px 1fr auto;gap:8px;align-items:center;padding:5px 8px;border-radius:calc(var(--radius) * .8);cursor:pointer;border:1px solid transparent}
+.Bl .row:hover{background:var(--muted)}
+.Bl .row.on{background:var(--card);border-color:var(--ring)}
+.Bl .row.off{color:var(--muted-foreground)}
+.Bl .row .nr{font-variant-numeric:tabular-nums;font-weight:500}
+.Bl .row .nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.Bl .row .ic{display:flex;gap:3px;color:var(--muted-foreground)}
+.Bl .row .ic svg.lucide{width:12px;height:12px}
+.kdoc{max-width:760px}
+.kdoc .hd{display:flex;justify-content:space-between;gap:12px;align-items:flex-start}
+.kdoc .big{font-size:22px;font-weight:600;letter-spacing:-.01em;font-variant-numeric:tabular-nums}
+.kv3{display:grid;grid-template-columns:150px 1fr auto;gap:8px 14px;align-items:center}
+.kv3 dt{color:var(--muted-foreground)}
+.kv3 dd{margin:0}
+.secline{border-top:1px solid var(--border);padding-top:16px;display:flex;flex-direction:column;gap:10px}
+/* C */
+.Cm{display:grid;grid-template-columns:minmax(560px,1fr) 300px;gap:20px;align-items:start}
+.blk{border:1px solid var(--border);border-radius:var(--radius);background:var(--card)}
+.blk .bh{padding:8px 12px;border-bottom:1px solid var(--border);font-weight:600;display:flex;justify-content:space-between;align-items:center;background:var(--sidebar);border-radius:var(--radius) var(--radius) 0 0}
+.ruta{display:grid;grid-template-columns:34px 1fr;gap:4px 10px;padding:8px 12px;border-bottom:1px solid color-mix(in oklch,var(--border) 70%,transparent)}
+.ruta:last-child{border-bottom:0}
+.ruta .rn{font-weight:600;font-variant-numeric:tabular-nums;color:var(--muted-foreground)}
+.ruta .rt{display:flex;justify-content:space-between;gap:8px}
+.ruta .rt .s{font-size:11px;color:var(--muted-foreground);white-space:nowrap}
+.ruta .ks{grid-column:2;display:flex;flex-wrap:wrap;gap:4px;align-items:center}
+.ruta.dis{opacity:.6}
+.kchip{display:inline-flex;align-items:center;gap:5px;height:24px;padding:0 8px;border:1px solid var(--border);border-radius:calc(var(--radius) * .8);background:var(--background);cursor:pointer;font-size:12px;position:relative}
+.kchip:hover{background:var(--accent)}
+.kchip b{font-weight:600;font-variant-numeric:tabular-nums}
+.kchip .nm{max-width:210px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--muted-foreground)}
+.kchip.lock{background:var(--muted);cursor:default}
+.kchip.warnc{border-color:var(--sidebar-primary);background:color-mix(in oklch,var(--sidebar-primary) 7%,transparent)}
+.kchip.off{border-style:dashed}
+.kchip svg.lucide{width:11px;height:11px}
+.addk{display:inline-flex;align-items:center;gap:4px;height:24px;padding:0 8px;border:1px dashed var(--border);border-radius:calc(var(--radius) * .8);background:transparent;color:var(--muted-foreground);cursor:pointer;font-size:12px}
+.addk:hover{color:var(--foreground);border-color:var(--ring)}
+.pop .ls{max-height:260px;overflow:auto;display:flex;flex-direction:column;gap:1px}
+.pop .o{display:flex;gap:8px;align-items:center;padding:4px 6px;border-radius:calc(var(--radius) * .8);cursor:pointer}
+.pop .o:hover{background:var(--accent)}
+.pop .o .mf{margin-left:auto;font-size:11px}
+.tree .kl{display:flex;gap:6px;align-items:center;font-weight:600;padding:10px 4px 4px;cursor:pointer}
+.tree .gr{display:flex;gap:6px;align-items:center;padding:6px 4px 2px 18px;font-weight:500;cursor:pointer;color:var(--muted-foreground)}
+.tree .gr:hover,.tree .kl:hover{color:var(--foreground)}
+.tree .k{display:grid;grid-template-columns:28px 46px minmax(220px,1fr) 150px 110px 90px 26px;gap:8px;align-items:center;padding:2px 4px 2px 36px;border-radius:calc(var(--radius) * .8)}
+.tree .k:hover{background:color-mix(in oklch,var(--muted) 60%,transparent)}
+.tree .k.off{color:var(--muted-foreground)}
+.tree .k .nr{font-variant-numeric:tabular-nums;font-weight:500}
+.tree .more{padding:2px 4px 4px 36px;color:var(--muted-foreground);font-size:12px}
+.doc{background:#fff;color:#1c1917;border-radius:4px;padding:24px 28px;font-size:10.5px;box-shadow:0 0 0 1px rgba(0,0,0,.1)}
+.doc table td,.doc table th{padding:2px 4px;border-bottom:1px solid #e7e5e4;text-align:left}
+.doc th{color:#78716c;font-weight:500}
+.doc h3{font-size:15px;margin:0 0 4px}
+</style>
+</head>
+<body>
+<div id="app"></div>
+<div id="proto-switcher"></div>
+<script>
+/* ================= Hjälpare ================= */
+const IDAG='2026-10-16', ANV='Anna Berg';
+const fmt=new Intl.NumberFormat('sv-SE',{minimumFractionDigits:2,maximumFractionDigits:2});
+const kr=x=>fmt.format(x||0);
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const ic=(n,extra)=>`<i data-lucide="${n}"${extra?' '+extra:''}></i>`;
+const badge=(t,c,i)=>`<span class="badge ${c}">${i?ic(i):''}${t}</span>`;
+const initialer=s=>s.split(/\s+/).filter(w=>w!=='AB').slice(0,2).map(w=>w[0]).join('').toUpperCase();
+let seed=7;const rnd=()=>(seed=seed*16807%2147483647)/2147483647;
+
+/* ================= BAS-urval (g = grundkonto) ================= */
+const BAS=`1010 Utvecklingsutgifter|1019 Ackumulerade avskrivningar på utvecklingsutgifter|1030 Patent|1050 Goodwill|1110 Byggnader|1119 Ackumulerade avskrivningar på byggnader|1130 Mark|1150 Markanläggningar
+1210 Maskiner och andra tekniska anläggningar g|1219 Ackumulerade avskrivningar på maskiner och andra tekniska anläggningar g|1220 Inventarier och verktyg g|1229 Ackumulerade avskrivningar på inventarier och verktyg g|1240 Bilar och andra transportmedel g|1249 Ackumulerade avskrivningar på bilar och andra transportmedel g|1250 Datorer g|1259 Ackumulerade avskrivningar på datorer g
+1310 Andelar i koncernföretag|1350 Andelar och värdepapper i andra företag|1380 Andra långfristiga fordringar|1384 Spärrade bankmedel|1410 Lager av råvaror|1460 Lager av handelsvaror g|1470 Pågående arbeten|1480 Förskott för varor och tjänster
+1510 Kundfordringar g|1513 Kundfordringar, delad faktura|1515 Osäkra kundfordringar|1519 Nedskrivning av kundfordringar|1610 Kortfristiga fordringar hos anställda|1630 Avräkning för skatter och avgifter (skattekonto) g|1650 Momsfordran g|1680 Andra kortfristiga fordringar g
+1710 Förutbetalda hyreskostnader g|1720 Förutbetalda leasingavgifter|1730 Förutbetalda försäkringspremier|1790 Övriga förutbetalda kostnader och upplupna intäkter g|1910 Kassa g|1920 PlusGiro g|1930 Företagskonto/checkkonto/affärskonto g|1940 Övriga bankkonton g|1960 Koncernkonto moderföretag
+2081 Aktiekapital g|2082 Ej registrerat aktiekapital|2085 Uppskrivningsfond|2086 Reservfond|2091 Balanserad vinst eller förlust g|2093 Erhållna aktieägartillskott|2097 Överkursfond|2098 Vinst eller förlust från föregående år g|2099 Årets resultat g
+2123 Periodiseringsfond 2023|2124 Periodiseringsfond 2024|2125 Periodiseringsfond 2025|2150 Ackumulerade överavskrivningar g|2350 Andra långfristiga skulder till kreditinstitut g|2393 Lån från närstående personer, långfristig del|2410 Andra kortfristiga låneskulder till kreditinstitut g|2440 Leverantörsskulder g
+2510 Skatteskulder g|2512 Beräknad inkomstskatt|2514 Beräknad särskild löneskatt på pensionskostnader
+2611 Utgående moms på försäljning inom Sverige, 25 % g|2612 Utgående moms på egna uttag, 25 %|2614 Utgående moms omvänd betalningsskyldighet, 25 % g|2615 Utgående moms import av varor, 25 % g|2621 Utgående moms på försäljning inom Sverige, 12 % g|2624 Utgående moms omvänd betalningsskyldighet, 12 %|2625 Utgående moms import av varor, 12 %|2631 Utgående moms på försäljning inom Sverige, 6 % g|2634 Utgående moms omvänd betalningsskyldighet, 6 %|2635 Utgående moms import av varor, 6 %
+2640 Ingående moms g|2641 Debiterad ingående moms g|2645 Beräknad ingående moms på förvärv från utlandet g|2647 Ingående moms omvänd betalningsskyldighet varor och tjänster i Sverige g|2649 Ingående moms, blandad verksamhet|2650 Redovisningskonto för moms g|2660 Särskilda punktskatter|2670 Utgående moms, särskilda ordningar
+2710 Personalskatt g|2730 Lagstadgade sociala avgifter och särskild löneskatt g|2731 Avräkning lagstadgade sociala avgifter g|2732 Avräkning särskild löneskatt g|2790 Övriga löneavdrag|2820 Kortfristiga skulder till anställda|2890 Övriga kortfristiga skulder g|2893 Skulder till närstående personer, kortfristig del g
+2910 Upplupna löner g|2920 Upplupna semesterlöner g|2940 Upplupna lagstadgade sociala och andra avgifter g|2990 Övriga upplupna kostnader och förutbetalda intäkter g
+3001 Försäljning inom Sverige, 25 % moms g|3002 Försäljning inom Sverige, 12 % moms g|3003 Försäljning inom Sverige, 6 % moms g|3004 Försäljning inom Sverige, momsfri g|3041 Försäljning tjänster inom Sverige, 25 % moms|3105 Försäljning varor till land utanför EU g|3106 Försäljning varor till annat EU-land, momspliktig|3108 Försäljning varor till annat EU-land, momsfri g
+3211 Försäljning positiv VMB 25 %|3212 Försäljning negativ VMB 25 %|3231 Försäljning inom byggsektorn, omvänd betalningsskyldighet moms|3305 Försäljning tjänster till land utanför EU g|3308 Försäljning tjänster till annat EU-land g|3510 Fakturerat emballage|3540 Faktureringsavgifter|3740 Öres- och kronutjämning g
+3911 Hyresintäkter|3960 Valutakursvinster på fordringar och skulder av rörelsekaraktär|3973 Vinst vid avyttring av maskiner och inventarier|3990 Övriga ersättningar och intäkter g
+4010 Inköp material och varor g|4211 Sålda varor, vinstmarginalbeskattning|4212 Sålda förmedlade varor, vinstmarginalbeskattning|4415 Inköpta varor i Sverige, omvänd betalningsskyldighet, 25 % moms|4425 Inköpta tjänster i Sverige, omvänd betalningsskyldighet, 25 % moms
+4515 Inköp av varor från annat EU-land, 25 %|4516 Inköp av varor från annat EU-land, 12 %|4531 Import tjänster land utanför EU, 25 % moms|4535 Inköp av tjänster från annat EU-land, 25 %|4545 Import av varor, 25 % moms|4600 Legoarbeten och underentreprenader g|4900 Förändring av lager g
+5010 Lokalhyra g|5020 El för belysning|5060 Städning och renhållning|5090 Övriga lokalkostnader g|5410 Förbrukningsinventarier g|5420 Programvaror g|5460 Förbrukningsmaterial g|5611 Drivmedel för personbilar|5615 Leasing av personbilar|5800 Resekostnader g|5810 Biljetter|5831 Kost och logi i Sverige|5910 Annonsering g
+6071 Representation, avdragsgill g|6072 Representation, ej avdragsgill g|6110 Kontorsmateriel g|6200 Tele och post g|6212 Mobiltelefon|6230 Datakommunikation g|6250 Postbefordran|6310 Företagsförsäkringar g|6420 Ersättningar till revisor g|6530 Redovisningstjänster g|6540 IT-tjänster g|6550 Konsultarvoden g|6570 Bankkostnader g|6981 Föreningsavgifter, avdragsgilla|6982 Föreningsavgifter, ej avdragsgilla|6991 Övriga externa kostnader, avdragsgilla g|6992 Övriga externa kostnader, ej avdragsgilla g
+7010 Löner till kollektivanställda g|7210 Löner till tjänstemän g|7220 Löner till företagsledare g|7240 Styrelsearvoden som inte är lön g|7285 Semesterlöner till tjänstemän|7290 Förändring av semesterlöneskuld g|7321 Skattefria traktamenten, Sverige|7331 Skattefria bilersättningar g|7385 Kostnader för fri bil|7410 Pensionsförsäkringspremier g
+7510 Arbetsgivaravgifter 31,42 % g|7519 Sociala avgifter för semester- och löneskulder g|7530 Särskild löneskatt g|7570 Premier för arbetsmarknadsförsäkringar g|7610 Utbildning g|7690 Övriga personalkostnader g|7832 Avskrivningar på inventarier och verktyg g|7834 Avskrivningar på bilar och andra transportmedel|7835 Avskrivningar på datorer g|7973 Förlust vid avyttring av maskiner och inventarier
+8310 Ränteintäkter från omsättningstillgångar g|8314 Skattefria ränteintäkter|8410 Räntekostnader för långfristiga skulder g|8423 Räntekostnader för skatter och avgifter|8811 Avsättning till periodiseringsfond g|8819 Återföring från periodiseringsfond g|8850 Förändring av överavskrivningar g|8910 Skatt som belastar årets resultat g|8999 Årets resultat g`;
+
+const KLASS={1:'Tillgångar',2:'Eget kapital och skulder',3:'Rörelsens inkomster och intäkter',4:'Varor, material och vissa köpta tjänster',5:'Övriga externa rörelseutgifter och kostnader',6:'Övriga externa rörelseutgifter och kostnader',7:'Personal, avskrivningar m.m.',8:'Finansiella och andra intäkter och kostnader'};
+const GRUPP={10:'Immateriella anläggningstillgångar',11:'Byggnader och mark',12:'Maskiner och inventarier',13:'Finansiella anläggningstillgångar',14:'Lager och pågående arbeten',15:'Kundfordringar',16:'Övriga kortfristiga fordringar',17:'Förutbetalda kostnader och upplupna intäkter',19:'Kassa och bank',
+ 20:'Eget kapital',21:'Obeskattade reserver',23:'Långfristiga skulder',24:'Kortfristiga skulder till kreditinstitut och leverantörer',25:'Skatteskulder',26:'Moms och särskilda punktskatter',27:'Personalens skatter, avgifter och löneavdrag',28:'Övriga kortfristiga skulder',29:'Upplupna kostnader och förutbetalda intäkter',
+ 30:'Huvudintäkter',31:'Huvudintäkter',32:'Huvudintäkter',33:'Huvudintäkter',35:'Fakturerade kostnader',37:'Intäktskorrigeringar',39:'Övriga rörelseintäkter',40:'Inköp av varor och material',42:'Sålda varor, vinstmarginalbeskattning',44:'Inköp med omvänd betalningsskyldighet',45:'Övriga momspliktiga inköp',46:'Legoarbeten och underentreprenader',49:'Förändring av lager',
+ 50:'Lokalkostnader',54:'Förbrukningsinventarier och förbrukningsmaterial',56:'Kostnader för transportmedel',58:'Resekostnader',59:'Reklam och PR',60:'Övriga försäljningskostnader',61:'Kontorsmateriel och trycksaker',62:'Tele och post',63:'Försäkringar och riskkostnader',64:'Förvaltningskostnader',65:'Övriga externa tjänster',69:'Övriga externa kostnader',
+ 70:'Löner till kollektivanställda',72:'Löner till tjänstemän och företagsledare',73:'Kostnadsersättningar och förmåner',74:'Pensionskostnader',75:'Obligatoriska arbetsgivaravgifter',76:'Övriga personalkostnader',78:'Avskrivningar enligt plan',79:'Övriga rörelsekostnader',83:'Ränteintäkter',84:'Räntekostnader',88:'Bokslutsdispositioner',89:'Skatter och årets resultat'};
+// INK2-kopplingstabellen [från, till, rad, text]; inbyggd, versioneras per blankettutgåva, ändras inte per företag (#17 beslut 7)
+const INK2=[[1000,1099,'2.2','Immateriella anläggningstillgångar'],[1100,1199,'2.3','Byggnader och mark'],[1200,1299,'2.4','Maskiner och inventarier'],[1300,1399,'2.7','Finansiella anläggningstillgångar'],[1400,1499,'2.13','Varulager'],[1500,1559,'2.19','Kundfordringar'],[1600,1699,'2.21','Övriga fordringar'],[1700,1799,'2.23','Förutbetalda kostnader och upplupna intäkter'],[1900,1999,'2.26','Kassa, bank och redovisningsmedel'],
+ [2080,2089,'2.27','Bundet eget kapital'],[2090,2099,'2.28','Fritt eget kapital'],[2110,2149,'2.29','Periodiseringsfonder'],[2150,2159,'2.30','Ackumulerade överavskrivningar'],[2300,2399,'2.36','Övriga skulder till kreditinstitut'],[2400,2439,'2.42','Skulder till kreditinstitut'],[2440,2449,'2.45','Leverantörsskulder'],[2500,2599,'2.49','Skatteskulder'],[2600,2899,'2.50','Övriga skulder'],[2900,2999,'2.51','Upplupna kostnader och förutbetalda intäkter'],
+ [3000,3799,'3.1','Nettoomsättning'],[3900,3999,'3.4','Övriga rörelseintäkter'],[4000,4799,'3.5','Råvaror och förnödenheter'],[4900,4999,'3.6','Förändring av lager'],[5000,6999,'3.7','Övriga externa kostnader'],[7000,7699,'3.8','Personalkostnader'],[7700,7899,'3.9','Av- och nedskrivningar'],[7900,7999,'3.11','Övriga rörelsekostnader'],
+ [8300,8399,'3.16','Övriga ränteintäkter och liknande resultatposter'],[8400,8499,'3.17','Räntekostnader och liknande resultatposter'],[8810,8819,'3.21','Förändring av periodiseringsfonder'],[8850,8859,'3.22','Förändring av överavskrivningar'],[8900,8989,'3.25','Skatt på årets resultat'],[8990,8999,'3.26','Årets resultat']];
+const INK2V='INK2R 2025';
+const ink2=nr=>{const r=INK2.find(([a,b])=>nr>=a&&nr<=b);return r?{rad:r[2],t:r[3]}:null};
+
+/* ================= Momsdeklarationens rutor (SKV 4700) ================= */
+const BLK=[
+ {t:'A. Momspliktig försäljning eller uttag exkl. moms',r:[['05','Momspliktig försäljning som inte ingår i ruta 06, 07 eller 08'],['06','Momspliktiga uttag'],['07','Beskattningsunderlag vid vinstmarginalbeskattning'],['08','Hyresinkomster vid frivillig skattskyldighet']]},
+ {t:'B. Utgående moms på försäljning eller uttag i ruta 05–08',r:[['10','Utgående moms 25 %'],['11','Utgående moms 12 %'],['12','Utgående moms 6 %']]},
+ {t:'C. Inköp som köparen redovisar moms för (omvänd skattskyldighet)',r:[['20','Inköp av varor från ett annat EU-land'],['21','Inköp av tjänster från ett annat EU-land enligt huvudregeln'],['22','Inköp av tjänster från ett land utanför EU'],['23','Inköp av varor i Sverige som köparen är skattskyldig för'],['24','Övriga inköp av tjänster']]},
+ {t:'D. Utgående moms på inköp i ruta 20–24',r:[['30','Utgående moms 25 %'],['31','Utgående moms 12 %'],['32','Utgående moms 6 %']]},
+ {t:'H. Import',r:[['50','Beskattningsunderlag vid import']]},
+ {t:'I. Utgående moms på import i ruta 50',r:[['60','Utgående moms 25 %'],['61','Utgående moms 12 %'],['62','Utgående moms 6 %']]},
+ {t:'E. Försäljning m.m. som är undantagen från moms',r:[['35','Försäljning av varor till ett annat EU-land'],['36','Försäljning av varor utanför EU'],['37','Mellanmans inköp av varor vid trepartshandel'],['38','Mellanmans försäljning av varor vid trepartshandel'],['39','Försäljning av tjänster till näringsidkare i annat EU-land enligt huvudregeln'],['40','Övrig försäljning av tjänster omsatta utanför Sverige'],['41','Försäljning när köparen är skattskyldig i Sverige'],['42','Övrig försäljning m.m.']]},
+ {t:'F. Ingående moms',r:[['48','Ingående moms att dra av']]},
+ {t:'G. Moms att betala eller få tillbaka',r:[['49','Moms att betala eller få tillbaka']]}];
+const RUTA={};BLK.forEach(b=>b.r.forEach(([n,t])=>RUTA[n]=t));
+const EJVAL=new Set(['07','49']);                               // kan inte väljas (#72 beslut 3)
+const INKOPSRUTOR=new Set(['20','21','22','23','24','37','48','50']); // debet − kredit
+const tecken=r=>INKOPSRUTOR.has(r)?'debet − kredit':'kredit − debet';
+const MOMSVAL=[['','Ingen moms'],['2611','2611 Utgående 25 %'],['2621','2621 Utgående 12 %'],['2631','2631 Utgående 6 %'],['2641','2641 Ingående moms']];
+const momsTxt=m=>(MOMSVAL.find(x=>x[0]===String(m||''))||['',m])[1];
+
+/* ================= Företagets kontoplan (i minnet) ================= */
+const CO={namn:'Exempel AB',orgnr:'559999-9991'};
+const MOMSPER={dekl:'Q3 2026',deklDatum:'2026-10-12',nasta:'Q4 2026'};
+const FLODE={1510:'Kundfakturor',3740:'Kundfakturor',3308:'Kundfakturor',2440:'Leverantörsfakturor',4415:'Leverantörsfakturor',4425:'Leverantörsfakturor',4515:'Leverantörsfakturor',4516:'Leverantörsfakturor',4531:'Leverantörsfakturor',4535:'Leverantörsfakturor',4545:'Leverantörsfakturor',
+ 2611:'Moms',2614:'Moms',2615:'Moms',2621:'Moms',2624:'Moms',2625:'Moms',2631:'Moms',2634:'Moms',2635:'Moms',2640:'Moms',2641:'Moms',2645:'Moms',2647:'Moms',2650:'Moms',1630:'Moms och lön',
+ 2710:'Lön',2731:'Lön',2920:'Lön',2940:'Lön',7210:'Lön',7220:'Lön',7290:'Lön',7510:'Lön',7519:'Lön',1219:'Anläggningsregistret',1229:'Anläggningsregistret',1259:'Anläggningsregistret',7832:'Anläggningsregistret',7835:'Anläggningsregistret',3973:'Anläggningsregistret',7973:'Anläggningsregistret',2099:'Stänga räkenskapsår',8999:'Stänga räkenskapsår'};
+const DEFRUTA={2611:'10',2612:'10',2614:'30',2615:'60',2621:'11',2624:'31',2625:'61',2631:'12',2634:'32',2635:'62',2640:'48',2641:'48',2645:'48',2647:'48',
+ 3001:'05',3002:'05',3003:'05',3041:'05',3106:'05',3510:'05',3540:'05',3004:'42',3911:'42',3105:'36',3108:'35',3305:'40',3308:'39',3231:'41',
+ 4415:'23',4425:'24',4515:'20',4516:'20',4531:'22',4535:'21',4545:'50',3998:'05'};
+// låst koppling: konton som Mayas flöden bokför moms eller underlag på, och reserverade konton (#72 beslut 5)
+const LAST=new Set([2611,2614,2615,2621,2624,2625,2631,2634,2635,2640,2641,2645,2647,2650,3308,4415,4425,4515,4516,4531,4535,4545]);
+function defMoms(nr){if([3001,3041,3106,3510,3540].includes(nr))return '2611';if(nr===3002)return '2621';if(nr===3003)return '2631';
+  if([1210,1220,1250,4010,4600].includes(nr))return '2641';
+  if(nr>=5000&&nr<7000&&![5010,6072,6310,6570,6981,6982,6992,5615].includes(nr))return '2641';
+  if(nr===7610)return '2641';return ''}
+const RES={4599:'Justering, omvänd betalningsskyldighet',3998:'Justering avyttring, underlag',3999:'Justering avyttring, motkonto'};
+
+const K={};
+BAS.split(/\||\n/).forEach(s=>{const m=s.trim().match(/^(\d{4}) (.+?)( g)?$/);if(!m)return;const nr=+m[1];
+  K[nr]={nr,namn:m[2],basNamn:m[2],grund:!!m[3],aktiv:!!m[3],eget:false,res:false,ny:false,ruta:DEFRUTA[nr]||'',moms:defMoms(nr),saldo:0,q3:0,
+    hist:[['2025-07-01','Maya','Kopierat från BAS 2025 när företaget lades upp'+(m[3]?' (grundkonto, aktivt)':' (inaktivt)')]]}});
+for(const [nr,namn] of Object.entries(RES)){K[nr]={nr:+nr,namn,basNamn:null,grund:false,aktiv:true,eget:false,res:true,ny:false,ruta:DEFRUTA[nr]||'',moms:'',saldo:0,q3:0,hist:[['2025-07-01','Maya','Reserverat konto för Mayas egna flöden']]}}
+for(const nr of Object.keys(FLODE))if(K[nr]&&!K[nr].aktiv){K[nr].aktiv=true;K[nr].hist[0][2]='Kopierat från BAS 2025 när företaget lades upp (aktivt för flödet '+FLODE[nr]+')'}
+// nytt i BAS 2026, inaktivt (ADR 0007); påhittade exempel
+[[5425,'Molntjänster och licenser'],[6575,'Avgifter för betaltjänster']].forEach(([nr,namn])=>K[nr]={nr,namn,basNamn:namn,grund:false,aktiv:false,eget:false,res:false,ny:true,ruta:'',moms:'2641',saldo:0,q3:0,hist:[['2026-02-03','Maya','Tillagt som inaktivt vid uppdatering till BAS 2026 (Maya 1.4)']]});
+// egna konton
+const eget=(nr,namn,o,hist)=>K[nr]={nr,namn,basNamn:null,grund:false,aktiv:true,eget:true,res:false,ny:false,ruta:'',moms:'',saldo:0,q3:0,hist,...o};
+eget(3049,'Försäljning kurser och utbildningar',{moms:'2611',ruta:''},[['2026-03-02','Anna Berg (webb)','Skapat som eget konto. Förvald moms 2611 och ruta 05, förifyllt från 3041'],['2026-08-12','Erik Lund (webb)','Ruta ändrad från 05 till ingen']]);
+eget(6541,'Molntjänster (SaaS)',{moms:'2641'},[['2025-09-14','Anna Berg (webb)','Skapat som eget konto. Förvald moms 2641, ingen ruta, förifyllt från 6540']]);
+eget(7691,'Personalfester',{aktiv:false,moms:''},[['2025-11-02','Erik Lund (webb)','Skapat som eget konto'],['2026-01-20','Erik Lund (webb)','Inaktiverat (saldo 0,00)']]);
+// ändringar som användarna har gjort
+const act=(nr,d,who)=>{K[nr].aktiv=true;K[nr].hist.push([d,who||'Anna Berg (webb)','Aktiverat'])};
+act(1250,'2025-08-01');act(6212,'2025-08-01');act(5420,'2025-08-01');act(4535,'2025-10-03');act(4531,'2025-10-03');act(2649,'2026-04-11','Erik Lund (webb)');act(3041,'2025-07-03');act(5810,'2025-09-01');act(5831,'2025-09-01');
+K[6540].namn='IT-tjänster och drift';K[6540].hist.push(['2025-08-20','Anna Berg (webb)','Namn ändrat från "IT-tjänster" till "IT-tjänster och drift"']);
+K[1930].namn='Företagskonto Handelsbanken';K[1930].hist.push(['2025-07-02','Anna Berg (webb)','Namn ändrat från "Företagskonto/checkkonto/affärskonto" till "Företagskonto Handelsbanken"']);
+K[1220].ruta='20';K[1220].hist.push(['2026-05-20','Erik Lund (webb)','Ruta ändrad från ingen till 20']);
+K[6212].moms='';K[6212].hist.push(['2026-02-11','Anna Berg (webb)','Förvald moms ändrad från 2641 till ingen moms']);
+// saldon 2026 (debet +), påhittade
+const SALDO={1220:86000,1229:-21500,1250:42000,1259:-10500,1510:184300,1630:2140,1710:24000,1930:612480,2081:-50000,2091:-402300,2099:0,2440:-48210,2510:-31200,2611:-61250,2641:18975,2649:1250,2650:-42275,2710:-18400,2731:-19630,2920:-52000,2940:-16338,2990:-30000,
+ 3001:-245000,3041:-38000,3049:-84000,3308:-112000,3740:3,4535:9600,4531:4200,5010:72000,5420:11800,6071:3400,6110:2150,6212:4790,6230:3600,6310:7200,6530:28000,6540:21400,6541:32400,6570:1190,7210:396000,7220:252000,7290:16000,7510:203648,7519:5027,7832:10750,7835:5250,8410:3410};
+for(const [nr,s] of Object.entries(SALDO))if(K[nr]){K[nr].saldo=s;K[nr].q3=Math.round(s*(.22+rnd()*.12))}
+K[2091].q3=0;K[2081].q3=0;
+
+const ALLA=()=>Object.values(K).sort((a,b)=>a.nr-b.nr);
+const grp=nr=>Math.floor(nr/100), kl=nr=>Math.floor(nr/1000);
+const grpNamn=g=>GRUPP[g]||('Kontogrupp '+g);
+
+/* ================= Regler och varningar ================= */
+const SALJ=new Set(['05','06','08','35','36','38','39','40','41','42']), MOMSR=new Set(['10','11','12','30','31','32','48','60','61','62']), INK=new Set(['20','21','22','23','24','37','50']);
+const UTANFOR=new Set([3211,3212,4211,4212,2649,2670]);
+const rutaLast=k=>k.res||LAST.has(k.nr);
+function varningar(k){const v=[];const r=k.ruta,n=k.nr;
+  if(r){if(SALJ.has(r)&&kl(n)!==3)v.push(['ovanlig',`${n<3000?'Balanskonto':'Kostnadskonto'} i ruta ${r} för försäljning.`]);
+    if(MOMSR.has(r)&&grp(n)!==26)v.push(['ovanlig',`Konto utanför 26xx i momsrutan ${r}.`]);
+    if(INK.has(r)&&kl(n)!==4)v.push(['ovanlig',n<3000?`Balanskonto i underlagsruta ${r}: också kreditrörelser, som när tillgången säljs, räknas med i rutan.`:`Konto utanför klass 4 i underlagsruta ${r}.`])}
+  if(!k.res&&['2611','2621','2631'].includes(k.moms)&&!['05','06','08'].includes(r))v.push(['moms',`Förvald moms ${k.moms} men ${r?'ruta '+r+' är inte en ruta för momspliktig försäljning':'ingen ruta för underlaget'}: momsen hamnar i ruta 10–12 men försäljningen syns inte i ruta 05.`]);
+  if(!k.res&&['05','06','08'].includes(r)&&!['2611','2621','2631'].includes(k.moms))v.push(['moms',`Ruta ${r} är momspliktig försäljning men förvald moms är ${k.moms?k.moms:'ingen moms'}.`]);
+  if(UTANFOR.has(n)&&k.saldo)v.push(['utanfor','Maya stöder inte det här momsfallet i v1 (VMB, OSS, blandad verksamhet). Kontot kopplas inte till någon ruta, men har saldo.']);
+  if(k.ny&&!k.aktiv)v.push(['ny','Nytt i BAS 2026. Inaktivt tills någon aktiverar det.']);
+  return v.filter(x=>x[0]!=='ny')}
+const harVarn=k=>varningar(k).length>0;
+function kanInaktivera(k){if(k.res)return 'Reserverat konto: Mayas egna flöden bokför på det.';
+  if(FLODE[k.nr])return `Används av flödet ${FLODE[k.nr]}.`;
+  if(k.saldo)return `Saldo ${kr(k.saldo)} i räkenskapsår 2026, som är öppet. Bara konton med nollsaldo kan inaktiveras.`;return ''}
+function logg(k,t){k.hist.push([IDAG,ANV+' (webb)',t])}
+function flash(t,typ){S.flash={t,typ:typ||'ok'}}
+
+function andraNamn(nr,v){const k=K[nr];v=String(v).trim();if(k.res){flash('Ett reserverat konto kan inte byta namn.','err');return render()}
+  if(!v){flash('Namnet kan inte vara tomt.','err');return render()}if(v===k.namn)return;
+  logg(k,`Namn ändrat från "${k.namn}" till "${v}"`);k.namn=v;flash(`${nr} heter nu ${v}. Namnet syns i alla år utom i redan frusna årsarkiv.`);render()}
+function andraAktiv(nr,on){const k=K[nr];if(on===k.aktiv)return;
+  if(!on){const why=kanInaktivera(k);if(why){flash(`${nr} kan inte inaktiveras. ${why}`,'err');return render()}}
+  k.aktiv=on;logg(k,on?'Aktiverat':'Inaktiverat (saldo 0,00)');flash(on?`${nr} ${k.namn} är aktivt och kan bokföras på.`:`${nr} ${k.namn} är inaktivt. Utkast får använda det, men de kan inte bokföras förrän kontot aktiveras.`);render()}
+function andraMoms(nr,v){const k=K[nr];if(k.res)return;if(v===k.moms)return;
+  logg(k,`Förvald moms ändrad från ${k.moms||'ingen moms'} till ${v||'ingen moms'}`);k.moms=v;
+  const w=varningar(k).find(x=>x[0]==='moms');flash(`Förvald moms för ${nr} är ${momsTxt(v).toLowerCase()}. Den förifyller bara nya konteringar och påverkar aldrig rutorna.${w?' Obs: '+w[1]:''}`,w?'warn':'ok');render()}
+function andraRuta(nr,v,ok){const k=K[nr];if(rutaLast(k)){flash(`Kopplingen för ${nr} är låst: ${k.res?'reserverat konto':'Mayas flöde '+(FLODE[nr]||'')+' bokför moms eller underlag på kontot'}.`,'err');return render()}
+  if(EJVAL.has(v)){flash(`Ruta ${v} kan inte väljas: ${v==='49'?'den räknas fram':'ruta 07 är en formel (VMB)'}.`,'err');return render()}
+  if(v===k.ruta)return;
+  if(k.q3&&!ok){S.confirm={nr,v};return render()}
+  logg(k,`Ruta ändrad från ${k.ruta||'ingen'} till ${v||'ingen'}`);const fr=k.ruta;k.ruta=v;S.confirm=null;
+  const w=varningar(k).filter(x=>x[0]!=='utanfor');
+  flash(`${nr} ger nu ${v?'ruta '+v:'ingen ruta'} (tidigare ${fr||'ingen'}). Gäller ${MOMSPER.nasta} och framåt, och ${MOMSPER.dekl} om den öppnas igen.${w.length?' Obs: '+w.map(x=>x[1]).join(' '):''}`,w.length?'warn':'ok');render()}
+
+/* ================= Nytt konto ================= */
+function nyInfo(nrS){const nr=+nrS;if(!/^\d{4}$/.test(nrS||''))return {err:nrS?'Fyra siffror.':''};
+  if(nr<1000)return {err:'Kontonummer börjar på 1–8.'};if(nr>=9000)return {err:'Klass 9 används inte i Maya.'};
+  if(RES[nr])return {err:`${nr} är ett reserverat konto.`};
+  if(K[nr])return {err:`${nr} finns redan: ${K[nr].namn}${K[nr].aktiv?'':' (inaktivt, aktivera det i stället)'}.`,finns:nr};
+  const fore=ALLA().filter(k=>!k.res&&grp(k.nr)===grp(nr)&&k.nr<nr).pop()||ALLA().filter(k=>!k.res&&grp(k.nr)===grp(nr)).shift();
+  return {nr,klass:KLASS[kl(nr)],grupp:grpNamn(grp(nr)),ink:ink2(nr),fran:fore}}
+function nyOpen(){S.ny={nr:'',namn:'',moms:null,ruta:null};S.modal='ny';render()}
+function nySpara(){const f=S.ny,i=nyInfo(f.nr);if(i.err||!i.nr){flash(i.err||'Ange ett kontonummer.','err');return render()}if(!f.namn.trim()){flash('Ange ett namn.','err');return render()}
+  const moms=f.moms??(i.fran?.moms||''),ruta=f.ruta??(i.fran&&!rutaLast(i.fran)?i.fran.ruta:'');
+  K[i.nr]={nr:i.nr,namn:f.namn.trim(),basNamn:null,grund:false,aktiv:true,eget:true,res:false,ny:false,ruta,moms,saldo:0,q3:0,hist:[[IDAG,ANV+' (webb)',`Skapat som eget konto. Förvald moms ${moms||'ingen moms'}${ruta?' och ruta '+ruta:', ingen ruta'}${i.fran?', förifyllt från '+i.fran.nr:''}`]]};
+  S.modal=null;S.ny=null;S.sel=i.nr;S.hl=i.nr;flash(`${i.nr} ${f.namn.trim()} är skapat och aktivt.`);render();
+  setTimeout(()=>{const e=document.getElementById('k'+i.nr);e&&e.scrollIntoView({block:'center'})},30)}
+function nyFalt(){const f=S.ny,i=nyInfo(f.nr),fr=i.fran,moms=f.moms??(fr?.moms||''),ruta=f.ruta??(fr&&!rutaLast(fr)?fr.ruta:'');
+  return `<div class="g2"><div><label class="label">Kontonummer</label><input class="input ${i.err?'err':''}" id="nynr" value="${esc(f.nr)}" maxlength="4" placeholder="t.ex. 6542" oninput="S.ny.nr=this.value;S.ny.moms=null;S.ny.ruta=null;render();const e=document.getElementById('nynr');e.focus();e.setSelectionRange(99,99)">
+     ${i.err?`<div class="ferr">${ic('circle-alert')}${esc(i.err)}${i.finns&&!K[i.finns].aktiv?` <a class="link" onclick="andraAktiv(${i.finns},true);S.modal=null;S.sel=${i.finns};render()">Aktivera ${i.finns}</a>`:''}</div>`:''}</div>
+   <div><label class="label">Namn</label><input class="input" value="${esc(f.namn)}" oninput="S.ny.namn=this.value"></div></div>
+   ${i.nr?`<dl class="kv2"><dt>Typ</dt><dd>Klass ${kl(i.nr)}: ${esc(i.klass)} · grupp ${grp(i.nr)} ${esc(i.grupp)}</dd>
+     <dt>INK2-rad</dt><dd>${i.ink?`${i.ink.rad} ${esc(i.ink.t)} <span class="mf">(följer av numret)</span>`:'<span class="warn">Ingen rad, kontot syns inte i rapporterna</span>'}</dd>
+     <dt>Förvald moms</dt><dd>${momsSel(moms,"S.ny.moms=this.value;render()")}</dd>
+     <dt>Momsruta</dt><dd>${rutaSel(ruta,"S.ny.ruta=this.value;render()")}</dd></dl>
+     ${fr?`<div class="note">${ic('info')}<span>Moms och ruta är förifyllda från ${fr.nr} ${esc(fr.namn)}, närmaste konto före i gruppen${rutaLast(fr)?' (dess låsta ruta följer inte med)':''}.</span></div>`:''}
+     ${(()=>{const w=varningar({nr:i.nr,ruta,moms,saldo:0});return w.length?`<div class="note warn">${ic('triangle-alert')}<span>${w.map(x=>esc(x[1])).join(' ')}</span></div>`:''})()}`
+   :`<div class="note">${ic('info')}<span>Ett eget konto får ett fyrsiffrigt nummer som inte finns i kontoplanen. Numret kan inte ändras senare och kontot kan aldrig raderas, bara inaktiveras.</span></div>`}`}
+
+/* ================= Gemensamma delar ================= */
+function momsSel(v,on,dis){return `<select class="select" ${dis?'disabled':''} onchange="${on}">${MOMSVAL.map(([k,t])=>`<option value="${k}" ${String(v||'')===k?'selected':''}>${t}</option>`).join('')}</select>`}
+function rutaSel(v,on,dis){return `<select class="select" ${dis?'disabled':''} onchange="${on}"><option value="" ${!v?'selected':''}>Ingen ruta</option>${BLK.map(b=>`<optgroup label="${esc(b.t)}">${b.r.map(([n,t])=>`<option value="${n}" ${v===n?'selected':''} ${EJVAL.has(n)?'disabled':''}>${n} ${esc(t)}</option>`).join('')}</optgroup>`).join('')}</select>`}
+function kBadges(k,o={}){const b=[];if(k.res)b.push(badge('Reserverat','badge-res','shield'));if(k.eget)b.push(badge('Eget','badge-eget'));if(k.ny)b.push(badge('Nytt i BAS 2026','badge-ny'));
+  if(!k.aktiv&&!o.ingenInaktiv)b.push(badge('Inaktivt','badge-inaktiv'));if(k.basNamn&&k.namn!==k.basNamn&&o.bas)b.push(badge('Eget namn','badge-lock'));return b.join(' ')}
+function wIcon(k){const w=varningar(k);return w.length?`<span class="warn" title="${esc(w.map(x=>x[1]).join('\n'))}">${ic('triangle-alert')}</span>`:''}
+function flashBox(){if(!S.flash)return '';const f=S.flash;S.flash=null;const c=f.typ==='err'?'destructive':f.typ==='warn'?'':'ok';
+  return `<div class="alert ${c}" ${f.typ==='warn'?'style="color:var(--sidebar-primary)"':''}>${ic(f.typ==='err'?'circle-x':f.typ==='warn'?'triangle-alert':'circle-check')}<div>${esc(f.t)}</div><button class="btn btn-ghost btn-icon" style="height:20px;width:20px" onclick="render()">${ic('x')}</button></div>`}
+function filtrera(l,o={}){const q=S.q.trim().toLowerCase();
+  return l.filter(k=>{if(q&&!(String(k.nr).startsWith(q)||k.namn.toLowerCase().includes(q)||(k.basNamn||'').toLowerCase().includes(q)))return false;
+    if(!o.ignoreStatus){if(S.filt==='aktiva'&&!k.aktiv)return false;if(S.filt==='inaktiva'&&k.aktiv)return false}
+    if(S.egna&&!k.eget)return false;if(S.mk&&!k.ruta)return false;if(S.varn&&!harVarn(k))return false;if(S.nyB&&!k.ny)return false;return true})}
+function filterBar(o={}){const L=ALLA(),n=f=>L.filter(f).length;
+  return `<div class="fbar"><label class="sbox">${ic('search')}<input id="q" placeholder="Sök nummer eller namn" value="${esc(S.q)}" oninput="S.q=this.value;render();const e=document.getElementById('q');e.focus();e.setSelectionRange(99,99)"><kbd>/</kbd></label>
+   ${o.status===false?'':`<div class="tabs">${[['aktiva','Aktiva',n(k=>k.aktiv)],['alla','Alla',L.length],['inaktiva','Inaktiva',n(k=>!k.aktiv)]].map(([k,t,c])=>`<button class="${S.filt===k?'on':''}" onclick="S.filt='${k}';render()">${t} <span class="mf">${c}</span></button>`).join('')}</div>`}
+   <button class="chip ${S.egna?'on':''}" onclick="S.egna=!S.egna;render()">Egna <span class="n">${n(k=>k.eget)}</span></button>
+   <button class="chip ${S.mk?'on':''}" onclick="S.mk=!S.mk;render()">Med momsruta <span class="n">${n(k=>k.ruta)}</span></button>
+   <button class="chip ${S.varn?'on':''}" onclick="S.varn=!S.varn;render()">${ic('triangle-alert','class="warn"')}Varningar <span class="n">${n(harVarn)}</span></button>
+   <button class="chip ${S.nyB?'on':''}" onclick="S.nyB=!S.nyB;render()">Nya i BAS 2026 <span class="n">${n(k=>k.ny)}</span></button></div>`}
+function sidHuvud(extra){return `<div class="flex" style="justify-content:space-between;align-items:flex-start"><div class="col" style="gap:2px"><h1>Kontoplan</h1>
+   <div class="mf">${esc(CO.namn)} · ${ALLA().filter(k=>k.aktiv).length} aktiva av ${ALLA().length} konton · rapportrader enligt ${INK2V} · ändras bara i webben, aldrig av AI</div></div>
+   <div class="flex">${extra||''}<button class="btn btn-outline" onclick="S.modal='utskrift';render()">${ic('printer')}Skriv ut</button><button class="btn btn-default" onclick="nyOpen()">${ic('plus')}Nytt konto</button></div></div>`}
+function histLista(k){return `<ul class="hist">${k.hist.slice().reverse().map(([d,a,t])=>`<li>${ic(a==='Maya'?'bot':'user')}<span class="t">${d}</span><span>${esc(t)}<br><span class="mf">${esc(a)}</span></span></li>`).join('')}</ul>`}
+function drawer(){if(!S.drawer)return '';const k=K[S.drawer];
+  return `<div class="drawer" style="width:460px"><div class="dh"><b>${k.nr} ${esc(k.namn)}</b><button class="btn btn-ghost btn-icon" onclick="S.drawer=null;render()">${ic('x')}</button></div>
+  <div class="db" style="background:var(--background)"><div class="col" style="gap:14px">${kortInfo(k)}<div><div class="sec-t">Behandlingshistorik</div>${histLista(k)}</div></div></div></div>`}
+function kortInfo(k){const i=ink2(k.nr);return `<dl class="kv2"><dt>Typ</dt><dd>Klass ${kl(k.nr)} · ${esc(grpNamn(grp(k.nr)))}</dd>${k.basNamn&&k.basNamn!==k.namn?`<dt>Namn i BAS</dt><dd>${esc(k.basNamn)}</dd>`:''}
+  <dt>INK2-rad</dt><dd>${i?i.rad+' '+esc(i.t):'–'}</dd><dt>Saldo 2026</dt><dd class="num" style="text-align:left">${kr(k.saldo)}</dd>${FLODE[k.nr]?`<dt>Används av</dt><dd>${FLODE[k.nr]}</dd>`:''}</dl>`}
+function modal(){let t,b,ft='';
+  if(S.confirm){const k=K[S.confirm.nr],v=S.confirm.v;t='Ändra koppling för '+k.nr+'?';
+    b=`<div>${k.nr} ${esc(k.namn)} går från <b>${k.ruta?'ruta '+k.ruta:'ingen ruta'}</b> till <b>${v?'ruta '+v:'ingen ruta'}</b>.</div>
+     <div class="alert" style="color:var(--sidebar-primary)">${ic('triangle-alert')}<div><div class="t">Kontot har rörelse i ${MOMSPER.dekl}, som är deklarerad men inte låst</div><div class="mf">Rörelse ${kr(k.q3)}. Deklarationen räknas inte om. Om någon öppnar den igen räknas den med den nya kopplingen, och rutorna kan då ändras.</div></div></div>
+     <div class="note">${ic('info')}<span>Ändringen gäller ${MOMSPER.nasta} och alla senare momsperioder. Den loggas i behandlingshistoriken, och kopplingen som gällde arkiveras med varje deklaration.</span></div>`;
+    ft=`<button class="btn btn-outline" onclick="S.confirm=null;render()">Avbryt</button><button class="btn btn-default" onclick="andraRuta(${k.nr},'${v}',true)">Ändra koppling</button>`}
+  else if(S.modal==='ny'){t='Nytt konto';b=nyFalt();ft=`<button class="btn btn-outline" onclick="S.modal=null;render()">Avbryt</button><button class="btn btn-default" onclick="nySpara()">Skapa konto</button>`}
+  else if(S.modal==='utskrift'){t='Kontoplan som systemdokumentation';const L=ALLA();
+    b=`<div class="note">${ic('info')}<span>Genereras ur data som PDF (Typst-mallen) och ingår i årsarkivet. Förhandsvisning:</span></div><div class="doc"><h3>Kontoplan · ${esc(CO.namn)} · ${CO.orgnr}</h3><div style="color:#78716c;margin-bottom:8px">Utskriven ${IDAG} · ${L.length} konton · rapportrader ${INK2V}</div>
+     <table><thead><tr><th>Konto</th><th>Namn</th><th>Status</th><th>Ursprung</th><th>INK2</th><th>Ruta</th><th>Förvald moms</th><th>Senast ändrat</th></tr></thead><tbody>${L.map(k=>`<tr><td>${k.nr}</td><td>${esc(k.namn)}</td><td>${k.aktiv?'aktivt':'inaktivt'}</td><td>${k.res?'reserverat':k.eget?'eget':'BAS'}</td><td>${ink2(k.nr)?.rad||''}</td><td>${k.ruta}</td><td>${k.moms}</td><td>${k.hist.at(-1)[0]}</td></tr>`).join('')}</tbody></table></div>`;
+    ft=`<button class="btn btn-outline" onclick="S.modal=null;render()">Stäng</button><button class="btn btn-default" onclick="S.modal=null;flash('PDF:en skapas i bakgrunden (prototyp).');render()">${ic('download')}Ladda ner PDF</button>`}
+  else return '';
+  return `<div class="pal-bg" onclick="if(event.target===this){S.modal=null;S.confirm=null;render()}"><div class="dialog" style="${S.modal==='utskrift'?'width:900px':''}"><div class="flex" style="justify-content:space-between"><h2>${t}</h2><button class="btn btn-ghost btn-icon" onclick="S.modal=null;S.confirm=null;render()">${ic('x')}</button></div>${b}<div class="ft">${ft}</div></div></div>`}
+
+/* ================= Variant A: Tabellen ================= */
+function rutaCellA(k){if(rutaLast(k))return `<span class="lockt" title="${k.res?'Reserverat konto':'Låst: Mayas flöde '+(FLODE[k.nr]||'')+' bokför moms eller underlag här'}">${ic('lock')}${k.ruta?k.ruta+' '+esc(RUTA[k.ruta]).slice(0,22)+'…':'ingen'}</span>`;
+  return rutaSel(k.ruta,`andraRuta(${k.nr},this.value)`)}
+function radA(k){const why=k.aktiv?kanInaktivera(k):'';
+  return `<tr id="k${k.nr}" class="${k.aktiv?'':'off'} ${S.hl===k.nr?'hl':''}"><td class="nr">${k.nr}</td>
+   <td>${k.res?`<span class="flex" style="padding-left:7px">${esc(k.namn)} ${kBadges(k,{ingenInaktiv:1})}</span>`:`<div class="flex"><input class="cell" value="${esc(k.namn)}" onchange="andraNamn(${k.nr},this.value)" onkeydown="if(event.key==='Enter')this.blur()" title="${k.basNamn&&k.basNamn!==k.namn?'Namn i BAS: '+esc(k.basNamn):''}">${kBadges(k,{ingenInaktiv:1})}</div>`}</td>
+   <td><button class="sw ${k.aktiv?'on':''}" ${why?`title="${esc(why)}" onclick="andraAktiv(${k.nr},false)"`:`onclick="andraAktiv(${k.nr},${!k.aktiv})"`} ${why?'style="opacity:.5"':''}></button></td>
+   <td style="width:170px">${k.res?'<span class="mf" style="padding-left:7px">–</span>':momsSel(k.moms,`andraMoms(${k.nr},this.value)`)}</td>
+   <td style="width:200px">${rutaCellA(k)}</td>
+   <td><div class="ink" title="${esc(ink2(k.nr)?.t||'')}">${ink2(k.nr)?ink2(k.nr).rad+' '+esc(ink2(k.nr).t):'–'}</div></td>
+   <td class="w">${wIcon(k)}</td>
+   <td class="w"><button class="btn btn-ghost btn-icon" style="height:24px;width:24px" title="Historik" onclick="S.drawer=${k.nr};render()">${ic('history')}</button></td></tr>`}
+function sidaA(){const L=filtrera(ALLA()),dolda=S.q&&S.filt==='aktiva'?filtrera(ALLA(),{ignoreStatus:1}).filter(k=>!k.aktiv).length:0;
+  const kl1=[...new Set(L.map(k=>kl(k.nr)))];
+  return `<div class="scroll" style="flex:1;padding:16px 24px 90px"><div class="col" style="gap:12px">${sidHuvud()}${flashBox()}${filterBar()}
+  <table class="At"><thead><tr><th>Konto</th><th>Namn</th><th>Aktiv</th><th>Förvald moms</th><th>Momsruta</th><th>INK2-rad</th><th></th><th></th></tr></thead>
+  <tbody>${kl1.map(c=>{const rows=L.filter(k=>kl(k.nr)===c),stang=S.open['k'+c]===false;
+    return `<tr class="kl" onclick="S.open['k${c}']=${stang};render()"><td colspan="8"><span class="flex">${ic(stang?'chevron-right':'chevron-down')}Klass ${c} · ${esc(KLASS[c])}<span class="mf" style="font-weight:400">${rows.length} konton</span></span></td></tr>${stang?'':rows.map(radA).join('')}`}).join('')}</tbody></table>
+  ${!L.length?`<div class="placeholder">${ic('search-x')}Inga konton matchar.</div>`:''}
+  ${dolda?`<div class="morebar">${ic('eye-off')}${dolda} inaktiva konton matchar också. <a class="link" onclick="S.filt='alla';render()">Visa alla</a></div>`:''}
+  <div class="note">${ic('info')}<span>Namn, aktiv, förvald moms och ruta ändras direkt i tabellen och loggas. ${ic('lock')} betyder att kopplingen är låst. INK2-raden följer kontonumret och ändras inte.</span></div></div></div>${drawer()}`}
+
+/* ================= Variant B: Kontokortet ================= */
+function listaB(){const L=filtrera(ALLA(),{ignoreStatus:!!S.q}).filter(k=>S.q||S.filt==='alla'||(S.filt==='aktiva'?k.aktiv:!k.aktiv));
+  const gs=[...new Set(L.map(k=>grp(k.nr)))];
+  return `<div class="lh"><h2>Kontoplan</h2><button class="btn btn-default" onclick="S.sel='ny';S.ny={nr:'',namn:'',moms:null,ruta:null};render()">${ic('plus')}Nytt konto</button></div>
+   <label class="sbox" style="min-width:0">${ic('search')}<input id="q" placeholder="Sök nummer eller namn" value="${esc(S.q)}" oninput="S.q=this.value;render();const e=document.getElementById('q');e.focus();e.setSelectionRange(99,99)"><kbd>/</kbd></label>
+   <div class="flex" style="flex-wrap:wrap;gap:4px"><div class="tabs">${[['aktiva','Aktiva'],['alla','Alla'],['inaktiva','Inaktiva']].map(([k,t])=>`<button class="${S.filt===k?'on':''}" onclick="S.filt='${k}';render()">${t}</button>`).join('')}</div>
+     <button class="chip ${S.egna?'on':''}" onclick="S.egna=!S.egna;render()">Egna</button><button class="chip ${S.varn?'on':''}" onclick="S.varn=!S.varn;render()">${ic('triangle-alert','class="warn"')}${ALLA().filter(harVarn).length}</button></div>
+   ${S.q?`<div class="mf" style="font-size:11px;padding:0 4px">Sökningen visar också inaktiva konton.</div>`:''}
+   <div class="Bl">${gs.map(g=>`<div class="grp"><span>${g} ${esc(grpNamn(g))}</span><span>${L.filter(k=>grp(k.nr)===g).length}</span></div>${L.filter(k=>grp(k.nr)===g).map(k=>`<div id="k${k.nr}" class="row ${S.sel===k.nr?'on':''} ${k.aktiv?'':'off'}" onclick="S.sel=${k.nr};S.edit=null;render()"><span class="nr">${k.nr}</span><span class="nm">${esc(k.namn)}</span><span class="ic">${k.res?ic('shield'):''}${k.eget?ic('user-pen'):''}${k.ruta?`<span style="font-size:11px">${k.ruta}</span>`:''}${rutaLast(k)?ic('lock'):''}${!k.aktiv?ic('circle-dashed'):''}${wIcon(k)}</span></div>`).join('')}`).join('')}
+   ${!L.length?'<div class="mf" style="padding:12px">Inga konton matchar.</div>':''}</div>`}
+function panelB(k){const e=S.edit;if(!e)return '';const x=`<button class="btn btn-outline" onclick="S.edit=null;render()">Avbryt</button>`;
+  if(e==='namn')return `<div class="inl"><b>Byt namn</b><input class="input" id="nyn" value="${esc(k.namn)}">${k.basNamn?`<div class="mf">Namn i BAS: ${esc(k.basNamn)} <a class="link" onclick="document.getElementById('nyn').value=${esc(JSON.stringify(k.basNamn))}">Återställ</a></div>`:''}<div class="note">${ic('info')}<span>Det nya namnet syns i alla år, också i rapporter för tidigare år, men inte i redan frusna årsarkiv.</span></div><div class="flex" style="justify-content:flex-end">${x}<button class="btn btn-default" onclick="S.edit=null;andraNamn(${k.nr},document.getElementById('nyn').value)">Spara namn</button></div></div>`;
+  if(e==='moms')return `<div class="inl"><b>Ändra förvald moms</b>${momsSel(k.moms,'',0).replace('<select','<select id="nym"')}<div class="note">${ic('info')}<span>Förifyller momsraden när kontot konteras i verifikat, fakturor och AI-utkast. Den spärrar inget och påverkar aldrig momsdeklarationens rutor. Gäller nya konteringar.</span></div><div class="flex" style="justify-content:flex-end">${x}<button class="btn btn-default" onclick="S.edit=null;andraMoms(${k.nr},document.getElementById('nym').value)">Spara</button></div></div>`;
+  if(e==='ruta')return `<div class="inl"><b>Ändra momsruta</b>${rutaSel(k.ruta,'').replace('<select','<select id="nyr"')}
+   <div class="note">${ic('info')}<span>Kontots saldo räknas in i rutan med tecknet som rutan bestämmer. Ändringen gäller ${MOMSPER.nasta} och framåt, och ${MOMSPER.dekl} om den öppnas igen. En deklarerad period räknas aldrig om.</span></div>
+   ${k.q3?`<div class="note warn">${ic('triangle-alert')}<span>Kontot har rörelse i ${MOMSPER.dekl} (${kr(k.q3)}), som är deklarerad men inte låst.</span></div>`:''}
+   <div class="flex" style="justify-content:flex-end">${x}<button class="btn btn-default" onclick="S.edit=null;andraRuta(${k.nr},document.getElementById('nyr').value,true)">Spara koppling</button></div></div>`;
+  if(e==='inakt')return `<div class="inl"><b>Inaktivera ${k.nr}?</b><div>Kontot kan inte bokföras på förrän någon aktiverar det igen. Utkast får fortfarande använda det. Kontot raderas aldrig.</div><div class="flex" style="justify-content:flex-end">${x}<button class="btn btn-default" onclick="S.edit=null;andraAktiv(${k.nr},false)">Inaktivera</button></div></div>`;
+  return ''}
+function dokB(k){const w=varningar(k),why=k.aktiv?kanInaktivera(k):'',i=ink2(k.nr),lock=rutaLast(k);
+  const knapp=(e,t,dis,tit)=>dis?`<span class="lockt" title="${esc(tit||'')}">${ic('lock')}${esc(tit||'Kan inte ändras')}</span>`:`<button class="btn btn-ghost" onclick="S.edit='${e}';render()">${t}</button>`;
+  return `<div class="paper kdoc"><div class="hd"><div class="col" style="gap:4px"><div class="flex"><span class="big">${k.nr}</span><span style="font-size:18px;font-weight:500">${esc(k.namn)}</span></div><div class="flex">${kBadges(k,{bas:1})}${k.aktiv?badge('Aktivt','badge-betald'):''}</div></div>
+    <button class="btn btn-ghost btn-icon" title="Historik" onclick="document.getElementById('hist').scrollIntoView({behavior:'smooth'})">${ic('history')}</button></div>
+   ${w.map(x=>`<div class="alert" style="color:var(--sidebar-primary)">${ic('triangle-alert')}<div><div class="t">${{ovanlig:'Ovanlig koppling',moms:'Förvald moms och ruta hänger inte ihop',utanfor:'Momsfall utanför v1'}[x[0]]}</div><div class="mf">${esc(x[1])}</div></div></div>`).join('')}
+   <div class="secline" style="border:0;padding:0"><div class="sec-t">Uppgifter</div><dl class="kv3">
+     <dt>Namn</dt><dd>${esc(k.namn)}${k.basNamn&&k.basNamn!==k.namn?`<div class="mf">BAS: ${esc(k.basNamn)}</div>`:''}</dd><dd>${knapp('namn','Byt namn',k.res,'Reserverat')}</dd>
+     <dt>Status</dt><dd>${k.aktiv?'Aktivt':'Inaktivt'+(k.ny?', nytt i BAS 2026':'')}</dd><dd>${k.aktiv?(why?`<span class="lockt" title="${esc(why)}">${ic('lock')}Kan inte inaktiveras</span>`:knapp('inakt','Inaktivera')):`<button class="btn btn-outline" onclick="andraAktiv(${k.nr},true)">Aktivera</button>`}</dd>
+     <dt>Typ</dt><dd>Klass ${kl(k.nr)} ${esc(KLASS[kl(k.nr)])} · grupp ${grp(k.nr)} ${esc(grpNamn(grp(k.nr)))}</dd><dd></dd>
+     <dt>Ursprung</dt><dd>${k.res?'Reserverat konto för Mayas flöden':k.eget?'Eget konto':'BAS'}</dd><dd></dd>
+     ${FLODE[k.nr]?`<dt>Används av</dt><dd>Flödet ${FLODE[k.nr]}</dd><dd></dd>`:''}</dl>${why&&k.aktiv?`<div class="note">${ic('info')}<span>${esc(why)}</span></div>`:''}${['namn','inakt'].includes(S.edit)?panelB(k):''}</div>
+   <div class="secline"><div class="sec-t">Moms</div><dl class="kv3">
+     <dt>Förvald moms</dt><dd>${k.res?'–':esc(momsTxt(k.moms))}<div class="mf">Förifyller bara konteringen</div></dd><dd>${knapp('moms','Ändra',k.res,'Reserverat')}</dd>
+     <dt>Momsruta</dt><dd>${k.ruta?`<b>${k.ruta}</b> ${esc(RUTA[k.ruta])}<div class="mf">Räknas som ${tecken(k.ruta)}</div>`:'Ingen ruta'}</dd><dd>${knapp('ruta','Ändra',lock,k.res?'Reserverat':'Låst av flödet '+(FLODE[k.nr]||''))}</dd></dl>
+     ${lock&&!k.res?`<div class="note">${ic('lock')}<span>Mayas flöde ${FLODE[k.nr]||''} bokför moms eller underlag på ${k.nr}, så kopplingen kan inte ändras.</span></div>`:''}${['moms','ruta'].includes(S.edit)?panelB(k):''}</div>
+   <div class="secline"><div class="sec-t">Rapport</div><dl class="kv3"><dt>INK2-rad</dt><dd>${i?`${i.rad} ${esc(i.t)}`:'–'}<div class="mf">Följer kontonumret enligt ${INK2V}. Kan inte ändras per företag.</div></dd><dd></dd></dl></div>
+   <div class="secline"><div class="sec-t">Saldo</div><dl class="kv3"><dt>Räkenskapsår 2026</dt><dd class="num" style="text-align:left">${kr(k.saldo)} <span class="mf">öppet</span></dd><dd>${k.saldo?'<a class="link mf">Visa i huvudboken</a>':''}</dd>
+     <dt>${MOMSPER.dekl}</dt><dd class="num" style="text-align:left">${k.q3?kr(k.q3)+' <span class="mf">rörelse, deklarerad</span>':'<span class="mf">ingen rörelse</span>'}</dd><dd></dd></dl></div>
+   <div class="secline" id="hist"><div class="sec-t">Behandlingshistorik</div>${histLista(k)}</div></div>`}
+function nyDokB(){return `<div class="paper kdoc"><div class="flex" style="justify-content:space-between"><div class="flex"><span class="big">Nytt konto</span>${badge('Eget','badge-eget')}</div></div>${nyFalt()}
+  <div class="flex" style="justify-content:flex-end"><button class="btn btn-outline" onclick="S.sel=null;S.ny=null;render()">Avbryt</button><button class="btn btn-default" onclick="nySpara()">Skapa konto</button></div></div>`}
+function sidaB(){if(S.sel==null)S.sel=6540;
+  return `<div class="split" style="min-height:0;flex:1"><div class="list" style="gap:8px">${listaB()}</div><div class="detail">${flashBox()}${S.sel==='ny'?nyDokB():K[S.sel]?dokB(K[S.sel]):''}</div></div>`}
+
+/* ================= Variant C: Momskopplingen ================= */
+function chipC(k){const lock=rutaLast(k),w=varningar(k).length;
+  return `<span class="kchip ${lock?'lock':''} ${w?'warnc':''} ${k.aktiv?'':'off'}" ${lock?`title="${k.res?'Reserverat konto':'Låst: flödet '+(FLODE[k.nr]||'')}"`:`onclick="event.stopPropagation();S.pick={chip:${k.nr}};render()"`}>${lock?ic('lock'):''}${w?ic('triangle-alert','class="warn"'):''}<b>${k.nr}</b><span class="nm">${esc(k.namn)}</span>${k.moms?`<span class="mf" style="font-size:10px">${k.moms}</span>`:''}</span>
+   ${S.pick&&S.pick.chip===k.nr?`<div class="pop" onclick="event.stopPropagation()" style="margin-top:4px"><b>${k.nr} ${esc(k.namn)}</b><div class="mf">${k.aktiv?'Aktivt':'Inaktivt'} · saldo ${kr(k.saldo)}</div>${varningar(k).map(x=>`<div class="note warn">${ic('triangle-alert')}<span>${esc(x[1])}</span></div>`).join('')}
+     <label class="label" style="margin:4px 0 0">Förvald moms</label>${momsSel(k.moms,`andraMoms(${k.nr},this.value)`)}
+     <label class="label" style="margin:4px 0 0">Flytta till ruta</label>${rutaSel(k.ruta,`S.pick=null;andraRuta(${k.nr},this.value)`)}
+     <div class="flex" style="justify-content:space-between"><button class="btn btn-destructive-ghost" onclick="S.pick=null;andraRuta(${k.nr},'')">${ic('unlink')}Ta bort koppling</button><button class="btn btn-ghost" onclick="S.pick=null;S.drawer=${k.nr};render()">${ic('history')}Historik</button></div></div>`:''}`}
+function addPop(r){const q=(S.pq||'').toLowerCase();const L=ALLA().filter(k=>k.ruta!==r&&!rutaLast(k)&&(!q||String(k.nr).startsWith(q)||k.namn.toLowerCase().includes(q)));
+  const fore=L.filter(k=>{const t={...k,ruta:r};return !varningar(t).some(x=>x[0]==='ovanlig')}).slice(0,40);
+  return `<div class="pop" onclick="event.stopPropagation()"><b>Koppla konto till ruta ${r}</b><label class="sbox" style="min-width:0">${ic('search')}<input id="pq" value="${esc(S.pq||'')}" placeholder="Nummer eller namn" oninput="S.pq=this.value;render();const e=document.getElementById('pq');e.focus();e.setSelectionRange(99,99)"></label>
+   <div class="ls">${(q?L.slice(0,40):fore).map(k=>`<div class="o" onclick="S.pick=null;S.pq='';andraRuta(${k.nr},'${r}')"><b class="num" style="text-align:left;width:36px">${k.nr}</b><span>${esc(k.namn)}</span><span class="mf">${k.ruta?'nu '+k.ruta:k.aktiv?'':'inaktivt'}</span></div>`).join('')||'<div class="mf">Inga konton</div>'}</div>
+   ${q?'':`<div class="mf" style="font-size:11px">Visar konton som passar rutan. Sök för att se alla; ovanliga val ger en varning.</div>`}</div>`}
+function blankettC(){const L=ALLA();
+  return BLK.map(b=>`<div class="blk"><div class="bh">${esc(b.t)}</div>${b.r.map(([n,t])=>{const ks=L.filter(k=>k.ruta===n),dis=EJVAL.has(n);
+    return `<div class="ruta ${dis?'dis':''}"><span class="rn">${n}</span><div class="rt"><span>${esc(t)}</span><span class="s">${dis?(n==='49'?'räknas fram':'formel, VMB utanför v1'):tecken(n)}</span></div>
+     <div class="ks" style="position:relative">${ks.map(chipC).join('')}${dis?'':`<button class="addk" onclick="event.stopPropagation();S.pick={ruta:'${n}'};S.pq='';render()">${ic('plus')}konto</button>${S.pick&&S.pick.ruta===n?addPop(n):''}`}</div></div>`}).join('')}</div>`).join('')}
+function railC(){const L=ALLA(),W=L.filter(harVarn),ut=L.filter(k=>['2611','2621','2631'].includes(k.moms)&&!k.ruta&&k.aktiv),okk=L.filter(k=>k.aktiv&&!k.ruta&&k.saldo&&(grp(k.nr)===26||kl(k.nr)===3)&&!['2650'].includes(String(k.nr))&&!k.res);
+  return `<div class="rail" style="gap:12px"><div class="t" style="font-weight:600">Att granska</div>
+   ${W.length?W.map(k=>`<div class="chk bad" style="cursor:pointer" onclick="S.pick={chip:${k.nr}};render();document.querySelector('.pop')?.scrollIntoView({block:'center'})">${ic('triangle-alert','class="warn"')}<span><b>${k.nr}</b> ${esc(k.namn)}<span class="fix">${esc(varningar(k)[0][1])}</span></span></div>`).join(''):`<div class="chk ok">${ic('circle-check')}<span>Inga varningar</span></div>`}
+   <div class="sepl" style="height:1px;background:var(--border)"></div><div class="t" style="font-weight:600">Utan ruta, med saldo</div>
+   ${okk.length?okk.map(k=>`<div class="chk" style="color:var(--muted-foreground)">${ic('circle-dashed')}<span><b>${k.nr}</b> ${esc(k.namn)}<span class="fix">saldo ${kr(k.saldo)}</span></span></div>`).join(''):'<div class="mf">Inga</div>'}
+   <div class="sepl" style="height:1px;background:var(--border)"></div>
+   <div class="note">${ic('info')}<span>${MOMSPER.dekl} är deklarerad ${MOMSPER.deklDatum}. Ändringar gäller ${MOMSPER.nasta} och framåt, och ${MOMSPER.dekl} bara om den öppnas igen.</span></div>
+   <div class="note">${ic('lock')}<span>Låsta konton bokförs av Mayas flöden. Reserverade konton (4599, 3998–3999) kan inte ändras alls.</span></div></div>`}
+function tradC(){const L=filtrera(ALLA(),{ignoreStatus:!!S.q}),visaInakt=S.q||S.filt!=='aktiva';
+  return `<div class="tree">${[...new Set(L.map(k=>kl(k.nr)))].map(c=>{const kst=S.open['k'+c]===false;
+   return `<div class="kl" onclick="S.open['k${c}']=${kst};render()">${ic(kst?'chevron-right':'chevron-down')}${c} ${esc(KLASS[c])}</div>${kst?'':[...new Set(L.filter(k=>kl(k.nr)===c).map(k=>grp(k.nr)))].map(g=>{const all=L.filter(k=>grp(k.nr)===g),akt=all.filter(k=>k.aktiv),inakt=all.length-akt.length,gopen=S.open['g'+g];
+     const vis=visaInakt||gopen?all:akt;
+     return `<div class="gr" onclick="S.open['g${g}']=${!gopen};render()">${g} ${esc(grpNamn(g))} <span style="font-weight:400">· ${akt.length} aktiva${inakt?`, ${inakt} inaktiva`:''}</span></div>
+      ${vis.map(k=>`<div class="k ${k.aktiv?'':'off'}" id="k${k.nr}"><button class="sw ${k.aktiv?'on':''}" ${k.aktiv&&kanInaktivera(k)?`style="opacity:.5" title="${esc(kanInaktivera(k))}"`:''} onclick="andraAktiv(${k.nr},${!k.aktiv})"></button><span class="nr">${k.nr}</span>
+        ${k.res?`<span>${esc(k.namn)}</span>`:`<input class="cell" value="${esc(k.namn)}" onchange="andraNamn(${k.nr},this.value)" onkeydown="if(event.key==='Enter')this.blur()">`}
+        <span class="mf" style="font-size:12px">${esc(momsTxt(k.moms))}</span><span style="font-size:12px">${k.ruta?`<a class="link" onclick="S.tab='moms';S.pick={chip:${k.nr}};render()">ruta ${k.ruta}</a>`:'<span class="mf">ingen ruta</span>'}${rutaLast(k)?' '+ic('lock'):''}</span><span>${kBadges(k,{ingenInaktiv:1})}${wIcon(k)}</span>
+        <button class="btn btn-ghost btn-icon" style="height:22px;width:22px" onclick="S.drawer=${k.nr};render()">${ic('history')}</button></div>`).join('')}
+      ${!visaInakt&&!gopen&&inakt?`<div class="more">${inakt} inaktiva dolda · <a class="link" onclick="S.open['g${g}']=true;render()">visa</a></div>`:''}`}).join('')}`}).join('')}</div>`}
+function sidaC(){const t=S.tab||'moms';
+  return `<div class="scroll" style="flex:1;padding:16px 24px 90px"><div class="col" style="gap:12px">${sidHuvud(`<div class="tabs"><button class="${t==='konton'?'on':''}" onclick="S.tab='konton';S.pick=null;render()">${ic('list-tree')}Konton</button><button class="${t==='moms'?'on':''}" onclick="S.tab='moms';S.pick=null;render()">${ic('receipt-text')}Momskoppling</button></div>`)}${flashBox()}
+   ${t==='konton'?`${filterBar()}${tradC()}`:`<div class="Cm"><div class="col" style="gap:10px"><div class="note">${ic('info')}<span>Varje konto ger högst en ruta. Klicka på ett konto för att flytta det, ta bort kopplingen eller ändra förvald moms. Siffran efter namnet är den förvalda momsen.</span></div>${blankettC()}</div>${railC()}</div>`}</div></div>${drawer()}`}
+
+/* ================= Skal (variant D från gränssnittsprototypen) ================= */
+const S={variant:(new URLSearchParams(location.search).get('variant')||'A').toUpperCase(),q:'',filt:'aktiva',egna:false,mk:false,varn:false,nyB:false,open:{},sel:null,drawer:null,modal:null,confirm:null,edit:null,pick:null,pq:'',tab:'moms',ny:null,flash:null,hl:null,coMenu:false};
+const VARIANTS={A:{namn:'Tabellen',sida:sidaA},B:{namn:'Kontokortet',sida:sidaB},C:{namn:'Momskopplingen',sida:sidaC}};
+const NAV=[['inkorg','Att göra'],['verifikat','Verifikat'],['kundfakturor','Kundfakturor'],['leverantorsfakturor','Leverantörsfakturor'],['lon','Lön'],['moms','Moms'],['rapporter','Rapporter']];
+const INST=[['foretag','Företag'],['kontoplan','Kontoplan'],['moms','Moms'],['atkomst','Åtkomst'],['klienter','Anslutna klienter'],['installation','Installation']];
+function route(){const p=(location.hash||'#/installningar/kontoplan').slice(2).split('/');return {mod:p[0],sub:p[1]||'kontoplan'}}
+function skal(rt){const inst=rt.mod==='installningar',kp=inst&&rt.sub==='kontoplan';
+  const ph=`<div style="padding:24px"><div class="placeholder">${ic('construction')}Sidan ingår inte i den här prototypen. <a class="link" href="#/installningar/kontoplan">Till kontoplanen</a></div></div>`;
+  return `<div class="B"><header>
+    <span class="brand"><span class="logo" style="width:24px;height:24px">M</span></span><span class="mf">/</span>
+    <div class="co"><button class="btn btn-ghost">${esc(CO.namn)}${ic('chevrons-up-down')}</button></div>
+    <nav>${NAV.map(([k,t])=>`<a href="#/${k}" class="${rt.mod===k?'on':''}">${t}</a>`).join('')}</nav>
+    <div class="right"><span class="search">${ic('search')}Sök verifikat, faktura…<kbd>⌘K</kbd></span><button class="btn btn-ghost btn-icon ${inst?'btn-secondary':''}" title="Inställningar" onclick="location.hash='#/installningar/kontoplan'">${ic('settings')}</button><button class="btn btn-ghost btn-icon" onclick="tema()" title="Ljust/mörkt">${ic('sun-moon')}</button></div>
+  </header>${inst?`<div class="subnav"><span class="t">${ic('settings')}Inställningar</span>${INST.map(([k,t])=>`<a href="#/installningar/${k}" class="${rt.sub===k?'on':''}">${t}</a>`).join('')}</div>`:''}
+  <div class="page">${kp?VARIANTS[S.variant].sida():ph}</div></div>${modal()}`}
+function render(){const sc=[...document.querySelectorAll('.scroll,.detail,.list')].map(e=>e.scrollTop);
+  document.getElementById('app').innerHTML=skal(route());window.lucide&&lucide.createIcons();
+  [...document.querySelectorAll('.scroll,.detail,.list')].forEach((e,i)=>{if(sc[i]!=null)e.scrollTop=sc[i]});
+  const keys=Object.keys(VARIANTS),V=VARIANTS[S.variant];
+  document.getElementById('proto-switcher').innerHTML=`<button onclick="cyk(-1)">←</button><span class="lbl">PROTOTYP · ${S.variant} (${V.namn}) · ${keys.indexOf(S.variant)+1}/${keys.length}</span><button onclick="cyk(1)">→</button>`}
+function cyk(d){const k=Object.keys(VARIANTS);S.variant=k[(k.indexOf(S.variant)+d+k.length)%k.length];S.drawer=null;S.modal=null;S.pick=null;S.edit=null;S.open={};
+  const p=new URLSearchParams(location.search);p.set('variant',S.variant);history.replaceState(null,'','?'+p+location.hash);render()}
+function tema(){const r=document.documentElement,cur=r.dataset.theme||(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light');r.dataset.theme=cur==='dark'?'light':'dark'}
+window.addEventListener('hashchange',()=>{S.modal=null;S.drawer=null;render()});
+document.addEventListener('click',e=>{if(S.pick&&!e.target.closest('.pop')&&!e.target.closest('.kchip')&&!e.target.closest('.addk')){S.pick=null;render()}});
+document.addEventListener('keydown',e=>{if(e.target.matches('input,textarea,select,[contenteditable]')){if(e.key==='Escape')e.target.blur();return}
+  if(e.key==='/'){const q=document.getElementById('q');if(q){e.preventDefault();q.focus()}return}
+  if(e.key==='Escape'){S.modal=null;S.drawer=null;S.confirm=null;S.pick=null;S.edit=null;render();return}
+  if(e.key==='ArrowLeft')cyk(-1);if(e.key==='ArrowRight')cyk(1)});
+if(!VARIANTS[S.variant])S.variant='A';
+if(!location.hash)location.hash='#/installningar/kontoplan';
+render();
+</script>
+</body>
+</html>
