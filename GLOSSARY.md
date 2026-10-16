@@ -68,6 +68,14 @@ _Avoid_: IB-verifikat, öppningsverifikat, startsaldo
 När ett företags bokföring för ett räkenskapsår förs över från ett annat system med en SIE4-fil; den görs en gång i ett tomt företag, bokför de överförda verifikaten och arkiverar filen tillsammans med en avstämning av alla summor.
 _Avoid_: Migrering (som term), inläsning, SIE-import (i UI)
 
+**Övertagande**:
+När Maya tar över ett befintligt bolags löpande bokföring från ett annat system, från och med en övertagandeperiod: vid byte vid årsskiftet räkenskapsårets första period, vid byte mitt i året månaden efter det senaste importerade verifikatet. Det gamla systemet har hanterat momsdeklarationer, arbetsgivardeklarationer och avskrivningar före den.
+_Avoid_: Migrering, systembyte (som term), startdatum
+
+**Övertagen faktura**:
+En kund- eller leverantörsfaktura som var obetald i det tidigare systemet vid övertagandet och som läggs in i reskontran med sitt återstående belopp; är den redan bokförd där bokförs den inte igen.
+_Avoid_: Ingående faktura, öppen post, historisk faktura
+
 **Verifikat**:
 En bokföringspost som dokumenterar en affärshändelse med debet- och kreditrader; ett bokfört verifikat ändras aldrig, bara rättas genom ett nytt verifikat.
 _Avoid_: Verifikation, voucher, transaktion, journal entry
