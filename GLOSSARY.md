@@ -120,6 +120,10 @@ _Avoid_: Kostnadsbärare, objekt (som samlingsnamn), tagg
 En kalendermånad inom ett räkenskapsår; en låst period kan inte få fler verifikat.
 _Avoid_: Redovisningsperiod, månad (som term)
 
+**Låsa**:
+Att slutgiltigt spärra en period så att inga fler verifikat kan bokföras med ett datum i den; perioderna i ett räkenskapsår låses i ordning och låses aldrig upp.
+_Avoid_: Stänga (om en period), periodstänga, frysa
+
 **Underlag**:
 Den handling som styrker en affärshändelse (kvitto, faktura, avtal) och som arkiveras kopplad till ett eller flera verifikat.
 _Avoid_: Bilaga, kvitto (som samlingsnamn), dokument
