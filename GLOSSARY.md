@@ -132,6 +132,10 @@ _Avoid_: Bokslutsexport, årsbackup, säkerhetskopia
 Beskrivningen av var ett företags räkenskapsinformation, säkerhetskopior och årsarkiv finns, hur de nås och vem som ansvarar för dem; den ingår i systemdokumentationen och i varje årsarkiv.
 _Avoid_: Lagringsplan, backupplan
 
+**Systemdokumentation**:
+Beskrivningen av ett företags kontoplan, behandlingsregler och arkivplan, som Maya tar fram ur de regler som gäller; den visar vilken version av Maya den gäller för och ingår i varje årsarkiv.
+_Avoid_: Användarmanual, systembeskrivning
+
 **Bokföringsmetod**:
 Företagets val mellan fakturametoden och kontantmetoden, som styr när fakturor bokförs.
 
