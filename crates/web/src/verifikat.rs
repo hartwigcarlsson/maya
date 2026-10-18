@@ -4,6 +4,9 @@
 //! Formuläret prövar spärrarna med `maya_domain::verifikat` i webbläsaren, och `core` prövar
 //! samma spärrar när det bokför. Utan JavaScript skickas formuläret till servern, som skickar
 //! tillbaka hit med det användaren skrev; sidan prövar det igen och visar samma koder.
+//!
+//! Sidans data läggs på av middleware och följer med vid hydreringen, så länkarna här har
+//! `rel="external"`: en navigering i routern på klienten skulle visa den gamla sidans data.
 
 use jiff::civil::Date;
 use leptos::prelude::*;
@@ -43,9 +46,10 @@ pub struct HistorikVy {
     pub kanal: String,
 }
 
-/// Ett verifikat som dokument.
+/// Ett verifikat som dokument, eller ett utkast som formuläret öppnar.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DokumentVy {
+    pub id: String,
     pub nummer: Option<String>,
     pub beskrivning: String,
     pub summa: String,
@@ -173,7 +177,8 @@ pub(crate) mod server {
 
     pub(crate) fn routes(state: VerifikatState) -> Router {
         Router::new()
-            .route("/foretag/{id}/verifikat", post(bokför))
+            .route("/foretag/{id}/verifikat", post(skicka))
+            .route("/foretag/{id}/verifikat/{utkast}/radera", post(radera))
             .with_state(Arc::new(state))
     }
 
@@ -262,6 +267,7 @@ pub(crate) mod server {
                 Belopp::från_öre(v.rader.iter().map(|r| f(r).öre()).sum()).to_string()
             };
             dokument = Some(DokumentVy {
+                id: v.id.to_string(),
                 nummer: v.nummer.map(|n| n.to_string()),
                 beskrivning: v.beskrivning.clone(),
                 summa: v.summa.to_string(),
@@ -294,7 +300,8 @@ pub(crate) mod server {
                     .collect(),
             });
         }
-        let formulär = if nytt {
+        let utkast = dokument.as_ref().is_some_and(|d| d.nummer.is_none());
+        let formulär = if nytt || utkast {
             let förutsättningar = verifikat::förutsättningar(db, aktör, företag).await?;
             Some(FormulärData {
                 konton: konton
@@ -370,7 +377,9 @@ pub(crate) mod server {
         }
     }
 
-    async fn bokför(
+    /// Formuläret: Bokför (`handling=bokfor`) eller Spara utkast (`handling=utkast`), för ett
+    /// nytt verifikat eller för utkastet i fältet `utkast`.
+    async fn skicka(
         State(state): State<Arc<VerifikatState>>,
         Path(id): Path<String>,
         inloggad: Option<Extension<Inloggad>>,
@@ -382,20 +391,37 @@ pub(crate) mod server {
         let Ok(företag) = id.parse::<FöretagsId>() else {
             return ingen_åtkomst();
         };
+        let värde = |namn: &str| {
+            fält
+                .iter()
+                .find(|(k, _)| k == namn)
+                .map(|(_, v)| v.as_str())
+        };
+        let utkast = match värde("utkast").filter(|u| !u.is_empty()) {
+            Some(u) => match u.parse::<VerifikatId>() {
+                Ok(u) => Some(u),
+                Err(_) => return inget_utkast(),
+            },
+            None => None,
+        };
+        let spara = värde("handling") == Some("utkast");
         let formulär = tolka(&fält);
-        match verifikat::bokför(
-            &state.db,
-            &state.klocka,
-            &inloggad.aktör,
-            företag,
-            &formulär,
-        )
-        .await
-        {
-            Ok(b) => {
-                Redirect::to(&format!("/foretag/{företag}/verifikat?v={}", b.id)).into_response()
-            }
-            Err(VerifikatFel::Spärrat(_)) => tillbaka(företag, &formulär),
+        let (db, klocka, aktör) = (&state.db, &state.klocka, &inloggad.aktör);
+        let resultat = match (spara, utkast) {
+            (true, _) => verifikat::spara_utkast(db, klocka, aktör, företag, utkast, &formulär)
+                .await
+                .map(|id| format!("/foretag/{företag}/verifikat?v={id}&sparat=1")),
+            (false, Some(u)) => verifikat::bokför_utkast(db, klocka, aktör, företag, u, &formulär)
+                .await
+                .map(|b| format!("/foretag/{företag}/verifikat?v={}", b.id)),
+            (false, None) => verifikat::bokför(db, klocka, aktör, företag, &formulär)
+                .await
+                .map(|b| format!("/foretag/{företag}/verifikat?v={}", b.id)),
+        };
+        match resultat {
+            Ok(plats) => Redirect::to(&plats).into_response(),
+            Err(VerifikatFel::Spärrat(_)) => tillbaka(företag, utkast, spara, &formulär),
+            Err(VerifikatFel::IngetUtkast) => inget_utkast(),
             Err(VerifikatFel::Åtkomst(ÅtkomstFel::IngenÅtkomst | ÅtkomstFel::KanalenFårInte)) => {
                 ingen_åtkomst()
             }
@@ -403,10 +429,51 @@ pub(crate) mod server {
         }
     }
 
-    /// Tillbaka till formuläret med det användaren skrev. Sidan prövar det igen med samma
-    /// spärrar och visar dem vid fälten.
-    fn tillbaka(företag: FöretagsId, f: &NyttVerifikat) -> Response {
+    /// Radera utkast, efter att sidan har frågat och visat en sammanfattning.
+    async fn radera(
+        State(state): State<Arc<VerifikatState>>,
+        Path((id, utkast)): Path<(String, String)>,
+        inloggad: Option<Extension<Inloggad>>,
+    ) -> Response {
+        let Some(Extension(inloggad)) = inloggad else {
+            return Redirect::to("/").into_response();
+        };
+        let Ok(företag) = id.parse::<FöretagsId>() else {
+            return ingen_åtkomst();
+        };
+        let Ok(utkast) = utkast.parse::<VerifikatId>() else {
+            return inget_utkast();
+        };
+        match verifikat::radera_utkast(&state.db, &state.klocka, &inloggad.aktör, företag, utkast)
+            .await
+        {
+            Ok(()) => Redirect::to(&format!(
+                "/foretag/{företag}/verifikat?urval=utkast&raderat=1"
+            ))
+            .into_response(),
+            Err(VerifikatFel::IngetUtkast | VerifikatFel::Spärrat(_)) => inget_utkast(),
+            Err(VerifikatFel::Åtkomst(ÅtkomstFel::IngenÅtkomst | ÅtkomstFel::KanalenFårInte)) => {
+                ingen_åtkomst()
+            }
+            Err(e) => serverfel(e),
+        }
+    }
+
+    /// Tillbaka till formuläret med det användaren skrev, till utkastet om det fanns ett. Sidan
+    /// prövar det igen med samma spärrar och visar dem vid fälten.
+    fn tillbaka(
+        företag: FöretagsId,
+        utkast: Option<VerifikatId>,
+        spara: bool,
+        f: &NyttVerifikat,
+    ) -> Response {
         let mut query = url::form_urlencoded::Serializer::new(String::new());
+        if let Some(u) = utkast {
+            query.append_pair("v", &u.to_string());
+        }
+        if spara {
+            query.append_pair("fel", "utkast");
+        }
         query
             .append_pair("datum", &f.datum)
             .append_pair("beskrivning", &f.beskrivning);
@@ -417,11 +484,21 @@ pub(crate) mod server {
                 .append_pair(&format!("kredit_{i}"), &rad.kredit)
                 .append_pair(&format!("text_{i}"), &rad.text);
         }
+        let sida = if utkast.is_some() { "" } else { "/nytt" };
         Redirect::to(&format!(
-            "/foretag/{företag}/verifikat/nytt?{}",
+            "/foretag/{företag}/verifikat{sida}?{}",
             query.finish()
         ))
         .into_response()
+    }
+
+    fn inget_utkast() -> Response {
+        (
+            StatusCode::NOT_FOUND,
+            [(header::CONTENT_TYPE, "text/plain; charset=utf-8")],
+            "Utkastet finns inte, eller är redan bokfört.\n",
+        )
+            .into_response()
     }
 
     fn ingen_åtkomst() -> Response {
@@ -465,19 +542,139 @@ pub fn VerifikatSida() -> impl IntoView {
         return view! { <IngenÅtkomst /> }.into_any();
     };
     let data = verifikatdata();
+    let fråga = |namn: &str| use_query_map().with_untracked(|q| q.get(namn).is_some());
+    let notis = if fråga("raderat") {
+        Some("Utkastet raderades och raderingen loggades.")
+    } else if fråga("sparat") {
+        Some("Utkastet sparades.")
+    } else {
+        None
+    }
+    .map(|text| view! { <p class="notis" role="status">{text}</p> });
     let detalj = match data.dokument.clone() {
+        Some(d) if d.nummer.is_none() && fråga("radera") => {
+            view! { <RaderaUtkast bas=bas.clone() d=d /> }.into_any()
+        }
+        Some(d) if d.nummer.is_none() => {
+            let formulär = data.formulär.clone().unwrap_or_default();
+            view! { <Formulär bas=bas.clone() data=formulär utkast=Some(d) /> }.into_any()
+        }
         Some(d) => view! { <Dokument d=d /> }.into_any(),
         None => view! {
             <div class="tom">
                 <p>"Välj ett verifikat i listan."</p>
-                <a class="knapp" href=format!("{bas}/verifikat/nytt")>
+                <a rel="external" class="knapp" href=format!("{bas}/verifikat/nytt")>
                     "Nytt verifikat"
                 </a>
             </div>
         }
         .into_any(),
     };
+    let detalj = view! {
+        {notis}
+        {detalj}
+    }
+    .into_any();
     view! { <Delad bas=bas data=data detalj=detalj /> }.into_any()
+}
+
+/// Radera utkast frågar först och visar en sammanfattning av utkastet.
+#[component]
+fn RaderaUtkast(bas: String, d: DokumentVy) -> impl IntoView {
+    let beskrivning = if d.beskrivning.trim().is_empty() {
+        "Utkast utan beskrivning".to_string()
+    } else {
+        d.beskrivning.clone()
+    };
+    let datum = if d.datum.is_empty() {
+        "utan datum".to_string()
+    } else {
+        d.datum.clone()
+    };
+    let rader = match d.rader.len() {
+        1 => "1 rad".to_string(),
+        n => format!("{n} rader"),
+    };
+    view! {
+        <section class="dialog" role="alertdialog" aria-labelledby="radera-rubrik">
+            <h2 id="radera-rubrik">"Radera utkastet?"</h2>
+            <p>{format!("{beskrivning} · {} kr · {datum} · {rader}", d.summa)}</p>
+            <p class="diskret">
+                "Raderingen loggas med vem, när och en sammanfattning av utkastet."
+            </p>
+            <form method="post" action=format!("{bas}/verifikat/{}/radera", d.id)>
+                <a rel="external" class="knapp" href=format!("{bas}/verifikat?v={}", d.id)>
+                    "Avbryt"
+                </a>
+                " "
+                <button class="knapp knapp-fara" type="submit">
+                    <Papperskorg />
+                    "Radera utkast"
+                </button>
+            </form>
+        </section>
+    }
+}
+
+/// Lucides penna (`pencil-line`), för utkast.
+#[component]
+fn Penna() -> impl IntoView {
+    view! {
+        <svg
+            class="ikon"
+            xmlns="http://www.w3.org/2000/svg"
+            width="12"
+            height="12"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
+        >
+            <path d="M13 21h8" />
+            <path d="m15 5 4 4" />
+            <path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z" />
+        </svg>
+    }
+}
+
+/// Lucides papperskorg (`trash-2`).
+#[component]
+fn Papperskorg() -> impl IntoView {
+    view! {
+        <svg
+            class="ikon"
+            xmlns="http://www.w3.org/2000/svg"
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
+        >
+            <path d="M3 6h18" />
+            <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" />
+            <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
+            <line x1="10" x2="10" y1="11" y2="17" />
+            <line x1="14" x2="14" y1="11" y2="17" />
+        </svg>
+    }
+}
+
+/// Den neutrala streckade badgen med pennikon som utkast har.
+#[component]
+fn UtkastBadge() -> impl IntoView {
+    view! {
+        <span class="badge badge-utkast">
+            <Penna />
+            "Utkast"
+        </span>
+    }
 }
 
 /// Formuläret för ett nytt verifikat, bredvid listan.
@@ -491,7 +688,7 @@ pub fn NyttVerifikatSida() -> impl IntoView {
     };
     let data = verifikatdata();
     let formulär = data.formulär.clone().unwrap_or_default();
-    let detalj = view! { <Formulär bas=bas.clone() data=formulär /> }.into_any();
+    let detalj = view! { <Formulär bas=bas.clone() data=formulär utkast=None /> }.into_any();
     view! { <Delad bas=bas data=data detalj=detalj /> }.into_any()
 }
 
@@ -508,7 +705,7 @@ fn Delad(bas: String, data: Verifikatdata, detalj: AnyView) -> impl IntoView {
     .map(|(kod, namn)| {
         let aktuellt = (kod == urval || (urval.is_empty() && kod == "alla")).then_some("page");
         view! {
-            <a href=format!("{bas}/verifikat?urval={kod}") aria-current=aktuellt>
+            <a rel="external" href=format!("{bas}/verifikat?urval={kod}") aria-current=aktuellt>
                 {namn}
             </a>
         }
@@ -521,13 +718,16 @@ fn Delad(bas: String, data: Verifikatdata, detalj: AnyView) -> impl IntoView {
         .map(|v| {
             let aktuellt = (Some(&v.id) == valt.as_ref()).then_some("page");
             let href = format!("{bas}/verifikat?v={}", v.id);
-            let nummer = v.nummer.clone().unwrap_or_else(|| "Utkast".to_string());
+            let nummer = match v.nummer.clone() {
+                Some(n) => view! { <span class="diskret">{n}</span> }.into_any(),
+                None => view! { <UtkastBadge /> }.into_any(),
+            };
             view! {
                 <li>
-                    <a href=href aria-current=aktuellt>
+                    <a rel="external" href=href aria-current=aktuellt>
                         <span class="verifikatlista-topp">
                             <span>
-                                <span class="diskret">{nummer}</span>
+                                {nummer}
                                 " "
                                 {v.beskrivning}
                             </span>
@@ -544,7 +744,7 @@ fn Delad(bas: String, data: Verifikatdata, detalj: AnyView) -> impl IntoView {
             <div class="verifikat-spalt">
                 <div class="verifikat-spalt-rubrik">
                     <h1>"Verifikat"</h1>
-                    <a class="knapp" href=format!("{bas}/verifikat/nytt")>
+                    <a rel="external" class="knapp" href=format!("{bas}/verifikat/nytt")>
                         "Nytt"
                     </a>
                 </div>
@@ -650,10 +850,30 @@ fn Dokument(d: DokumentVy) -> impl IntoView {
     }
 }
 
-/// Formuläret för ett verifikat. Spärrarna visas vid sina fält medan användaren skriver, och
-/// Bokför är inaktiv med antalet problem kvar.
+/// Formuläret för ett nytt verifikat eller ett utkast. Spärrarna visas vid sina fält medan
+/// användaren skriver, och Bokför är inaktiv med antalet problem kvar. Spara utkast går alltid
+/// att trycka på.
 #[component]
-fn Formulär(bas: String, data: FormulärData) -> impl IntoView {
+fn Formulär(bas: String, data: FormulärData, utkast: Option<DokumentVy>) -> impl IntoView {
+    let från_servern = use_query_map().with_untracked(|q| q.get("datum").is_some());
+    let utkastets = utkast
+        .as_ref()
+        .filter(|_| !från_servern)
+        .map(|d| NyttVerifikat {
+            datum: d.datum.clone(),
+            beskrivning: d.beskrivning.clone(),
+            rader: d
+                .rader
+                .iter()
+                .map(|r| NyRad {
+                    konto: r.konto.clone(),
+                    debet: r.debet.clone(),
+                    kredit: r.kredit.clone(),
+                    text: r.text.clone(),
+                })
+                .collect(),
+        });
+    let ej_sparat = use_query_map().with_untracked(|q| q.get("fel").as_deref() == Some("utkast"));
     let ifyllt = use_query_map().with_untracked(|q| {
         let fält = |namn: &str| q.get(namn).unwrap_or_default();
         let antal = (0..500)
@@ -672,7 +892,7 @@ fn Formulär(bas: String, data: FormulärData) -> impl IntoView {
                 .collect(),
         }
     });
-    let mut start = ifyllt;
+    let mut start = utkastets.unwrap_or(ifyllt);
     let antal_rader = start.rader.len().max(4);
     start.rader.resize(antal_rader, NyRad::default());
     let verifikat = RwSignal::new(start);
@@ -683,7 +903,8 @@ fn Formulär(bas: String, data: FormulärData) -> impl IntoView {
     let hydrerad = RwSignal::new(false);
     Effect::new(move |_| hydrerad.set(true));
 
-    let skicka = move |ev: leptos::ev::SubmitEvent| {
+    // Bara Bokför stoppas av spärrarna; Spara utkast skickar alltid.
+    let bokför = move |ev: leptos::ev::MouseEvent| {
         if !spärrar.with_untracked(Vec::is_empty) {
             ev.prevent_default();
         }
@@ -702,7 +923,7 @@ fn Formulär(bas: String, data: FormulärData) -> impl IntoView {
                             let konto = verifikat.with_untracked(|v| v.rader[i].konto.clone());
                             view! {
                                 " "
-                                <a href=format!(
+                                <a rel="external" href=format!(
                                     "{bas}/installningar/kontoplan?sok={}",
                                     konto.trim(),
                                 )>"Aktivera"</a>
@@ -795,6 +1016,34 @@ fn Formulär(bas: String, data: FormulärData) -> impl IntoView {
                 .collect_view()
         }
     };
+    let utkast_id = utkast.as_ref().map(|d| d.id.clone());
+    let rubrik = match &utkast {
+        Some(d) => {
+            let namn = if d.beskrivning.trim().is_empty() {
+                "Utkast".to_string()
+            } else {
+                d.beskrivning.clone()
+            };
+            view! {
+                <h2>{namn}</h2>
+                <p>
+                    <UtkastBadge />
+                    " "
+                    <span class="diskret">"Skapat av " {d.skapad.1.clone()} " · " {d.skapad.0.clone()}</span>
+                </p>
+            }
+            .into_any()
+        }
+        None => view! { <h2>"Nytt verifikat"</h2> }.into_any(),
+    };
+    let radera = utkast_id.clone().map(|id| {
+        view! {
+            <a rel="external" class="knapp knapp-fara-diskret" href=format!("{bas}/verifikat?v={id}&radera=1")>
+                <Papperskorg />
+                "Radera utkast"
+            </a>
+        }
+    });
     let aktiva = data
         .konton
         .iter()
@@ -808,9 +1057,17 @@ fn Formulär(bas: String, data: FormulärData) -> impl IntoView {
             method="post"
             action=format!("{bas}/verifikat")
             novalidate
-            on:submit=skicka
         >
-            <h2>"Nytt verifikat"</h2>
+            {rubrik}
+            {ej_sparat
+                .then(|| {
+                    view! {
+                        <p class="fel" role="alert">
+                            "Utkastet kunde inte sparas. Rätta det som är markerat."
+                        </p>
+                    }
+                })}
+            <input type="hidden" name="utkast" value=utkast_id.clone().unwrap_or_default() />
             <div class="falt-rad">
                 <div>
                     <label for="datum">"Verifikatdatum"</label>
@@ -857,14 +1114,21 @@ fn Formulär(bas: String, data: FormulärData) -> impl IntoView {
                     "+ Rad"
                 </button>
             </p>
-            <p>
+            <p class="knappar">
                 <button
                     class="knapp knapp-primar"
                     type="submit"
+                    name="handling"
+                    value="bokfor"
+                    on:click=bokför
                     disabled=move || hydrerad.get() && !spärrar.with(Vec::is_empty)
                 >
                     {bokför_text}
                 </button>
+                <button class="knapp" type="submit" name="handling" value="utkast">
+                    "Spara utkast"
+                </button>
+                {radera}
             </p>
         </form>
     }
