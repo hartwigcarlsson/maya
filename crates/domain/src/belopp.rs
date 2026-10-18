@@ -45,14 +45,77 @@ impl Belopp {
 
 impl fmt::Display for Belopp {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let kronor = (self.0 / 100).to_string();
-        let mut med_avgränsare = String::new();
-        for (i, c) in kronor.chars().enumerate() {
-            if i > 0 && (kronor.len() - i).is_multiple_of(3) {
-                med_avgränsare.push(' ');
-            }
-            med_avgränsare.push(c);
-        }
-        write!(f, "{med_avgränsare},{:02}", self.0 % 100)
+        skriv_kronor(f, self.0.unsigned_abs())
     }
+}
+
+/// Ett kontos saldo i öre, med debet som positivt och kredit som negativt.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct Saldo(i64);
+
+impl Saldo {
+    pub const NOLL: Saldo = Saldo(0);
+
+    pub fn från_öre(öre: i64) -> Self {
+        Saldo(öre)
+    }
+
+    /// Saldot av ett belopp i debet och ett i kredit.
+    pub fn av(debet: Belopp, kredit: Belopp) -> Self {
+        Saldo(debet.0 - kredit.0)
+    }
+
+    pub fn öre(self) -> i64 {
+        self.0
+    }
+
+    /// Beloppet i debet: saldot om det är positivt, annars noll.
+    pub fn debet(self) -> Belopp {
+        Belopp(self.0.max(0))
+    }
+
+    /// Beloppet i kredit: saldot med vänt tecken om det är negativt, annars noll.
+    pub fn kredit(self) -> Belopp {
+        Belopp((-self.0).max(0))
+    }
+}
+
+impl std::ops::Add for Saldo {
+    type Output = Saldo;
+    fn add(self, other: Saldo) -> Saldo {
+        Saldo(self.0 + other.0)
+    }
+}
+
+impl std::ops::AddAssign for Saldo {
+    fn add_assign(&mut self, other: Saldo) {
+        self.0 += other.0;
+    }
+}
+
+impl std::iter::Sum for Saldo {
+    fn sum<I: Iterator<Item = Saldo>>(iter: I) -> Saldo {
+        Saldo(iter.map(|s| s.0).sum())
+    }
+}
+
+impl fmt::Display for Saldo {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if self.0 < 0 {
+            f.write_str("-")?;
+        }
+        skriv_kronor(f, self.0.unsigned_abs())
+    }
+}
+
+fn skriv_kronor(f: &mut fmt::Formatter<'_>, öre: u64) -> fmt::Result {
+    let kronor = (öre / 100).to_string();
+    let mut med_avgränsare = String::new();
+    for (i, c) in kronor.chars().enumerate() {
+        if i > 0 && (kronor.len() - i).is_multiple_of(3) {
+            med_avgränsare.push(' ');
+        }
+        med_avgränsare.push(c);
+    }
+    write!(f, "{med_avgränsare},{:02}", öre % 100)
 }
