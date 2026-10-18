@@ -330,6 +330,9 @@ const ÄNDRINGSLOGG: &[Release] = &[Release {
         "Första versionen av behandlingsreglerna.",
         "Kontoplanen BAS 2026 och INK2-tabellen INK2_P1-231002_241119.",
         "En verifikationsserie V per räkenskapsår, numrerad vid bokföringen.",
+        "Kontoplanens regler: konton raderas aldrig, nya BAS-konton läggs till som inaktiva, \
+         och ett konto med saldo kan inte inaktiveras.",
+        "Ingående balans skrivs in för det första räkenskapsåret.",
         "Spärrarna vid bokföring och rättelse.",
         "Automatkonteringarna rättelse, registrera om och preliminär ingående balans.",
         "50-dagarsvarningen och kontantfristen för utkast.",
