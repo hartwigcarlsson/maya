@@ -617,6 +617,9 @@ pub async fn radera(
         "DELETE FROM momsperiod WHERE foretag_id = ?1",
         "DELETE FROM atkomst WHERE foretag_id = ?1",
         "DELETE FROM inbjudan WHERE foretag_id = ?1",
+        // #134 Fakturauppgifterna och logotypen är inte räkenskapsinformation; en utfärdad
+        // faktura har kopierat in det den använder.
+        "DELETE FROM fakturauppgifter WHERE foretag_id = ?1",
         "DELETE FROM foretag WHERE id = ?1",
         "DELETE FROM konto WHERE foretag_id = ?1",
         "DELETE FROM behandlingshistorik WHERE foretag_id = ?1",

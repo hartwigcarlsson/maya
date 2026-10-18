@@ -75,6 +75,9 @@ händelser! {
     MigreringKörd => "migrering körd",
     MigreringMisslyckad => "migrering misslyckad",
     ProgramversionBytt => "programversion bytt",
+    // #134 Fakturauppgifter
+    FakturauppgifterÄndrade => "fakturauppgifter ändrade",
+    OcrInställningÄndrad => "ocr-inställning ändrad",
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -479,6 +482,35 @@ impl Post {
                     v => s(v),
                 };
                 format!("Från {från} till {}", f("till"))
+            }
+            // #134 Fakturauppgifter
+            Händelse::FakturauppgifterÄndrade => b
+                .as_object()
+                .map(|fält| {
+                    let värde = |namn: &str, v: &Value| match (namn, v) {
+                        ("logotyp", Value::Null) => "ingen".to_string(),
+                        ("logotyp", v) => format!("”{}”", s(&v["filnamn"])),
+                        (_, v) => format!("”{}”", s(v)),
+                    };
+                    fält
+                        .iter()
+                        .map(|(namn, v)| {
+                            format!(
+                                "{namn}: {} → {}",
+                                värde(namn, &v["från"]),
+                                värde(namn, &v["till"])
+                            )
+                        })
+                        .collect::<Vec<_>>()
+                        .join("; ")
+                })
+                .unwrap_or_default(),
+            Händelse::OcrInställningÄndrad => {
+                if b["till"].as_bool() == Some(true) {
+                    "OCR-referens på".into()
+                } else {
+                    "OCR-referens av".into()
+                }
             }
         }
     }

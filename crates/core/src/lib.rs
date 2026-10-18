@@ -12,6 +12,7 @@ pub mod config;
 mod databas;
 pub mod drift;
 pub mod export;
+pub mod fakturauppgifter;
 pub mod foretag;
 pub mod inloggning;
 pub mod installation;

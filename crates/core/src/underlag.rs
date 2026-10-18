@@ -353,7 +353,7 @@ pub async fn ta_bort(
 }
 
 /// Filnamnet utan katalog och styrtecken, högst 255 tecken.
-fn rensa_filnamn(filnamn: &str) -> String {
+pub(crate) fn rensa_filnamn(filnamn: &str) -> String {
     let namn: String = filnamn
         .rsplit(['/', '\\'])
         .next()
