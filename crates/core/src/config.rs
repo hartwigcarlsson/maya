@@ -104,6 +104,22 @@ impl fmt::Display for ConfigError {
 
 impl std::error::Error for ConfigError {}
 
+/// Adressen som Maya lyssnar på utan `MAYA_LISTEN`.
+pub const STANDARDADRESS: SocketAddr =
+    SocketAddr::new(std::net::IpAddr::V4(std::net::Ipv4Addr::UNSPECIFIED), 8080);
+
+/// Katalogen under `MAYA_DATA_DIR` där backupen och återställningen arbetar.
+pub const ARBETSKATALOG: &str = "backup-arbete";
+
+/// Adressen i `MAYA_LISTEN` bland `vars`, eller standardadressen, för kommandon som inte
+/// behöver hela konfigurationen (healthcheck). Samma tolkning som [`Config::from_env`].
+pub fn listen(vars: impl IntoIterator<Item = (String, String)>) -> SocketAddr {
+    vars.into_iter()
+        .find(|(k, _)| k == "MAYA_LISTEN")
+        .and_then(|(_, v)| v.trim().parse().ok())
+        .unwrap_or(STANDARDADRESS)
+}
+
 impl Config {
     /// Tolkar konfigurationen ur miljövariablerna `vars`. Tomma värden räknas som saknade.
     pub fn from_env(vars: impl IntoIterator<Item = (String, String)>) -> Result<Self, ConfigError> {
@@ -118,7 +134,7 @@ impl Config {
         let public_url = env.public_url();
         let listen = env
             .parsed("MAYA_LISTEN", "en adress och port, t.ex. 0.0.0.0:8080")
-            .unwrap_or_else(|| SocketAddr::from(([0, 0, 0, 0], 8080)));
+            .unwrap_or(STANDARDADRESS);
         let data_dir = env
             .get("MAYA_DATA_DIR")
             .map_or_else(|| "/data".into(), PathBuf::from);
@@ -171,6 +187,11 @@ impl Config {
     /// Sökvägen till databasen.
     pub fn database_path(&self) -> PathBuf {
         self.data_dir.join("maya.db")
+    }
+
+    /// Där ögonblicksbilden och en hämtad backup ligger under arbetet.
+    pub fn arbetskatalog(&self) -> PathBuf {
+        self.data_dir.join(ARBETSKATALOG)
     }
 }
 

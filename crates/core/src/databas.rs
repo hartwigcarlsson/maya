@@ -216,7 +216,7 @@ impl Databas {
         let arbetskatalog = path
             .parent()
             .unwrap_or_else(|| Path::new("."))
-            .join("backup-arbete");
+            .join(crate::config::ARBETSKATALOG);
         let före = backup::före_migrering(self, tid, mål, &arbetskatalog)
             .await
             .map_err(|e| DatabasFel::BackupFöreMigrering(e.to_string()))?;

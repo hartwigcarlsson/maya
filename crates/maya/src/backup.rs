@@ -1,7 +1,7 @@
 //! `maya backup verify`, det nattliga backupjobbet och larmjobbet i `maya serve`. Alla är tunna
 //! adaptrar runt `maya_core::backup` och `maya_core::drift`.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::ExitCode;
 use std::time::Duration;
 
@@ -24,7 +24,7 @@ pub enum BackupCommand {
 }
 
 pub fn run(command: BackupCommand) -> ExitCode {
-    crate::user::kör_med_databas(|config, db| async move {
+    crate::cli::kör_med_databas(|config, db| async move {
         let resultat = match command {
             BackupCommand::Verify { name } => verify(&config, &db, name.as_deref()).await,
         };
@@ -33,12 +33,7 @@ pub fn run(command: BackupCommand) -> ExitCode {
     })
 }
 
-/// Där ögonblicksbilden och en hämtad backup ligger under arbetet.
-fn arbetskatalog(config: &Config) -> PathBuf {
-    config.data_dir.join("backup-arbete")
-}
-
-async fn verify(config: &Config, db: &Databas, namn: Option<&str>) -> crate::user::Resultat {
+async fn verify(config: &Config, db: &Databas, namn: Option<&str>) -> crate::cli::Resultat {
     let mål = Backupmål::från(&config.backup);
     let verifiering = backup::verifiera(
         db,
@@ -46,7 +41,7 @@ async fn verify(config: &Config, db: &Databas, namn: Option<&str>) -> crate::use
         &Aktör::cli(),
         &mål,
         namn,
-        &arbetskatalog(config),
+        &config.arbetskatalog(),
     )
     .await
     .map_err(|e| {
@@ -88,7 +83,7 @@ pub fn varna_vid_start(config: &Config) {
 /// stannar.
 pub async fn nattligt_jobb(config: &Config, db: Databas) {
     let mål = Backupmål::från(&config.backup);
-    let arbete = arbetskatalog(config);
+    let arbete = config.arbetskatalog();
     loop {
         let nästa = maya_domain::backup::nästa_körning(Timestamp::now(), config.backup_time);
         tracing::info!(
