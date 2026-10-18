@@ -74,6 +74,7 @@ async fn ett_namnbyte_sparas_och_loggas_med_det_gamla_och_nya_namnet() {
     assert_eq!(senaste.typ, "konto namnbytt");
     assert_eq!(senaste.objekt, "1930");
     assert_eq!(senaste.aktör, anna);
+    assert_eq!(senaste.användarnamn.as_deref(), Some("anna@example.se"));
     assert_eq!(senaste.tid, NU.parse().unwrap());
     assert_eq!(
         senaste.beskrivning,

@@ -38,6 +38,8 @@ impl Händelse {
 pub struct Post {
     pub tid: Timestamp,
     pub aktör: Aktör,
+    /// Användarens visningsnamn, när aktören är en användare.
+    pub användarnamn: Option<String>,
     /// Händelsens typ, t.ex. `företag skapat`.
     pub typ: String,
     /// Det händelsen rör, t.ex. ett organisationsnummer eller ett kontonummer.
@@ -83,8 +85,9 @@ pub async fn läs(
     let mut tx = db.pool().begin().await?;
     atkomst::kräv(&mut tx, aktör, företag, Handling::LäsaFöretag).await?;
     let rader = sqlx::query_as(
-        "SELECT tid, kanal, anvandare_id, typ, objekt, beskrivning
-         FROM behandlingshistorik WHERE foretag_id = ? ORDER BY id",
+        "SELECT h.tid, h.kanal, h.anvandare_id, u.visningsnamn, h.typ, h.objekt, h.beskrivning
+         FROM behandlingshistorik h LEFT JOIN anvandare u ON u.id = h.anvandare_id
+         WHERE h.foretag_id = ? ORDER BY h.id",
     )
     .bind(företag.0)
     .fetch_all(&mut *tx)
@@ -100,8 +103,9 @@ pub(crate) async fn läs_konto(
     nummer: u16,
 ) -> Result<Vec<Post>, DatabasFel> {
     let rader = sqlx::query_as(
-        "SELECT h.tid, h.kanal, h.anvandare_id, h.typ, h.objekt, h.beskrivning
+        "SELECT h.tid, h.kanal, h.anvandare_id, u.visningsnamn, h.typ, h.objekt, h.beskrivning
          FROM behandlingshistorik h
+         LEFT JOIN anvandare u ON u.id = h.anvandare_id
          JOIN konto k ON k.foretag_id = h.foretag_id AND k.nummer = ?2
          WHERE h.foretag_id = ?1
            AND ((h.typ LIKE 'konto %' AND h.objekt = CAST(?2 AS TEXT))
@@ -117,23 +121,35 @@ pub(crate) async fn läs_konto(
     poster(rader)
 }
 
-type Rad = (String, String, Option<i64>, String, String, String);
+type Rad = (
+    String,
+    String,
+    Option<i64>,
+    Option<String>,
+    String,
+    String,
+    String,
+);
 
 fn poster(rader: Vec<Rad>) -> Result<Vec<Post>, DatabasFel> {
     let fel = |vad: &str| DatabasFel::Korrupt(format!("behandlingshistoriken: {vad}"));
     rader
         .into_iter()
-        .map(|(tid, kanal, användare, typ, objekt, beskrivning)| {
-            Ok(Post {
-                tid: tid.parse().map_err(|_| fel("tid"))?,
-                aktör: Aktör {
-                    kanal: Kanal::från_namn(&kanal).ok_or_else(|| fel("kanal"))?,
-                    användare: användare.map(AnvändarId),
-                },
-                typ,
-                objekt,
-                beskrivning: serde_json::from_str(&beskrivning).map_err(|_| fel("beskrivning"))?,
-            })
-        })
+        .map(
+            |(tid, kanal, användare, användarnamn, typ, objekt, beskrivning)| {
+                Ok(Post {
+                    tid: tid.parse().map_err(|_| fel("tid"))?,
+                    aktör: Aktör {
+                        kanal: Kanal::från_namn(&kanal).ok_or_else(|| fel("kanal"))?,
+                        användare: användare.map(AnvändarId),
+                    },
+                    användarnamn,
+                    typ,
+                    objekt,
+                    beskrivning: serde_json::from_str(&beskrivning)
+                        .map_err(|_| fel("beskrivning"))?,
+                })
+            },
+        )
         .collect()
 }
