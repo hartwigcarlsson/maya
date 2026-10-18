@@ -453,3 +453,61 @@ async fn huvudboken_för_ett_år_med_preliminär_ingående_balans() {
         ]
     );
 }
+
+/// En förväntad fil i `tests/fixtures`, skriven för hand.
+fn förväntad(namn: &str) -> String {
+    std::fs::read_to_string(format!(
+        "{}/tests/fixtures/{namn}",
+        env!("CARGO_MANIFEST_DIR")
+    ))
+    .unwrap()
+}
+
+#[tokio::test]
+async fn grundboken_som_csv_har_en_rad_per_verifikatrad() {
+    let db = Databas::tillfällig().await;
+    let (anna, id) = exempel(&db).await;
+
+    let csv = bokforing::grundbok_csv(&db, &anna, id, &hela_året())
+        .await
+        .unwrap();
+
+    assert_eq!(csv.filnamn, "grundbok_5560360793_2026_202612.csv");
+    assert_eq!(
+        String::from_utf8(csv.innehåll).unwrap(),
+        förväntad("grundbok_5560360793_2026_202612.csv")
+    );
+}
+
+#[tokio::test]
+async fn huvudboken_som_csv_har_balanserna_och_en_rad_per_verifikatrad() {
+    let db = Databas::tillfällig().await;
+    let (anna, id) = exempel(&db).await;
+
+    let csv = bokforing::huvudbok_csv(&db, &anna, id, &hela_året(), &Kontourval::alla())
+        .await
+        .unwrap();
+
+    assert_eq!(csv.filnamn, "huvudbok_5560360793_2026_202612.csv");
+    assert_eq!(
+        String::from_utf8(csv.innehåll).unwrap(),
+        förväntad("huvudbok_5560360793_2026_202612.csv")
+    );
+}
+
+#[tokio::test]
+async fn filnamnet_har_urvalets_sista_period() {
+    let db = Databas::tillfällig().await;
+    let (anna, id) = exempel(&db).await;
+    let t_o_m_april = Periodurval {
+        år: ÅR_2026,
+        från: None,
+        till: Some(date(2026, 4, 1)),
+    };
+
+    let csv = bokforing::grundbok_csv(&db, &anna, id, &t_o_m_april)
+        .await
+        .unwrap();
+
+    assert_eq!(csv.filnamn, "grundbok_5560360793_2026_202604.csv");
+}

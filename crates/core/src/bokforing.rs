@@ -372,6 +372,207 @@ async fn bokförda(
     Ok(poster)
 }
 
+/// En exporterad fil med namnet att spara den under.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Fil {
+    pub filnamn: String,
+    pub innehåll: Vec<u8>,
+}
+
+/// Grundboken som CSV: en rad per verifikatrad, i grundbokens ordning.
+pub async fn grundbok_csv(
+    db: &Databas,
+    aktör: &Aktör,
+    företag: FöretagsId,
+    urval: &Periodurval,
+) -> Result<Fil, RapportFel> {
+    let g = grundbok(db, aktör, företag, urval).await?;
+    let mut csv = Csv::new(&[
+        "Period",
+        "Bokförd",
+        "Bokförd av",
+        "Verifikat",
+        "Verifikatdatum",
+        "Beskrivning",
+        "Konto",
+        "Kontonamn",
+        "Text",
+        "Debet",
+        "Kredit",
+    ]);
+    for p in &g.perioder {
+        let period = p.period.start.strftime("%Y-%m").to_string();
+        for v in &p.verifikat {
+            for r in &v.rader {
+                csv.rad([
+                    period.clone(),
+                    tid(v.bokförd.tid),
+                    v.bokförd.namn.clone(),
+                    v.nummer.to_string(),
+                    v.datum.to_string(),
+                    v.beskrivning.clone(),
+                    r.konto.to_string(),
+                    r.kontonamn.clone(),
+                    r.text.clone().unwrap_or_default(),
+                    belopp(r.debet),
+                    belopp(r.kredit),
+                ]);
+            }
+        }
+    }
+    Ok(Fil {
+        filnamn: filnamn(
+            db,
+            företag,
+            "grundbok",
+            g.år,
+            &g.perioder.iter().map(|p| p.period).collect::<Vec<_>>(),
+            "csv",
+        )
+        .await?,
+        innehåll: csv.innehåll(),
+    })
+}
+
+/// Huvudboken som CSV: per konto en rad med ingående balans, en rad per verifikatrad med
+/// löpande saldo och en rad med utgående balans.
+pub async fn huvudbok_csv(
+    db: &Databas,
+    aktör: &Aktör,
+    företag: FöretagsId,
+    urval: &Periodurval,
+    konton: &Kontourval,
+) -> Result<Fil, RapportFel> {
+    let h = huvudbok(db, aktör, företag, urval, konton).await?;
+    let mut csv = Csv::new(&[
+        "Konto",
+        "Kontonamn",
+        "Bokförd",
+        "Verifikat",
+        "Verifikatdatum",
+        "Text",
+        "Debet",
+        "Kredit",
+        "Saldo",
+    ]);
+    let ingående = match h.status {
+        Status::Inskriven => "Ingående balans",
+        Status::Preliminär => "Ingående balans (preliminär)",
+    };
+    for k in &h.konton {
+        let balans = |text: &str, saldo: Saldo| {
+            [
+                k.konto.to_string(),
+                k.namn.clone(),
+                String::new(),
+                String::new(),
+                String::new(),
+                text.to_string(),
+                String::new(),
+                String::new(),
+                saldo_text(saldo),
+            ]
+        };
+        csv.rad(balans(ingående, k.ingående));
+        for t in &k.transaktioner {
+            csv.rad([
+                k.konto.to_string(),
+                k.namn.clone(),
+                tid(t.bokförd.tid),
+                t.nummer.to_string(),
+                t.datum.to_string(),
+                t.text.clone(),
+                belopp(t.debet),
+                belopp(t.kredit),
+                saldo_text(t.saldo),
+            ]);
+        }
+        csv.rad(balans("Utgående balans", k.utgående));
+    }
+    Ok(Fil {
+        filnamn: filnamn(db, företag, "huvudbok", h.år, &h.perioder, "csv").await?,
+        innehåll: csv.innehåll(),
+    })
+}
+
+/// `<rapport>_<orgnr>_<år>_<ÅÅÅÅMM>.<ändelse>`, med räkenskapsårets startår och urvalets
+/// sista period.
+pub(crate) async fn filnamn(
+    db: &Databas,
+    företag: FöretagsId,
+    rapport: &str,
+    år: Räkenskapsår,
+    perioder: &[Period],
+    ändelse: &str,
+) -> Result<String, DatabasFel> {
+    let orgnr: String = sqlx::query_scalar("SELECT orgnr FROM foretag WHERE id = ?")
+        .bind(företag.0)
+        .fetch_one(db.pool())
+        .await?;
+    let sista = perioder.last().map_or(år.slut(), |p| p.start);
+    Ok(format!(
+        "{rapport}_{orgnr}_{}_{}.{ändelse}",
+        år.start().strftime("%Y"),
+        sista.strftime("%Y%m"),
+    ))
+}
+
+/// CSV för svenska kalkylark: UTF-8 med BOM, semikolon och decimalkomma. Fält med semikolon,
+/// citattecken eller radbrytning citeras.
+struct Csv(String);
+
+impl Csv {
+    fn new(rubriker: &[&str]) -> Self {
+        let mut csv = Csv("\u{feff}".into());
+        csv.rad(rubriker.iter().map(|r| r.to_string()));
+        csv
+    }
+
+    fn rad(&mut self, fält: impl IntoIterator<Item = String>) {
+        for (i, f) in fält.into_iter().enumerate() {
+            if i > 0 {
+                self.0.push(';');
+            }
+            if f.contains([';', '"', '\n', '\r']) {
+                self.0.push('"');
+                self.0.push_str(&f.replace('"', "\"\""));
+                self.0.push('"');
+            } else {
+                self.0.push_str(&f);
+            }
+        }
+        self.0.push('\n');
+    }
+
+    fn innehåll(self) -> Vec<u8> {
+        self.0.into_bytes()
+    }
+}
+
+/// Tid i Stockholm till sekunden.
+fn tid(t: Timestamp) -> String {
+    t.to_zoned(maya_domain::tid::stockholm())
+        .strftime("%Y-%m-%d %H:%M:%S")
+        .to_string()
+}
+
+/// Kronor med decimalkomma och utan tusentalsavgränsare; tomt för noll.
+fn belopp(b: Belopp) -> String {
+    if b == Belopp::NOLL {
+        String::new()
+    } else {
+        saldo_text(Saldo::från_öre(b.öre()))
+    }
+}
+
+/// Kronor med decimalkomma, utan tusentalsavgränsare och med minus för kredit.
+fn saldo_text(s: Saldo) -> String {
+    let öre = s.öre();
+    let tecken = if öre < 0 { "-" } else { "" };
+    let öre = öre.unsigned_abs();
+    format!("{tecken}{},{:02}", öre / 100, öre % 100)
+}
+
 fn kontonummer(nummer: i64) -> Result<Kontonummer, DatabasFel> {
     u16::try_from(nummer)
         .ok()
