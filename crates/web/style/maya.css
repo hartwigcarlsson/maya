@@ -2303,6 +2303,18 @@ kbd {
   padding: 6px 8px;
 }
 
+/* Kundregister (#133): formuläret i detaljspalten och adressens rader. Textrutorna följer
+   .formular textarea ovan. */
+
+.kundregister .formular {
+  max-width: 28rem;
+  margin: 0;
+}
+
+.kundregister .adressrad {
+  display: block;
+}
+
 /* Leverantörsfakturor (#145): originalet till vänster, formuläret till höger, det streckade
    kortet för en ny leverantör och rutan "Bokförs som". */
 .ny-meny {

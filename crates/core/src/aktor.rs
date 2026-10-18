@@ -130,6 +130,8 @@ pub enum Handling {
     SkickaLarm,
     /// Skapa, ändra, arkivera och radera leverantörer i leverantörsregistret (#144).
     HanteraLeverantörer,
+    /// Skapa, ändra, arkivera och radera en kund i kundregistret. Bara webben (#133).
+    HanteraKunder,
     /// Spara, ändra och radera ett fakturautkast (#145). MCP läggs till i etapp 6.
     HanteraFakturautkast,
     /// Registrera en leverantörsfaktura och bokföra den (#145). Bara webben.
@@ -157,6 +159,7 @@ pub fn tillåter(kanal: Kanal, handling: Handling) -> bool {
         | Handling::ExporteraSie4
         | Handling::KvitteraÅterställning
         | Handling::HanteraLeverantörer
+        | Handling::HanteraKunder
         | Handling::HanteraFakturautkast
         | Handling::RegistreraFaktura => kanal == Kanal::Webb,
     }

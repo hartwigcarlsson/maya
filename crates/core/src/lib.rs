@@ -20,6 +20,7 @@ pub mod installationslogg;
 mod klocka;
 pub mod kontoplan;
 pub mod kontrollsumma;
+pub mod kund;
 pub mod leverantor;
 pub mod leverantorsfaktura;
 pub mod rapport;

@@ -14,6 +14,7 @@ pub mod foretag;
 pub mod ingaende_balans;
 pub mod kontoplan;
 pub mod kontourval;
+pub mod kund;
 pub mod leverantor;
 pub mod leverantorsfaktura;
 pub mod luhn;

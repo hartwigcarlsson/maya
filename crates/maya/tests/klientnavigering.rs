@@ -274,6 +274,31 @@ fn menylankarna_navigerar_pa_klienten_och_sidorna_visar_sina_data() {
         .value;
     assert_eq!(samma_sida, Some(true.into()), "en länk laddade om sidan");
     assert_eq!(fel(&tab), Vec::<String>::new());
+
+    // #133 Kundregistret. Kundfakturor (#135) får länken hit; tills dess laddas sidan direkt,
+    // och listan, detaljen och formulären nås med klick i routern.
+    posta(
+        &tab,
+        &format!("/foretag/{id}/kunder"),
+        "namn=Kund+AB&identitet=5560360793&adress=Storgatan+1&epost=faktura%40kund.se\
+         &momsregnr=&betalningsvillkor=30&omvand_skattskyldighet=bygg",
+    );
+    tab.navigate_to(&format!("{bas}/foretag/{id}/kunder"))
+        .unwrap();
+    vänta_på_hydreringen(&tab);
+    tab.evaluate("window.__samma_sida = true", false).unwrap();
+    klicka(&tab, ".verifikatlista a[href*='/kunder?k=']");
+    vänta_på_text(&tab, "Bygg inom Sverige");
+    klicka(&tab, "a[href*='andra=1']");
+    vänta_på_text(&tab, "Ändra kunden");
+    klicka(&tab, "a[href$='/kunder/ny']");
+    vänta_på_text(&tab, "Lägg upp kunden");
+    let samma_sida = tab
+        .evaluate("window.__samma_sida === true", false)
+        .unwrap()
+        .value;
+    assert_eq!(samma_sida, Some(true.into()), "en länk laddade om sidan");
+    assert_eq!(fel(&tab), Vec::<String>::new());
 }
 
 /// Postar ett formulär från sidan (samma origin, sessionscookien följer med) och ger adressen
