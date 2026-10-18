@@ -551,11 +551,6 @@ pub fn AttGöra() -> impl IntoView {
 }
 
 #[component]
-pub fn Verifikat() -> impl IntoView {
-    view! { <Företagssida rubrik="Verifikat" tom="Inga verifikat ännu." /> }
-}
-
-#[component]
 pub fn Rapporter() -> impl IntoView {
     view! { <Företagssida rubrik="Rapporter" tom="Rapporterna kommer snart." /> }
 }

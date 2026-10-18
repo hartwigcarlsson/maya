@@ -19,6 +19,8 @@ pub enum Händelse {
     KontoAktiverat,
     KontoInaktiverat,
     BasTillägg,
+    RäkenskapsårSkapat,
+    VerifikatBokfört,
 }
 
 impl Händelse {
@@ -30,6 +32,8 @@ impl Händelse {
             Händelse::KontoAktiverat => "konto aktiverat",
             Händelse::KontoInaktiverat => "konto inaktiverat",
             Händelse::BasTillägg => "BAS-tillägg",
+            Händelse::RäkenskapsårSkapat => "räkenskapsår skapat",
+            Händelse::VerifikatBokfört => "verifikat bokfört",
         }
     }
 }
@@ -116,6 +120,24 @@ pub(crate) async fn läs_konto(
     )
     .bind(företag.0)
     .bind(nummer)
+    .fetch_all(conn)
+    .await?;
+    poster(rader)
+}
+
+/// Posterna som rör ett verifikat, i ordning: de vars beskrivning har `"verifikat": id`.
+pub(crate) async fn läs_om_verifikat(
+    conn: &mut SqliteConnection,
+    företag: FöretagsId,
+    verifikat: i64,
+) -> Result<Vec<Post>, DatabasFel> {
+    let rader = sqlx::query_as(
+        "SELECT h.tid, h.kanal, h.anvandare_id, u.visningsnamn, h.typ, h.objekt, h.beskrivning
+         FROM behandlingshistorik h LEFT JOIN anvandare u ON u.id = h.anvandare_id
+         WHERE h.foretag_id = ? AND h.beskrivning ->> '$.verifikat' = ? ORDER BY h.id",
+    )
+    .bind(företag.0)
+    .bind(verifikat)
     .fetch_all(conn)
     .await?;
     poster(rader)

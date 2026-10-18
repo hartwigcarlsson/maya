@@ -89,14 +89,17 @@ pub enum Handling {
     /// Skapa egna konton, byta namn på och aktivera och inaktivera konton. Bara webben, aldrig
     /// AI (beslut i #82).
     ÄndraKontoplan,
+    /// Bokföra ett verifikat. MCP läggs till i etapp 6.
+    Bokföra,
 }
 
 /// Kanalpolicyn: om `kanal` får utföra `handling`.
 pub fn tillåter(kanal: Kanal, handling: Handling) -> bool {
     match handling {
         Handling::HanteraAnvändare => kanal == Kanal::Cli,
-        Handling::LäggaUppFöretag | Handling::LäsaFöretag | Handling::ÄndraKontoplan => {
-            kanal == Kanal::Webb
-        }
+        Handling::LäggaUppFöretag
+        | Handling::LäsaFöretag
+        | Handling::ÄndraKontoplan
+        | Handling::Bokföra => kanal == Kanal::Webb,
     }
 }
