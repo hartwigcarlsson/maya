@@ -9,9 +9,9 @@ use leptos_router::path;
 use serde::{Deserialize, Serialize};
 
 use crate::foretag::{
-    AttGöra, Företagslista, Inställningar, NyttFöretagSida, Rapporter, Toppmeny, Verifikat,
-    företagsval,
+    AttGöra, Företagslista, Inställningar, NyttFöretagSida, Rapporter, Toppmeny, företagsval,
 };
+use crate::verifikat::{NyttVerifikatSida, VerifikatSida};
 
 /// Vad sidan ska visa, avgjort på servern ur sessionscookien.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -115,7 +115,8 @@ fn Innehåll() -> impl IntoView {
                 <Route path=path!("registrera/:token") view=Registrera />
                 <Route path=path!("foretag/nytt") view=NyttFöretagSida />
                 <Route path=path!("foretag/:id") view=AttGöra />
-                <Route path=path!("foretag/:id/verifikat") view=Verifikat />
+                <Route path=path!("foretag/:id/verifikat") view=VerifikatSida />
+                <Route path=path!("foretag/:id/verifikat/nytt") view=NyttVerifikatSida />
                 <Route path=path!("foretag/:id/rapporter") view=Rapporter />
                 <Route path=path!("foretag/:id/installningar") view=Inställningar />
             </Routes>
