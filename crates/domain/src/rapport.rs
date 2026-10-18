@@ -594,7 +594,7 @@ fn skriv_csv_rad(ut: &mut String, fält: &[String]) {
         })
         .collect();
     ut.push_str(&rad.join(";"));
-    ut.push_str("\r\n");
+    ut.push('\n');
 }
 
 /// Kronor med decimalkomma och utan tusentalsavgränsare: `-1234,50`.

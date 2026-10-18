@@ -6,7 +6,9 @@ use maya_core::aktor::Aktör;
 use maya_core::foretag::FöretagsId;
 use maya_core::rapport::{self, Urval};
 use maya_core::{Databas, Klocka, TillfälligDatabas, saldo, testhjalp, verifikat};
+use maya_domain::belopp::Saldo;
 use maya_domain::ingaende_balans::{NyIngåendeBalans, NySaldorad};
+use maya_domain::kontoplan::Kontonummer;
 use maya_domain::rapport::{
     Nivå, Rad, Radslag, Rapport, Rapporttyp, Visning, ÅRETS_RESULTAT_EJ_BOKFÖRT,
 };
@@ -350,6 +352,97 @@ async fn visning_nivå_och_jämförelse_ändrar_urvalet() {
         konto(&andra, 3001).värden,
         vec![kr(2_000), kr(2_000), kr(0), kr(10_000)]
     );
+}
+
+#[tokio::test]
+async fn panelen_visar_kontots_verifikat_med_löpande_saldo() {
+    let (db, anna, företag) = två_år().await;
+    let år = date(2026, 1, 1);
+    let nr = |n: u16| Kontonummer::new(n).unwrap();
+
+    let br = urval(Rapporttyp::Balansräkning, date(2026, 3, 1));
+    let utdrag = rapport::kontoutdrag(&db, &anna, företag, år, nr(1930), &br)
+        .await
+        .unwrap();
+    assert_eq!(utdrag.kontonamn, "Företagskonto");
+    assert_eq!((utdrag.från, utdrag.till), (år, date(2026, 3, 31)));
+    assert_eq!(utdrag.ingående, Some(Saldo::från_öre(5_000_000)));
+    let rader: Vec<_> = utdrag
+        .rader
+        .iter()
+        .map(|r| {
+            (
+                r.nummer.to_string(),
+                r.datum.to_string(),
+                r.debet.öre(),
+                r.kredit.öre(),
+                r.saldo.öre(),
+            )
+        })
+        .collect();
+    // Utkastet den 25 mars räknas inte.
+    assert_eq!(
+        rader,
+        [
+            ("V1".into(), "2026-01-10".into(), 1_000_000, 0, 6_000_000),
+            ("V3".into(), "2026-03-20".into(), 0, 300_000, 5_700_000),
+        ]
+    );
+    assert_eq!(utdrag.utgående, Saldo::från_öre(5_700_000));
+    let v1 = verifikat::lista(&db, &anna, företag, verifikat::Urval::Bokförda)
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|v| v.datum == Some(date(2026, 1, 10)))
+        .unwrap();
+    assert_eq!(utdrag.rader[0].verifikat, v1.id);
+
+    // Resultaträkningen som bara visar månaden: bara månadens verifikat, utan ingående balans.
+    let mars = Urval {
+        visning: Visning::Månad,
+        ..urval(Rapporttyp::Resultaträkning, date(2026, 3, 1))
+    };
+    let utdrag = rapport::kontoutdrag(&db, &anna, företag, år, nr(3001), &mars)
+        .await
+        .unwrap();
+    assert_eq!(utdrag.ingående, None);
+    assert_eq!(utdrag.rader.len(), 1);
+    assert_eq!(utdrag.rader[0].nummer.to_string(), "V2");
+    assert_eq!(utdrag.utgående, Saldo::från_öre(-500_000));
+}
+
+#[tokio::test]
+async fn csv_exporten_har_en_rad_per_konto_med_kolumnerna_som_visas() {
+    let (db, anna, företag) = två_år().await;
+    let år = date(2026, 1, 1);
+
+    for (typ, förväntad) in [
+        (
+            Rapporttyp::Resultaträkning,
+            include_str!("fixtures/rapport/resultatrakning_5560360793_2026_202603.csv"),
+        ),
+        (
+            Rapporttyp::Balansräkning,
+            include_str!("fixtures/rapport/balansrakning_5560360793_2026_202603.csv"),
+        ),
+    ] {
+        // Nivån påverkar inte exporten: den har alltid en rad per konto.
+        let urval = Urval {
+            nivå: Nivå::Rubriker,
+            ..urval(typ, date(2026, 3, 1))
+        };
+        let csv = rapport::csv(&db, &anna, företag, år, &urval).await.unwrap();
+
+        assert_eq!(
+            csv.filnamn,
+            format!("{}_5560360793_2026_202603.csv", typ.kod())
+        );
+        let utan_bom = csv
+            .innehåll
+            .strip_prefix('\u{feff}')
+            .expect("UTF-8 med BOM");
+        assert_eq!(utan_bom, förväntad);
+    }
 }
 
 #[tokio::test]
