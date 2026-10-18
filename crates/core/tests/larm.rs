@@ -181,7 +181,6 @@ fn konfiguration(extra: &[(&str, &str)]) -> Config {
         [
             ("MAYA_PUBLIC_URL", "https://bokforing.example.se"),
             ("MAYA_BACKUP_DIR", "/backup"),
-            ("MAYA_ARKIVPLAN_PLATS", "Stockholm, Sverige"),
         ]
         .iter()
         .chain(extra)

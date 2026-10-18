@@ -116,7 +116,7 @@ fn sida(bas: &str) -> String {
 }
 
 #[tokio::test]
-async fn sidan_visar_avsnitten_versionen_och_arkivplanens_varning() {
+async fn sidan_visar_avsnitten_versionen_och_förvaringen_i_sverige() {
     let db = Databas::tillfällig().await;
     let (session, bas) = företag(&db).await;
 
@@ -140,8 +140,7 @@ async fn sidan_visar_avsnitten_versionen_och_arkivplanens_varning() {
         "<strong>Rättelse</strong>",
         "Första versionen av behandlingsreglerna.",
         "ej angivet",
-        r#"class="varning""#,
-        "MAYA_ARKIVPLAN_PLATS",
+        "förvaras i Sverige",
         // Skriv ut och Exportera ger samma PDF.
         r#"class="skriv-ut""#,
         &format!(r#"href="{}/pdf""#, sida(&bas)),

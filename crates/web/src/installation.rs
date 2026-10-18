@@ -89,7 +89,6 @@ mod server {
             senaste_lyckade_backup: körning(i.backup.senaste_lyckade_backup, "lyckades"),
             senaste_verifiering: körning(i.backup.senaste_verifiering, "verifierad"),
             arkivplan: vec![
-                fritext("Plats och land", &i.arkivplan.plats),
                 fritext("Offsite", &i.arkivplan.offsite),
                 fritext("Krypteringsnyckel", &i.arkivplan.nyckel),
                 fritext("Ansvarig för driften", &i.arkivplan.ansvarig),

@@ -54,23 +54,22 @@ async fn session(db: &Databas, anna: &Aktör) -> String {
 async fn driftvarningarna_visas_överst_i_att_göra_bara_när_något_är_fel() {
     let db = Databas::tillfällig().await;
     let (anna, företag) = testhjalp::företag(&db).await;
-    testhjalp::backup(&db, &Klocka::system()).await;
     let session = session(&db, &anna).await;
     let bas = format!("/foretag/{företag}");
 
+    // Ingen backup har lyckats än.
     let sida = hämta(&db, config(&[]), &session, &bas).await;
-    assert!(sida.contains("Arkivplanen saknar land"), "{sida}");
-    assert!(sida.contains("MAYA_ARKIVPLAN_PLATS"), "{sida}");
+    assert!(sida.contains("Ingen backup har lyckats än"), "{sida}");
     assert_eq!(sida.matches(r#"class="driftvarning""#).count(), 1);
     assert!(sida.contains(r#"<span class="antal">1</span>"#), "{sida}");
     // Före nyckeltalen.
     assert!(
-        sida.find("Arkivplanen saknar land").unwrap() < sida.find("Företagskontot").unwrap(),
+        sida.find("Ingen backup har lyckats än").unwrap() < sida.find("Företagskontot").unwrap(),
         "{sida}"
     );
 
-    let hel = config(&[("MAYA_ARKIVPLAN_PLATS", "Stockholm, Sverige")]);
-    let sida = hämta(&db, hel, &session, &bas).await;
+    testhjalp::backup(&db, &Klocka::system()).await;
+    let sida = hämta(&db, config(&[]), &session, &bas).await;
     assert_eq!(sida.matches(r#"class="driftvarning""#).count(), 0);
     assert!(!sida.contains(r#"<span class="antal">"#), "{sida}");
 }
@@ -104,9 +103,9 @@ async fn sidan_installation_visar_version_publik_url_backupstatus_och_arkivplane
     );
     assert!(sida.contains("Anna Andersson"), "{sida}");
     assert!(sida.contains("drift@example.se"), "{sida}");
-    // Plats och land saknas.
+    // Krypteringsnyckeln saknas. Plats och land frågas inte efter: Maya förutsätter Sverige.
     assert!(sida.contains("ej angivet"), "{sida}");
-    assert!(sida.contains("Arkivplanen saknar land"), "{sida}");
+    assert!(!sida.contains("Plats och land"), "{sida}");
     // Användarmenyn länkar hit.
     assert!(sida.contains(r#"href="/installation""#), "{sida}");
 }

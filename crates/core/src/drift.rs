@@ -25,8 +25,6 @@ pub enum Driftvarning {
     },
     /// Backupmålet ligger på samma enhet som databasen eller finns inte.
     Backupmål(String),
-    /// Arkivplanen saknar fysisk plats och land (`MAYA_ARKIVPLAN_PLATS`).
-    ArkivplanUtanLand,
 }
 
 impl Driftvarning {
@@ -38,7 +36,6 @@ impl Driftvarning {
                 "Verifieringen av backupen misslyckades"
             }
             Driftvarning::Backupmål(_) => "Backupen är inte åtskild från databasen",
-            Driftvarning::ArkivplanUtanLand => "Arkivplanen saknar land",
         }
     }
 
@@ -68,10 +65,6 @@ impl Driftvarning {
                 )
             }
             Driftvarning::Backupmål(text) => text.clone(),
-            Driftvarning::ArkivplanUtanLand => "Ange var servern står, med land, i \
-                 MAYA_ARKIVPLAN_PLATS. Bokföringen ska förvaras i Sverige, och förvaring i ett \
-                 annat land kräver en anmälan eller ett tillstånd (BFL 7:3 a)."
-                .into(),
         }
     }
 }
@@ -102,9 +95,6 @@ pub async fn driftvarningar(
             .into_iter()
             .map(Driftvarning::Backupmål),
     );
-    if config.arkivplan.plats.is_none() {
-        varningar.push(Driftvarning::ArkivplanUtanLand);
-    }
     Ok(varningar)
 }
 

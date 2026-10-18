@@ -168,8 +168,7 @@ pub async fn logga_återställning(db: &Databas, klocka: &Klocka, backup_tid: ji
     .expect("återställningen loggas");
 }
 
-/// En konfiguration utan driftvarningar: S3-mål (aldrig samma enhet som databasen) och en
-/// arkivplan med land. Inget SMTP.
+/// En konfiguration utan driftvarningar: S3-mål (aldrig samma enhet som databasen). Inget SMTP.
 pub fn config() -> crate::config::Config {
     crate::config::Config::from_env(
         [
@@ -178,7 +177,6 @@ pub fn config() -> crate::config::Config {
             ("MAYA_BACKUP_S3_BUCKET", "maya"),
             ("MAYA_BACKUP_S3_ACCESS_KEY_ID", "maya-backup"),
             ("MAYA_BACKUP_S3_SECRET_ACCESS_KEY", "hemlig"),
-            ("MAYA_ARKIVPLAN_PLATS", "Serverhall i Stockholm, Sverige"),
         ]
         .map(|(k, v)| (k.to_string(), v.to_string())),
     )

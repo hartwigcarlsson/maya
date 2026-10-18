@@ -39,9 +39,9 @@ Direkt efter varje backup läser Maya tillbaka den ur målet och verifierar den:
 - **Katalog** (`MAYA_BACKUP_DIR`, i containern `/backup`): lägg den på en annan disk än databasen. Maya varnar vid start om katalogen ligger på samma enhet som databasen, eftersom kopian då inte är åtskild från originalet.
 - **S3-kompatibel lagring** (`MAYA_BACKUP_S3_ENDPOINT`, `_BUCKET`, `_REGION`, `_ACCESS_KEY_ID`, `_SECRET_ACCESS_KEY` eller `_SECRET_ACCESS_KEY_FILE`): Maya använder path-style-adresser (`<endpoint>/<bucket>/<fil>`), så det fungerar med AWS S3, MinIO, Garage och liknande. Bucketen måste finnas; nyckeln behöver rätt att lista, läsa, skriva och radera i den.
 
-Lagra backupen i Sverige. Förvaring i ett annat EU-land kräver en anmälan till Skatteverket och utanför EU ett tillstånd (BFL 7:3 a). Maya krypterar inte backupen; om målet är krypterat ska nyckeln bevaras som räkenskapsinformation och anges i arkivplanen (`MAYA_ARKIVPLAN_NYCKEL`), så att kopian kan läsas under hela bevarandetiden.
+Maya förutsätter att databasen och alla backuper, även en kopia som flyttas offsite, förvaras i Sverige (BFL 7:2). Den som driftar servern ansvarar för det; Maya kontrollerar inte var servern eller backupmålet står. Förvaring i ett annat land kräver en anmälan till Skatteverket eller ett tillstånd (BFL 7:3 a) och stöds inte i Maya 0.1. Maya krypterar inte backupen; om målet är krypterat ska nyckeln bevaras som räkenskapsinformation och anges i arkivplanen (`MAYA_ARKIVPLAN_NYCKEL`), så att kopian kan läsas under hela bevarandetiden.
 
-Går något fel visas en driftvarning överst i Att göra för alla användare, i alla företag, tills det är löst: backupen är äldre än 36 timmar, verifieringen misslyckades, backupkatalogen ligger på samma enhet som databasen (eller saknas) eller arkivplanen saknar land. Sidan Installation i användarmenyn visar version, publik URL, senaste backup och verifiering och arkivplanen. Med `MAYA_SMTP_HOST` och `MAYA_DRIFT_EPOST` mejlar Maya driften när backupen eller verifieringen misslyckas eller backupen är äldre än 36 timmar: högst ett mejl per dygn och fel, och ett när felet är löst. Maya ser efter fel var tionde minut.
+Går något fel visas en driftvarning överst i Att göra för alla användare, i alla företag, tills det är löst: backupen är äldre än 36 timmar, verifieringen misslyckades, backupkatalogen ligger på samma enhet som databasen (eller saknas). Sidan Installation i användarmenyn visar version, publik URL, senaste backup och verifiering och arkivplanen. Med `MAYA_SMTP_HOST` och `MAYA_DRIFT_EPOST` mejlar Maya driften när backupen eller verifieringen misslyckas eller backupen är äldre än 36 timmar: högst ett mejl per dygn och fel, och ett när felet är löst. Maya ser efter fel var tionde minut.
 
 Provåterställ en gång per år: `docker compose exec maya maya backup verify` verifierar den senaste backupen (eller `maya backup verify <namn>` en viss), skriver resultatet på svenska och loggar körningen i installationsloggen.
 
@@ -78,7 +78,7 @@ All konfiguration läses ur miljön och `.env`. Se `.env.example` för alla vari
 | `MAYA_LISTEN`, `MAYA_DATA_DIR` | `0.0.0.0:8080` och `/data` i imagen. |
 | `MAYA_BACKUP_TIME` | Den nattliga backupen, som standard 03:00 i `Europe/Stockholm`. |
 | `MAYA_SMTP_…`, `MAYA_DRIFT_EPOST` | Valfria, för larm till driften. Port 465 ger TLS direkt, annars STARTTLS när servern erbjuder det; ett lösenord skickas aldrig okrypterat till en annan värd. |
-| `MAYA_ARKIVPLAN_…` | Arkivplanens fritext: plats och land (`PLATS`), offsite, nyckel, ansvarig. Utan `MAYA_ARKIVPLAN_PLATS` visar Att göra en driftvarning. |
+| `MAYA_ARKIVPLAN_…` | Arkivplanens fritext: offsite, nyckel, ansvarig. Plats och land frågas inte efter: Maya förutsätter att allt förvaras i Sverige. |
 
 En hemlighet (`MAYA_SMTP_PASSWORD`, `MAYA_BACKUP_S3_SECRET_ACCESS_KEY`) kan i stället anges som en fil med `_FILE`-varianten, till exempel en Docker secret: `MAYA_SMTP_PASSWORD_FILE=/run/secrets/smtp`.
 

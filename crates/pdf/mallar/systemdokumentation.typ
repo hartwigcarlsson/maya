@@ -40,8 +40,6 @@
         r.celler.map(tx)
       }).flatten(),
     )
-  } else if b.typ == "varning" {
-    block(stroke: 0.8pt + black, inset: 6pt, width: 100%)[*Varning:* #tx(b.text)]
   } else if b.typ == "lank" {
     block(above: 0.4em, below: 0.4em, text(size: 8.5pt)[→ #b.text: #text(font: mono)[#b.href]])
   }
