@@ -44,7 +44,7 @@ pub enum Händelse {
 impl Händelse {
     /// Alla typer som har en kodväg. En ny typ läggs till här också, så att testet som kör
     /// varje typ genom `core` måste få en kodväg för den.
-    pub const ALLA: [Händelse; 19] = [
+    pub const ALLA: [Händelse; 22] = [
         Händelse::FöretagSkapat,
         Händelse::FöretagÄndrat,
         Händelse::KontoSkapat,
@@ -59,6 +59,9 @@ impl Händelse {
         Händelse::VerifikatBokfört,
         Händelse::UtkastRaderat,
         Händelse::IngåendeBalansÄndrad,
+        Händelse::UnderlagUppladdat,
+        Händelse::UnderlagBorttaget,
+        Händelse::VerifikatKompletterat,
         Händelse::ÅtkomstGiven,
         Händelse::ÅtkomstTagen,
         Händelse::InbjudanSkapad,
@@ -398,6 +401,21 @@ impl Post {
                 f("datum"),
                 s(&b["antal_rader"])
             ),
+            "underlag uppladdat" => format!(
+                "”{}” uppladdat, {}, {} byte",
+                f("filnamn"),
+                f("mime"),
+                s(&b["storlek"])
+            ),
+            "underlag borttaget" => format!(
+                "”{}” borttaget, {}, {} byte",
+                f("filnamn"),
+                f("mime"),
+                s(&b["storlek"])
+            ),
+            "verifikat kompletterat" => {
+                format!("Kompletterat med underlaget ”{}”", f("filnamn"))
+            }
             "åtkomst given" => format!("Åtkomst till företaget för {}", f("epost")),
             "åtkomst tagen" => format!("Åtkomsten till företaget borttagen för {}", f("epost")),
             "inbjudan skapad" => {

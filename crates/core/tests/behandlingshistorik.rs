@@ -7,7 +7,8 @@ use maya_core::behandlingshistorik::{Aktörsval, Händelse, Urval};
 use maya_core::foretag::{self, FöretagsId};
 use maya_core::inloggning::{self, NyPasskey};
 use maya_core::{
-    Databas, Klocka, behandlingshistorik, export, kontoplan, saldo, sie4, testhjalp, verifikat,
+    Databas, Klocka, behandlingshistorik, export, kontoplan, saldo, sie4, testhjalp, underlag,
+    verifikat,
 };
 use maya_domain::foretag::{Byte, NyttFöretag, Uppgifter};
 use maya_domain::ingaende_balans::{NyIngåendeBalans, NySaldorad};
@@ -157,9 +158,10 @@ async fn alla_ändringar(db: &Databas, anna: &Aktör, id: FöretagsId, tid: &str
             },
         ]
     };
+    let mut bokförda = Vec::new();
     for (datum, belopp) in [("2026-03-14", "125"), ("2027-08-01", "1 234,50")] {
         // Det andra verifikatet är det första i nästa år och skapar året.
-        verifikat::bokför(
+        let bokfört = verifikat::bokför(
             db,
             &k,
             anna,
@@ -172,7 +174,18 @@ async fn alla_ändringar(db: &Databas, anna: &Aktör, id: FöretagsId, tid: &str
         )
         .await
         .unwrap();
+        bokförda.push(bokfört);
     }
+    let kvitto = underlag::ladda_upp(db, &k, anna, id, "kvitto.pdf", "", b"%PDF-1.7 kvitto")
+        .await
+        .unwrap();
+    underlag::komplettera(db, &k, anna, id, bokförda[0].id, kvitto.id)
+        .await
+        .unwrap();
+    let fel = underlag::ladda_upp(db, &k, anna, id, "fel.pdf", "", b"%PDF-1.7 fel")
+        .await
+        .unwrap();
+    underlag::ta_bort(db, &k, anna, id, fel.id).await.unwrap();
     let utkast = verifikat::spara_utkast(
         db,
         &k,
@@ -387,7 +400,7 @@ async fn filter_på_typ_aktör_och_tid_ger_rätt_urval() {
     let historik = behandlingshistorik::historik(&db, &anna, id, &Urval::default())
         .await
         .unwrap();
-    assert_eq!(historik.poster.len(), 21);
+    assert_eq!(historik.poster.len(), 25);
     let namn: Vec<&str> = historik.aktörer.iter().map(|(_, n)| n.as_str()).collect();
     assert_eq!(namn, ["anna@example.se", "bo@example.se", "Maya"]);
     assert_eq!(
@@ -414,7 +427,7 @@ async fn filter_på_typ_aktör_och_tid_ger_rätt_urval() {
         aktör: Some(Aktörsval::Användare(anna.användare.unwrap())),
         ..Urval::default()
     };
-    assert_eq!(typer(&db, &anna, id, anna_urval).await.len(), 18);
+    assert_eq!(typer(&db, &anna, id, anna_urval).await.len(), 22);
     let bo = Urval {
         aktör: Some(historik.aktörer[1].0),
         ..Urval::default()
@@ -443,7 +456,7 @@ async fn filter_på_typ_aktör_och_tid_ger_rätt_urval() {
         )
         .await
         .len(),
-        19
+        23
     );
     assert_eq!(
         typer(&db, &anna, id, tid(Some(date(2026, 4, 1)), None)).await,
