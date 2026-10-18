@@ -122,6 +122,8 @@ pub enum Handling {
     VerifieraBackup,
     /// Återställa hela installationen ur en backup med `maya restore`. Bara CLI:t.
     Återställa,
+    /// Kvittera varningen efter en återställning under Att göra.
+    KvitteraÅterställning,
 }
 
 /// Kanalpolicyn: om `kanal` får utföra `handling`.
@@ -141,6 +143,7 @@ pub fn tillåter(kanal: Kanal, handling: Handling) -> bool {
         | Handling::HanteraUnderlag
         | Handling::Komplettera
         | Handling::HanteraÅtkomst
-        | Handling::ExporteraSie4 => kanal == Kanal::Webb,
+        | Handling::ExporteraSie4
+        | Handling::KvitteraÅterställning => kanal == Kanal::Webb,
     }
 }

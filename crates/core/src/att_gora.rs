@@ -1,6 +1,7 @@
 //! Att göra, företagets startsida: dagens datum, nyckeltalen ur bokföringen och sakerna att
-//! göra. I etapp 1 är sakerna verifikatutkast och okopplade underlag; varje ny sort (t.ex.
-//! driftvarningar) läggs till som en variant i [`Sak`] och räknas i [`antal`].
+//! göra. I etapp 1 är sakerna varningen efter en återställning, verifikatutkast och okopplade
+//! underlag; varje ny sort (t.ex. driftvarningar) läggs till som en variant i [`Sak`] och räknas
+//! i [`antal`].
 //!
 //! Fristerna (T1) räknas i `maya_domain::att_gora`. De varnar men spärrar inte, och Maya bokför
 //! aldrig automatiskt.
@@ -15,7 +16,7 @@ use maya_domain::kontoplan::Kontonummer;
 use maya_domain::rakenskapsar::Räkenskapsår;
 use sqlx::SqliteConnection;
 
-use crate::aktor::{Aktör, Handling};
+use crate::aktor::{self, Aktör, Handling};
 use crate::atkomst::{self, ÅtkomstFel};
 use crate::foretag::{self, FöretagsId};
 use crate::inloggning::tidpunkt;
@@ -35,7 +36,8 @@ pub struct AttGöra {
     /// Dagens datum i Stockholm.
     pub idag: Date,
     pub nyckeltal: Nyckeltal,
-    /// Utkasten i id-ordning och de okopplade underlagen äldst först.
+    /// Återställningarna som användaren inte har kvitterat, sedan utkasten i id-ordning och de
+    /// okopplade underlagen äldst först.
     pub saker: Vec<Sak>,
 }
 
@@ -54,9 +56,40 @@ pub struct Nyckeltal {
 /// En sak att göra.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Sak {
+    /// Installationen har återställts ur en backup: det som registrerades efter backupen måste
+    /// registreras om. Visas överst för varje användare tills hen kvitterar.
+    Återställning(Återställningsvarning),
     Utkast(Utkastsak),
     /// Ett underlag utan koppling till något verifikat: "Vad är det här?".
     Underlag(Underlag),
+}
+
+/// Id för en återställning med `maya restore`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct ÅterställningsId(i64);
+
+/// Vem som helst kan skriva ett id; kvittensen gäller bara aktörens egen varning.
+impl std::str::FromStr for ÅterställningsId {
+    type Err = std::num::ParseIntError;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        s.parse().map(ÅterställningsId)
+    }
+}
+
+impl std::fmt::Display for ÅterställningsId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.0.fmt(f)
+    }
+}
+
+/// En återställning som användaren ännu inte har kvitterat.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Återställningsvarning {
+    pub id: ÅterställningsId,
+    /// När återställningen gjordes.
+    pub tid: Timestamp,
+    /// Backupens tidpunkt: det som registrerades efter den finns inte längre.
+    pub backup_tid: Timestamp,
 }
 
 /// Ett verifikatutkast som väntar på att bokföras.
@@ -98,11 +131,12 @@ pub async fn att_göra(
     let mut tx = db.pool().begin().await?;
     atkomst::kräv(&mut tx, aktör, företag, Handling::LäsaFöretag).await?;
     let nyckeltal = nyckeltal(&mut tx, företag, idag).await?;
-    let mut saker: Vec<Sak> = utkast(&mut tx, företag)
+    let mut saker: Vec<Sak> = återställningar(&mut tx, aktör)
         .await?
         .into_iter()
-        .map(Sak::Utkast)
+        .map(Sak::Återställning)
         .collect();
+    saker.extend(utkast(&mut tx, företag).await?.into_iter().map(Sak::Utkast));
     tx.commit().await?;
     let okopplade = underlag::lista(db, aktör, företag, underlag::Urval::Okopplade).await?;
     saker.extend(okopplade.into_iter().map(Sak::Underlag));
@@ -138,7 +172,68 @@ pub async fn antal(
             *a += usize::try_from(n).unwrap_or_default();
         }
     }
+    // Återställningsvarningen visas i alla användarens företag.
+    let mut conn = db.pool().acquire().await?;
+    let varningar = återställningar(&mut conn, aktör).await?.len();
+    for a in antal.values_mut() {
+        *a += varningar;
+    }
     Ok(antal)
+}
+
+/// Kvitterar varningen efter återställningen `id` för aktörens användare. Andra användares
+/// varningar ligger kvar. En redan kvitterad eller okänd varning ändrar inget.
+pub async fn kvittera_återställning(
+    db: &Databas,
+    klocka: &Klocka,
+    aktör: &Aktör,
+    id: ÅterställningsId,
+) -> Result<(), ÅtkomstFel> {
+    let Some(användare) = aktör.användare else {
+        return Err(ÅtkomstFel::KanalenFårInte);
+    };
+    if !aktor::tillåter(aktör.kanal, Handling::KvitteraÅterställning) {
+        return Err(ÅtkomstFel::KanalenFårInte);
+    }
+    sqlx::query(
+        "UPDATE aterstallningsvarning SET kvitterad = ?
+         WHERE aterstallning_id = ? AND anvandare_id = ? AND kvitterad IS NULL",
+    )
+    .bind(klocka.nu().to_string())
+    .bind(id.0)
+    .bind(användare.0)
+    .execute(db.pool())
+    .await?;
+    Ok(())
+}
+
+/// Återställningarna som aktörens användare inte har kvitterat, äldst först.
+async fn återställningar(
+    conn: &mut SqliteConnection,
+    aktör: &Aktör,
+) -> Result<Vec<Återställningsvarning>, DatabasFel> {
+    let Some(användare) = aktör.användare else {
+        return Ok(Vec::new());
+    };
+    let rader: Vec<(i64, String, String)> = sqlx::query_as(
+        "SELECT a.id, a.tid, a.backup_tid FROM aterstallning a
+         JOIN aterstallningsvarning v ON v.aterstallning_id = a.id
+         WHERE v.anvandare_id = ? AND v.kvitterad IS NULL
+         ORDER BY a.id",
+    )
+    .bind(användare.0)
+    .fetch_all(&mut *conn)
+    .await?;
+    rader
+        .into_iter()
+        .map(|(id, tid, backup_tid)| {
+            Ok(Återställningsvarning {
+                id: ÅterställningsId(id),
+                tid: tidpunkt(&tid)?,
+                backup_tid: tidpunkt(&backup_tid)?,
+            })
+        })
+        .collect()
 }
 
 async fn nyckeltal(

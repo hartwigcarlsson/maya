@@ -348,3 +348,37 @@ async fn vad_är_det_här_gör_kvitto_komplettering_eller_tar_bort() {
     assert!(!sida.contains("bilaga.pdf"), "{sida}");
     assert!(!sida.contains("Okopplade underlag"), "{sida}");
 }
+
+#[tokio::test]
+async fn varningen_efter_en_återställning_visas_överst_tills_den_kvitteras() {
+    let db = Databas::tillfällig().await;
+    let (session, bas) = företag(&db).await;
+    maya_core::testhjalp::logga_återställning(
+        &db,
+        &Klocka::system(),
+        "2026-10-14T01:00:00Z".parse().unwrap(),
+    )
+    .await;
+
+    let sida = hämta(&db, &session, &bas).await;
+    assert_eq!(antal(&sida, "class=\"aterstallning\""), 1, "{sida}");
+    // Överst, före rubriken med dagens datum.
+    assert!(
+        sida.find("class=\"aterstallning\"").unwrap()
+            < sida.find("<div class=\"ag-rubrik\"").unwrap(),
+        "{sida}"
+    );
+    assert!(sida.contains("ur backupen från 2026-10-14 03:00"), "{sida}");
+    assert!(sida.contains("måste registreras om"), "{sida}");
+    let action = format!("{bas}/att-gora/aterstallning/");
+    let start = sida.find(&action).expect("kvittensformuläret");
+    let väg = &sida[start..start + sida[start..].find('"').unwrap()];
+    assert!(väg.ends_with("/kvittera"), "{väg}");
+
+    let plats = posta(&db, &session, väg, "").await;
+    assert_eq!(plats, format!("{bas}?kvitterad=1"));
+
+    let sida = hämta(&db, &session, &plats).await;
+    assert_eq!(antal(&sida, "class=\"aterstallning\""), 0, "{sida}");
+    assert!(sida.contains("Varningen är kvitterad."), "{sida}");
+}

@@ -207,6 +207,7 @@ async fn utkasten_och_de_okopplade_underlagen_är_saker_att_göra() {
         match sak {
             Sak::Utkast(u) => utkast.push(u),
             Sak::Underlag(u) => underlagen.push(u.id),
+            Sak::Återställning(_) => panic!("ingen återställning är gjord"),
         }
     }
     assert_eq!(underlagen, vec![okopplat.id]);
@@ -249,4 +250,106 @@ async fn utkasten_och_de_okopplade_underlagen_är_saker_att_göra() {
     let bertil = testhjalp::användare(&db, "bertil@example.se").await;
     assert!(att_gora::att_göra(&db, &k, &bertil, id).await.is_err());
     assert!(att_gora::antal(&db, &bertil).await.unwrap().is_empty());
+}
+
+/// Bo med ett eget företag.
+async fn bo_med_företag(db: &Databas) -> (maya_core::aktor::Aktör, foretag::FöretagsId) {
+    let bo = testhjalp::användare(db, "bo@example.se").await;
+    let id = foretag::lägg_upp(
+        db,
+        &i_dag(),
+        &bo,
+        &NyttFöretag {
+            orgnr: "556677-8899".into(),
+            namn: "Bos AB".into(),
+            första_år_start: "2026-01-01".into(),
+            första_år_slut: "2026-12-31".into(),
+            bokföringsmetod: "faktura".into(),
+            momsperiod: "kvartal".into(),
+        },
+    )
+    .await
+    .unwrap();
+    (bo, id)
+}
+
+#[tokio::test]
+async fn återställningsvarningen_visas_överst_för_varje_användare_tills_den_kvitteras() {
+    let db = Databas::tillfällig().await;
+    let (anna, företag) = testhjalp::företag(&db).await;
+    let (bo, bos) = bo_med_företag(&db).await;
+    let utkast = verifikat::spara_utkast(
+        &db,
+        &i_dag(),
+        &anna,
+        företag,
+        None,
+        &formulär("2026-10-01", "Hyra", vec![]),
+    )
+    .await
+    .unwrap();
+    let backup_tid: jiff::Timestamp = "2026-10-14T01:00:00Z".parse().unwrap();
+    testhjalp::logga_återställning(&db, &i_dag(), backup_tid).await;
+
+    let a = att_gora::att_göra(&db, &i_dag(), &anna, företag)
+        .await
+        .unwrap();
+    let Sak::Återställning(varning) = &a.saker[0] else {
+        panic!("återställningen först: {:?}", a.saker);
+    };
+    assert_eq!(varning.backup_tid, backup_tid);
+    assert_eq!(varning.tid, i_dag().nu());
+    assert!(matches!(&a.saker[1], Sak::Utkast(u) if u.id == utkast));
+    assert_eq!(att_gora::antal(&db, &anna).await.unwrap()[&företag], 2);
+    assert_eq!(att_gora::antal(&db, &bo).await.unwrap()[&bos], 1);
+
+    att_gora::kvittera_återställning(&db, &i_dag(), &anna, varning.id)
+        .await
+        .unwrap();
+
+    let a = att_gora::att_göra(&db, &i_dag(), &anna, företag)
+        .await
+        .unwrap();
+    assert!(
+        !a.saker.iter().any(|s| matches!(s, Sak::Återställning(_))),
+        "{:?}",
+        a.saker
+    );
+    assert_eq!(att_gora::antal(&db, &anna).await.unwrap()[&företag], 1);
+    // Bo har inte kvitterat.
+    let b = att_gora::att_göra(&db, &i_dag(), &bo, bos).await.unwrap();
+    assert!(
+        matches!(&b.saker[..], [Sak::Återställning(_)]),
+        "{:?}",
+        b.saker
+    );
+    // En andra kvittens ändrar inget.
+    att_gora::kvittera_återställning(&db, &i_dag(), &anna, varning.id)
+        .await
+        .unwrap();
+}
+
+#[tokio::test]
+async fn bara_en_användare_i_webben_kvitterar() {
+    let db = Databas::tillfällig().await;
+    let (anna, företag) = testhjalp::företag(&db).await;
+    testhjalp::logga_återställning(&db, &i_dag(), "2026-10-14T01:00:00Z".parse().unwrap()).await;
+    let a = att_gora::att_göra(&db, &i_dag(), &anna, företag)
+        .await
+        .unwrap();
+    let Sak::Återställning(varning) = &a.saker[0] else {
+        panic!("{:?}", a.saker);
+    };
+
+    let fel = att_gora::kvittera_återställning(
+        &db,
+        &i_dag(),
+        &maya_core::aktor::Aktör::cli(),
+        varning.id,
+    )
+    .await;
+    assert!(
+        matches!(fel, Err(maya_core::atkomst::ÅtkomstFel::KanalenFårInte)),
+        "{fel:?}"
+    );
 }
