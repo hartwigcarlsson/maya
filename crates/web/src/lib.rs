@@ -6,6 +6,8 @@ pub mod app;
 #[cfg(feature = "ssr")]
 mod assets;
 #[cfg(feature = "ssr")]
+mod inloggning;
+#[cfg(feature = "ssr")]
 mod server;
 
 #[cfg(feature = "ssr")]

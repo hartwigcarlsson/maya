@@ -29,6 +29,8 @@ pub enum DatabasFel {
     AnnanEpok { funnen: String },
     #[error("migreringen av databasen misslyckades: {0}")]
     Migrering(MigrateError),
+    #[error("databasen innehåller ett oväntat värde i {0}")]
+    Korrupt(String),
     #[error("databasfel: {0}")]
     Sql(#[from] sqlx::Error),
 }
@@ -83,6 +85,10 @@ impl Databas {
     pub async fn kontrollera(&self) -> Result<(), DatabasFel> {
         sqlx::query("SELECT 1").execute(&self.pool).await?;
         Ok(())
+    }
+
+    pub(crate) fn pool(&self) -> &SqlitePool {
+        &self.pool
     }
 
     /// Stänger alla anslutningar.

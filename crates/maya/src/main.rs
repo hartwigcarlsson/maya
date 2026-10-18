@@ -7,8 +7,10 @@ use std::sync::Arc;
 use clap::{Parser, Subcommand};
 use maya_core::Databas;
 use maya_core::config::Config;
+use maya_core::installation::{self, RelyingParty};
 
 mod healthcheck;
+mod user;
 
 #[derive(Parser)]
 #[command(name = "maya", version, about = "Maya: bokföring för små aktiebolag")]
@@ -23,6 +25,11 @@ enum Command {
     Serve,
     /// Frågar en körande server på /healthz, för Dockers hälsokontroll.
     Healthcheck,
+    /// Hanterar användare.
+    User {
+        #[command(subcommand)]
+        command: user::UserCommand,
+    },
 }
 
 fn main() -> ExitCode {
@@ -36,6 +43,7 @@ fn main() -> ExitCode {
     match cli.command {
         Command::Serve => serve(),
         Command::Healthcheck => healthcheck::run(),
+        Command::User { command } => user::run(command),
     }
 }
 
@@ -70,6 +78,7 @@ async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
     std::fs::create_dir_all(&config.data_dir)
         .map_err(|e| format!("kan inte skapa {}: {e}", config.data_dir.display()))?;
     let db = Databas::öppna(&config.database_path()).await?;
+    installation::kontrollera_rp(&db, &RelyingParty::från_publik_url(&config.public_url)).await?;
     let config = Arc::new(config);
     let app = maya_web::router(config.clone(), db);
 

@@ -11,11 +11,14 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use leptos::prelude::*;
 use leptos_axum::{LeptosRoutes, generate_route_list};
-use maya_core::Databas;
+use maya_auth::Passkeys;
 use maya_core::config::Config;
+use maya_core::installation::RelyingParty;
+use maya_core::{Databas, Klocka};
 
 use crate::app::{App, shell};
 use crate::assets;
+use crate::inloggning::{self, InloggningsState};
 
 #[derive(Clone)]
 struct AppState {
@@ -32,6 +35,19 @@ pub fn router(config: Arc<Config>, db: Databas) -> Router {
         .site_addr(config.listen)
         .build();
     let routes = generate_route_list(App);
+    let klocka = Klocka::system();
+    let passkeys = Passkeys::new(
+        &RelyingParty::från_publik_url(&config.public_url),
+        db.clone(),
+        klocka.clone(),
+    )
+    .expect("den publika URL:en är kontrollerad i konfigurationen");
+    let inloggning = InloggningsState {
+        config: config.clone(),
+        db: db.clone(),
+        klocka,
+        passkeys: Arc::new(passkeys),
+    };
     let state = AppState { config, db };
 
     let pages = Router::new()
@@ -41,6 +57,16 @@ pub fn router(config: Arc<Config>, db: Databas) -> Router {
         })
         .fallback(assets::serve_site)
         .with_state(leptos_options)
+        .layer(middleware::from_fn_with_state(
+            inloggning.clone(),
+            inloggning::identifiera,
+        ))
+        .merge(
+            inloggning::routes(inloggning.clone()).layer(middleware::from_fn_with_state(
+                inloggning,
+                inloggning::kräv_eget_origin,
+            )),
+        )
         .layer(middleware::from_fn_with_state(
             state.clone(),
             require_public_host,

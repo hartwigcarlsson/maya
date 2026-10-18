@@ -4,7 +4,34 @@
 use leptos::prelude::*;
 use leptos_meta::{MetaTags, Stylesheet, Title, provide_meta_context};
 use leptos_router::components::{Route, Router, Routes};
+use leptos_router::hooks::use_params_map;
 use leptos_router::path;
+use serde::{Deserialize, Serialize};
+
+/// Vad sidan ska visa, avgjort på servern ur sessionscookien.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Läge {
+    /// Installationen har ingen användare än: bara hänvisningen till `maya user create`.
+    IngenAnvändare,
+    Utloggad,
+    Inloggad {
+        visningsnamn: String,
+    },
+}
+
+/// Läget som middleware lade på begäran. Följer med till webbläsaren vid hydreringen.
+fn läge() -> Läge {
+    SharedValue::new(|| {
+        #[cfg(feature = "ssr")]
+        if let Some(parts) = use_context::<axum::http::request::Parts>()
+            && let Some(läge) = parts.extensions.get::<Läge>()
+        {
+            return läge.clone();
+        }
+        Läge::Utloggad
+    })
+    .into_inner()
+}
 
 /// Sätter `data-theme` ur det sparade valet innan sidan ritas, så att ett manuellt valt läge
 /// inte blinkar till i systemets läge.
@@ -22,6 +49,7 @@ pub fn shell(options: LeptosOptions) -> impl IntoView {
                 <meta name="color-scheme" content="light dark" />
                 <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
                 <script>{TEMA_FÖRE_RITNING}</script>
+                <script src="/auth/webauthn.js" defer></script>
                 <HydrationScripts options />
                 <MetaTags />
             </head>
@@ -35,6 +63,19 @@ pub fn shell(options: LeptosOptions) -> impl IntoView {
 #[component]
 pub fn App() -> impl IntoView {
     provide_meta_context();
+    let läge = läge();
+    provide_context(läge.clone());
+    let användarmeny = match läge {
+        Läge::Inloggad { visningsnamn } => Some(view! {
+            <span class="anvandare">{visningsnamn}</span>
+            <form method="post" action="/auth/utloggning">
+                <button class="knapp knapp-diskret" type="submit">
+                    "Logga ut"
+                </button>
+            </form>
+        }),
+        _ => None,
+    };
 
     view! {
         <Stylesheet id="maya" href="/pkg/maya.css" />
@@ -44,23 +85,95 @@ pub fn App() -> impl IntoView {
                 <a class="logotyp" href="/">
                     "Maya"
                 </a>
-                <TemaVäxlare />
+                <div class="toppmeny-hoger">
+                    {användarmeny}
+                    <TemaVäxlare />
+                </div>
             </header>
             <main>
-                <Routes fallback=|| view! { <SidanFinnsInte /> }>
-                    <Route path=path!("") view=Startsida />
-                </Routes>
+                <Innehåll />
             </main>
         </Router>
     }
 }
 
 #[component]
-fn Startsida() -> impl IntoView {
+fn Innehåll() -> impl IntoView {
+    if use_context::<Läge>() == Some(Läge::IngenAnvändare) {
+        view! { <IngenAnvändare /> }.into_any()
+    } else {
+        view! {
+            <Routes fallback=|| view! { <SidanFinnsInte /> }>
+                <Route path=path!("") view=Startsida />
+                <Route path=path!("registrera/:token") view=Registrera />
+            </Routes>
+        }
+        .into_any()
+    }
+}
+
+/// Innan någon användare finns: bara hänvisningen till CLI:t, så att ingen främling kan ta
+/// över en ny installation.
+#[component]
+fn IngenAnvändare() -> impl IntoView {
     view! {
         <section class="tom-sida">
             <h1>"Välkommen till Maya"</h1>
-            <p>"Här kommer bokföringen att finnas."</p>
+            <p>"Maya har ingen användare än. Skapa den första på servern:"</p>
+            <pre class="kommando">"maya user create <e-post>"</pre>
+            <p>"Kommandot skriver ut en länk där du registrerar din passkey."</p>
+        </section>
+    }
+}
+
+#[component]
+fn Startsida() -> impl IntoView {
+    match use_context::<Läge>() {
+        Some(Läge::Inloggad { visningsnamn }) => view! {
+            <section class="tom-sida">
+                <h1>"Välkommen till Maya"</h1>
+                <p>"Du är inloggad som " {visningsnamn} ". Här kommer bokföringen att finnas."</p>
+            </section>
+        }
+        .into_any(),
+        _ => view! { <LoggaIn /> }.into_any(),
+    }
+}
+
+/// E-post först och sedan passkey, utan conditional UI.
+#[component]
+fn LoggaIn() -> impl IntoView {
+    view! {
+        <section class="tom-sida">
+            <h1>"Logga in"</h1>
+            <form class="formular" data-passkey="logga-in">
+                <label for="epost">"E-post"</label>
+                <input id="epost" name="epost" type="email" autocomplete="username" required />
+                <button class="knapp" type="submit">
+                    "Fortsätt med passkey"
+                </button>
+                <p class="fel" role="alert" data-fel hidden></p>
+            </form>
+        </section>
+    }
+}
+
+/// Sidan som registreringslänken från `maya user create` leder till.
+#[component]
+fn Registrera() -> impl IntoView {
+    let token = use_params_map().with_untracked(|p| p.get("token").unwrap_or_default());
+    view! {
+        <section class="tom-sida">
+            <h1>"Registrera passkey"</h1>
+            <p>"Med en passkey loggar du in i Maya utan lösenord."</p>
+            <form class="formular" data-passkey="registrera" data-token=token>
+                <label for="namn">"Namn på passkeyn"</label>
+                <input id="namn" name="namn" type="text" placeholder="t.ex. MacBook" />
+                <button class="knapp" type="submit">
+                    "Registrera passkey"
+                </button>
+                <p class="fel" role="alert" data-fel hidden></p>
+            </form>
         </section>
     }
 }
