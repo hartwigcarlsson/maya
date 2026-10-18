@@ -24,10 +24,13 @@ sha2.workspace = true
 sqlx.workspace = true
 tempfile = { workspace = true, optional = true }
 thiserror.workspace = true
+tokio.workspace = true
 tracing.workspace = true
+ureq.workspace = true
 url.workspace = true
 
 [dev-dependencies]
+axum.workspace = true
 maya-pdf = { workspace = true, features = ["test-support"] }
 maya-core = { path = ".", features = ["test-support"] }
 tempfile.workspace = true

@@ -116,12 +116,18 @@ pub enum Handling {
     /// Exportera ett räkenskapsår som SIE4. Bara webben, ingen export via MCP eller CLI (beslut
     /// i #67).
     ExporteraSie4,
+    /// Ta den nattliga backupen. Bara Maya självt.
+    TaBackup,
+    /// Verifiera en backup: Maya självt efter varje backup och driften med `maya backup verify`.
+    VerifieraBackup,
 }
 
 /// Kanalpolicyn: om `kanal` får utföra `handling`.
 pub fn tillåter(kanal: Kanal, handling: Handling) -> bool {
     match handling {
         Handling::HanteraAnvändare => kanal == Kanal::Cli,
+        Handling::TaBackup => kanal == Kanal::Maya,
+        Handling::VerifieraBackup => matches!(kanal, Kanal::Maya | Kanal::Cli),
         Handling::LäggaUppFöretag
         | Handling::LäsaFöretag
         | Handling::ÄndraKontoplan
