@@ -148,6 +148,36 @@ async fn ett_konto_som_flödena_bokför_på_kan_inte_inaktiveras() {
 }
 
 #[tokio::test]
+async fn inaktivering_av_ett_konto_med_saldo_i_ett_öppet_år_nekas_med_skäl_och_saldo() {
+    let db = Databas::tillfällig().await;
+    let (anna, id) = företag(&db).await;
+    testhjalp::bokför(
+        &db,
+        &anna,
+        id,
+        "2026-03-01",
+        &[(1930, 123_450, 0), (2081, 0, 123_450)],
+    )
+    .await;
+
+    let fel = kontoplan::inaktivera(&db, &klocka(), &anna, id, nr(1930))
+        .await
+        .unwrap_err();
+
+    let KontoFel::KanInteInaktiveras(spärr) = fel else {
+        panic!("{fel:?}");
+    };
+    assert_eq!(
+        spärr.to_string(),
+        "Saldo 1\u{a0}234,50 kr i räkenskapsåret 2026-01-01–2026-12-31, som inte är stängt. \
+         Bara konton med nollsaldo kan inaktiveras."
+    );
+    assert!(konto(&db, &anna, id, 1930).await.unwrap().aktiv);
+    let saldon = kontoplan::saldon(&db, &anna, id, nr(2081)).await.unwrap();
+    assert_eq!(saldon[0].öre, -123_450);
+}
+
+#[tokio::test]
 async fn ett_eget_konto_skapas_aktivt_och_loggas() {
     let db = Databas::tillfällig().await;
     let (anna, id) = företag(&db).await;

@@ -190,15 +190,37 @@ pub async fn saldon(
     Ok(saldon_i_öppna_år(&mut tx, företag, nummer).await?)
 }
 
-/// Sömmen mot bokföringen: kontots saldo ur bokförda verifikatrader per räkenskapsår som inte
-/// är stängt. Inga verifikat kan bokföras ännu, så alla saldon är noll; #108 fyller i frågan
-/// när verifikaten finns.
+/// Kontots saldo ur bokförda verifikatrader per räkenskapsår som inte är stängt, för år där
+/// kontot har rader. Räkenskapsår kan inte stängas ännu, så alla år räknas, och ingående balans
+/// finns inte ännu.
 async fn saldon_i_öppna_år(
-    _conn: &mut SqliteConnection,
-    _företag: FöretagsId,
-    _nummer: Kontonummer,
-) -> Result<Vec<Årssaldo>, sqlx::Error> {
-    Ok(Vec::new())
+    conn: &mut SqliteConnection,
+    företag: FöretagsId,
+    nummer: Kontonummer,
+) -> Result<Vec<Årssaldo>, DatabasFel> {
+    let rader: Vec<(String, String, i64)> = sqlx::query_as(
+        "SELECT a.start, a.slut, SUM(r.debet - r.kredit)
+         FROM verifikatrad r
+         JOIN verifikat v ON v.id = r.verifikat_id
+         JOIN rakenskapsar a ON a.id = v.rakenskapsar_id
+         WHERE v.foretag_id = ? AND r.konto = ? AND v.bokford IS NOT NULL
+         GROUP BY a.id ORDER BY a.start",
+    )
+    .bind(företag.0)
+    .bind(nummer.get())
+    .fetch_all(conn)
+    .await?;
+    let fel = || DatabasFel::Korrupt("räkenskapsår: datum".into());
+    rader
+        .into_iter()
+        .map(|(start, slut, öre)| {
+            Ok(Årssaldo {
+                start: start.parse().map_err(|_| fel())?,
+                slut: slut.parse().map_err(|_| fel())?,
+                öre,
+            })
+        })
+        .collect()
 }
 
 /// Ett ärende som ändrar ett befintligt konto, och kontot som det är nu.
