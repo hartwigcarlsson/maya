@@ -10,6 +10,7 @@ use maya_core::config::Config;
 use maya_core::installation::{self, RelyingParty};
 
 mod healthcheck;
+mod user;
 
 #[derive(Parser)]
 #[command(name = "maya", version, about = "Maya: bokföring för små aktiebolag")]
@@ -24,6 +25,11 @@ enum Command {
     Serve,
     /// Frågar en körande server på /healthz, för Dockers hälsokontroll.
     Healthcheck,
+    /// Hanterar användare.
+    User {
+        #[command(subcommand)]
+        command: user::UserCommand,
+    },
 }
 
 fn main() -> ExitCode {
@@ -37,6 +43,7 @@ fn main() -> ExitCode {
     match cli.command {
         Command::Serve => serve(),
         Command::Healthcheck => healthcheck::run(),
+        Command::User { command } => user::run(command),
     }
 }
 

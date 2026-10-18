@@ -15,7 +15,11 @@ Maya levereras som en färdig image på GHCR (`ghcr.io/hartwigcarlsson/maya`) f�
    och sätt `MAYA_BACKUP_HOST_DIR=/mnt/backupdisk/maya` i `.env`.
 4. Starta: `docker compose up -d`. Maya skriver ut sin tolkade konfiguration, utan hemligheter, i `docker compose logs maya`.
 
+5. Skapa den första användaren: `docker compose exec maya maya user create <e-post>`. Kommandot skriver ut en länk som gäller i 24 timmar och kan användas en gång. Öppna den och registrera en passkey. Fler användare bjuds in i webben.
+
 Maya kräver en publik IPv4 och port 443. Kontrollera att `https://<domän>/healthz` svarar `ok`.
+
+Vid första start sparar Maya `rp_id` och origin ur `MAYA_PUBLIC_URL`. Passkeys är bundna till dem, så Maya vägrar sedan starta om den publika URL:en ger en annan domän eller port.
 
 ## Uppgradera
 
