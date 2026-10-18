@@ -6,6 +6,7 @@ use sha2::{Digest, Sha256};
 use sqlx::SqliteConnection;
 
 use crate::aktor::{self, Aktör, AnvändarId, Handling};
+use crate::atkomst;
 use crate::installationslogg::{self, Händelse};
 use crate::{Databas, DatabasFel, Klocka};
 
@@ -71,14 +72,18 @@ pub struct Användare {
 pub struct Token(String);
 
 impl Token {
-    fn ny() -> Self {
+    pub(crate) fn ny() -> Self {
         let mut bytes = [0u8; 32];
         getrandom::fill(&mut bytes).expect("slumptal från operativsystemet");
         Token(hex::encode(bytes))
     }
+
+    pub(crate) fn hemlighet(&self) -> &str {
+        &self.0
+    }
 }
 
-fn hash(token: &str) -> Vec<u8> {
+pub(crate) fn hash(token: &str) -> Vec<u8> {
     Sha256::digest(token.as_bytes()).to_vec()
 }
 
@@ -90,6 +95,10 @@ pub struct Registreringslänk {
 }
 
 impl Registreringslänk {
+    pub(crate) fn ny(token: Token, giltig_till: Timestamp) -> Self {
+        Registreringslänk { token, giltig_till }
+    }
+
     pub fn token(&self) -> &str {
         &self.token.0
     }
@@ -107,10 +116,30 @@ impl Session {
     }
 }
 
+/// Den som registrerar en passkey: en befintlig användare, eller en inbjuden som blir
+/// användare när registreringen slutförs.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Registrant {
+    /// WebAuthn user handle: 16 slumpade byte.
+    pub handle: [u8; 16],
+    pub epost: String,
+    pub visningsnamn: String,
+}
+
+impl From<&Användare> for Registrant {
+    fn from(a: &Användare) -> Self {
+        Registrant {
+            handle: a.handle,
+            epost: a.epost.clone(),
+            visningsnamn: a.visningsnamn.clone(),
+        }
+    }
+}
+
 /// Det en registreringsceremoni behöver veta.
 #[derive(Debug, Clone)]
 pub struct Registrering {
-    pub användare: Användare,
+    pub användare: Registrant,
     /// Credential-id:n som användaren redan har, för `exclude_credentials`.
     pub befintliga_passkeys: Vec<Vec<u8>>,
 }
@@ -413,21 +442,32 @@ async fn avaktiverad(conn: &mut SqliteConnection, id: AnvändarId) -> Result<boo
         .await
 }
 
-/// Användaren som en giltig, oanvänd registreringslänk hör till. Förbrukar inte länken.
+/// Den som en giltig, oanvänd registrerings-, återställnings- eller inbjudningslänk hör till.
+/// Förbrukar inte länken.
 pub async fn registrering(
     db: &Databas,
     klocka: &Klocka,
     token: &str,
 ) -> Result<Registrering, InloggningsFel> {
     let mut conn = db.pool().acquire().await?;
-    let användare = giltig_länk(&mut conn, klocka.nu(), token).await?;
+    let nu = klocka.nu();
+    let användare = match giltig_länk(&mut conn, nu, token).await {
+        Err(InloggningsFel::OgiltigLänk) => {
+            let inbjudan = atkomst::giltig_inbjudan(&mut conn, nu, token).await?;
+            return Ok(Registrering {
+                användare: inbjudan.registrant,
+                befintliga_passkeys: Vec::new(),
+            });
+        }
+        svar => svar?,
+    };
     let befintliga_passkeys =
         sqlx::query_scalar("SELECT credential_id FROM passkey WHERE anvandare_id = ?")
             .bind(användare.id.0)
             .fetch_all(&mut *conn)
             .await?;
     Ok(Registrering {
-        användare,
+        användare: Registrant::from(&användare),
         befintliga_passkeys,
     })
 }
@@ -466,14 +506,20 @@ pub async fn slutför_registrering(
 ) -> Result<Session, InloggningsFel> {
     let nu = klocka.nu();
     let mut tx = db.pool().begin_with("BEGIN IMMEDIATE").await?;
-    let användare = giltig_länk(&mut tx, nu, token).await?;
-    sqlx::query("UPDATE engangslank SET anvand = ? WHERE hash = ?")
-        .bind(nu.to_string())
-        .bind(hash(token))
-        .execute(&mut *tx)
-        .await?;
-    spara_passkey(&mut tx, nu, användare.id, &passkey).await?;
-    let session = ny_session(&mut tx, nu, användare.id, enhet).await?;
+    let användare = match giltig_länk(&mut tx, nu, token).await {
+        Ok(användare) => {
+            sqlx::query("UPDATE engangslank SET anvand = ? WHERE hash = ?")
+                .bind(nu.to_string())
+                .bind(hash(token))
+                .execute(&mut *tx)
+                .await?;
+            användare.id
+        }
+        Err(InloggningsFel::OgiltigLänk) => atkomst::använd_inbjudan(&mut tx, nu, token).await?,
+        Err(e) => return Err(e),
+    };
+    spara_passkey(&mut tx, nu, användare, &passkey).await?;
+    let session = ny_session(&mut tx, nu, användare, enhet).await?;
     tx.commit().await?;
     Ok(session)
 }
@@ -686,7 +732,7 @@ pub async fn ny_passkey(
             .fetch_all(db.pool())
             .await?;
     Ok(Registrering {
-        användare: inloggad.användare.clone(),
+        användare: Registrant::from(&inloggad.användare),
         befintliga_passkeys,
     })
 }
@@ -883,7 +929,7 @@ async fn användare(
     .transpose()
 }
 
-fn tidpunkt(text: &str) -> Result<Timestamp, DatabasFel> {
+pub(crate) fn tidpunkt(text: &str) -> Result<Timestamp, DatabasFel> {
     text.parse()
         .map_err(|_| DatabasFel::Korrupt(format!("tidpunkten {text}")))
 }

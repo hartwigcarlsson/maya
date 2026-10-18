@@ -179,6 +179,7 @@ async fn sidor_och_handlingar_nås_från_sökningen() {
             format!("{exempel}/installningar/behandlingshistorik"),
             "Behandlingshistorik",
         ),
+        (format!("{exempel}/installningar/atkomst"), "Åtkomst"),
         ("/foretag/nytt".to_string(), "Lägg upp företag"),
     ] {
         assert!(

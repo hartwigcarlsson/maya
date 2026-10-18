@@ -590,6 +590,7 @@ pub async fn radera(
         "DELETE FROM bokforingsmetod WHERE foretag_id = ?1",
         "DELETE FROM momsperiod WHERE foretag_id = ?1",
         "DELETE FROM atkomst WHERE foretag_id = ?1",
+        "DELETE FROM inbjudan WHERE foretag_id = ?1",
         "DELETE FROM foretag WHERE id = ?1",
         "DELETE FROM konto WHERE foretag_id = ?1",
         "DELETE FROM behandlingshistorik WHERE foretag_id = ?1",

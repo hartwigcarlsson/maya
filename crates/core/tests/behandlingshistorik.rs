@@ -2,10 +2,12 @@
 
 use jiff::civil::date;
 use maya_core::aktor::{Aktör, Kanal};
+use maya_core::atkomst::{self, Inbjudan};
 use maya_core::behandlingshistorik::{Aktörsval, Händelse, Urval};
 use maya_core::foretag::{self, FöretagsId};
+use maya_core::inloggning::{self, NyPasskey};
 use maya_core::{
-    Databas, Klocka, behandlingshistorik, export, kontoplan, saldo, testhjalp, verifikat,
+    Databas, Klocka, behandlingshistorik, export, kontoplan, saldo, sie4, testhjalp, verifikat,
 };
 use maya_domain::foretag::{Byte, NyttFöretag, Uppgifter};
 use maya_domain::ingaende_balans::{NyIngåendeBalans, NySaldorad};
@@ -188,6 +190,37 @@ async fn alla_ändringar(db: &Databas, anna: &Aktör, id: FöretagsId, tid: &str
     verifikat::radera_utkast(db, &k, anna, id, utkast)
         .await
         .unwrap();
+    // Bo bjuds in, registrerar sig och förlorar åtkomsten igen.
+    let inloggad = testhjalp::inloggad(db, &k, anna).await;
+    let Inbjudan::Länk(länk) = atkomst::bjud_in(db, &k, &inloggad, id, "bo@example.se")
+        .await
+        .unwrap()
+    else {
+        panic!("väntade en länk");
+    };
+    let session = inloggning::slutför_registrering(
+        db,
+        &k,
+        länk.token(),
+        NyPasskey {
+            credential_id: b"bo".to_vec(),
+            namn: "Telefon".into(),
+            passkey: "{}".into(),
+        },
+        None,
+    )
+    .await
+    .unwrap();
+    let bo = inloggning::session(db, &k, session.token())
+        .await
+        .unwrap()
+        .unwrap();
+    atkomst::ta_åtkomst(db, &k, &inloggad, id, bo.aktör.användare.unwrap())
+        .await
+        .unwrap();
+    sie4::exportera(db, &k, anna, id, date(2026, 1, 1))
+        .await
+        .unwrap();
 }
 
 #[tokio::test]
@@ -354,17 +387,14 @@ async fn filter_på_typ_aktör_och_tid_ger_rätt_urval() {
     let historik = behandlingshistorik::historik(&db, &anna, id, &Urval::default())
         .await
         .unwrap();
-    assert_eq!(historik.poster.len(), 16);
+    assert_eq!(historik.poster.len(), 21);
+    let namn: Vec<&str> = historik.aktörer.iter().map(|(_, n)| n.as_str()).collect();
+    assert_eq!(namn, ["anna@example.se", "bo@example.se", "Maya"]);
     assert_eq!(
-        historik.aktörer,
-        [
-            (
-                Aktörsval::Användare(anna.användare.unwrap()),
-                "anna@example.se".to_string()
-            ),
-            (Aktörsval::Kanal(Kanal::Maya), "Maya".to_string()),
-        ]
+        historik.aktörer[0].0,
+        Aktörsval::Användare(anna.användare.unwrap())
     );
+    assert_eq!(historik.aktörer[2].0, Aktörsval::Kanal(Kanal::Maya));
     assert!(historik.typer.contains(&"konto namnbytt".to_string()));
 
     let typ = |t: &str| Urval {
@@ -384,7 +414,15 @@ async fn filter_på_typ_aktör_och_tid_ger_rätt_urval() {
         aktör: Some(Aktörsval::Användare(anna.användare.unwrap())),
         ..Urval::default()
     };
-    assert_eq!(typer(&db, &anna, id, anna_urval).await.len(), 15);
+    assert_eq!(typer(&db, &anna, id, anna_urval).await.len(), 18);
+    let bo = Urval {
+        aktör: Some(historik.aktörer[1].0),
+        ..Urval::default()
+    };
+    assert_eq!(
+        typer(&db, &anna, id, bo).await,
+        ["inbjudan använd", "åtkomst given"]
+    );
 
     // Dagarna räknas i Stockholm och tar med båda ändarna.
     let tid = |från: Option<_>, till: Option<_>| Urval {
@@ -405,7 +443,7 @@ async fn filter_på_typ_aktör_och_tid_ger_rätt_urval() {
         )
         .await
         .len(),
-        14
+        19
     );
     assert_eq!(
         typer(&db, &anna, id, tid(Some(date(2026, 4, 1)), None)).await,

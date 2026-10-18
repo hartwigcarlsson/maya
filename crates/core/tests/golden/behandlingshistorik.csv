@@ -14,3 +14,8 @@
 2026-03-02 10:15:00;anna@example.se;webb;räkenskapsår skapat;2027-07-01 – 2028-06-30;;Första verifikatet dateras i året
 2026-03-02 10:15:00;anna@example.se;webb;verifikat bokfört;V1;1234,50;2027-08-01 ”Kontantförsäljning 2027-08-01”, 2 rader
 2026-03-02 10:15:00;anna@example.se;webb;utkast raderat;Halvfärdigt;0,00;Utkast daterat 2026-05-02, 0 rader
+2026-03-02 10:15:00;anna@example.se;webb;inbjudan skapad;bo@example.se;;Inbjudan till bo@example.se, giltig till 2026-03-03 10:15
+2026-03-02 10:15:00;bo@example.se;webb;inbjudan använd;bo@example.se;;bo@example.se registrerade sig med inbjudan
+2026-03-02 10:15:00;bo@example.se;webb;åtkomst given;bo@example.se;;Åtkomst till företaget för bo@example.se
+2026-03-02 10:15:00;anna@example.se;webb;åtkomst tagen;bo@example.se;;Åtkomsten till företaget borttagen för bo@example.se
+2026-03-02 10:15:00;anna@example.se;webb;SIE4 exporterad;2026-01-01 – 2027-06-30;;SIE4_5560360793_2026.se, 1 verifikat

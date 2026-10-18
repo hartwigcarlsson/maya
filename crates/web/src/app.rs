@@ -8,14 +8,14 @@ use leptos_router::hooks::use_params_map;
 use leptos_router::path;
 use serde::{Deserialize, Serialize};
 
+use crate::atkomst::ÅtkomstSida;
 use crate::behandlingshistorik::BehandlingshistorikSida;
-use crate::foretag::{
-    AttGöra, Företagslista, NyttFöretagSida, Rapporter, Toppmeny, företagsval
-};
+use crate::foretag::{AttGöra, Företagslista, NyttFöretagSida, Toppmeny, företagsval};
 use crate::ingaende_balans::IngåendeBalansSida;
 use crate::installningar::FöretagsInställningar;
 use crate::konto::{Passkeys, Sessioner};
 use crate::kontoplan::KontoplanSida;
+use crate::rapporter::Rapporter;
 use crate::sok::SökSida;
 use crate::verifikat::{NyttVerifikatSida, VerifikatSida};
 
@@ -146,6 +146,7 @@ fn Innehåll() -> impl IntoView {
                     view=IngåendeBalansSida
                 />
                 <Route path=path!("foretag/:id/installningar/kontoplan") view=KontoplanSida />
+                <Route path=path!("foretag/:id/installningar/atkomst") view=ÅtkomstSida />
                 <Route
                     path=path!("foretag/:id/installningar/behandlingshistorik")
                     view=BehandlingshistorikSida
@@ -196,8 +197,8 @@ pub(crate) fn LoggaIn() -> impl IntoView {
     }
 }
 
-/// Sidan som registrerings- och återställningslänkarna från CLI:t leder till. Efteråt ber
-/// Maya användaren lägga till en passkey till.
+/// Sidan som registrerings- och återställningslänkarna från CLI:t och inbjudningslänkarna
+/// leder till. Efteråt ber Maya användaren lägga till en passkey till.
 #[component]
 fn Registrera() -> impl IntoView {
     let token = use_params_map().with_untracked(|p| p.get("token").unwrap_or_default());

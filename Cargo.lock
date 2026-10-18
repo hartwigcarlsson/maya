@@ -2913,6 +2913,7 @@ dependencies = [
  "maya-core",
  "maya-domain",
  "maya-pdf",
+ "maya-sie",
  "serde_json",
  "sha2 0.10.9",
  "sqlx",
@@ -2952,6 +2953,11 @@ dependencies = [
 [[package]]
 name = "maya-sie"
 version = "0.1.0-dev"
+dependencies = [
+ "crc32fast",
+ "jiff",
+ "thiserror 2.0.21",
+]
 
 [[package]]
 name = "maya-web"
@@ -2970,6 +2976,7 @@ dependencies = [
  "maya-core",
  "maya-domain",
  "maya-pdf",
+ "maya-sie",
  "rust-embed",
  "serde",
  "serde_json",

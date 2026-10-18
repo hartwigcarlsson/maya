@@ -31,12 +31,17 @@ pub enum Händelse {
     VerifikatBokfört,
     UtkastRaderat,
     IngåendeBalansÄndrad,
+    ÅtkomstGiven,
+    ÅtkomstTagen,
+    InbjudanSkapad,
+    InbjudanAnvänd,
+    Sie4Exporterad,
 }
 
 impl Händelse {
     /// Alla typer som har en kodväg. En ny typ läggs till här också, så att testet som kör
     /// varje typ genom `core` måste få en kodväg för den.
-    pub const ALLA: [Händelse; 14] = [
+    pub const ALLA: [Händelse; 19] = [
         Händelse::FöretagSkapat,
         Händelse::FöretagÄndrat,
         Händelse::KontoSkapat,
@@ -51,6 +56,11 @@ impl Händelse {
         Händelse::VerifikatBokfört,
         Händelse::UtkastRaderat,
         Händelse::IngåendeBalansÄndrad,
+        Händelse::ÅtkomstGiven,
+        Händelse::ÅtkomstTagen,
+        Händelse::InbjudanSkapad,
+        Händelse::InbjudanAnvänd,
+        Händelse::Sie4Exporterad,
     ];
 
     pub fn namn(self) -> &'static str {
@@ -69,6 +79,11 @@ impl Händelse {
             Händelse::VerifikatBokfört => "verifikat bokfört",
             Händelse::UtkastRaderat => "utkast raderat",
             Händelse::IngåendeBalansÄndrad => "ingående balans ändrad",
+            Händelse::ÅtkomstGiven => "åtkomst given",
+            Händelse::ÅtkomstTagen => "åtkomst tagen",
+            Händelse::InbjudanSkapad => "inbjudan skapad",
+            Händelse::InbjudanAnvänd => "inbjudan använd",
+            Händelse::Sie4Exporterad => "SIE4 exporterad",
         }
     }
 }
@@ -377,6 +392,21 @@ impl Post {
                 f("datum"),
                 s(&b["antal_rader"])
             ),
+            "åtkomst given" => format!("Åtkomst till företaget för {}", f("epost")),
+            "åtkomst tagen" => format!("Åtkomsten till företaget borttagen för {}", f("epost")),
+            "inbjudan skapad" => {
+                let giltig = f("giltig_till");
+                let giltig = giltig.parse::<Timestamp>().map_or(giltig, |t| {
+                    t.to_zoned(maya_domain::tid::stockholm())
+                        .strftime("%Y-%m-%d %H:%M")
+                        .to_string()
+                });
+                format!("Inbjudan till {}, giltig till {giltig}", f("epost"))
+            }
+            "inbjudan använd" => format!("{} registrerade sig med inbjudan", f("epost")),
+            "SIE4 exporterad" => {
+                format!("{}, {} verifikat", f("filnamn"), s(&b["antal_verifikat"]))
+            }
             _ => fält_som_text(b),
         }
     }

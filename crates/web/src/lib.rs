@@ -5,12 +5,14 @@
 #![recursion_limit = "256"]
 
 pub mod app;
+pub mod atkomst;
 pub mod behandlingshistorik;
 pub mod foretag;
 pub mod ingaende_balans;
 pub mod installningar;
 pub mod konto;
 pub mod kontoplan;
+pub mod rapporter;
 pub mod sok;
 pub mod utskrift;
 pub mod verifikat;
