@@ -86,6 +86,13 @@ pub fn mål(fråga: &str, valt: &FöretagVy, alla: &[FöretagVy]) -> Vec<Träff>
             String::new(),
             format!("{bas}/installningar/kontoplan"),
         ),
+        (
+            "Gå till",
+            "Behandlingshistorik".into(),
+            "inställningar logg ändringar revisor",
+            String::new(),
+            format!("{bas}/installningar/behandlingshistorik"),
+        ),
     ];
     kandidater.extend(
         alla.iter()

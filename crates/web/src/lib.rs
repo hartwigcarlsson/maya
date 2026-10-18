@@ -5,6 +5,7 @@
 #![recursion_limit = "256"]
 
 pub mod app;
+pub mod behandlingshistorik;
 pub mod foretag;
 pub mod ingaende_balans;
 pub mod installningar;

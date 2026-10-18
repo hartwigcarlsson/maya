@@ -8,6 +8,7 @@ use leptos_router::hooks::use_params_map;
 use leptos_router::path;
 use serde::{Deserialize, Serialize};
 
+use crate::behandlingshistorik::BehandlingshistorikSida;
 use crate::foretag::{
     AttGöra, Företagslista, NyttFöretagSida, Rapporter, Toppmeny, företagsval
 };
@@ -145,6 +146,10 @@ fn Innehåll() -> impl IntoView {
                     view=IngåendeBalansSida
                 />
                 <Route path=path!("foretag/:id/installningar/kontoplan") view=KontoplanSida />
+                <Route
+                    path=path!("foretag/:id/installningar/behandlingshistorik")
+                    view=BehandlingshistorikSida
+                />
             </Routes>
         }
         .into_any()

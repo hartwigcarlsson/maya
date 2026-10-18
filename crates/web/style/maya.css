@@ -1245,3 +1245,62 @@ kbd {
   border-color: var(--destructive);
   color: var(--primary-foreground);
 }
+
+/* Inställningar → Behandlingshistorik: urval i adressen, export av samma urval. */
+.historikfilter {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 0.5rem 1rem;
+  margin: 1rem 0 0.5rem;
+  font-size: 13px;
+}
+
+.historikfilter label {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  color: var(--muted-foreground);
+}
+
+.historikfilter select,
+.historikfilter input {
+  font: inherit;
+  color: var(--foreground);
+  background: var(--background);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 4px 6px;
+}
+
+.historikexport {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.25rem 1rem;
+}
+
+.behandlingshistorik {
+  font-size: 13px;
+}
+
+.behandlingshistorik .tid {
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.behandlingshistorik .typ {
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.behandlingshistorik tr.maya td {
+  color: var(--muted-foreground);
+}
+
+@media (max-width: 760px) {
+  .behandlingshistorik {
+    display: block;
+    overflow-x: auto;
+  }
+}
