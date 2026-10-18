@@ -11,7 +11,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::app::{LoggaIn, Läge};
 use crate::foretag::{FöretagVy, IngenÅtkomst};
+use crate::installningar::Inställningsmeny;
 use crate::sidodata::sida;
+use crate::utskrift::Utskrift;
 
 /// Fliken: aktiva (standard), alla eller inaktiva konton.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -322,8 +324,10 @@ fn kontoplan(sida: Option<Kontoplansida>) -> AnyView {
     let href = sida.sida();
     let aktiva = sida.antal.aktiva;
     let alla = sida.antal.alla;
+    let bas = sida.företag.href();
     view! {
         <section class="sida kontoplan">
+            <Inställningsmeny bas=bas aktiv="/kontoplan" />
             <div class="sidhuvud">
                 <div>
                     <h1>"Kontoplan"</h1>
@@ -332,6 +336,7 @@ fn kontoplan(sida: Option<Kontoplansida>) -> AnyView {
                         " konton · rapportrader enligt " {sida.ink2_utgåva.clone()}
                         " · ändras bara i webben"
                     </p>
+                    <Utskrift href=format!("{href}/pdf") filnamn="kontoplan.pdf".to_string() />
                 </div>
                 <a
                     class="knapp"

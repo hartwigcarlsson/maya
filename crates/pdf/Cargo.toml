@@ -1,0 +1,31 @@
+[package]
+name = "maya-pdf"
+description = "Mayas PDF:er (PDF/A-2b) ur inbyggda Typst-mallar, med typsnitten inbäddade i binären."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[features]
+# `testhjalp`: läser tillbaka PDF:erna i tester, också i andra crates.
+test-support = ["dep:hayro-cmap", "dep:hayro-interpret", "dep:hayro-syntax", "dep:kurbo"]
+
+[dependencies]
+jiff.workspace = true
+maya-domain.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+typst.workspace = true
+typst-layout.workspace = true
+typst-pdf.workspace = true
+
+hayro-cmap = { workspace = true, optional = true }
+hayro-interpret = { workspace = true, optional = true }
+hayro-syntax = { workspace = true, optional = true }
+kurbo = { workspace = true, optional = true }
+
+[dev-dependencies]
+maya-pdf = { path = ".", features = ["test-support"] }
+
+[lints]
+workspace = true

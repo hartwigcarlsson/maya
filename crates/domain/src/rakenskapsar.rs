@@ -126,3 +126,26 @@ impl Räkenskapsår {
         perioder
     }
 }
+
+/// Månaden som perioden heter efter, t.ex. "mars 2026".
+pub fn periodnamn(datum: Date) -> String {
+    const MÅNADER: [&str; 12] = [
+        "januari",
+        "februari",
+        "mars",
+        "april",
+        "maj",
+        "juni",
+        "juli",
+        "augusti",
+        "september",
+        "oktober",
+        "november",
+        "december",
+    ];
+    format!(
+        "{} {}",
+        MÅNADER[usize::from(datum.month().unsigned_abs()) - 1],
+        datum.year()
+    )
+}

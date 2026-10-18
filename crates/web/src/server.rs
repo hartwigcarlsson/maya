@@ -21,7 +21,9 @@ use crate::assets;
 use crate::foretag::server::{self as foretag, FöretagsState};
 use crate::ingaende_balans::server::{self as ingaende_balans, IngåendeBalansState};
 use crate::inloggning::{self, InloggningsState};
+use crate::installningar::server::{self as installningar, InställningsState};
 use crate::kontoplan::server::{self as kontoplan, KontoplansState};
+use crate::utskrift::server::{self as utskrift, UtskriftsState};
 use crate::verifikat::server::{self as verifikat, VerifikatState};
 
 /// Sidornas rutter, genererade en gång per process. `generate_route_list` renderar appen med en
@@ -71,6 +73,14 @@ pub fn router(config: Arc<Config>, db: Databas) -> Router {
         db: db.clone(),
         klocka: inloggning.klocka.clone(),
     };
+    let inställningar = InställningsState {
+        db: db.clone(),
+        klocka: inloggning.klocka.clone(),
+    };
+    let utskrift = UtskriftsState {
+        db: db.clone(),
+        klocka: inloggning.klocka.clone(),
+    };
     let kontext = {
         let db = db.clone();
         let klocka = inloggning.klocka.clone();
@@ -92,6 +102,10 @@ pub fn router(config: Arc<Config>, db: Databas) -> Router {
         })
         .fallback(assets::serve_site)
         .with_state(leptos_options)
+        .layer(middleware::from_fn_with_state(
+            inställningar.clone(),
+            installningar::lägg_på_inställningar,
+        ))
         .layer(middleware::from_fn_with_state(
             företag.clone(),
             foretag::lägg_på_företagsval,
@@ -143,6 +157,23 @@ pub fn router(config: Arc<Config>, db: Databas) -> Router {
                     inloggning.clone(),
                     inloggning::kräv_eget_origin,
                 )),
+        )
+        .merge(
+            installningar::routes(inställningar)
+                .layer(middleware::from_fn_with_state(
+                    inloggning.clone(),
+                    inloggning::identifiera,
+                ))
+                .layer(middleware::from_fn_with_state(
+                    inloggning.clone(),
+                    inloggning::kräv_eget_origin,
+                )),
+        )
+        .merge(
+            utskrift::routes(utskrift).layer(middleware::from_fn_with_state(
+                inloggning.clone(),
+                inloggning::identifiera,
+            )),
         )
         .merge(
             inloggning::routes(inloggning.clone())

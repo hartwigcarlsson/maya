@@ -7,10 +7,12 @@
 pub mod app;
 pub mod foretag;
 pub mod ingaende_balans;
+pub mod installningar;
 pub mod konto;
 pub mod kontoplan;
 pub mod sidodata;
 pub mod sok;
+pub mod utskrift;
 pub mod verifikat;
 
 #[cfg(feature = "ssr")]

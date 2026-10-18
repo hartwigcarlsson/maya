@@ -16,6 +16,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::app::{LoggaIn, Läge};
 use crate::foretag::{Företagsval, IngenÅtkomst};
+use crate::installningar::Inställningsmeny;
 use crate::sidodata::sida;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -293,6 +294,7 @@ fn ingående_balans(data: IngåendeBalansdata) -> AnyView {
     };
     view! {
         <section class="sida">
+            <Inställningsmeny bas=bas.clone() aktiv="/ingaende-balans" />
             <p class="diskret">{företaget.namn} " · " {företaget.orgnr}</p>
             <h1>"Ingående balans"</h1>
             <nav class="filter" aria-label="Räkenskapsår">
