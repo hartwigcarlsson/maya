@@ -17,16 +17,20 @@ maya-pdf.workspace = true
 getrandom.workspace = true
 hex.workspace = true
 ipnet.workspace = true
-jiff.workspace = true
+jiff = { workspace = true, features = ["serde"] }
+serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
 sqlx.workspace = true
 tempfile = { workspace = true, optional = true }
 thiserror.workspace = true
+tokio.workspace = true
 tracing.workspace = true
+ureq.workspace = true
 url.workspace = true
 
 [dev-dependencies]
+axum.workspace = true
 maya-pdf = { workspace = true, features = ["test-support"] }
 maya-core = { path = ".", features = ["test-support"] }
 tempfile.workspace = true

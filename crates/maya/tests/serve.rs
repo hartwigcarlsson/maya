@@ -71,6 +71,9 @@ fn maya_serve_las_env_skriver_ut_konfigurationen_och_svarar_pa_healthz() {
     assert!(stdout.contains("https://bokforing.example.se"), "{stdout}");
     assert!(stdout.contains("(hemlig, angiven)"), "{stdout}");
     assert!(!stdout.contains("hemligt-losenord"), "{stdout}");
+    // Backupkatalogen ligger här på samma enhet som databasen (A5).
+    assert!(stdout.contains("samma enhet som databasen"), "{stdout}");
+    assert!(stdout.contains("nästa backup"), "{stdout}");
 }
 
 #[test]
