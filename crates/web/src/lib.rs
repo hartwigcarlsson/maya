@@ -6,6 +6,7 @@
 
 pub mod app;
 pub mod foretag;
+pub mod kontoplan;
 pub mod verifikat;
 
 #[cfg(feature = "ssr")]
