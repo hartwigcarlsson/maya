@@ -6,9 +6,10 @@ use sha2::{Digest, Sha256};
 use sqlx::SqliteConnection;
 
 use crate::aktor::{self, Aktör, AnvändarId, Handling};
-use crate::atkomst;
+use crate::foretag::FöretagsId;
 use crate::installationslogg::{self, Händelse};
 use crate::{Databas, DatabasFel, Klocka};
+use crate::{atkomst, behandlingshistorik};
 
 /// En session löper ut efter så här lång tid utan aktivitet.
 pub const SESSION_INAKTIV: SignedDuration = SignedDuration::from_hours(7 * 24);
@@ -48,6 +49,12 @@ pub enum InloggningsFel {
     Avaktiverad,
     #[error("användaren är inte avaktiverad")]
     InteAvaktiverad,
+    /// Användaren är den sista aktiva med åtkomst till företaget (namn och orgnr).
+    #[error(
+        "användaren är den sista aktiva med åtkomst till {0}, som då skulle bli utan användare. \
+         Ge någon annan åtkomst till företaget först."
+    )]
+    SistaAnvändaren(String),
     #[error(transparent)]
     Databas(#[from] DatabasFel),
 }
@@ -340,7 +347,9 @@ pub async fn återställ_användare(
 }
 
 /// Avaktiverar en användare: hen kan inte logga in, och hens sessioner och oanvända länkar
-/// upphör. Användaren raderas aldrig. Bara CLI:t (ADR 0005).
+/// upphör. Användaren raderas aldrig, och åtkomsten står kvar. Avaktiveringen loggas i
+/// installationsloggen och i varje företag som användaren har åtkomst till, och nekas när
+/// användaren är den sista aktiva i något av dem. Bara CLI:t (ADR 0005).
 pub async fn avaktivera_användare(
     db: &Databas,
     klocka: &Klocka,
@@ -350,6 +359,42 @@ pub async fn avaktivera_användare(
     let (mut tx, id, epost) = hela_användaren(db, aktör, epost).await?;
     if avaktiverad(&mut tx, id).await? {
         return Err(InloggningsFel::Avaktiverad);
+    }
+    // Ett företag blir aldrig utan aktiv användare.
+    let ensam: Option<(String, String)> = sqlx::query_as(
+        "SELECT f.namn, f.orgnr FROM atkomst a JOIN foretag f ON f.id = a.foretag_id
+         WHERE a.anvandare_id = ?1 AND NOT EXISTS (
+             SELECT 1 FROM atkomst b JOIN anvandare u ON u.id = b.anvandare_id
+             WHERE b.foretag_id = a.foretag_id AND b.anvandare_id <> ?1
+               AND u.avaktiverad IS NULL)
+         ORDER BY f.namn, f.id LIMIT 1",
+    )
+    .bind(id.0)
+    .fetch_optional(&mut *tx)
+    .await?;
+    if let Some((namn, orgnr)) = ensam {
+        let orgnr =
+            maya_domain::orgnr::Organisationsnummer::tolka(&orgnr).map_or(orgnr, |o| o.to_string());
+        return Err(InloggningsFel::SistaAnvändaren(
+            format!("{namn} ({orgnr})"),
+        ));
+    }
+    let företag: Vec<i64> =
+        sqlx::query_scalar("SELECT foretag_id FROM atkomst WHERE anvandare_id = ? ORDER BY 1")
+            .bind(id.0)
+            .fetch_all(&mut *tx)
+            .await?;
+    for företag in företag {
+        behandlingshistorik::skriv(
+            &mut tx,
+            FöretagsId(företag),
+            klocka.nu(),
+            aktör,
+            behandlingshistorik::Händelse::AnvändareAvaktiverad,
+            &epost,
+            serde_json::json!({ "användare": id.0, "epost": epost }),
+        )
+        .await?;
     }
     let nu = klocka.nu().to_string();
     sqlx::query("UPDATE anvandare SET avaktiverad = ? WHERE id = ?")

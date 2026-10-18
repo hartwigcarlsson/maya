@@ -37,6 +37,7 @@ pub enum Händelse {
     VerifikatKompletterat,
     ÅtkomstGiven,
     ÅtkomstTagen,
+    AnvändareAvaktiverad,
     InbjudanSkapad,
     InbjudanAnvänd,
     Sie4Exporterad,
@@ -49,7 +50,7 @@ pub enum Händelse {
 impl Händelse {
     /// Alla typer som har en kodväg. En ny typ läggs till här också, så att testet som kör
     /// varje typ genom `core` måste få en kodväg för den.
-    pub const ALLA: [Händelse; 27] = [
+    pub const ALLA: [Händelse; 28] = [
         Händelse::FöretagSkapat,
         Händelse::FöretagÄndrat,
         Händelse::KontoSkapat,
@@ -70,6 +71,7 @@ impl Händelse {
         Händelse::VerifikatKompletterat,
         Händelse::ÅtkomstGiven,
         Händelse::ÅtkomstTagen,
+        Händelse::AnvändareAvaktiverad,
         Händelse::InbjudanSkapad,
         Händelse::InbjudanAnvänd,
         Händelse::Sie4Exporterad,
@@ -101,6 +103,7 @@ impl Händelse {
             Händelse::VerifikatKompletterat => "verifikat kompletterat",
             Händelse::ÅtkomstGiven => "åtkomst given",
             Händelse::ÅtkomstTagen => "åtkomst tagen",
+            Händelse::AnvändareAvaktiverad => "användare avaktiverad",
             Händelse::InbjudanSkapad => "inbjudan skapad",
             Händelse::InbjudanAnvänd => "inbjudan använd",
             Händelse::Sie4Exporterad => "SIE4 exporterad",
@@ -447,6 +450,10 @@ impl Post {
             }
             "åtkomst given" => format!("Åtkomst till företaget för {}", f("epost")),
             "åtkomst tagen" => format!("Åtkomsten till företaget borttagen för {}", f("epost")),
+            "användare avaktiverad" => format!(
+                "{} avaktiverad: kan inte logga in, åtkomsten står kvar",
+                f("epost")
+            ),
             "inbjudan skapad" => {
                 let giltig = f("giltig_till");
                 let giltig = giltig.parse::<Timestamp>().map_or(giltig, |t| {

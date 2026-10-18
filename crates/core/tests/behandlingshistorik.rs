@@ -240,6 +240,9 @@ async fn alla_ändringar(db: &Databas, anna: &Aktör, id: FöretagsId, tid: &str
         .await
         .unwrap()
         .unwrap();
+    inloggning::avaktivera_användare(db, &k, &Aktör::cli(), "bo@example.se")
+        .await
+        .unwrap();
     atkomst::ta_åtkomst(db, &k, &inloggad, id, bo.aktör.användare.unwrap())
         .await
         .unwrap();
@@ -435,7 +438,7 @@ async fn filter_på_typ_aktör_och_tid_ger_rätt_urval() {
     let historik = behandlingshistorik::historik(&db, &anna, id, &Urval::default())
         .await
         .unwrap();
-    assert_eq!(historik.poster.len(), 31);
+    assert_eq!(historik.poster.len(), 32);
     let namn: Vec<&str> = historik.aktörer.iter().map(|(_, n)| n.as_str()).collect();
     assert_eq!(namn, ["anna@example.se", "bo@example.se", "cli", "Maya"]);
     assert_eq!(
@@ -500,7 +503,7 @@ async fn filter_på_typ_aktör_och_tid_ger_rätt_urval() {
         )
         .await
         .len(),
-        29
+        30
     );
     assert_eq!(
         typer(&db, &anna, id, tid(Some(date(2026, 4, 1)), None)).await,

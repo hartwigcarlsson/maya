@@ -331,6 +331,52 @@ async fn en_avaktiverad_användare_räknas_inte_som_åtkomst() {
 }
 
 #[tokio::test]
+async fn den_sista_aktiva_användaren_i_ett_företag_avaktiveras_inte() {
+    let db = Databas::tillfällig().await;
+    let (_anna, _) = anna(&db).await;
+
+    let fel = inloggning::avaktivera_användare(&db, &nu(), &Aktör::cli(), "anna@example.se")
+        .await
+        .unwrap_err();
+
+    assert!(
+        matches!(&fel, InloggningsFel::SistaAnvändaren(f) if f == "Exempel AB (556036-0793)"),
+        "{fel:?}"
+    );
+    assert!(fel.to_string().contains("Exempel AB"), "{fel}");
+}
+
+#[tokio::test]
+async fn avaktiveringen_loggas_i_varje_företag_användaren_har_åtkomst_till() {
+    let db = Databas::tillfällig().await;
+    let (anna, företag) = anna(&db).await;
+    let bo = testhjalp::användare(&db, "bo@example.se").await;
+    atkomst::bjud_in(&db, &nu(), &anna, företag, "bo@example.se")
+        .await
+        .unwrap();
+
+    inloggning::avaktivera_användare(&db, &nu(), &Aktör::cli(), "bo@example.se")
+        .await
+        .unwrap();
+
+    let historik = behandlingshistorik::läs(&db, &anna.aktör, företag)
+        .await
+        .unwrap();
+    let post = historik.last().unwrap();
+    assert_eq!(post.typ, "användare avaktiverad");
+    assert_eq!(post.objekt, "bo@example.se");
+    assert_eq!(post.aktör, Aktör::cli());
+    assert_eq!(
+        post.beskrivning["användare"],
+        id(&bo).to_string().parse::<i64>().unwrap()
+    );
+    assert_eq!(
+        post.text(),
+        "bo@example.se avaktiverad: kan inte logga in, åtkomsten står kvar"
+    );
+}
+
+#[tokio::test]
 async fn inbjudan_och_ändrad_åtkomst_kräver_en_passkey_inom_5_minuter() {
     let db = Databas::tillfällig().await;
     let (anna, företag) = anna(&db).await;
