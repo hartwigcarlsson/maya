@@ -78,6 +78,12 @@ händelser! {
     // #134 Fakturauppgifter
     FakturauppgifterÄndrade => "fakturauppgifter ändrade",
     OcrInställningÄndrad => "ocr-inställning ändrad",
+    // #144 leverantörsregistret
+    LeverantörSkapad => "leverantör skapad",
+    LeverantörÄndrad => "leverantör ändrad",
+    LeverantörArkiverad => "leverantör arkiverad",
+    LeverantörRaderad => "leverantör raderad",
+    StandardkontoÄndrat => "standardkonto ändrat",
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -512,6 +518,45 @@ impl Post {
                     "OCR-referens av".into()
                 }
             }
+            // #144 leverantörsregistret
+            Händelse::LeverantörSkapad => {
+                let mut text = format!("”{}” upplagd", f("namn"));
+                if !f("orgnr").is_empty() {
+                    text.push_str(&format!(", orgnr {}", f("orgnr")));
+                }
+                text
+            }
+            Händelse::LeverantörÄndrad => b["ändrat"]
+                .as_object()
+                .map(|fält| {
+                    fält
+                        .iter()
+                        .map(|(namn, v)| {
+                            format!(
+                                "{}: ”{}” → ”{}”",
+                                namn.replace('_', " "),
+                                s(&v["från"]),
+                                s(&v["till"])
+                            )
+                        })
+                        .collect::<Vec<_>>()
+                        .join("; ")
+                })
+                .unwrap_or_default(),
+            Händelse::LeverantörArkiverad => format!("”{}” arkiverad", f("namn")),
+            Händelse::LeverantörRaderad => format!("”{}” raderad", f("namn")),
+            Händelse::StandardkontoÄndrat => {
+                let konto = |v: &Value| match v {
+                    Value::Null => "inget".to_string(),
+                    v => s(v),
+                };
+                format!(
+                    "Standardkonto för ”{}”: {} → {}",
+                    f("namn"),
+                    konto(&b["från"]),
+                    konto(&b["till"])
+                )
+            }
         }
     }
 
@@ -587,6 +632,27 @@ pub(crate) async fn läs_om_verifikat(
     )
     .bind(företag.0)
     .bind(verifikat)
+    .fetch_all(conn)
+    .await?;
+    poster(rader)
+}
+
+// #144: posterna om en leverantör (och senare en kund) har dess id i beskrivningen.
+/// Posterna vars beskrivning har `"<nyckel>": id`, i ordning.
+pub(crate) async fn läs_om(
+    conn: &mut SqliteConnection,
+    företag: FöretagsId,
+    nyckel: &str,
+    id: i64,
+) -> Result<Vec<Post>, DatabasFel> {
+    let rader = sqlx::query_as(
+        "SELECT h.tid, h.kanal, h.anvandare_id, u.visningsnamn, h.typ, h.objekt, h.beskrivning
+         FROM behandlingshistorik h LEFT JOIN anvandare u ON u.id = h.anvandare_id
+         WHERE h.foretag_id = ? AND h.beskrivning ->> ? = ? ORDER BY h.id",
+    )
+    .bind(företag.0)
+    .bind(format!("$.\"{nyckel}\""))
+    .bind(id)
     .fetch_all(conn)
     .await?;
     poster(rader)

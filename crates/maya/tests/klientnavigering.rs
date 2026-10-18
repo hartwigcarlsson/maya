@@ -232,6 +232,30 @@ fn menylankarna_navigerar_pa_klienten_och_sidorna_visar_sina_data() {
         .value;
     assert_eq!(samma_sida, Some(true.into()), "en länk laddade om sidan");
     assert_eq!(fel(&tab), Vec::<String>::new());
+
+    // #144: leverantörsregistret laddas för sig, tills länken från Leverantörsfakturor kommer
+    // (#145), och navigerar sedan i routern till dokumentet och formulären.
+    posta(
+        &tab,
+        &format!("/foretag/{id}/leverantorer"),
+        "namn=Kontorsvaror+AB&land=SE&bankgiro=5050-1055&standardkonto=5410",
+    );
+    tab.navigate_to(&format!("{bas}/foretag/{id}/leverantorer"))
+        .unwrap();
+    vänta_på_hydreringen(&tab);
+    tab.evaluate("window.__samma_sida = true", false).unwrap();
+    klicka(&tab, ".verifikatlista a[href*='/leverantorer?l=']");
+    vänta_på_text(&tab, "5050-1055");
+    klicka(&tab, "a[href*='andra=1']");
+    vänta_på_text(&tab, "Ändra leverantör");
+    klicka(&tab, ".verifikat-spalt-rubrik a[href$='/leverantorer/ny']");
+    vänta_på_text(&tab, "Ny leverantör");
+    let samma_sida = tab
+        .evaluate("window.__samma_sida === true", false)
+        .unwrap()
+        .value;
+    assert_eq!(samma_sida, Some(true.into()), "en länk laddade om sidan");
+    assert_eq!(fel(&tab), Vec::<String>::new());
 }
 
 /// Postar ett formulär från sidan (samma origin, sessionscookien följer med) och ger adressen

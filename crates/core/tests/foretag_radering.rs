@@ -156,8 +156,23 @@ async fn radera_tömmer_varje_tabell_med_företagets_data() {
     verifikat::spara_utkast(&db, &Klocka::system(), &anna, id, None, &utkast)
         .await
         .unwrap();
+    // #144: en leverantör med standardkonto.
+    maya_core::leverantor::skapa(
+        &db,
+        &Klocka::system(),
+        &anna,
+        id,
+        &maya_domain::leverantor::NyLeverantör {
+            namn: "Kontorsvaror AB".into(),
+            standardkonto: "5410".into(),
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
     let tabeller = företagets_tabeller(&path).await;
     for tabell in [
+        "leverantor",
         "behandlingshistorik",
         "period",
         "verifikatrad",

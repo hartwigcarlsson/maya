@@ -7,13 +7,14 @@ use maya_core::behandlingshistorik::{Aktörsval, Händelse, Urval};
 use maya_core::foretag::{self, FöretagsId};
 use maya_core::inloggning::{self, NyPasskey};
 use maya_core::{
-    Databas, Klocka, behandlingshistorik, export, fakturauppgifter, kontoplan, saldo, sie4,
-    testhjalp, underlag, verifikat,
+    Databas, Klocka, behandlingshistorik, export, fakturauppgifter, kontoplan, leverantor, saldo,
+    sie4, testhjalp, underlag, verifikat,
 };
 use maya_domain::fakturauppgifter::Fakturauppgifter;
 use maya_domain::foretag::{Byte, NyttFöretag, Uppgifter};
 use maya_domain::ingaende_balans::{NyIngåendeBalans, NySaldorad};
 use maya_domain::kontoplan::{Kontonummer, NyttKonto};
+use maya_domain::leverantor::NyLeverantör;
 use maya_domain::verifikat::{NyRad, NyttVerifikat};
 
 #[tokio::test]
@@ -291,6 +292,30 @@ async fn fakturaändringar(db: &Databas, anna: &Aktör, id: FöretagsId, tid: &s
     )
     .await
     .unwrap();
+    // #144 Leverantörsregister
+    let leverantör = NyLeverantör {
+        namn: "Kontorsvaror AB".into(),
+        standardkonto: "5410".into(),
+        ..NyLeverantör::default()
+    };
+    let l = leverantor::skapa(db, &k, anna, id, &leverantör)
+        .await
+        .unwrap();
+    leverantor::ändra(
+        db,
+        &k,
+        anna,
+        id,
+        l,
+        &NyLeverantör {
+            postort: "Göteborg".into(),
+            ..leverantör
+        },
+    )
+    .await
+    .unwrap();
+    leverantor::arkivera(db, &k, anna, id, l).await.unwrap();
+    leverantor::radera(db, &k, anna, id, l).await.unwrap();
 }
 
 #[tokio::test]

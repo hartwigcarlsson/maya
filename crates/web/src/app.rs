@@ -18,6 +18,7 @@ use crate::installation::InstallationSida;
 use crate::installningar::FöretagsInställningar;
 use crate::konto::{Passkeys, Sessioner};
 use crate::kontoplan::KontoplanSida;
+use crate::leverantorer::{LeverantörerSida, NyLeverantörSida};
 use crate::rapporter::{Balansräkning, Rapporter, Resultaträkning};
 use crate::sidodata::per_adress;
 use crate::sok::SökSida;
@@ -203,6 +204,17 @@ fn Innehåll() -> impl IntoView {
                 <Route
                     path=path!("foretag/:id/installningar/systemdokumentation")
                     view=SystemdokumentationSida
+                    ssr=SsrMode::Async
+                />
+                // #144 leverantörsregistret
+                <Route
+                    path=path!("foretag/:id/leverantorer")
+                    view=LeverantörerSida
+                    ssr=SsrMode::Async
+                />
+                <Route
+                    path=path!("foretag/:id/leverantorer/ny")
+                    view=NyLeverantörSida
                     ssr=SsrMode::Async
                 />
             </Routes>
