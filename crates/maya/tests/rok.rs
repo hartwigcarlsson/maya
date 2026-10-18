@@ -358,6 +358,153 @@ fn forsta_anvandaren_via_cli_lanken_och_inloggning_med_passkey() {
     inga_sidfel(&tab);
 }
 
+/// #145: ett underlag laddas upp, blir en leverantörsfaktura under "Vad är det här?" och
+/// registreras med originalet bredvid formuläret.
+#[test]
+fn leverantorsfaktura_laddas_upp_och_registreras() {
+    if !stod::sajten_finns() {
+        return;
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let port = ledig_port();
+    let bas = format!("http://localhost:{port}");
+    std::fs::write(
+        dir.path().join(".env"),
+        format!(
+            "MAYA_PUBLIC_URL={bas}\nMAYA_LISTEN=127.0.0.1:{port}\nMAYA_BACKUP_DIR={backup}\n\
+             MAYA_DATA_DIR={data}\n",
+            backup = dir.path().display(),
+            data = dir.path().join("data").display(),
+        ),
+    )
+    .unwrap();
+    let _server = Server::starta(dir.path(), port);
+    let browser = Browser::new(
+        LaunchOptions::default_builder()
+            .sandbox(false)
+            .idle_browser_timeout(Duration::from_secs(120))
+            .build()
+            .unwrap(),
+    )
+    .expect("röktestet kräver Chrome eller Chromium; ange sökvägen i CHROME");
+    let tab = browser.new_tab().unwrap();
+    tab.call_method(Page::AddScriptToEvaluateOnNewDocument {
+        source: SAMLA_FEL.to_string(),
+        world_name: None,
+        include_command_line_api: None,
+        run_immediately: None,
+    })
+    .unwrap();
+    tab.call_method(WebAuthn::Enable {
+        enable_ui: Some(false),
+    })
+    .unwrap();
+    autentiserare(&tab);
+    tab.navigate_to(&skapa_användare(dir.path(), &bas)).unwrap();
+    vänta_på_shimmen(&tab);
+    tab.wait_for_element("#namn")
+        .unwrap()
+        .type_into("Virtuell nyckel")
+        .unwrap();
+    klicka(&tab, "form[data-passkey='registrera'] button");
+    vänta_på_text(&tab, "Lägg till en passkey till");
+
+    // Ett företag och leverantören Kontorsvaror AB med standardkontot 5410.
+    let företaget = posta(
+        &tab,
+        "/foretag",
+        "orgnr=556036-0793&namn=Exempel+AB&start=2026-01-01&slut=2026-12-31\
+         &bokforingsmetod=faktura&momsperiod=kvartal",
+    );
+    let sökväg = företaget.strip_prefix(&bas).unwrap().to_string();
+    posta(
+        &tab,
+        &format!("{sökväg}/leverantorer"),
+        "namn=Kontorsvaror+AB&land=SE&bankgiro=5050-1055&standardkonto=5410",
+    );
+
+    // Originalet laddas upp som ett okopplat underlag.
+    let original = dir.path().join("faktura-8812.pdf");
+    std::fs::write(&original, KVITTO).unwrap();
+    tab.navigate_to(&format!("{företaget}/underlag")).unwrap();
+    vänta_på_hydreringen(&tab);
+    tab.wait_for_element("form.uppladdning input[type='file']")
+        .unwrap()
+        .set_input_files(&[original.to_str().unwrap()])
+        .unwrap();
+    klicka(&tab, "form.uppladdning button[type='submit']");
+    vänta_på_text(&tab, "faktura-8812.pdf");
+
+    // Att göra: Vad är det här? → Leverantörsfaktura öppnar utkastet med originalet bredvid.
+    klicka(&tab, "nav.flikar a:first-child");
+    vänta_på_text(&tab, "okopplat");
+    klicka(&tab, ".acard[id^='underlag-'] a.ah");
+    klicka(&tab, "form[action$='/leverantorsfaktura'] button");
+    vänta_på_text(&tab, "Ett utkast skapades med originalet kopplat.");
+    vänta_på_hydreringen(&tab);
+    tab.wait_for_element(".med-underlag .underlagsspalt")
+        .unwrap();
+    välj(&tab, "#leverantorsfakturaformular #leverantor", "1");
+    fyll(&tab, "#leverantorsfakturaformular #fakturanummer", "8812");
+    fyll(
+        &tab,
+        "#leverantorsfakturaformular #fakturadatum",
+        "2026-03-14",
+    );
+    fyll(
+        &tab,
+        "#leverantorsfakturaformular #forfallodag",
+        "2026-04-13",
+    );
+    fyll(&tab, "#leverantorsfakturaformular #totalbelopp", "1 250");
+    fyll(&tab, "#leverantorsfakturaformular [name='netto_0']", "1000");
+    // Rutan "Bokförs som" visar konteringen live, med standardkontot på raden.
+    vänta_på_text(&tab, "Bokförs som V1 · 2026-03-14");
+    vänta_på_text(&tab, "Leverantörsskulder");
+    klicka(
+        &tab,
+        "#leverantorsfakturaformular button[value='registrera']:not([disabled])",
+    );
+    vänta_på_text(&tab, "Registrerad och bokförd som V1.");
+    vänta_på_text(&tab, "Leverantörsfaktura 8812");
+    inga_sidfel(&tab);
+
+    // Verifikatet länkar tillbaka till fakturan.
+    klicka(&tab, ".dokument a[href*='/verifikat?v=']");
+    vänta_på_text(&tab, "leverantörsfaktura 8812 från Kontorsvaror AB");
+    vänta_på_text(&tab, "faktura-8812.pdf");
+    inga_sidfel(&tab);
+}
+
+/// Väljer ett värde i en `<select>` som användaren skulle.
+fn välj(tab: &Tab, selektor: &str, värde: &str) {
+    tab.wait_for_element(selektor)
+        .unwrap_or_else(|e| panic!("{selektor} finns inte på {}: {e}", tab.get_url()));
+    tab.evaluate(
+        &format!(
+            "(() => {{ const e = document.querySelector({selektor:?}); e.value = {värde:?}; \
+             e.dispatchEvent(new Event('change', {{bubbles: true}})); }})()"
+        ),
+        false,
+    )
+    .unwrap();
+}
+
+/// Postar ett formulär från sidan (samma origin, sessionscookien följer med) och ger adressen
+/// som svaret ledde till.
+fn posta(tab: &Tab, sökväg: &str, kropp: &str) -> String {
+    let skript = format!(
+        "fetch({sökväg:?}, {{method: 'POST', \
+         headers: {{'content-type': 'application/x-www-form-urlencoded'}}, \
+         body: {kropp:?}}}).then(r => r.ok ? r.url : Promise.reject(r.status + ' ' + r.url))"
+    );
+    tab.evaluate(&skript, true)
+        .unwrap()
+        .value
+        .and_then(|v| v.as_str().map(str::to_string))
+        .unwrap_or_else(|| panic!("{sökväg} gav inget svar"))
+}
+
 /// Ett litet PDF-dokument som underlag.
 const KVITTO: &[u8] = b"%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n\
 2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n\
