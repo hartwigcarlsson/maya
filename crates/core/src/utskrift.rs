@@ -96,8 +96,17 @@ pub async fn verifikat(
                 kredit: r.kredit,
             })
             .collect(),
-        // Underlag kommer med #110; förteckningen säger "Inga underlag" tills dess.
-        underlag: Vec::new(),
+        // Referenserna till underlagen och var de finns: filnamn och hash i Maya (VF2).
+        underlag: v
+            .underlag
+            .iter()
+            .map(|u| maya_pdf::Underlag {
+                filnamn: u.filnamn.clone(),
+                sha256: u.sha256.clone(),
+                storlek: u.storlek,
+                komplettering: u.komplettering.then(|| signatur(&u.kopplad)),
+            })
+            .collect(),
         historik: v
             .historik
             .iter()

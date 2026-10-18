@@ -23,6 +23,7 @@ use crate::aktor::{Aktör, AnvändarId, Handling, Kanal};
 use crate::atkomst::{self, Ärende, ÅtkomstFel};
 use crate::behandlingshistorik::{self, Händelse, Post};
 use crate::foretag::{self, FöretagsId, datum};
+use crate::underlag::{self, UnderlagId, VerifikatetsUnderlag};
 use crate::{Databas, DatabasFel, Klocka};
 
 /// Ett verifikats id i installationen. Vem som helst kan skriva ett id; `core` avgör om aktören
@@ -67,6 +68,9 @@ pub enum VerifikatFel {
     /// Inget utkast med det id:t i företaget: det finns inte, eller är redan bokfört.
     #[error("utkastet finns inte")]
     IngetUtkast,
+    /// Ett underlag som ska kopplas finns inte i företaget.
+    #[error("underlaget finns inte")]
+    OkäntUnderlag,
     #[error(transparent)]
     Åtkomst(#[from] ÅtkomstFel),
 }
@@ -124,6 +128,8 @@ pub struct Verifikat {
     pub skapad: Signatur,
     /// `None` för ett utkast.
     pub bokförd: Option<Signatur>,
+    /// Kopplade underlag, i den ordning de kopplades, med kompletteringar sist (VF2, VF5).
+    pub underlag: Vec<VerifikatetsUnderlag>,
     /// Posterna i behandlingshistoriken som rör verifikatet, i ordning.
     pub historik: Vec<Historikpost>,
 }
@@ -219,7 +225,26 @@ pub async fn bokför(
     formulär: &NyttVerifikat,
 ) -> Result<Bokfört, VerifikatFel> {
     let ärende = Ärende::börja(db, klocka, aktör, företag, Handling::Bokföra).await?;
-    bokför_i(ärende, None, formulär).await
+    bokför_i(ärende, None, formulär, None).await
+}
+
+/// Bokför ett nytt verifikat eller utkastet `utkast`, som [`bokför`] och [`bokför_utkast`], med
+/// exakt underlagen i `underlag` kopplade. Kopplingarna görs i bokföringstransaktionen och kan
+/// sedan aldrig tas bort (ADR 0002).
+pub async fn bokför_med_underlag(
+    db: &Databas,
+    klocka: &Klocka,
+    aktör: &Aktör,
+    företag: FöretagsId,
+    utkast: Option<VerifikatId>,
+    formulär: &NyttVerifikat,
+    underlag: &[UnderlagId],
+) -> Result<Bokfört, VerifikatFel> {
+    let mut ärende = Ärende::börja(db, klocka, aktör, företag, Handling::Bokföra).await?;
+    if let Some(id) = utkast {
+        kräv_utkast(&mut ärende, id).await?;
+    }
+    bokför_i(ärende, utkast, formulär, Some(underlag)).await
 }
 
 /// Bokför ett utkast med innehållet i formuläret, under samma spärrar som [`bokför`]. Utkastet
@@ -234,13 +259,15 @@ pub async fn bokför_utkast(
 ) -> Result<Bokfört, VerifikatFel> {
     let mut ärende = Ärende::börja(db, klocka, aktör, företag, Handling::Bokföra).await?;
     kräv_utkast(&mut ärende, utkast).await?;
-    bokför_i(ärende, Some(utkast), formulär).await
+    bokför_i(ärende, Some(utkast), formulär, None).await
 }
 
+/// Bokför i ärendet. `underlag` är `None` när kopplingarna ska lämnas som de är.
 async fn bokför_i(
     mut ärende: Ärende,
     utkast: Option<VerifikatId>,
     formulär: &NyttVerifikat,
+    underlag: Option<&[UnderlagId]>,
 ) -> Result<Bokfört, VerifikatFel> {
     let företag = ärende.företag;
     let förutsättningar = läs_förutsättningar(ärende.conn(), företag).await?;
@@ -265,7 +292,11 @@ async fn bokför_i(
         }
         None => skapa(&mut ärende, &innehåll).await?,
     };
+    if let Some(underlag) = underlag {
+        koppla(&mut ärende, id, underlag).await?;
+    }
     let nummer = tilldela_nummer(&mut ärende, id, år_id).await?;
+    let kopplade = underlag::verifikatets(ärende.conn(), id).await?;
 
     let år = v.räkenskapsår.år();
     ärende
@@ -285,6 +316,7 @@ async fn bokför_i(
                     "kredit_öre": r.kredit.öre(),
                     "text": r.text,
                 })).collect::<Vec<_>>(),
+                "underlag": underlag::referenser(&kopplade),
             }),
         )
         .await?;
@@ -304,6 +336,32 @@ pub async fn spara_utkast(
     företag: FöretagsId,
     utkast: Option<VerifikatId>,
     formulär: &NyttVerifikat,
+) -> Result<VerifikatId, VerifikatFel> {
+    spara_utkast_i(db, klocka, aktör, företag, utkast, formulär, None).await
+}
+
+/// Sparar som [`spara_utkast`], med exakt underlagen i `underlag` kopplade till utkastet: nya
+/// kopplas, och de som inte längre finns med kopplas bort och blir okopplade igen.
+pub async fn spara_utkast_med_underlag(
+    db: &Databas,
+    klocka: &Klocka,
+    aktör: &Aktör,
+    företag: FöretagsId,
+    utkast: Option<VerifikatId>,
+    formulär: &NyttVerifikat,
+    underlag: &[UnderlagId],
+) -> Result<VerifikatId, VerifikatFel> {
+    spara_utkast_i(db, klocka, aktör, företag, utkast, formulär, Some(underlag)).await
+}
+
+async fn spara_utkast_i(
+    db: &Databas,
+    klocka: &Klocka,
+    aktör: &Aktör,
+    företag: FöretagsId,
+    utkast: Option<VerifikatId>,
+    formulär: &NyttVerifikat,
+    underlag: Option<&[UnderlagId]>,
 ) -> Result<VerifikatId, VerifikatFel> {
     let mut ärende = Ärende::börja(db, klocka, aktör, företag, Handling::HanteraUtkast).await?;
     if let Some(id) = utkast {
@@ -334,8 +392,63 @@ pub async fn spara_utkast(
         }
         None => skapa(&mut ärende, &innehåll).await?,
     };
+    if let Some(underlag) = underlag {
+        koppla(&mut ärende, id, underlag).await?;
+    }
     ärende.slutför().await?;
     Ok(id)
+}
+
+/// Ger utkastet exakt underlagen i `underlag`. Kopplingar till ett utkast loggas inte; de blir
+/// en del av bokföringen när utkastet bokförs.
+async fn koppla(
+    ärende: &mut Ärende,
+    utkast: VerifikatId,
+    underlag: &[UnderlagId],
+) -> Result<(), VerifikatFel> {
+    let företag = ärende.företag;
+    let mut önskade: Vec<i64> = Vec::new();
+    for u in underlag {
+        if !önskade.contains(&u.0) {
+            önskade.push(u.0);
+        }
+    }
+    let finns: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM underlag
+         WHERE foretag_id = ? AND id IN (SELECT value FROM json_each(?))",
+    )
+    .bind(företag.0)
+    .bind(serde_json::json!(önskade).to_string())
+    .fetch_one(ärende.conn())
+    .await?;
+    if finns != önskade.len() as i64 {
+        return Err(VerifikatFel::OkäntUnderlag);
+    }
+    sqlx::query(
+        "DELETE FROM underlagskoppling
+         WHERE verifikat_id = ? AND underlag_id NOT IN (SELECT value FROM json_each(?))",
+    )
+    .bind(utkast.0)
+    .bind(serde_json::json!(önskade).to_string())
+    .execute(ärende.conn())
+    .await?;
+    let (aktör, nu) = (ärende.aktör, ärende.nu);
+    for u in önskade {
+        sqlx::query(
+            "INSERT INTO underlagskoppling
+                 (underlag_id, verifikat_id, kopplad, kopplad_kanal, kopplad_av, komplettering)
+             VALUES (?, ?, ?, ?, ?, 0)
+             ON CONFLICT DO NOTHING",
+        )
+        .bind(u)
+        .bind(utkast.0)
+        .bind(nu.to_string())
+        .bind(aktör.kanal.namn())
+        .bind(aktör.användare.map(|a| a.0))
+        .execute(ärende.conn())
+        .await?;
+    }
+    Ok(())
 }
 
 /// Raderar ett utkast och loggar raderingen med en sammanfattning: datum, beskrivning, summa
@@ -358,6 +471,12 @@ pub async fn radera_utkast(
     .bind(utkast.0)
     .fetch_one(ärende.conn())
     .await?;
+    // Utkastets underlag blir okopplade; själva underlagen finns kvar.
+    let kopplade = underlag::verifikatets(ärende.conn(), utkast).await?;
+    sqlx::query("DELETE FROM underlagskoppling WHERE verifikat_id = ?")
+        .bind(utkast.0)
+        .execute(ärende.conn())
+        .await?;
     sqlx::query("DELETE FROM verifikatrad WHERE verifikat_id = ?")
         .bind(utkast.0)
         .execute(ärende.conn())
@@ -382,6 +501,7 @@ pub async fn radera_utkast(
                 "beskrivning": beskrivning,
                 "summa_öre": summa,
                 "antal_rader": antal,
+                "underlag": underlag::referenser(&kopplade),
             }),
         )
         .await?;
@@ -614,6 +734,7 @@ pub async fn verifikatet(
             })
         })
         .collect::<Result<Vec<_>, DatabasFel>>()?;
+    let underlag = underlag::verifikatets(&mut tx, id).await?;
     let mut historik = Vec::new();
     for post in behandlingshistorik::läs_om_verifikat(&mut tx, företag, id.0).await? {
         let namn = namn(&mut tx, &post.aktör).await?;
@@ -647,6 +768,7 @@ pub async fn verifikatet(
         rader,
         skapad: signatur(&v.skapad, &v.skapad_kanal, v.skapad_av, v.skapad_namn)?,
         bokförd,
+        underlag,
         historik,
     }))
 }
@@ -758,7 +880,7 @@ fn kanalens_namn(kanal: Kanal) -> String {
     }
 }
 
-fn signatur(
+pub(crate) fn signatur(
     tid: &str,
     kanal: &str,
     användare: Option<i64>,
@@ -783,7 +905,7 @@ fn kontonummer(nummer: i64) -> Result<Kontonummer, DatabasFel> {
         .ok_or_else(|| DatabasFel::Korrupt(format!("ett kontonummer: {nummer}")))
 }
 
-fn verifikationsnummer(nummer: i64) -> Result<Verifikationsnummer, DatabasFel> {
+pub(crate) fn verifikationsnummer(nummer: i64) -> Result<Verifikationsnummer, DatabasFel> {
     u32::try_from(nummer)
         .map(Verifikationsnummer)
         .map_err(|_| DatabasFel::Korrupt(format!("ett verifikationsnummer: {nummer}")))

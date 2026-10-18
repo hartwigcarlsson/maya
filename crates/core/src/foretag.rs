@@ -556,7 +556,7 @@ pub async fn ändra_första_årets_slut(
     Ok(())
 }
 
-/// Raderar ett företag som saknar räkenskapsinformation (bokförda verifikat; underlag och
+/// Raderar ett företag som saknar räkenskapsinformation (bokförda verifikat och underlag;
 /// fakturor när de finns) med kontoplan, räkenskapsår, utkast, åtkomst och
 /// behandlingshistorik. Raderingen skrivs i installationsloggen som `företag raderat` med
 /// orgnr och namn, aktör och tid, i samma transaktion.
@@ -579,6 +579,11 @@ pub async fn radera(
         .execute(&mut *conn)
         .await?;
     for sql in [
+        // Inga underlag finns (de är räkenskapsinformation), men listan täcker varje tabell
+        // med företagets data.
+        "DELETE FROM underlagskoppling
+         WHERE underlag_id IN (SELECT id FROM underlag WHERE foretag_id = ?1)",
+        "DELETE FROM underlag WHERE foretag_id = ?1",
         "DELETE FROM verifikatrad
          WHERE verifikat_id IN (SELECT id FROM verifikat WHERE foretag_id = ?1)",
         "DELETE FROM verifikat WHERE foretag_id = ?1",
@@ -610,7 +615,7 @@ pub async fn radera(
     Ok(())
 }
 
-/// Om företaget har räkenskapsinformation (bokförda verifikat; underlag och fakturor när de
+/// Om företaget har räkenskapsinformation (bokförda verifikat och underlag; fakturor när de
 /// finns), så att det inte kan raderas.
 pub async fn har_räkenskapsinformation(
     db: &Databas,
@@ -627,7 +632,8 @@ async fn har_räkenskapsinformation_i(
     id: FöretagsId,
 ) -> Result<bool, sqlx::Error> {
     sqlx::query_scalar(
-        "SELECT EXISTS (SELECT 1 FROM verifikat WHERE foretag_id = ? AND bokford IS NOT NULL)",
+        "SELECT EXISTS (SELECT 1 FROM verifikat WHERE foretag_id = ?1 AND bokford IS NOT NULL)
+             OR EXISTS (SELECT 1 FROM underlag WHERE foretag_id = ?1)",
     )
     .bind(id.0)
     .fetch_one(conn)

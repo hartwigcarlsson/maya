@@ -13,6 +13,7 @@ pub mod konto;
 pub mod kontoplan;
 pub mod rapporter;
 pub mod sok;
+pub mod underlag;
 pub mod utskrift;
 pub mod verifikat;
 

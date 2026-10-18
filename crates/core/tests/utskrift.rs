@@ -3,7 +3,7 @@
 
 use maya_core::atkomst::ÅtkomstFel;
 use maya_core::utskrift::{self, UtskriftFel};
-use maya_core::{Databas, Klocka, kontoplan, testhjalp};
+use maya_core::{Databas, Klocka, kontoplan, testhjalp, underlag};
 use maya_domain::kontoplan::Kontonummer;
 use maya_pdf::testhjalp::{innehåller, sidor, är_pdfa_2b};
 
@@ -50,6 +50,50 @@ async fn verifikatet_skrivs_ut_med_rader_historik_och_sidfot() {
     ] {
         assert!(innehåller(&text, väntat), "saknar {väntat:?} i {text}");
     }
+}
+
+#[tokio::test]
+async fn verifikatets_underlag_och_kompletteringar_står_i_förteckningen() {
+    let db = Databas::tillfällig().await;
+    let (anna, företag) = testhjalp::företag(&db).await;
+    let kvitto = underlag::ladda_upp(
+        &db,
+        &klocka(),
+        &anna,
+        företag,
+        "kvitto-mars.pdf",
+        "",
+        b"%PDF-1.7\nkvitto\n",
+    )
+    .await
+    .unwrap();
+    let v = testhjalp::bokför(
+        &db,
+        &anna,
+        företag,
+        "2026-03-14",
+        &[(1930, 1_250_000, 0), (3001, 0, 1_250_000)],
+    )
+    .await;
+    underlag::komplettera(&db, &klocka(), &anna, företag, v.id, kvitto.id)
+        .await
+        .unwrap();
+
+    let pdf = utskrift::verifikat(&db, &klocka(), &anna, företag, v.id)
+        .await
+        .unwrap()
+        .expect("verifikatet finns");
+
+    är_pdfa_2b(&pdf.innehåll);
+    let text = sidor(&pdf.innehåll).concat();
+    for väntat in [
+        "kvitto-mars.pdf",
+        &kvitto.sha256[..16],
+        "Komplettering 2026-10-18 14:34 av anna@example.se",
+    ] {
+        assert!(innehåller(&text, väntat), "saknar {väntat:?} i {text}");
+    }
+    assert!(!innehåller(&text, "Inga underlag"), "{text}");
 }
 
 #[tokio::test]
