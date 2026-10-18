@@ -38,7 +38,7 @@ Status: **ja** = uppfyllt i etappens omfattning, **delvis** = se avvikelserna ne
 | A5 | ja | Nattlig backup med verifiering (`maya/src/backup.rs`, `core::backup`); varning om samma disk | `core/tests/backup.rs::backupen_skriver_databasen_och_ett_manifest_med_kontrollsummorna`; `core/tests/drift.rs::ett_backupmål_på_samma_enhet_som_databasen_ger_en_varning` |
 | A6 | delvis | `docs/drift.md`; arkivplanens plats (`MAYA_ARKIVPLAN_PLATS`) med driftvarning när den saknas | `core/tests/drift.rs::en_arkivplan_utan_land_ger_en_varning` |
 | A7 | ja, genom att Maya inte krypterar | Arkivplanen; `MAYA_ARKIVPLAN_NYCKEL` för ett krypterat backupmål | `core/tests/systemdokumentation.rs::arkivplanen_tar_med_driftens_fritext_ordagrant` |
-| Å1 | delvis | `domain::rakenskapsar::Räkenskapsår::{första, nästa}` | `domain/tests/rakenskapsar.rs::det_första_året_är_högst_18_månader` |
+| Å1 | ja | `domain::rakenskapsar::Räkenskapsår::{första, nästa}` | `domain/tests/rakenskapsar.rs::{det_första_året_är_högst_18_månader, det_första_året_är_minst_en_månad}` |
 | Å2 | ja | M `…151400_ingaende_balans.sql`; `core::ingaende_balans` (första året) | `core/tests/ingaende_balans.rs::första_årets_ingående_balans_skrivs_in_och_läses_tillbaka` |
 | Å5 | ja | Allt Maya genererar är på svenska (`lang="sv"`, Typst-mallarna, CLI) | `web/tests/router.rs::startsidan_ar_en_svensk_leptos_sida_med_hydrering` |
 
@@ -50,12 +50,11 @@ Uppskjutna till en senare etapp, med ett öppet issue:
 
 - **VF2**: verifikatet har inget fält för motpart. Motparten finns bara i underlaget. Motpart ur kund- och leverantörsregistret kommer i etapp 2 ([#93](https://github.com/hartwigcarlsson/maya/issues/93)).
 - **S6**: systemdokumentationen är versionerad med en ändringslogg per release, men arkiveras inte. Det frysta exemplaret i årsarkivet kommer i etapp 5 ([#96](https://github.com/hartwigcarlsson/maya/issues/96)).
-- **A1**: inget bokfört raderas, men det finns ingen sjuårsregel. Ett företag utan bokförda verifikat och underlag kan raderas, med sin ingående balans, kontoplan och behandlingshistorik. Årsarkiven som aldrig rensas kommer i etapp 5 ([#96](https://github.com/hartwigcarlsson/maya/issues/96)).
+- **A1**: inget bokfört raderas, men det finns ingen sjuårsregel. Ett företag utan bokförda verifikat, underlag och ingående balans kan raderas, med sin kontoplan och behandlingshistorik; schemat nekar radering av ett företag med räkenskapsinformation. Årsarkiven som aldrig rensas kommer i etapp 5 ([#96](https://github.com/hartwigcarlsson/maya/issues/96)).
 
 Inte uppfyllda, utan issue:
 
 - **L2 och T1**: Att göra varnar för kontantfristen och 50 dagar, men inget låses eller bokförs när fristen har gått ut. Att låsningen sker i tid hänger på användaren.
-- **Å1**: det första räkenskapsåret kontrolleras mot högst 18 månader men inte mot minst en månad. Ett första år på en enda dag (start och slut 31 oktober) godtas.
 - **A6**: att data och backup förvaras i Sverige är bara dokumenterat (`docs/drift.md`, arkivplanen). Inget kontrollerar var ett S3-mål ligger.
 - **A7**: uppfyllt bara för att Maya inte krypterar något. Nyckeln till ett krypterat backupmål är fritext i arkivplanen, och ingen kontroll görs av att den finns.
 

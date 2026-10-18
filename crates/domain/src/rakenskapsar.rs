@@ -28,6 +28,7 @@ pub enum RäkenskapsårsFel {
     SlutFöreStart,
     SlutInteMånadsslut,
     FörLångt,
+    FörKort,
 }
 
 impl RäkenskapsårsFel {
@@ -36,6 +37,7 @@ impl RäkenskapsårsFel {
             RäkenskapsårsFel::SlutFöreStart => "ar_slut_fore_start",
             RäkenskapsårsFel::SlutInteMånadsslut => "ar_slut_manadsslut",
             RäkenskapsårsFel::FörLångt => "ar_for_langt",
+            RäkenskapsårsFel::FörKort => "ar_for_kort",
         }
     }
 
@@ -44,6 +46,7 @@ impl RäkenskapsårsFel {
             RäkenskapsårsFel::SlutFöreStart,
             RäkenskapsårsFel::SlutInteMånadsslut,
             RäkenskapsårsFel::FörLångt,
+            RäkenskapsårsFel::FörKort,
         ]
         .into_iter()
         .find(|f| f.kod() == kod)
@@ -60,6 +63,7 @@ impl fmt::Display for RäkenskapsårsFel {
             RäkenskapsårsFel::FörLångt => {
                 "Det första räkenskapsåret får vara högst 18 månader."
             }
+            RäkenskapsårsFel::FörKort => "Det första räkenskapsåret måste vara minst en månad.",
         })
     }
 }
@@ -80,6 +84,14 @@ impl Räkenskapsår {
             + 1;
         if månader > FÖRSTA_ÅRET_HÖGST_MÅNADER {
             return Err(RäkenskapsårsFel::FörLångt);
+        }
+        // Minst en månad (BFL 3:3): slutet ligger minst en månad minus en dag efter starten.
+        let tidigaste_slut = start
+            .checked_add(jiff::Span::new().months(1))
+            .and_then(|d| d.yesterday())
+            .expect("ett datum en månad fram");
+        if slut < tidigaste_slut {
+            return Err(RäkenskapsårsFel::FörKort);
         }
         Ok(Räkenskapsår { start, slut })
     }

@@ -53,6 +53,26 @@ fn det_första_året_är_högst_18_månader() {
 }
 
 #[test]
+fn det_första_året_är_minst_en_månad() {
+    // BFL 3:3: mellan en och arton månader.
+    assert!(år(date(2026, 10, 1), date(2026, 10, 31)).is_ok());
+    assert!(år(date(2026, 10, 15), date(2026, 11, 30)).is_ok());
+    assert_eq!(
+        år(date(2026, 10, 31), date(2026, 10, 31)),
+        Err(RäkenskapsårsFel::FörKort)
+    );
+    assert_eq!(
+        år(date(2026, 10, 15), date(2026, 10, 31)),
+        Err(RäkenskapsårsFel::FörKort)
+    );
+    assert_eq!(RäkenskapsårsFel::FörKort.kod(), "ar_for_kort");
+    assert_eq!(
+        RäkenskapsårsFel::från_kod("ar_for_kort"),
+        Some(RäkenskapsårsFel::FörKort)
+    );
+}
+
+#[test]
 fn året_kan_inte_sluta_före_starten() {
     assert_eq!(
         år(date(2026, 7, 1), date(2026, 6, 30)),
