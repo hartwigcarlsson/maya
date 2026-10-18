@@ -14,105 +14,67 @@ use crate::atkomst::{self, ÅtkomstFel};
 use crate::foretag::FöretagsId;
 use crate::{Databas, DatabasFel};
 
-/// Händelsetyperna i behandlingshistoriken. Lägg till nya här.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Händelse {
-    FöretagSkapat,
-    FöretagÄndrat,
-    KontoSkapat,
-    KontoNamnbytt,
-    KontoAktiverat,
-    KontoInaktiverat,
-    BasTillägg,
-    RäkenskapsårSkapat,
-    RäkenskapsårÄndrat,
-    BokföringsmetodBytt,
-    MomsperiodBytt,
-    VerifikatBokfört,
-    VerifikatRättat,
-    UtkastRaderat,
-    IngåendeBalansÄndrad,
-    UnderlagUppladdat,
-    UnderlagBorttaget,
-    VerifikatKompletterat,
-    ÅtkomstGiven,
-    ÅtkomstTagen,
-    AnvändareAvaktiverad,
-    InbjudanSkapad,
-    InbjudanAnvänd,
-    Sie4Exporterad,
-    ÅterställningGjord,
-    MigreringKörd,
-    MigreringMisslyckad,
-    ProgramversionBytt,
+/// Händelsetyperna i behandlingshistoriken, med namnet som står i `typ`. Lägg till nya här:
+/// varianten, [`Händelse::ALLA`], [`Händelse::namn`] och [`Händelse::från_namn`] följer med.
+macro_rules! händelser {
+    ($($variant:ident => $namn:literal,)*) => {
+        /// En typ av post i behandlingshistoriken.
+        #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+        pub enum Händelse {
+            $($variant,)*
+        }
+
+        impl Händelse {
+            /// Alla typer. Testet som kör varje typ genom `core` kräver en kodväg för var och en.
+            pub const ALLA: &[Händelse] = &[$(Händelse::$variant,)*];
+
+            pub fn namn(self) -> &'static str {
+                match self {
+                    $(Händelse::$variant => $namn,)*
+                }
+            }
+
+            /// Typen med namnet `namn`, eller `None` för ett namn som den här versionen inte
+            /// känner till.
+            pub fn från_namn(namn: &str) -> Option<Händelse> {
+                match namn {
+                    $($namn => Some(Händelse::$variant),)*
+                    _ => None,
+                }
+            }
+        }
+    };
 }
 
-impl Händelse {
-    /// Alla typer som har en kodväg. En ny typ läggs till här också, så att testet som kör
-    /// varje typ genom `core` måste få en kodväg för den.
-    pub const ALLA: [Händelse; 28] = [
-        Händelse::FöretagSkapat,
-        Händelse::FöretagÄndrat,
-        Händelse::KontoSkapat,
-        Händelse::KontoNamnbytt,
-        Händelse::KontoAktiverat,
-        Händelse::KontoInaktiverat,
-        Händelse::BasTillägg,
-        Händelse::RäkenskapsårSkapat,
-        Händelse::RäkenskapsårÄndrat,
-        Händelse::BokföringsmetodBytt,
-        Händelse::MomsperiodBytt,
-        Händelse::VerifikatBokfört,
-        Händelse::VerifikatRättat,
-        Händelse::UtkastRaderat,
-        Händelse::IngåendeBalansÄndrad,
-        Händelse::UnderlagUppladdat,
-        Händelse::UnderlagBorttaget,
-        Händelse::VerifikatKompletterat,
-        Händelse::ÅtkomstGiven,
-        Händelse::ÅtkomstTagen,
-        Händelse::AnvändareAvaktiverad,
-        Händelse::InbjudanSkapad,
-        Händelse::InbjudanAnvänd,
-        Händelse::Sie4Exporterad,
-        Händelse::ÅterställningGjord,
-        Händelse::MigreringKörd,
-        Händelse::MigreringMisslyckad,
-        Händelse::ProgramversionBytt,
-    ];
-
-    pub fn namn(self) -> &'static str {
-        match self {
-            Händelse::FöretagSkapat => "företag skapat",
-            Händelse::FöretagÄndrat => "företag ändrat",
-            Händelse::KontoSkapat => "konto skapat",
-            Händelse::KontoNamnbytt => "konto namnbytt",
-            Händelse::KontoAktiverat => "konto aktiverat",
-            Händelse::KontoInaktiverat => "konto inaktiverat",
-            Händelse::BasTillägg => "BAS-tillägg",
-            Händelse::RäkenskapsårSkapat => "räkenskapsår skapat",
-            Händelse::RäkenskapsårÄndrat => "räkenskapsår ändrat",
-            Händelse::BokföringsmetodBytt => "bokföringsmetod bytt",
-            Händelse::MomsperiodBytt => "momsperiod bytt",
-            Händelse::VerifikatBokfört => "verifikat bokfört",
-            Händelse::VerifikatRättat => "verifikat rättat",
-            Händelse::UtkastRaderat => "utkast raderat",
-            Händelse::IngåendeBalansÄndrad => "ingående balans ändrad",
-            Händelse::UnderlagUppladdat => "underlag uppladdat",
-            Händelse::UnderlagBorttaget => "underlag borttaget",
-            Händelse::VerifikatKompletterat => "verifikat kompletterat",
-            Händelse::ÅtkomstGiven => "åtkomst given",
-            Händelse::ÅtkomstTagen => "åtkomst tagen",
-            Händelse::AnvändareAvaktiverad => "användare avaktiverad",
-            Händelse::InbjudanSkapad => "inbjudan skapad",
-            Händelse::InbjudanAnvänd => "inbjudan använd",
-            Händelse::Sie4Exporterad => "SIE4 exporterad",
-            Händelse::ÅterställningGjord => "återställning gjord",
-            Händelse::MigreringKörd => "migrering körd",
-            Händelse::MigreringMisslyckad => "migrering misslyckad",
-            Händelse::ProgramversionBytt => "programversion bytt",
-        }
-    }
+händelser! {
+    FöretagSkapat => "företag skapat",
+    FöretagÄndrat => "företag ändrat",
+    KontoSkapat => "konto skapat",
+    KontoNamnbytt => "konto namnbytt",
+    KontoAktiverat => "konto aktiverat",
+    KontoInaktiverat => "konto inaktiverat",
+    BasTillägg => "BAS-tillägg",
+    RäkenskapsårSkapat => "räkenskapsår skapat",
+    RäkenskapsårÄndrat => "räkenskapsår ändrat",
+    BokföringsmetodBytt => "bokföringsmetod bytt",
+    MomsperiodBytt => "momsperiod bytt",
+    VerifikatBokfört => "verifikat bokfört",
+    VerifikatRättat => "verifikat rättat",
+    UtkastRaderat => "utkast raderat",
+    IngåendeBalansÄndrad => "ingående balans ändrad",
+    UnderlagUppladdat => "underlag uppladdat",
+    UnderlagBorttaget => "underlag borttaget",
+    VerifikatKompletterat => "verifikat kompletterat",
+    ÅtkomstGiven => "åtkomst given",
+    ÅtkomstTagen => "åtkomst tagen",
+    AnvändareAvaktiverad => "användare avaktiverad",
+    InbjudanSkapad => "inbjudan skapad",
+    InbjudanAnvänd => "inbjudan använd",
+    Sie4Exporterad => "SIE4 exporterad",
+    ÅterställningGjord => "återställning gjord",
+    MigreringKörd => "migrering körd",
+    MigreringMisslyckad => "migrering misslyckad",
+    ProgramversionBytt => "programversion bytt",
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -328,8 +290,11 @@ impl Post {
             Momsperiod::från_kod(&s(kod)).map_or_else(|| s(kod), |m| m.namn().to_lowercase())
         };
         let kronor = |öre: &Value| Saldo::från_öre(öre.as_i64().unwrap_or_default()).to_string();
-        match self.typ.as_str() {
-            "företag skapat" => format!(
+        let Some(händelse) = Händelse::från_namn(&self.typ) else {
+            return fält_som_text(b);
+        };
+        match händelse {
+            Händelse::FöretagSkapat => format!(
                 "{} upplagt: räkenskapsår {} – {}, {}, momsperiod {}, kontoplan {}",
                 f("namn"),
                 s(&b["första_räkenskapsår"]["start"]),
@@ -338,7 +303,7 @@ impl Post {
                 moms(&b["momsperiod"]),
                 f("kontoplan"),
             ),
-            "företag ändrat" => b
+            Händelse::FöretagÄndrat => b
                 .as_object()
                 .map(|fält| {
                     fält
@@ -350,31 +315,31 @@ impl Post {
                         .join("; ")
                 })
                 .unwrap_or_default(),
-            "räkenskapsår skapat" => {
+            Händelse::RäkenskapsårSkapat => {
                 let mut skäl = f("skäl");
                 if let Some(först) = skäl.chars().next() {
                     skäl.replace_range(..först.len_utf8(), &först.to_uppercase().to_string());
                 }
                 skäl
             }
-            "räkenskapsår ändrat" => format!(
+            Händelse::RäkenskapsårÄndrat => format!(
                 "Slutet ändrat från {} till {}",
                 s(&b["slut"]["från"]),
                 s(&b["slut"]["till"])
             ),
-            "bokföringsmetod bytt" => format!(
+            Händelse::BokföringsmetodBytt => format!(
                 "Från {} till {} fr.o.m. {}",
                 metod(&b["från"]),
                 metod(&b["till"]),
                 f("gäller_från")
             ),
-            "momsperiod bytt" => format!(
+            Händelse::MomsperiodBytt => format!(
                 "Från {} till {} fr.o.m. {}",
                 moms(&b["från"]),
                 moms(&b["till"]),
                 f("gäller_från")
             ),
-            "ingående balans ändrad" => b["ändringar"]
+            Händelse::IngåendeBalansÄndrad => b["ändringar"]
                 .as_array()
                 .map(|ä| {
                     ä.iter()
@@ -390,13 +355,13 @@ impl Post {
                         .join("; ")
                 })
                 .unwrap_or_default(),
-            "konto skapat" => format!("Eget konto ”{}”", f("namn")),
-            "konto namnbytt" => {
+            Händelse::KontoSkapat => format!("Eget konto ”{}”", f("namn")),
+            Händelse::KontoNamnbytt => {
                 format!("Namn ändrat från ”{}” till ”{}”", f("från"), f("till"))
             }
-            "konto aktiverat" => "Aktiverat".into(),
-            "konto inaktiverat" => "Inaktiverat".into(),
-            "BAS-tillägg" => {
+            Händelse::KontoAktiverat => "Aktiverat".into(),
+            Händelse::KontoInaktiverat => "Inaktiverat".into(),
+            Händelse::BasTillägg => {
                 let konton: Vec<String> = b["konton"]
                     .as_array()
                     .map(|k| k.iter().map(s).collect())
@@ -408,30 +373,30 @@ impl Post {
                 };
                 format!("{antal}: {}", konton.join(", "))
             }
-            "verifikat bokfört" => format!(
+            Händelse::VerifikatBokfört => format!(
                 "{} ”{}”, {} rader",
                 f("datum"),
                 f("beskrivning"),
                 b["rader"].as_array().map_or(0, Vec::len)
             ),
-            "utkast raderat" => format!(
+            Händelse::UtkastRaderat => format!(
                 "Utkast daterat {}, {} rader",
                 f("datum"),
                 s(&b["antal_rader"])
             ),
-            "underlag uppladdat" => format!(
+            Händelse::UnderlagUppladdat => format!(
                 "”{}” uppladdat, {}, {} byte",
                 f("filnamn"),
                 f("mime"),
                 s(&b["storlek"])
             ),
-            "underlag borttaget" => format!(
+            Händelse::UnderlagBorttaget => format!(
                 "”{}” borttaget, {}, {} byte",
                 f("filnamn"),
                 f("mime"),
                 s(&b["storlek"])
             ),
-            "verifikat rättat" => {
+            Händelse::VerifikatRättat => {
                 let mut text = format!(
                     "Rättat av {} daterad {}",
                     s(&b["rättelse"]["nummer"]),
@@ -445,27 +410,29 @@ impl Post {
                 }
                 text
             }
-            "verifikat kompletterat" => {
+            Händelse::VerifikatKompletterat => {
                 format!("Kompletterat med underlaget ”{}”", f("filnamn"))
             }
-            "åtkomst given" => format!("Åtkomst till företaget för {}", f("epost")),
-            "åtkomst tagen" => format!("Åtkomsten till företaget borttagen för {}", f("epost")),
-            "användare avaktiverad" => format!(
+            Händelse::ÅtkomstGiven => format!("Åtkomst till företaget för {}", f("epost")),
+            Händelse::ÅtkomstTagen => {
+                format!("Åtkomsten till företaget borttagen för {}", f("epost"))
+            }
+            Händelse::AnvändareAvaktiverad => format!(
                 "{} avaktiverad: kan inte logga in, åtkomsten står kvar",
                 f("epost")
             ),
-            "inbjudan skapad" => {
+            Händelse::InbjudanSkapad => {
                 let giltig = f("giltig_till");
                 let giltig = giltig
                     .parse::<Timestamp>()
                     .map_or(giltig, maya_domain::tid::minut);
                 format!("Inbjudan till {}, giltig till {giltig}", f("epost"))
             }
-            "inbjudan använd" => format!("{} registrerade sig med inbjudan", f("epost")),
-            "SIE4 exporterad" => {
+            Händelse::InbjudanAnvänd => format!("{} registrerade sig med inbjudan", f("epost")),
+            Händelse::Sie4Exporterad => {
                 format!("{}, {} verifikat", f("filnamn"), s(&b["antal_verifikat"]))
             }
-            "återställning gjord" => {
+            Händelse::ÅterställningGjord => {
                 let backup_tid = f("backup_tid");
                 let backup_tid = backup_tid
                     .parse::<Timestamp>()
@@ -475,7 +442,7 @@ impl Post {
                      registrerades efter den måste registreras om"
                 )
             }
-            "migrering körd" | "migrering misslyckad" => {
+            Händelse::MigreringKörd | Händelse::MigreringMisslyckad => {
                 let migreringar: Vec<String> = b["migreringar"]
                     .as_array()
                     .map(|m| {
@@ -492,7 +459,7 @@ impl Post {
                     Value::Null => String::new(),
                     v => format!(", backup {}", s(v)),
                 };
-                let utfall = if self.typ == "migrering körd" {
+                let utfall = if händelse == Händelse::MigreringKörd {
                     format!("kontrollsummorna {}", f("kontrollsummor"))
                 } else {
                     format!(
@@ -506,14 +473,13 @@ impl Post {
                     migreringar.join(", "),
                 )
             }
-            "programversion bytt" => {
+            Händelse::ProgramversionBytt => {
                 let från = match &b["från"] {
                     Value::Null => "okänd version".to_string(),
                     v => s(v),
                 };
                 format!("Från {från} till {}", f("till"))
             }
-            _ => fält_som_text(b),
         }
     }
 
