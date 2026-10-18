@@ -3,8 +3,10 @@
 #
 #   docker compose -f compose.traefik-extern.yaml up -d
 #
-# Sätt MAYA_TRUSTED_PROXY i .env till Traefiks adress (eller nätverkets nätblock), annars
-# ignorerar Maya X-Forwarded-For. Se docs/drift.md.
+# MAYA_TRUSTED_PROXY nedan är Traefiks nätverk som exempel (Dockers standardnät för ett
+# externt nätverk börjar ofta på 172.18.0.0/16). Sätt den i .env till Traefiks adress eller
+# nätverkets nätblock (`docker network inspect traefik`), annars ignorerar Maya
+# X-Forwarded-For. Se docs/drift.md.
 
 name: maya
 
@@ -16,6 +18,8 @@ services:
     environment:
       MAYA_DATA_DIR: /data
       MAYA_LISTEN: 0.0.0.0:8080
+      # Bara Traefik får ange klientens adress i X-Forwarded-For.
+      MAYA_TRUSTED_PROXY: ${MAYA_TRUSTED_PROXY:-172.18.0.0/16}
     volumes:
       - maya-data:/data
       - ${MAYA_BACKUP_HOST_DIR:-./backup}:/backup
