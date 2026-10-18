@@ -13,6 +13,10 @@ use crate::{Databas, DatabasFel};
 pub enum Händelse {
     AnvändareSkapad,
     FöretagRaderat,
+    AnvändareÅterställd,
+    AnvändareAvaktiverad,
+    AnvändareÅteraktiverad,
+    DomänBytt,
 }
 
 impl Händelse {
@@ -20,6 +24,10 @@ impl Händelse {
         match self {
             Händelse::AnvändareSkapad => "användare skapad",
             Händelse::FöretagRaderat => "företag raderat",
+            Händelse::AnvändareÅterställd => "användare återställd",
+            Händelse::AnvändareAvaktiverad => "användare avaktiverad",
+            Händelse::AnvändareÅteraktiverad => "användare återaktiverad",
+            Händelse::DomänBytt => "domän bytt",
         }
     }
 }

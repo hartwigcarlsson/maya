@@ -27,16 +27,15 @@
     return json;
   };
 
-  const registrera = async (form) => {
-    const { ceremoni, utmaning } = await skicka("/auth/registrering/start", {
-      token: form.dataset.token,
-    });
+  // Skapar en passkey: `start` ger en utmaning, `slutför` tar emot den nya passkeyn.
+  const skapa = async (form, start, slutför, data) => {
+    const { ceremoni, utmaning } = await skicka(start, data);
     const val = utmaning.publicKey;
     val.challenge = avkoda(val.challenge);
     val.user.id = avkoda(val.user.id);
     for (const c of val.excludeCredentials || []) c.id = avkoda(c.id);
     const kred = await navigator.credentials.create({ publicKey: val });
-    await skicka("/auth/registrering/slutfor", {
+    await skicka(slutför, {
       ceremoni,
       namn: new FormData(form).get("namn") || "",
       svar: {
@@ -53,15 +52,14 @@
     });
   };
 
-  const loggaIn = async (form) => {
-    const { ceremoni, utmaning } = await skicka("/auth/inloggning/start", {
-      epost: new FormData(form).get("epost") || "",
-    });
+  // Använder en passkey: `start` ger en utmaning, `slutför` verifierar svaret.
+  const använd = async (start, slutför, data) => {
+    const { ceremoni, utmaning } = await skicka(start, data);
     const val = utmaning.publicKey;
     val.challenge = avkoda(val.challenge);
     for (const c of val.allowCredentials || []) c.id = avkoda(c.id);
     const kred = await navigator.credentials.get({ publicKey: val });
-    await skicka("/auth/inloggning/slutfor", {
+    await skicka(slutför, {
       ceremoni,
       svar: {
         id: kred.id,
@@ -78,7 +76,21 @@
     });
   };
 
-  const flöden = { registrera, "logga-in": loggaIn };
+  const flöden = {
+    // Registrerings- och återställningslänkarna från CLI:t.
+    registrera: (form) =>
+      skapa(form, "/auth/registrering/start", "/auth/registrering/slutfor", {
+        token: form.dataset.token,
+      }),
+    "logga-in": (form) =>
+      använd("/auth/inloggning/start", "/auth/inloggning/slutfor", {
+        epost: new FormData(form).get("epost") || "",
+      }),
+    // En inloggad användare lägger till en passkey.
+    "lagg-till": (form) => skapa(form, "/auth/passkey/start", "/auth/passkey/slutfor", {}),
+    // En inloggad användare använder sin passkey så att den blir färsk.
+    bekrafta: () => använd("/auth/bekraftelse/start", "/auth/bekraftelse/slutfor", {}),
+  };
   // Röktestet väntar på det här innan det klickar.
   document.documentElement.dataset.passkeyShim = "klar";
 
@@ -94,7 +106,7 @@
     try {
       if (!window.PublicKeyCredential) throw new Error("webbläsaren stöder inte passkeys");
       await flöde(form);
-      window.location.assign("/");
+      window.location.assign(form.dataset.efter || "/");
     } catch (e) {
       if (fel) {
         fel.textContent =
