@@ -1,0 +1,147 @@
+/*
+ * Mayas skal: shadcn-presetet b1Gdz9bFY (Mira, Stone, Amber, Inter, Lucide, liten radie).
+ * Tokens som CSS-variabler i shadcn:s namn, ljust och mörkt läge enligt systemet med manuell
+ * växling via data-theme på <html>.
+ */
+
+:root {
+  --radius: 0.375rem;
+  --background: oklch(1 0 0);
+  --foreground: oklch(0.147 0.004 49.25);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.147 0.004 49.25);
+  --muted: oklch(0.97 0.001 106.424);
+  --muted-foreground: oklch(0.553 0.013 58.071);
+  --accent: oklch(0.97 0.001 106.424);
+  --accent-foreground: oklch(0.216 0.006 56.043);
+  --primary: oklch(0.666 0.179 58.318);
+  --primary-foreground: oklch(0.987 0.022 95.277);
+  --destructive: oklch(0.577 0.245 27.325);
+  --border: oklch(0.923 0.003 48.717);
+  --input: oklch(0.923 0.003 48.717);
+  --ring: oklch(0.709 0.01 56.259);
+
+  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --text: 13px;
+  --control-height: 28px;
+
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --background: oklch(0.147 0.004 49.25);
+    --foreground: oklch(0.985 0.001 106.423);
+    --card: oklch(0.216 0.006 56.043);
+    --card-foreground: oklch(0.985 0.001 106.423);
+    --muted: oklch(0.268 0.007 34.298);
+    --muted-foreground: oklch(0.709 0.01 56.259);
+    --accent: oklch(0.268 0.007 34.298);
+    --accent-foreground: oklch(0.985 0.001 106.423);
+    --primary: oklch(0.769 0.188 70.08);
+    --primary-foreground: oklch(0.279 0.077 45.635);
+    --destructive: oklch(0.704 0.191 22.216);
+    --border: oklch(1 0 0 / 10%);
+    --input: oklch(1 0 0 / 15%);
+    --ring: oklch(0.553 0.013 58.071);
+    color-scheme: dark;
+  }
+}
+
+:root[data-theme="dark"] {
+  --background: oklch(0.147 0.004 49.25);
+  --foreground: oklch(0.985 0.001 106.423);
+  --card: oklch(0.216 0.006 56.043);
+  --card-foreground: oklch(0.985 0.001 106.423);
+  --muted: oklch(0.268 0.007 34.298);
+  --muted-foreground: oklch(0.709 0.01 56.259);
+  --accent: oklch(0.268 0.007 34.298);
+  --accent-foreground: oklch(0.985 0.001 106.423);
+  --primary: oklch(0.769 0.188 70.08);
+  --primary-foreground: oklch(0.279 0.077 45.635);
+  --destructive: oklch(0.704 0.191 22.216);
+  --border: oklch(1 0 0 / 10%);
+  --input: oklch(1 0 0 / 15%);
+  --ring: oklch(0.553 0.013 58.071);
+  color-scheme: dark;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans);
+  font-size: var(--text);
+  line-height: 1.5;
+}
+
+a {
+  color: inherit;
+}
+
+.toppmeny {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  height: 44px;
+  padding: 0 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.logotyp {
+  font-weight: 600;
+  text-decoration: none;
+}
+
+main {
+  padding: 24px 16px;
+}
+
+.tom-sida {
+  max-width: 40rem;
+  margin: 4rem auto;
+  text-align: center;
+}
+
+.tom-sida h1 {
+  font-size: 20px;
+  font-weight: 600;
+  margin: 0 0 0.5rem;
+}
+
+.tom-sida p {
+  color: var(--muted-foreground);
+  margin: 0;
+}
+
+.knapp {
+  height: var(--control-height);
+  padding: 0 10px;
+  border: 1px solid var(--input);
+  border-radius: var(--radius);
+  background: var(--background);
+  color: var(--foreground);
+  font: inherit;
+  cursor: pointer;
+}
+
+.knapp:hover {
+  background: var(--accent);
+  color: var(--accent-foreground);
+}
+
+.knapp:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 1px;
+}
+
+.knapp-diskret {
+  border-color: transparent;
+}

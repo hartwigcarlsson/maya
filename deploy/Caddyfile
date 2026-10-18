@@ -1,0 +1,8 @@
+# Caddy framför Maya. Caddy skaffar certifikatet själv och skickar Host oförändrad.
+{$MAYA_DOMAIN} {
+	encode zstd gzip
+	reverse_proxy maya:8080 {
+		# Ingen buffring, så att server-sent events når webbläsaren direkt.
+		flush_interval -1
+	}
+}

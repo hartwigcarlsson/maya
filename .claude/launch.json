@@ -6,6 +6,18 @@
       "runtimeExecutable": "python3",
       "runtimeArgs": ["-m", "http.server", "8724", "--directory", "prototypes"],
       "port": 8724
+    },
+    {
+      "name": "maya",
+      "runtimeExecutable": "env",
+      "runtimeArgs": [
+        "MAYA_PUBLIC_URL=http://localhost:3102",
+        "MAYA_LISTEN=127.0.0.1:3102",
+        "MAYA_DATA_DIR=target/dev/data",
+        "MAYA_BACKUP_DIR=target/dev/backup",
+        "cargo", "leptos", "watch"
+      ],
+      "port": 3102
     }
   ]
 }

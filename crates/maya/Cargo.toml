@@ -1,0 +1,23 @@
+[package]
+name = "maya"
+description = "Binären: `maya serve` och CLI:t."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+maya-core.workspace = true
+maya-web = { workspace = true, features = ["ssr"] }
+axum.workspace = true
+clap.workspace = true
+dotenvy.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[lints]
+workspace = true
