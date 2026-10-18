@@ -12,6 +12,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::app::{LoggaIn, Läge};
 use crate::foretag::{FöretagVy, IngenÅtkomst};
+use crate::installningar::Inställningsmeny;
 use crate::utskrift::Utskrift;
 
 /// Fliken: aktiva (standard), alla eller inaktiva konton.
@@ -321,8 +322,10 @@ pub fn KontoplanSida() -> impl IntoView {
     let href = sida.sida();
     let aktiva = sida.antal.aktiva;
     let alla = sida.antal.alla;
+    let bas = sida.företag.href();
     view! {
         <section class="sida kontoplan">
+            <Inställningsmeny bas=bas aktiv="/kontoplan" />
             <div class="sidhuvud">
                 <div>
                     <h1>"Kontoplan"</h1>

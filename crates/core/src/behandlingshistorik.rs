@@ -14,28 +14,38 @@ use crate::{Databas, DatabasFel};
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Händelse {
     FöretagSkapat,
+    FöretagÄndrat,
     KontoSkapat,
     KontoNamnbytt,
     KontoAktiverat,
     KontoInaktiverat,
     BasTillägg,
     RäkenskapsårSkapat,
+    RäkenskapsårÄndrat,
+    BokföringsmetodBytt,
+    MomsperiodBytt,
     VerifikatBokfört,
     UtkastRaderat,
+    IngåendeBalansÄndrad,
 }
 
 impl Händelse {
     pub fn namn(self) -> &'static str {
         match self {
             Händelse::FöretagSkapat => "företag skapat",
+            Händelse::FöretagÄndrat => "företag ändrat",
             Händelse::KontoSkapat => "konto skapat",
             Händelse::KontoNamnbytt => "konto namnbytt",
             Händelse::KontoAktiverat => "konto aktiverat",
             Händelse::KontoInaktiverat => "konto inaktiverat",
             Händelse::BasTillägg => "BAS-tillägg",
             Händelse::RäkenskapsårSkapat => "räkenskapsår skapat",
+            Händelse::RäkenskapsårÄndrat => "räkenskapsår ändrat",
+            Händelse::BokföringsmetodBytt => "bokföringsmetod bytt",
+            Händelse::MomsperiodBytt => "momsperiod bytt",
             Händelse::VerifikatBokfört => "verifikat bokfört",
             Händelse::UtkastRaderat => "utkast raderat",
+            Händelse::IngåendeBalansÄndrad => "ingående balans ändrad",
         }
     }
 }
