@@ -66,7 +66,7 @@ fn dagar(från: Date, antal: i64) -> Vec<Timestamp> {
 fn gallringen_behåller_sju_dagliga_och_tolv_månatliga() {
     // En backup per natt i två år, 2025-01-01 – 2026-12-31.
     let alla = dagar(date(2025, 1, 1), 730);
-    let gallras = att_gallra(&alla);
+    let gallras = att_gallra(&alla, &[]);
     let kvar: Vec<Date> = alla
         .iter()
         .filter(|t| !gallras.contains(t))
@@ -83,12 +83,40 @@ fn gallringen_behåller_den_senaste_backupen_per_dag_och_räknar_dagar_i_stockho
     let a = ts("2026-01-01T02:00:00Z");
     let b = ts("2026-01-01T12:00:00Z");
     let c = ts("2025-12-31T23:30:00Z");
-    let gallras = att_gallra(&[a, b, c]);
+    let gallras = att_gallra(&[a, b, c], &[]);
     assert_eq!(gallras, vec![c, a]);
 }
 
 #[test]
 fn gallringen_rör_inget_när_det_finns_färre_än_sju() {
-    assert!(att_gallra(&dagar(date(2026, 5, 1), 7)).is_empty());
-    assert!(att_gallra(&[]).is_empty());
+    assert!(att_gallra(&dagar(date(2026, 5, 1), 7), &[]).is_empty());
+    assert!(att_gallra(&[], &[]).is_empty());
+}
+
+#[test]
+fn backuper_vars_verifiering_misslyckades_tar_ingen_plats_i_gallringen() {
+    // 20 nätter i rad; verifieringen misslyckades de sista tio nätterna utom den sista.
+    let alla = dagar(date(2026, 9, 1), 20);
+    let misslyckade: Vec<Timestamp> = alla[10..19].to_vec();
+    let gallras = att_gallra(&alla, &misslyckade);
+    let kvar: Vec<Date> = alla
+        .iter()
+        .filter(|t| !gallras.contains(t))
+        .map(|t| maya_domain::tid::datum(*t))
+        .collect();
+    // De sju dagliga är de sju senaste godkända: 20 september och 5–10 september. De
+    // misslyckade gallras, eftersom en nyare godkänd finns.
+    let mut väntat: Vec<Date> = (5..=10).map(|d| date(2026, 9, d)).collect();
+    väntat.push(date(2026, 9, 20));
+    assert_eq!(kvar, väntat);
+}
+
+#[test]
+fn en_misslyckad_backup_nyare_än_alla_godkända_gallras_inte() {
+    let alla = dagar(date(2026, 9, 1), 10);
+    let misslyckade = vec![alla[9]];
+    let gallras = att_gallra(&alla, &misslyckade);
+    assert!(!gallras.contains(&alla[9]));
+    // Den sista godkända dagliga är fortfarande sju godkända tillbaka.
+    assert_eq!(gallras, alla[..2].to_vec());
 }

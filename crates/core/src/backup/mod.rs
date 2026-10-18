@@ -194,7 +194,7 @@ pub async fn ta_backup(
 
     let verifiering =
         verifiera_utan_kontroll(db, klocka, aktör, mål, &backup, arbetskatalog).await?;
-    let gallrade = gallra(mål).await?;
+    let gallrade = gallra(db, mål).await?;
     Ok(Backupresultat {
         backup,
         verifiering,
@@ -471,11 +471,26 @@ pub async fn hämta(mål: &Backupmål, namn: &str, katalog: &Path) -> Result<Pat
 
 /// Gallrar enligt [`maya_domain::backup::att_gallra`] och tar bort databasfiler utan manifest
 /// (från backuper som avbröts).
-async fn gallra(mål: &Backupmål) -> Result<Vec<Backup>, BackupFel> {
+async fn gallra(db: &Databas, mål: &Backupmål) -> Result<Vec<Backup>, BackupFel> {
     let filer = mål.lista(PREFIX).await?;
     let backuper = lista(mål).await?;
     let tider: Vec<Timestamp> = backuper.iter().map(|b| b.tid).collect();
-    let gallras: Vec<Backup> = maya_domain::backup::att_gallra(&tider)
+    // En backup vars senaste verifiering misslyckades tar ingen plats bland dem som sparas.
+    let misslyckade_namn: Vec<String> = sqlx::query_scalar(
+        "SELECT k.backup FROM backupkorning k
+         WHERE k.typ = 'verifiering' AND k.backup IS NOT NULL AND k.lyckades = 0
+           AND k.id = (SELECT max(id) FROM backupkorning
+                       WHERE typ = 'verifiering' AND backup = k.backup)",
+    )
+    .fetch_all(db.pool())
+    .await
+    .map_err(DatabasFel::from)?;
+    let misslyckade: Vec<Timestamp> = backuper
+        .iter()
+        .filter(|b| misslyckade_namn.contains(&b.namn))
+        .map(|b| b.tid)
+        .collect();
+    let gallras: Vec<Backup> = maya_domain::backup::att_gallra(&tider, &misslyckade)
         .into_iter()
         .map(Backup::ny)
         .collect();
