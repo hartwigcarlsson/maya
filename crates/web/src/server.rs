@@ -18,6 +18,7 @@ use maya_core::{Databas, Klocka};
 
 use crate::app::{App, shell};
 use crate::assets;
+use crate::atkomst::server::{self as atkomst, ÅtkomstState};
 use crate::foretag::server::{self as foretag, FöretagsState};
 use crate::ingaende_balans::server::{self as ingaende_balans, IngåendeBalansState};
 use crate::inloggning::{self, InloggningsState};
@@ -83,6 +84,11 @@ pub fn router(config: Arc<Config>, db: Databas) -> Router {
         db: db.clone(),
         klocka: inloggning.klocka.clone(),
     };
+    let åtkomst = ÅtkomstState {
+        db: db.clone(),
+        klocka: inloggning.klocka.clone(),
+        publik_url: config.public_url.as_str().trim_end_matches('/').to_string(),
+    };
     let state = AppState { config, db };
 
     let pages = Router::new()
@@ -111,6 +117,10 @@ pub fn router(config: Arc<Config>, db: Databas) -> Router {
         .layer(middleware::from_fn_with_state(
             inställningar.clone(),
             installningar::lägg_på_inställningar,
+        ))
+        .layer(middleware::from_fn_with_state(
+            åtkomst.clone(),
+            atkomst::lägg_på_åtkomst,
         ))
         .layer(middleware::from_fn_with_state(
             inloggning.clone(),
@@ -170,6 +180,17 @@ pub fn router(config: Arc<Config>, db: Databas) -> Router {
         )
         .merge(
             installningar::routes(inställningar)
+                .layer(middleware::from_fn_with_state(
+                    inloggning.clone(),
+                    inloggning::identifiera,
+                ))
+                .layer(middleware::from_fn_with_state(
+                    inloggning.clone(),
+                    inloggning::kräv_eget_origin,
+                )),
+        )
+        .merge(
+            atkomst::routes(åtkomst)
                 .layer(middleware::from_fn_with_state(
                     inloggning.clone(),
                     inloggning::identifiera,
