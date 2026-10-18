@@ -88,14 +88,20 @@ pub enum Handling {
     LäsaFöretag,
     /// Bokföra ett verifikat. MCP läggs till i etapp 6.
     Bokföra,
+    /// Ändra företagets uppgifter, bokföringsmetod, momsperiod och första räkenskapsår.
+    ÄndraFöretag,
+    /// Radera ett företag utan räkenskapsinformation.
+    RaderaFöretag,
 }
 
 /// Kanalpolicyn: om `kanal` får utföra `handling`.
 pub fn tillåter(kanal: Kanal, handling: Handling) -> bool {
     match handling {
         Handling::HanteraAnvändare => kanal == Kanal::Cli,
-        Handling::LäggaUppFöretag | Handling::LäsaFöretag | Handling::Bokföra => {
-            kanal == Kanal::Webb
-        }
+        Handling::LäggaUppFöretag
+        | Handling::LäsaFöretag
+        | Handling::Bokföra
+        | Handling::ÄndraFöretag
+        | Handling::RaderaFöretag => kanal == Kanal::Webb,
     }
 }
