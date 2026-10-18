@@ -867,6 +867,7 @@ kbd {
 a.knapp {
   display: inline-flex;
   align-items: center;
+  gap: 6px;
   text-decoration: none;
 }
 
@@ -1050,4 +1051,94 @@ kbd {
   padding: 6px 12px;
   border-top: 1px solid var(--border);
   font-size: 11px;
+}
+
+.knappar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.knapp-fara {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--destructive);
+  border-color: var(--destructive);
+  color: var(--primary-foreground);
+}
+
+.knapp-fara:hover {
+  background: var(--destructive);
+  color: var(--primary-foreground);
+  opacity: 0.9;
+}
+
+.knapp-fara-diskret {
+  margin-left: auto;
+  border-color: transparent;
+  color: var(--destructive);
+}
+
+.ikon {
+  flex: none;
+}
+
+/* Utkast: en neutral streckad badge med pennikon. */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 20px;
+  padding: 2px 8px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 500;
+  white-space: nowrap;
+  vertical-align: middle;
+}
+
+.badge-utkast {
+  border: 1px dashed var(--muted-foreground);
+  color: var(--muted-foreground);
+}
+
+.notis {
+  max-width: 860px;
+  margin: 0 0 0.75rem;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--muted);
+}
+
+.dialog {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  max-width: 520px;
+  padding: 20px 24px;
+  border-radius: var(--radius);
+  background: var(--card);
+  color: var(--card-foreground);
+  box-shadow: 0 0 0 1px var(--border);
+}
+
+.dialog h2 {
+  font-size: 16px;
+  font-weight: 600;
+  margin: 0;
+}
+
+.dialog p,
+.dialog form {
+  margin: 0;
+}
+
+.dialog form {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
 }
