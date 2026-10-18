@@ -750,7 +750,7 @@ pub(crate) async fn namn(
     Ok(namn.unwrap_or_else(|| kanalens_namn(aktör.kanal)))
 }
 
-fn kanalens_namn(kanal: Kanal) -> String {
+pub(crate) fn kanalens_namn(kanal: Kanal) -> String {
     match kanal {
         Kanal::Maya => "Maya".into(),
         Kanal::Cli => "CLI".into(),
@@ -783,7 +783,7 @@ fn kontonummer(nummer: i64) -> Result<Kontonummer, DatabasFel> {
         .ok_or_else(|| DatabasFel::Korrupt(format!("ett kontonummer: {nummer}")))
 }
 
-fn verifikationsnummer(nummer: i64) -> Result<Verifikationsnummer, DatabasFel> {
+pub(crate) fn verifikationsnummer(nummer: i64) -> Result<Verifikationsnummer, DatabasFel> {
     u32::try_from(nummer)
         .map(Verifikationsnummer)
         .map_err(|_| DatabasFel::Korrupt(format!("ett verifikationsnummer: {nummer}")))
