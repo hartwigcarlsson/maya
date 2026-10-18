@@ -145,39 +145,54 @@ pub async fn saldobalans(
 ) -> Result<Saldobalans, SaldoFel> {
     let mut tx = db.pool().begin().await?;
     atkomst::kräv(&mut tx, aktör, företag, Handling::LäsaFöretag).await?;
-    let åren = räkenskapsåren(&mut tx, företag).await?;
-    let i = åren
-        .iter()
-        .position(|å| å.år.start() == år)
-        .ok_or(SaldoFel::OkäntRäkenskapsår)?;
-    let förändringar = förändringar(&mut tx, företag).await?;
-    let tom = BTreeMap::new();
-    let förändring = |j: usize| förändringar.get(&åren[j].id).unwrap_or(&tom);
+    saldobalanser(&mut tx, företag)
+        .await?
+        .into_iter()
+        .find(|sb| sb.år.start() == år)
+        .ok_or(SaldoFel::OkäntRäkenskapsår)
+}
 
-    let mut ingående = inskriven(&mut tx, åren[0].id).await?;
-    for j in 0..i {
-        let utgående = summa(&ingående, förändring(j));
-        ingående = regler::preliminär(utgående).into_iter().collect();
+/// Saldobalansen för vart och ett av företagets räkenskapsår, i ordning. Varje års ingående
+/// balans bygger på föregående års utgående.
+pub(crate) async fn saldobalanser(
+    conn: &mut SqliteConnection,
+    företag: FöretagsId,
+) -> Result<Vec<Saldobalans>, DatabasFel> {
+    let åren = räkenskapsåren(conn, företag).await?;
+    let Some(första) = åren.first() else {
+        return Ok(Vec::new());
+    };
+    let förändringar = förändringar(conn, företag).await?;
+    let tom = BTreeMap::new();
+    let förändring = |id: i64| förändringar.get(&id).unwrap_or(&tom);
+    let mut ingående = inskriven(conn, första.id).await?;
+    let mut saldobalanser = Vec::new();
+    for (i, år) in åren.iter().enumerate() {
+        if i > 0 {
+            ingående = regler::preliminär(summa(&ingående, förändring(åren[i - 1].id)))
+                .into_iter()
+                .collect();
+        }
+        let årets = förändring(år.id);
+        saldobalanser.push(Saldobalans {
+            år: år.år,
+            status: if i == 0 {
+                Status::Inskriven
+            } else {
+                Status::Preliminär
+            },
+            konton: summa(&ingående, årets)
+                .into_iter()
+                .map(|(konto, utgående)| Kontosaldo {
+                    konto,
+                    ingående: ingående.get(&konto).copied().unwrap_or_default(),
+                    förändring: årets.get(&konto).copied().unwrap_or_default(),
+                    utgående,
+                })
+                .collect(),
+        });
     }
-    let årets = förändring(i);
-    let utgående = summa(&ingående, årets);
-    Ok(Saldobalans {
-        år: åren[i].år,
-        status: if i == 0 {
-            Status::Inskriven
-        } else {
-            Status::Preliminär
-        },
-        konton: utgående
-            .into_iter()
-            .map(|(konto, utgående)| Kontosaldo {
-                konto,
-                ingående: ingående.get(&konto).copied().unwrap_or_default(),
-                förändring: årets.get(&konto).copied().unwrap_or_default(),
-                utgående,
-            })
-            .collect(),
-    })
+    Ok(saldobalanser)
 }
 
 /// Balanskontona (klass 1–2) i företagets kontoplan och om de är aktiva, för formuläret.

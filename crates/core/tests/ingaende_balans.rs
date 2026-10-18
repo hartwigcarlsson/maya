@@ -4,6 +4,7 @@ use jiff::civil::{Date, date};
 use maya_core::aktor::Aktör;
 use maya_core::atkomst::ÅtkomstFel;
 use maya_core::foretag::FöretagsId;
+use maya_core::kontoplan::{self, KontoFel};
 use maya_core::saldo::{self, IngåendeBalansFel, SaldoFel, Status};
 use maya_core::{Databas, Klocka, behandlingshistorik, testhjalp};
 use maya_domain::belopp::Saldo;
@@ -317,4 +318,35 @@ async fn ett_okänt_räkenskapsår_eller_ett_annat_företag_ger_ett_fel() {
         ändra,
         Err(IngåendeBalansFel::Åtkomst(ÅtkomstFel::IngenÅtkomst))
     ));
+}
+
+#[tokio::test]
+async fn ett_konto_med_ingående_balans_kan_inte_inaktiveras() {
+    let db = Databas::tillfällig().await;
+    let (anna, id) = testhjalp::företag(&db).await;
+    saldo::ändra_ingående_balans(&db, &klocka(), &anna, id, ÅR_2026, &startkapital())
+        .await
+        .unwrap();
+    // 2027 finns, och där har 1930 bara sin (preliminära) ingående balans.
+    testhjalp::bokför(
+        &db,
+        &anna,
+        id,
+        "2027-02-01",
+        &[(1510, 7_000, 0), (3001, 0, 7_000)],
+    )
+    .await;
+    let bank = Kontonummer::new(1930).unwrap();
+
+    let fel = kontoplan::inaktivera(&db, &klocka(), &anna, id, bank)
+        .await
+        .unwrap_err();
+
+    let KontoFel::KanInteInaktiveras(spärr) = fel else {
+        panic!("{fel:?}")
+    };
+    assert!(spärr.to_string().contains("1\u{a0}000,00 kr"), "{spärr}");
+    let saldon = kontoplan::saldon(&db, &anna, id, bank).await.unwrap();
+    let år: Vec<_> = saldon.iter().map(|s| (s.start, s.öre)).collect();
+    assert_eq!(år, [(ÅR_2026, 100_000), (date(2027, 1, 1), 100_000)]);
 }
