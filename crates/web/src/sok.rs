@@ -81,6 +81,20 @@ pub fn mål(fråga: &str, valt: &FöretagVy, alla: &[FöretagVy]) -> Vec<Träff>
         ),
         (
             "Gå till",
+            "Grundbok".into(),
+            "rapporter bokföring registreringsordning",
+            String::new(),
+            format!("{bas}/rapporter/grundbok"),
+        ),
+        (
+            "Gå till",
+            "Huvudbok".into(),
+            "rapporter bokföring konton saldo",
+            String::new(),
+            format!("{bas}/rapporter/huvudbok"),
+        ),
+        (
+            "Gå till",
             "Inställningar".into(),
             "företaget",
             String::new(),
@@ -99,6 +113,13 @@ pub fn mål(fråga: &str, valt: &FöretagVy, alla: &[FöretagVy]) -> Vec<Träff>
             "inställningar användare bjud in inbjudan dela",
             String::new(),
             format!("{bas}/installningar/atkomst"),
+        ),
+        (
+            "Gå till",
+            "Behandlingshistorik".into(),
+            "inställningar logg ändringar revisor",
+            String::new(),
+            format!("{bas}/installningar/behandlingshistorik"),
         ),
     ];
     kandidater.extend(

@@ -1,0 +1,7 @@
+﻿Period;Bokförd;Bokförd av;Verifikat;Verifikatdatum;Beskrivning;Konto;Kontonamn;Text;Debet;Kredit
+2026-03;2026-03-25 10:00:00;anna@example.se;V1;2026-03-20;"Försäljning; kund ""A""";1930;Företagskonto;Swish;500,00;
+2026-03;2026-03-25 10:00:00;anna@example.se;V1;2026-03-20;"Försäljning; kund ""A""";3001;Försäljning inom Sverige, 25 % moms;;;500,00
+2026-03;2026-03-25 11:00:00;anna@example.se;V2;2026-03-05;Hyra;5010;Lokalhyra;;200,00;
+2026-03;2026-03-25 11:00:00;anna@example.se;V2;2026-03-05;Hyra;1930;Företagskonto;;;200,00
+2026-04;2026-05-02 10:00:00;anna@example.se;V3;2026-04-30;Telefon;6210;Telekommunikation;;50,00;
+2026-04;2026-05-02 10:00:00;anna@example.se;V3;2026-04-30;Telefon;1930;Företagskonto;;;50,00
