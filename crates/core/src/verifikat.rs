@@ -15,6 +15,7 @@ use jiff::civil::Date;
 use maya_domain::belopp::Belopp;
 use maya_domain::kontoplan::Kontonummer;
 use maya_domain::rakenskapsar::{Period, Räkenskapsår};
+use maya_domain::sok::{Fråga, Sökbart};
 use maya_domain::verifikat::{
     BokförbartVerifikat, Förutsättningar, NyttVerifikat, Spärr, Årsval
 };
@@ -494,6 +495,50 @@ pub async fn lista(
         })
         .collect::<Result<_, DatabasFel>>()?;
     Ok(rader)
+}
+
+/// Verifikaten i företaget som frågan träffar på nummer, text (beskrivning och radtexter),
+/// belopp (summan eller en rad) eller datum, i samma ordning som [`lista`]. Andra företags
+/// verifikat söks aldrig. En tom fråga träffar inget.
+pub async fn sök(
+    db: &Databas,
+    aktör: &Aktör,
+    företag: FöretagsId,
+    fråga: &str,
+) -> Result<Vec<Verifikatrad>, ÅtkomstFel> {
+    let alla = lista(db, aktör, företag, Urval::Alla).await?;
+    let Some(fråga) = Fråga::tolka(fråga) else {
+        return Ok(Vec::new());
+    };
+    let rader: Vec<(i64, i64, i64, Option<String>)> = sqlx::query_as(
+        "SELECT r.verifikat_id, r.debet, r.kredit, r.text
+         FROM verifikatrad r JOIN verifikat v ON v.id = r.verifikat_id
+         WHERE v.foretag_id = ?",
+    )
+    .bind(företag.0)
+    .fetch_all(db.pool())
+    .await?;
+    Ok(alla
+        .into_iter()
+        .filter(|v| {
+            let mut sökbart = Sökbart {
+                nummer: v.nummer.map(Verifikationsnummer::get),
+                datum: v.datum,
+                texter: vec![v.beskrivning.as_str()],
+                belopp: vec![v.summa],
+            };
+            for (_, debet, kredit, text) in rader.iter().filter(|r| r.0 == v.id.0) {
+                sökbart.belopp.extend(
+                    [*debet, *kredit]
+                        .into_iter()
+                        .filter(|b| *b != 0)
+                        .map(Belopp::från_öre),
+                );
+                sökbart.texter.extend(text.as_deref());
+            }
+            fråga.träffar_verifikat(&sökbart)
+        })
+        .collect())
 }
 
 /// Namnet som visas för en aktör.

@@ -13,6 +13,7 @@ use crate::foretag::{
 };
 use crate::konto::{Passkeys, Sessioner};
 use crate::kontoplan::KontoplanSida;
+use crate::sok::SökSida;
 use crate::verifikat::{NyttVerifikatSida, VerifikatSida};
 
 /// Vad sidan ska visa, avgjort på servern ur sessionscookien.
@@ -135,6 +136,7 @@ fn Innehåll() -> impl IntoView {
                 <Route path=path!("foretag/:id/verifikat") view=VerifikatSida />
                 <Route path=path!("foretag/:id/verifikat/nytt") view=NyttVerifikatSida />
                 <Route path=path!("foretag/:id/rapporter") view=Rapporter />
+                <Route path=path!("foretag/:id/sok") view=SökSida />
                 <Route path=path!("foretag/:id/installningar") view=Inställningar />
                 <Route path=path!("foretag/:id/installningar/kontoplan") view=KontoplanSida />
             </Routes>
