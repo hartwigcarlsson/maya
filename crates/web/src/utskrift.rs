@@ -1,4 +1,5 @@
-//! PDF:erna i webben: verifikatet och kontoplanen ur `core::utskrift`. Skriv ut och Exportera
+//! PDF:erna i webben: verifikatet, kontoplanen och behandlingshistoriken ur `core::utskrift`,
+//! och behandlingshistorikens CSV ur `core::export`. Skriv ut och Exportera
 //! är länkar till samma adress (se [`Utskrift`]), så det är alltid samma PDF.
 
 use leptos::prelude::*;
@@ -25,7 +26,7 @@ pub(crate) mod server {
     use std::sync::Arc;
 
     use axum::Router;
-    use axum::extract::{Extension, Path, State};
+    use axum::extract::{Extension, Path, RawQuery, State};
     use axum::http::{StatusCode, header};
     use axum::response::{IntoResponse, Redirect, Response};
     use axum::routing::get;
@@ -34,7 +35,9 @@ pub(crate) mod server {
     use maya_core::inloggning::Inloggad;
     use maya_core::utskrift::{self, Pdf, UtskriftFel};
     use maya_core::verifikat::VerifikatId;
-    use maya_core::{Databas, Klocka};
+    use maya_core::{Databas, Klocka, export};
+
+    use crate::behandlingshistorik::server as behandlingshistorik;
 
     #[derive(Clone)]
     pub(crate) struct UtskriftsState {
@@ -46,6 +49,14 @@ pub(crate) mod server {
         Router::new()
             .route("/foretag/{id}/verifikat/{v}/pdf", get(verifikat))
             .route("/foretag/{id}/installningar/kontoplan/pdf", get(kontoplan))
+            .route(
+                "/foretag/{id}/installningar/behandlingshistorik/pdf",
+                get(behandlingshistorik_pdf),
+            )
+            .route(
+                "/foretag/{id}/installningar/behandlingshistorik/csv",
+                get(behandlingshistorik_csv),
+            )
             .with_state(Arc::new(state))
     }
 
@@ -87,8 +98,74 @@ pub(crate) mod server {
         }
     }
 
+    async fn behandlingshistorik_pdf(
+        State(state): State<Arc<UtskriftsState>>,
+        Path(id): Path<String>,
+        RawQuery(query): RawQuery,
+        inloggad: Option<Extension<Inloggad>>,
+    ) -> Response {
+        let Some(Extension(inloggad)) = inloggad else {
+            return Redirect::to("/").into_response();
+        };
+        let Ok(företag) = id.parse::<FöretagsId>() else {
+            return ingen_åtkomst();
+        };
+        let urval = behandlingshistorik::urval(query.as_deref());
+        match utskrift::behandlingshistorik(
+            &state.db,
+            &state.klocka,
+            &inloggad.aktör,
+            företag,
+            &urval,
+        )
+        .await
+        {
+            Ok(pdf) => svar(pdf),
+            Err(e) => fel(e),
+        }
+    }
+
+    /// Behandlingshistoriken som CSV, som bilaga: den öppnas i ett kalkylprogram, inte här.
+    async fn behandlingshistorik_csv(
+        State(state): State<Arc<UtskriftsState>>,
+        Path(id): Path<String>,
+        RawQuery(query): RawQuery,
+        inloggad: Option<Extension<Inloggad>>,
+    ) -> Response {
+        let Some(Extension(inloggad)) = inloggad else {
+            return Redirect::to("/").into_response();
+        };
+        let Ok(företag) = id.parse::<FöretagsId>() else {
+            return ingen_åtkomst();
+        };
+        let urval = behandlingshistorik::urval(query.as_deref());
+        match export::behandlingshistorik(
+            &state.db,
+            &state.klocka,
+            &inloggad.aktör,
+            företag,
+            &urval,
+        )
+        .await
+        {
+            Ok(csv) => (
+                [
+                    (header::CONTENT_TYPE, "text/csv; charset=utf-8".to_string()),
+                    (
+                        header::CONTENT_DISPOSITION,
+                        format!(r#"attachment; filename="{}""#, csv.filnamn),
+                    ),
+                    (header::CACHE_CONTROL, "no-store".to_string()),
+                ],
+                csv.innehåll,
+            )
+                .into_response(),
+            Err(e) => fel(e.into()),
+        }
+    }
+
     /// `inline`, så att Skriv ut visar PDF:en; Exportera-länkens `download` sparar den.
-    fn svar(pdf: Pdf) -> Response {
+    pub(crate) fn svar(pdf: Pdf) -> Response {
         (
             [
                 (header::CONTENT_TYPE, "application/pdf".to_string()),

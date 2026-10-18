@@ -9,12 +9,14 @@ use leptos_router::{SsrMode, path};
 use serde::{Deserialize, Serialize};
 
 use crate::atkomst::ÅtkomstSida;
+use crate::behandlingshistorik::BehandlingshistorikSida;
+use crate::bokforing::{GrundbokSida, HuvudbokSida};
 use crate::foretag::{AttGöra, Företagslista, NyttFöretagSida, Toppmeny, företagsval};
 use crate::ingaende_balans::IngåendeBalansSida;
 use crate::installningar::FöretagsInställningar;
 use crate::konto::{Passkeys, Sessioner};
 use crate::kontoplan::KontoplanSida;
-use crate::rapporter::Rapporter;
+use crate::rapporter::{Balansräkning, Rapporter, Resultaträkning};
 use crate::sidodata::per_adress;
 use crate::sok::SökSida;
 use crate::underlag::UnderlagSida;
@@ -143,7 +145,11 @@ fn Innehåll() -> impl IntoView {
                     view=NyttVerifikatSida
                     ssr=SsrMode::Async
                 />
-                <Route path=path!("foretag/:id/rapporter") view=Rapporter ssr=SsrMode::Async />
+                <Route path=path!("foretag/:id/rapporter") view=Rapporter />
+                <Route path=path!("foretag/:id/rapporter/grundbok") view=GrundbokSida />
+                <Route path=path!("foretag/:id/rapporter/huvudbok") view=HuvudbokSida />
+                <Route path=path!("foretag/:id/rapporter/resultatrakning") view=Resultaträkning />
+                <Route path=path!("foretag/:id/rapporter/balansrakning") view=Balansräkning />
                 <Route path=path!("foretag/:id/sok") view=SökSida ssr=SsrMode::Async />
                 <Route path=path!("foretag/:id/underlag") view=UnderlagSida ssr=SsrMode::Async />
                 <Route
@@ -165,6 +171,10 @@ fn Innehåll() -> impl IntoView {
                     path=path!("foretag/:id/installningar/atkomst")
                     view=ÅtkomstSida
                     ssr=SsrMode::Async
+                />
+                <Route
+                    path=path!("foretag/:id/installningar/behandlingshistorik")
+                    view=BehandlingshistorikSida
                 />
             </Routes>
         }

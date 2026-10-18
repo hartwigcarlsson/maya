@@ -20,6 +20,7 @@ use maya_domain::belopp::Saldo;
 use maya_domain::ingaende_balans::{self as regler, NyIngåendeBalans, Spärr};
 use maya_domain::kontoplan::Kontonummer;
 use maya_domain::rakenskapsar::Räkenskapsår;
+use maya_domain::rapport::Rörelse;
 use sqlx::SqliteConnection;
 
 use crate::aktor::{Aktör, Handling};
@@ -193,6 +194,35 @@ pub(crate) async fn saldobalanser(
         });
     }
     Ok(saldobalanser)
+}
+
+/// De bokförda rörelserna per räkenskapsår (efter startdatum), konto och månad, för
+/// rapporternas kolumner.
+pub(crate) async fn månadsrörelser(
+    conn: &mut SqliteConnection,
+    företag: FöretagsId,
+) -> Result<BTreeMap<Date, Vec<Rörelse>>, DatabasFel> {
+    let rader: Vec<(String, String, i64, i64)> = sqlx::query_as(
+        "SELECT a.start, substr(v.datum, 1, 7) || '-01', r.konto, sum(r.debet - r.kredit)
+         FROM verifikatrad r
+         JOIN verifikat v ON v.id = r.verifikat_id
+         JOIN rakenskapsar a ON a.id = v.rakenskapsar_id
+         WHERE v.foretag_id = ? AND v.bokford IS NOT NULL
+         GROUP BY a.start, substr(v.datum, 1, 7), r.konto
+         ORDER BY a.start, 2, r.konto",
+    )
+    .bind(företag.0)
+    .fetch_all(conn)
+    .await?;
+    let mut per_år: BTreeMap<Date, Vec<Rörelse>> = BTreeMap::new();
+    for (år, månad, konto, saldo) in rader {
+        per_år.entry(datum(&år)?).or_default().push(Rörelse {
+            konto: kontonummer(konto)?,
+            månad: datum(&månad)?,
+            saldo: Saldo::från_öre(saldo),
+        });
+    }
+    Ok(per_år)
 }
 
 /// Balanskontona (klass 1–2) i företagets kontoplan och om de är aktiva, för formuläret.
@@ -375,7 +405,7 @@ fn summa(
     summa
 }
 
-fn kontonummer(nummer: i64) -> Result<Kontonummer, DatabasFel> {
+pub(crate) fn kontonummer(nummer: i64) -> Result<Kontonummer, DatabasFel> {
     u16::try_from(nummer)
         .ok()
         .and_then(Kontonummer::new)

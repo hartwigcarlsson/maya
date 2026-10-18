@@ -15,6 +15,7 @@
 //! Ny mall: lägg till en variant i [`Dokument`], en `.typ`-fil i `mallar/` som importerar
 //! `mall.typ`, och en gren i `Dokument::mall`/`Dokument::data`.
 
+mod bokforing;
 mod data;
 #[cfg(feature = "test-support")]
 pub mod testhjalp;
@@ -25,6 +26,10 @@ use jiff::civil::Date;
 use maya_domain::belopp::Belopp;
 use maya_domain::kontoplan::Kontonummer;
 
+pub use bokforing::{
+    Bokföringsurval, Grundbok, Grundboksperiod, Grundbokspost, Huvudbok, Huvudbokskonto,
+    Transaktion,
+};
 pub use data::Dokument;
 
 /// Det som står längst ned på varje sida, utöver versionen och INK2-utgåvan som Maya själv vet.
@@ -51,6 +56,14 @@ pub struct Kontoplan {
     /// BAS-versionen som kontoplanen bygger på, t.ex. `BAS 2026`.
     pub bas_version: String,
     pub konton: Vec<Konto>,
+}
+
+/// Resultat- eller balansräkningen (A2) som den är uppställd i `maya_domain::rapport`, med
+/// nivån och kolumnerna som visades.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Rapport {
+    pub företag: Företag,
+    pub rapport: maya_domain::rapport::Rapport,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -116,6 +129,26 @@ pub struct Historikpost {
     pub typ: String,
     pub namn: String,
     pub kanal: String,
+}
+
+/// Ett urval ur företagets behandlingshistorik (A2), en rad per post i den ordning de skrevs.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Behandlingshistorik {
+    pub företag: Företag,
+    /// Urvalet som text, t.ex. `typ konto namnbytt · från 2026-10-01`, eller `alla poster`.
+    pub urval: String,
+    pub poster: Vec<Behandlingspost>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Behandlingspost {
+    pub tid: Timestamp,
+    /// Aktören som den visas, t.ex. `Anna (webb)` eller `Maya`.
+    pub aktör: String,
+    pub typ: String,
+    pub objekt: String,
+    /// Ändringen som text.
+    pub beskrivning: String,
 }
 
 #[derive(Debug, thiserror::Error)]
