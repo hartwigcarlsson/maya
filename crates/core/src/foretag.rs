@@ -573,8 +573,8 @@ pub async fn radera(
         return Err(FöretagsFel::HarRäkenskapsinformation);
     }
     let (orgnr, uppgifter) = läs_uppgifter(&mut *conn, id).await?;
-    // Företagsraden tas bort före behandlingshistoriken, som bara går att radera för ett
-    // företag som inte finns; främmande nycklar prövas vid COMMIT.
+    // Företagsraden tas bort före kontoplanen och behandlingshistoriken, som bara går att
+    // radera för ett företag som inte finns; främmande nycklar prövas vid COMMIT.
     sqlx::query("PRAGMA defer_foreign_keys = ON")
         .execute(&mut *conn)
         .await?;
@@ -587,9 +587,9 @@ pub async fn radera(
         "DELETE FROM rakenskapsar WHERE foretag_id = ?1",
         "DELETE FROM bokforingsmetod WHERE foretag_id = ?1",
         "DELETE FROM momsperiod WHERE foretag_id = ?1",
-        "DELETE FROM konto WHERE foretag_id = ?1",
         "DELETE FROM atkomst WHERE foretag_id = ?1",
         "DELETE FROM foretag WHERE id = ?1",
+        "DELETE FROM konto WHERE foretag_id = ?1",
         "DELETE FROM behandlingshistorik WHERE foretag_id = ?1",
     ] {
         sqlx::query(sql).bind(id.0).execute(&mut *conn).await?;

@@ -1,4 +1,4 @@
-//! Inställningar bakom kugghjulet. Menyn till vänster är gemensam för inställningssidorna;
+//! Inställningar bakom kugghjulet. Menyn överst är gemensam för inställningssidorna;
 //! här finns sidan Företag: uppgifterna, byte av bokföringsmetod och momsperiod, första
 //! räkenskapsårets slut och radering av företaget.
 //!
@@ -29,7 +29,8 @@ pub const HAR_RÄKENSKAPSINFORMATION: &str = "har_rakenskapsinformation";
 /// namnet. Åtkomst, Behandlingshistorik och Systemdokumentation läggs till med sina tickets.
 const SIDOR: [(&str, &str); 2] = [("", "Företag"), ("/kontoplan", "Kontoplan")];
 
-/// Menyn till vänster på inställningssidorna. `aktiv` är sidans sökväg i [`SIDOR`].
+/// Menyn överst på inställningssidorna. `aktiv` är sidans sökväg i [`SIDOR`]. Sidorna hämtar
+/// sina data på servern, så länkarna laddar om hela sidan.
 #[component]
 pub fn Inställningsmeny(bas: String, aktiv: &'static str) -> impl IntoView {
     view! {
@@ -39,7 +40,11 @@ pub fn Inställningsmeny(bas: String, aktiv: &'static str) -> impl IntoView {
                 .map(|(sökväg, namn)| {
                     let aktuell = (sökväg == aktiv).then_some("page");
                     view! {
-                        <a href=format!("{bas}/installningar{sökväg}") aria-current=aktuell>
+                        <a
+                            rel="external"
+                            href=format!("{bas}/installningar{sökväg}")
+                            aria-current=aktuell
+                        >
                             {namn}
                         </a>
                     }
@@ -530,16 +535,14 @@ pub fn FöretagsInställningar() -> impl IntoView {
         <section class="sida">
             <p class="diskret">{f.namn} " · " {f.orgnr}</p>
             <h1>"Inställningar"</h1>
-            <div class="installningar">
-                <Inställningsmeny bas=bas.clone() aktiv="" />
-                <div class="installningar-innehall">
+            <Inställningsmeny bas=bas.clone() aktiv="" />
+            <div class="installningar-innehall">
                     {sparat}
                     <UppgiftsFormulär bas=bas.clone() data=data.clone() />
                     <MetodFormulär bas=bas.clone() data=data.clone() />
                     <MomsFormulär bas=bas.clone() data=data.clone() />
                     <RäkenskapsårsFormulär bas=bas.clone() data=data.clone() />
                     <Radering bas=bas data=data />
-                </div>
             </div>
         </section>
     }

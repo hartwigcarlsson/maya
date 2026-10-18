@@ -200,6 +200,7 @@ pub fn Toppmeny() -> impl IntoView {
             </nav>
             <a
                 class="knapp knapp-diskret kugghjul"
+                rel="external"
                 href=format!("{bas}/installningar")
                 title="Inställningar"
                 aria-label="Inställningar"

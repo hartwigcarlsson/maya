@@ -21,3 +21,13 @@ WHEN EXISTS (SELECT 1 FROM foretag WHERE id = OLD.foretag_id)
 BEGIN
     SELECT RAISE(ABORT, 'behandlingshistoriken går inte att radera');
 END;
+
+-- Ett konto raderas aldrig medan företaget finns; på samma sätt som historiken ovan.
+DROP TRIGGER konto_raderas_inte;
+
+CREATE TRIGGER konto_raderas_inte
+BEFORE DELETE ON konto
+WHEN EXISTS (SELECT 1 FROM foretag WHERE id = OLD.foretag_id)
+BEGIN
+    SELECT RAISE(ABORT, 'ett konto raderas aldrig');
+END;
