@@ -5,9 +5,10 @@ use std::process::ExitCode;
 use std::sync::Arc;
 
 use clap::{Parser, Subcommand};
-use maya_core::Databas;
 use maya_core::config::Config;
 use maya_core::installation::{self, RelyingParty};
+use maya_core::kontoplan;
+use maya_core::{Databas, Klocka};
 
 mod healthcheck;
 mod user;
@@ -85,6 +86,10 @@ async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
         .map_err(|e| format!("kan inte skapa {}: {e}", config.data_dir.display()))?;
     let db = Databas::öppna(&config.database_path()).await?;
     installation::kontrollera_rp(&db, &RelyingParty::från_publik_url(&config.public_url)).await?;
+    let tillagda = kontoplan::lägg_till_inbyggd_bas(&db, &Klocka::system()).await?;
+    if tillagda > 0 {
+        tracing::info!("{tillagda} nya BAS-konton tillagda som inaktiva");
+    }
     let config = Arc::new(config);
     let app = maya_web::router(config.clone(), db);
 

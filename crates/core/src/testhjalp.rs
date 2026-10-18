@@ -25,6 +25,11 @@ pub async fn användare(db: &Databas, epost: &str) -> Aktör {
     Aktör::webb(AnvändarId(id))
 }
 
+/// Kör en SQL-sats direkt mot databasen, förbi `core`, för att visa att schemat avvisar den.
+pub async fn kör_sql(db: &Databas, sql: &'static str) -> Result<(), sqlx::Error> {
+    sqlx::query(sql).execute(db.pool()).await.map(|_| ())
+}
+
 /// Ett företag med kalenderåret 2026 som första räkenskapsår, upplagt av en ny användare
 /// `anna@example.se`, som returneras.
 pub async fn företag(db: &Databas) -> (Aktör, FöretagsId) {
