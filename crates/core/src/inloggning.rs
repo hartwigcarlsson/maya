@@ -96,14 +96,14 @@ pub(crate) fn hash(token: &str) -> Vec<u8> {
 
 /// En engångslänk för att registrera en passkey.
 #[derive(Debug, Clone)]
-pub struct Registreringslänk {
+pub struct Engångslänk {
     token: Token,
     pub giltig_till: Timestamp,
 }
 
-impl Registreringslänk {
+impl Engångslänk {
     pub(crate) fn ny(token: Token, giltig_till: Timestamp) -> Self {
-        Registreringslänk { token, giltig_till }
+        Engångslänk { token, giltig_till }
     }
 
     pub fn token(&self) -> &str {
@@ -236,7 +236,7 @@ pub async fn skapa_första_användare(
     klocka: &Klocka,
     aktör: &Aktör,
     epost: &str,
-) -> Result<Registreringslänk, InloggningsFel> {
+) -> Result<Engångslänk, InloggningsFel> {
     if !aktor::tillåter(aktör.kanal, Handling::HanteraAnvändare) {
         return Err(InloggningsFel::KanalenFårInte);
     }
@@ -278,7 +278,7 @@ pub async fn skapa_första_användare(
     Ok(länk)
 }
 
-/// Vad en engångslänk är till för. Båda ger en ny passkey.
+/// Vad en engångslänk är till för. Med båda lägger användaren till en passkey.
 #[derive(Debug, Clone, Copy)]
 enum Syfte {
     Registrering,
@@ -299,7 +299,7 @@ async fn ny_länk(
     nu: Timestamp,
     användare: AnvändarId,
     syfte: Syfte,
-) -> Result<Registreringslänk, sqlx::Error> {
+) -> Result<Engångslänk, sqlx::Error> {
     let token = Token::ny();
     let giltig_till = nu + LÄNK_GILTIG;
     sqlx::query(
@@ -313,7 +313,7 @@ async fn ny_länk(
     .bind(giltig_till.to_string())
     .execute(conn)
     .await?;
-    Ok(Registreringslänk { token, giltig_till })
+    Ok(Engångslänk { token, giltig_till })
 }
 
 /// Ger en användare som har tappat alla sina passkeys en återställningslänk, där hen
@@ -324,7 +324,7 @@ pub async fn återställ_användare(
     klocka: &Klocka,
     aktör: &Aktör,
     epost: &str,
-) -> Result<Registreringslänk, InloggningsFel> {
+) -> Result<Engångslänk, InloggningsFel> {
     let (mut tx, id, epost) = hela_användaren(db, aktör, epost).await?;
     if avaktiverad(&mut tx, id).await? {
         return Err(InloggningsFel::Avaktiverad);

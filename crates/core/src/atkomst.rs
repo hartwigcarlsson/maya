@@ -12,7 +12,7 @@ use crate::aktor::{self, Aktör, AnvändarId, Handling};
 use crate::behandlingshistorik::{self, Händelse};
 use crate::foretag::FöretagsId;
 use crate::inloggning::{
-    Inloggad, InloggningsFel, LÄNK_GILTIG, Registrant, Registreringslänk, Token, hash, tidpunkt,
+    Engångslänk, Inloggad, InloggningsFel, LÄNK_GILTIG, Registrant, Token, hash, tidpunkt,
 };
 use crate::{Databas, DatabasFel, Klocka};
 
@@ -203,7 +203,7 @@ pub struct Åtkomstlista {
 #[derive(Debug, Clone)]
 pub enum Inbjudan {
     /// En ny användare: länken visas för kopiering och skapar användaren med åtkomst.
-    Länk(Registreringslänk),
+    Länk(Engångslänk),
     /// E-postadressen har redan ett konto, som har fått åtkomst direkt.
     ÅtkomstGiven,
 }
@@ -351,7 +351,7 @@ pub async fn bjud_in(
         )
         .await?;
     ärende.slutför().await?;
-    Ok(Inbjudan::Länk(Registreringslänk::ny(token, giltig_till)))
+    Ok(Inbjudan::Länk(Engångslänk::ny(token, giltig_till)))
 }
 
 /// Ger `användare` åtkomst till företaget. Aktören måste redan dela ett företag med hen.

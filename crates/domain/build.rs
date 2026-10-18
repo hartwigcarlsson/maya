@@ -27,12 +27,12 @@ fn main() {
     let grundkonton = grundkonton_2025(&blad(GRUNDKONTON));
 
     let mut ut = String::from("// Genererad av build.rs ur BAS fria utgåvor. Ändra inte.\n\n");
-    ut.push_str("static KONTON: &[BasKonto] = &[\n");
+    ut.push_str("static KONTON: &[BasPost] = &[\n");
     for (nummer, namn) in &konton {
         let grundkonto = grundkonton.contains(nummer);
         writeln!(
             ut,
-            "    BasKonto {{ nummer: Kontonummer({nummer}), namn: {namn:?}, grundkonto: {grundkonto} }},"
+            "    BasPost {{ nummer: Kontonummer({nummer}), namn: {namn:?}, grundkonto: {grundkonto} }},"
         )
         .unwrap();
     }

@@ -8,7 +8,7 @@ use clap::Subcommand;
 use crate::cli;
 use maya_core::aktor::Aktör;
 use maya_core::config::Config;
-use maya_core::inloggning::{self, Registreringslänk};
+use maya_core::inloggning::{self, Engångslänk};
 use maya_core::installation::{self, RelyingParty};
 use maya_core::{Databas, Klocka};
 
@@ -76,10 +76,10 @@ async fn user(config: &Config, db: &Databas, command: UserCommand) -> cli::Resul
                 .await
                 .map_err(|e| format!("Maya kan inte återställa användaren: {e}"))?;
             println!(
-                "Användaren {} kan registrera en ny passkey.",
+                "Användaren {} kan lägga till en passkey.",
                 normaliserad(&email)
             );
-            skriv_länk(config, &länk, "registrera en ny passkey")?;
+            skriv_länk(config, &länk, "lägga till en passkey")?;
         }
         UserCommand::Deactivate { email } => {
             inloggning::avaktivera_användare(db, &klocka, &aktör, &email)
@@ -118,7 +118,7 @@ async fn domain(config: &Config, db: &Databas, command: DomainCommand) -> cli::R
                 "Alla passkeys och sessioner är borttagna, eftersom passkeys är bundna till domänen."
             );
             println!(
-                "Ge varje användare en ny passkey med `maya user reset <e-post>`, och starta om Maya."
+                "Ge varje användare en länk för att lägga till en passkey med `maya user reset <e-post>`, och starta om Maya."
             );
         }
     }
@@ -129,7 +129,7 @@ fn normaliserad(epost: &str) -> String {
     maya_domain::epost::normalisera(epost).unwrap_or_else(|_| epost.trim().to_string())
 }
 
-fn skriv_länk(config: &Config, länk: &Registreringslänk, för_att: &str) -> cli::Resultat {
+fn skriv_länk(config: &Config, länk: &Engångslänk, för_att: &str) -> cli::Resultat {
     let url = config
         .public_url
         .join(&format!("registrera/{}", länk.token()))?;

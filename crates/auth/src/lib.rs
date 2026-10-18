@@ -76,8 +76,9 @@ impl Passkeys {
         })
     }
 
-    /// Börjar registrera en passkey med en registreringslänks token.
-    pub async fn börja_registrering(
+    /// Börjar registrera en passkey med en engångslänks token (första användaren, inbjudan eller
+    /// återställning).
+    pub async fn börja_med_engångslänk(
         &self,
         token: &str,
     ) -> Result<(CeremoniId, CreationChallengeResponse), AuthFel> {
@@ -90,7 +91,7 @@ impl Passkeys {
     }
 
     /// Slutför registreringen, förbrukar länken och loggar in användaren.
-    pub async fn slutför_registrering(
+    pub async fn slutför_med_engångslänk(
         &self,
         ceremoni: CeremoniId,
         namn: &str,

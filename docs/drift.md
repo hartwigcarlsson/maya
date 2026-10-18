@@ -28,7 +28,7 @@ Det som rör en användare som helhet görs bara med CLI:t på servern. Varje ko
 - `maya user reset <e-post>`: en användare som har tappat alla sina passkeys får en länk där hen registrerar en ny. Hens gamla passkeys och sessioner upphör direkt. Länken gäller i 24 timmar och kan användas en gång.
 - `maya user deactivate <e-post>`: användaren kan inte logga in, och hens sessioner och oanvända länkar upphör. Avaktiveringen står i behandlingshistoriken för varje företag hen har åtkomst till, och nekas om hen är den sista aktiva användaren i något företag. Användare raderas aldrig.
 - `maya user reactivate <e-post>`: användaren kan logga in med sina passkeys igen.
-- `maya domain change`: byt först `MAYA_PUBLIC_URL` i `.env`, och kör sedan `docker compose run --rm maya maya domain change` (Maya startar inte med den nya domänen förrän bytet är gjort). Kommandot sparar nytt `rp_id` och origin och tömmer alla passkeys och sessioner. Ge sedan varje användare en ny passkey med `maya user reset` och starta Maya.
+- `maya domain change`: byt först `MAYA_PUBLIC_URL` i `.env`, och kör sedan `docker compose run --rm maya maya domain change` (Maya startar inte med den nya domänen förrän bytet är gjort). Kommandot sparar nytt `rp_id` och origin och tömmer alla passkeys och sessioner. Ge sedan varje användare en länk för att lägga till en passkey med `maya user reset` och starta Maya.
 
 ## Backup
 

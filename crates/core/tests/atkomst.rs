@@ -63,7 +63,7 @@ async fn har_åtkomst(db: &Databas, aktör: &Aktör, företag: FöretagsId) -> b
         .any(|f| f.id == företag)
 }
 
-fn länk(inbjudan: Inbjudan) -> inloggning::Registreringslänk {
+fn länk(inbjudan: Inbjudan) -> inloggning::Engångslänk {
     match inbjudan {
         Inbjudan::Länk(länk) => länk,
         Inbjudan::ÅtkomstGiven => panic!("väntade en länk"),
