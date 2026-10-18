@@ -16,6 +16,7 @@ maya-auth = { path = "crates/auth" }
 maya-sie = { path = "crates/sie" }
 
 axum = "0.8"
+calamine = "0.36"
 clap = { version = "4", features = ["derive"] }
 console_error_panic_hook = "0.1"
 dotenvy = "0.15"
@@ -71,3 +72,7 @@ assets-dir = "crates/web/public"
 lib-features = ["hydrate"]
 lib-default-features = false
 lib-profile-release = "wasm-release"
+# I debugläge bygger cargo-leptos annars med `--cfg erase_components`, som ändrar SSR-markupen.
+# Ett vanligt `cargo build`/`cargo test` bygger om servern utan den, och då panikar WASM:en
+# vid hydreringen ("expected a marker node"). Samma flaggor överallt.
+disable-erase-components = true

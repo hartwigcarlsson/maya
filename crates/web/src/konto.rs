@@ -1,5 +1,6 @@
-//! Användarmenyns sidor för passkeys och sessioner. Sidorna läser med server functions och
-//! ändrar med vanliga formulär (`/konto/…`) och passkey-ceremonierna i JS-shimmen.
+//! Användarmenyns sidor för passkeys och sessioner. Sidorna läser data som middleware har
+//! hämtat ur `core`, som i `verifikat.rs`, och ändrar med vanliga formulär (`/konto/…`) och
+//! passkey-ceremonierna i JS-shimmen.
 
 use leptos::prelude::*;
 use leptos_router::hooks::use_query_map;
@@ -31,76 +32,120 @@ pub struct SessionVy {
     pub denna: bool,
 }
 
+/// Det som sidorna Passkeys och Sessioner visar. Middleware hämtar det ur `core` och lägger
+/// det på begäran, och det följer med till webbläsaren vid hydreringen.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Kontodata {
+    pub passkeys: Option<PasskeySida>,
+    pub sessioner: Option<Vec<SessionVy>>,
+}
+
+fn kontodata() -> Kontodata {
+    SharedValue::new(|| {
+        #[cfg(feature = "ssr")]
+        if let Some(parts) = use_context::<axum::http::request::Parts>()
+            && let Some(data) = parts.extensions.get::<Kontodata>()
+        {
+            return data.clone();
+        }
+        Kontodata::default()
+    })
+    .into_inner()
+}
+
 #[cfg(feature = "ssr")]
-mod server {
-    use leptos::prelude::*;
-    use maya_core::inloggning::Inloggad;
+pub(crate) mod server {
+    use axum::extract::{Request, State};
+    use axum::http::StatusCode;
+    use axum::middleware::Next;
+    use axum::response::{IntoResponse, Response};
+    use maya_core::inloggning::{self, Inloggad, InloggningsFel};
     use maya_core::{Databas, Klocka};
 
-    pub fn inloggad() -> Result<Inloggad, ServerFnError> {
-        use_context::<axum::http::request::Parts>()
-            .and_then(|parts| parts.extensions.get::<Inloggad>().cloned())
-            .ok_or_else(|| ServerFnError::new("du är inte inloggad"))
+    use super::{Kontodata, PasskeySida, PasskeyVy, SessionVy};
+    use crate::inloggning::InloggningsState;
+
+    /// Hämtar det som `/passkeys` och `/sessioner` visar. Körs efter `inloggning::identifiera`.
+    pub(crate) async fn lägg_på_kontodata(
+        State(state): State<InloggningsState>,
+        mut req: Request,
+        next: Next,
+    ) -> Response {
+        let Some(inloggad) = req.extensions().get::<Inloggad>().cloned() else {
+            return next.run(req).await;
+        };
+        let data = match req.uri().path() {
+            "/passkeys" => passkeys(&state.db, &state.klocka, &inloggad)
+                .await
+                .map(|p| Kontodata {
+                    passkeys: Some(p),
+                    sessioner: None,
+                }),
+            "/sessioner" => sessioner(&state.db, &inloggad).await.map(|s| Kontodata {
+                passkeys: None,
+                sessioner: Some(s),
+            }),
+            _ => return next.run(req).await,
+        };
+        match data {
+            Ok(data) => {
+                req.extensions_mut().insert(data);
+                next.run(req).await
+            }
+            Err(e) => {
+                tracing::error!("kontosidan misslyckades: {e}");
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "Något gick fel i Maya; försök igen.\n",
+                )
+                    .into_response()
+            }
+        }
     }
 
-    pub fn databas() -> Result<(Databas, Klocka), ServerFnError> {
-        Ok((
-            use_context::<Databas>().ok_or_else(|| ServerFnError::new("databasen saknas"))?,
-            use_context::<Klocka>().ok_or_else(|| ServerFnError::new("klockan saknas"))?,
-        ))
+    async fn passkeys(
+        db: &Databas,
+        klocka: &Klocka,
+        inloggad: &Inloggad,
+    ) -> Result<PasskeySida, InloggningsFel> {
+        Ok(PasskeySida {
+            färsk: inloggad.har_färsk_passkey(klocka),
+            passkeys: inloggning::passkeys(db, inloggad)
+                .await?
+                .into_iter()
+                .map(|p| PasskeyVy {
+                    id: p.id,
+                    namn: p.namn,
+                    skapad: tid(p.skapad),
+                    senast_använd: p.senast_använd.map(tid),
+                })
+                .collect(),
+        })
     }
 
-    pub fn fel(e: impl std::fmt::Display) -> ServerFnError {
-        tracing::error!("kontosidan misslyckades: {e}");
-        ServerFnError::new("något gick fel i Maya; försök igen")
+    async fn sessioner(
+        db: &Databas,
+        inloggad: &Inloggad,
+    ) -> Result<Vec<SessionVy>, InloggningsFel> {
+        Ok(inloggning::sessioner(db, inloggad)
+            .await?
+            .into_iter()
+            .map(|s| SessionVy {
+                id: s.id,
+                enhet: s.enhet.unwrap_or_else(|| "Okänd webbläsare".into()),
+                skapad: tid(s.skapad),
+                senast_aktiv: tid(s.senast_aktiv),
+                denna: s.denna,
+            })
+            .collect())
     }
 
     /// En tidpunkt i Stockholm, till minuten.
-    pub fn tid(t: jiff::Timestamp) -> String {
+    fn tid(t: jiff::Timestamp) -> String {
         t.to_zoned(maya_domain::tid::stockholm())
             .strftime("%Y-%m-%d %H:%M")
             .to_string()
     }
-}
-
-#[server]
-pub async fn hämta_passkeys() -> Result<PasskeySida, ServerFnError> {
-    let inloggad = server::inloggad()?;
-    let (db, klocka) = server::databas()?;
-    let passkeys = maya_core::inloggning::passkeys(&db, &inloggad)
-        .await
-        .map_err(server::fel)?;
-    Ok(PasskeySida {
-        färsk: inloggad.har_färsk_passkey(&klocka),
-        passkeys: passkeys
-            .into_iter()
-            .map(|p| PasskeyVy {
-                id: p.id,
-                namn: p.namn,
-                skapad: server::tid(p.skapad),
-                senast_använd: p.senast_använd.map(server::tid),
-            })
-            .collect(),
-    })
-}
-
-#[server]
-pub async fn hämta_sessioner() -> Result<Vec<SessionVy>, ServerFnError> {
-    let inloggad = server::inloggad()?;
-    let (db, _) = server::databas()?;
-    let sessioner = maya_core::inloggning::sessioner(&db, &inloggad)
-        .await
-        .map_err(server::fel)?;
-    Ok(sessioner
-        .into_iter()
-        .map(|s| SessionVy {
-            id: s.id,
-            enhet: s.enhet.unwrap_or_else(|| "Okänd webbläsare".into()),
-            skapad: server::tid(s.skapad),
-            senast_aktiv: server::tid(s.senast_aktiv),
-            denna: s.denna,
-        })
-        .collect())
 }
 
 fn inloggad() -> bool {
@@ -123,7 +168,7 @@ pub fn Passkeys() -> impl IntoView {
         return view! { <LoggaIn /> }.into_any();
     }
     let (ny, fel) = use_query_map().with_untracked(|q| (q.get("ny").is_some(), q.get("fel")));
-    let sida = Resource::new(|| (), |_| hämta_passkeys());
+    let sida = kontodata().passkeys;
     view! {
         <section class="sida">
             <h1>"Passkeys"</h1>
@@ -136,14 +181,7 @@ pub fn Passkeys() -> impl IntoView {
                     }
                 })}
             {fel.map(|kod| view! { <p class="fel" role="alert">{felmeddelande(&kod)}</p> })}
-            <Suspense fallback=|| view! { <p>"Hämtar passkeys…"</p> }>
-                {move || Suspend::new(async move {
-                    match sida.await {
-                        Ok(sida) => view! { <PasskeyLista sida /> }.into_any(),
-                        Err(e) => view! { <p class="fel">{e.to_string()}</p> }.into_any(),
-                    }
-                })}
-            </Suspense>
+            {sida.map(|sida| view! { <PasskeyLista sida /> })}
         </section>
     }
     .into_any()
@@ -213,19 +251,12 @@ pub fn Sessioner() -> impl IntoView {
     if !inloggad() {
         return view! { <LoggaIn /> }.into_any();
     }
-    let sessioner = Resource::new(|| (), |_| hämta_sessioner());
+    let sessioner = kontodata().sessioner;
     view! {
         <section class="sida">
             <h1>"Sessioner"</h1>
             <p>"Du är inloggad på de här enheterna. Avsluta en session för att logga ut enheten."</p>
-            <Suspense fallback=|| view! { <p>"Hämtar sessioner…"</p> }>
-                {move || Suspend::new(async move {
-                    match sessioner.await {
-                        Ok(sessioner) => view! { <SessionLista sessioner /> }.into_any(),
-                        Err(e) => view! { <p class="fel">{e.to_string()}</p> }.into_any(),
-                    }
-                })}
-            </Suspense>
+            {sessioner.map(|sessioner| view! { <SessionLista sessioner /> })}
         </section>
     }
     .into_any()

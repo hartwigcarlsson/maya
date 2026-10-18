@@ -18,7 +18,10 @@ use maya_core::{Databas, Klocka};
 
 use crate::app::{App, shell};
 use crate::assets;
+use crate::foretag::server::{self as foretag, FöretagsState};
 use crate::inloggning::{self, InloggningsState};
+use crate::konto::server as konto;
+use crate::verifikat::server::{self as verifikat, VerifikatState};
 
 #[derive(Clone)]
 struct AppState {
@@ -48,27 +51,61 @@ pub fn router(config: Arc<Config>, db: Databas) -> Router {
         klocka,
         passkeys: Arc::new(passkeys),
     };
-    let kontext = {
-        let db = db.clone();
-        let klocka = inloggning.klocka.clone();
-        move || {
-            provide_context(db.clone());
-            provide_context(klocka.clone());
-        }
+    let företag = FöretagsState {
+        db: db.clone(),
+        klocka: inloggning.klocka.clone(),
+    };
+    let verifikat = VerifikatState {
+        db: db.clone(),
+        klocka: inloggning.klocka.clone(),
     };
     let state = AppState { config, db };
 
     let pages = Router::new()
-        .leptos_routes_with_context(&leptos_options, routes, kontext, {
+        .leptos_routes(&leptos_options, routes, {
             let options = leptos_options.clone();
             move || shell(options.clone())
         })
         .fallback(assets::serve_site)
         .with_state(leptos_options)
         .layer(middleware::from_fn_with_state(
+            verifikat.clone(),
+            verifikat::lägg_på_verifikatdata,
+        ))
+        .layer(middleware::from_fn_with_state(
+            inloggning.clone(),
+            konto::lägg_på_kontodata,
+        ))
+        .layer(middleware::from_fn_with_state(
+            företag.clone(),
+            foretag::lägg_på_företagsval,
+        ))
+        .layer(middleware::from_fn_with_state(
             inloggning.clone(),
             inloggning::identifiera,
         ))
+        .merge(
+            foretag::routes(företag)
+                .layer(middleware::from_fn_with_state(
+                    inloggning.clone(),
+                    inloggning::identifiera,
+                ))
+                .layer(middleware::from_fn_with_state(
+                    inloggning.clone(),
+                    inloggning::kräv_eget_origin,
+                )),
+        )
+        .merge(
+            verifikat::routes(verifikat)
+                .layer(middleware::from_fn_with_state(
+                    inloggning.clone(),
+                    inloggning::identifiera,
+                ))
+                .layer(middleware::from_fn_with_state(
+                    inloggning.clone(),
+                    inloggning::kräv_eget_origin,
+                )),
+        )
         .merge(
             inloggning::routes(inloggning.clone())
                 .layer(middleware::from_fn_with_state(

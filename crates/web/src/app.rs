@@ -5,10 +5,14 @@ use leptos::prelude::*;
 use leptos_meta::{MetaTags, Stylesheet, Title, provide_meta_context};
 use leptos_router::components::{Route, Router, Routes};
 use leptos_router::hooks::use_params_map;
-use leptos_router::{SsrMode, path};
+use leptos_router::path;
 use serde::{Deserialize, Serialize};
 
+use crate::foretag::{
+    AttGöra, Företagslista, Inställningar, NyttFöretagSida, Rapporter, Toppmeny, företagsval,
+};
 use crate::konto::{Passkeys, Sessioner};
+use crate::verifikat::{NyttVerifikatSida, VerifikatSida};
 
 /// Vad sidan ska visa, avgjort på servern ur sessionscookien.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -67,13 +71,14 @@ pub fn App() -> impl IntoView {
     provide_meta_context();
     let läge = läge();
     provide_context(läge.clone());
+    provide_context(företagsval());
     let användarmeny = match läge {
         Läge::Inloggad { visningsnamn } => Some(view! {
             <span class="anvandare">{visningsnamn}</span>
-            <a class="knapp knapp-diskret" href="/passkeys">
+            <a class="knapp knapp-diskret" href="/passkeys" rel="external">
                 "Passkeys"
             </a>
-            <a class="knapp knapp-diskret" href="/sessioner">
+            <a class="knapp knapp-diskret" href="/sessioner" rel="external">
                 "Sessioner"
             </a>
             <form method="post" action="/auth/utloggning">
@@ -93,6 +98,7 @@ pub fn App() -> impl IntoView {
                 <a class="logotyp" href="/">
                     "Maya"
                 </a>
+                <Toppmeny />
                 <div class="toppmeny-hoger">
                     {användarmeny}
                     <TemaVäxlare />
@@ -114,8 +120,14 @@ fn Innehåll() -> impl IntoView {
             <Routes fallback=|| view! { <SidanFinnsInte /> }>
                 <Route path=path!("") view=Startsida />
                 <Route path=path!("registrera/:token") view=Registrera />
-                <Route path=path!("passkeys") view=Passkeys ssr=SsrMode::Async />
-                <Route path=path!("sessioner") view=Sessioner ssr=SsrMode::Async />
+                <Route path=path!("passkeys") view=Passkeys />
+                <Route path=path!("sessioner") view=Sessioner />
+                <Route path=path!("foretag/nytt") view=NyttFöretagSida />
+                <Route path=path!("foretag/:id") view=AttGöra />
+                <Route path=path!("foretag/:id/verifikat") view=VerifikatSida />
+                <Route path=path!("foretag/:id/verifikat/nytt") view=NyttVerifikatSida />
+                <Route path=path!("foretag/:id/rapporter") view=Rapporter />
+                <Route path=path!("foretag/:id/installningar") view=Inställningar />
             </Routes>
         }
         .into_any()
@@ -139,13 +151,7 @@ fn IngenAnvändare() -> impl IntoView {
 #[component]
 fn Startsida() -> impl IntoView {
     match use_context::<Läge>() {
-        Some(Läge::Inloggad { visningsnamn }) => view! {
-            <section class="tom-sida">
-                <h1>"Välkommen till Maya"</h1>
-                <p>"Du är inloggad som " {visningsnamn} ". Här kommer bokföringen att finnas."</p>
-            </section>
-        }
-        .into_any(),
+        Some(Läge::Inloggad { .. }) => view! { <Företagslista /> }.into_any(),
         _ => view! { <LoggaIn /> }.into_any(),
     }
 }

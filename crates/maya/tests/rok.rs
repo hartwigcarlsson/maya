@@ -1,6 +1,6 @@
 //! Röktest med riktig server och en webbläsare med virtuella autentiserare: första användaren
-//! via CLI-länken, en passkey till, inloggning med e-post och passkey, och borttagning av
-//! passkeys utom den sista.
+//! via CLI-länken, en passkey till, inloggning med e-post och passkey, borttagning av passkeys
+//! utom den sista, och ett nytt företag.
 //!
 //! Kräver Chrome eller Chromium (sökvägen kan anges i `CHROME`). Sidan behöver ingen WASM:
 //! inloggningen är vanlig HTML med JS-shimmen.
@@ -11,11 +11,18 @@ use std::path::Path;
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
-use headless_chrome::protocol::cdp::WebAuthn;
+use headless_chrome::protocol::cdp::{Page, WebAuthn};
 use headless_chrome::{Browser, LaunchOptions, Tab};
 
 const MAYA: &str = env!("CARGO_BIN_EXE_maya");
 const VÄNTA: Duration = Duration::from_secs(20);
+
+/// Samlar sidans fel (panik vid hydreringen, oväntade undantag) i `window.__fel`.
+const SAMLA_FEL: &str = "window.__fel=[];\
+const e=console.error.bind(console);\
+console.error=(...a)=>{window.__fel.push(a.map(String).join(' '));e(...a)};\
+addEventListener('error',h=>window.__fel.push(String(h.message)));\
+addEventListener('unhandledrejection',h=>window.__fel.push(String(h.reason)));";
 
 #[test]
 fn forsta_anvandaren_via_cli_lanken_och_inloggning_med_passkey() {
@@ -43,6 +50,13 @@ fn forsta_anvandaren_via_cli_lanken_och_inloggning_med_passkey() {
     )
     .expect("röktestet kräver Chrome eller Chromium; ange sökvägen i CHROME");
     let tab = browser.new_tab().unwrap();
+    tab.call_method(Page::AddScriptToEvaluateOnNewDocument {
+        source: SAMLA_FEL.to_string(),
+        world_name: None,
+        include_command_line_api: None,
+        run_immediately: None,
+    })
+    .unwrap();
     tab.call_method(WebAuthn::Enable {
         enable_ui: Some(false),
     })
@@ -121,69 +135,67 @@ fn forsta_anvandaren_via_cli_lanken_och_inloggning_med_passkey() {
         .unwrap()
         .click()
         .unwrap();
-    vänta_på_text(&tab, "Du är inloggad som anna@example.se");
+    vänta_på_text(&tab, "Lägg upp ett företag");
 
-    // Den första nyckeln kan tas bort, men inte den sista.
-    tab.navigate_to(&format!("{bas}/passkeys")).unwrap();
+    // Den första nyckeln kan tas bort, men inte den sista. Sidorna når man från användarmenyn.
+    tab.find_element("a[href='/passkeys']")
+        .unwrap()
+        .click()
+        .unwrap();
     vänta_på_text(&tab, "Virtuell nyckel");
+    inga_sidfel(&tab);
     ta_bort_passkey(&tab, "Virtuell nyckel");
     vänta_på_text_borta(&tab, "Virtuell nyckel");
     ta_bort_passkey(&tab, "Andra nyckeln");
     vänta_på_text(&tab, "Den sista passkeyn går inte att ta bort");
     vänta_på_text(&tab, "Andra nyckeln");
-}
 
-/// Lägger till en virtuell autentiserare med användarverifiering och ger dess id.
-fn autentiserare(tab: &Tab) -> String {
-    tab.call_method(WebAuthn::AddVirtualAuthenticator {
-        options: WebAuthn::VirtualAuthenticatorOptions {
-            protocol: WebAuthn::AuthenticatorProtocol::Ctap2,
-            ctap_2_version: Some(WebAuthn::Ctap2Version::Ctap21),
-            transport: WebAuthn::AuthenticatorTransport::Internal,
-            has_resident_key: Some(true),
-            has_user_verification: Some(true),
-            is_user_verified: Some(true),
-            automatic_presence_simulation: Some(true),
-            has_large_blob: None,
-            has_cred_blob: None,
-            has_min_pin_length: None,
-            has_prf: None,
-            default_backup_eligibility: None,
-            default_backup_state: None,
-        },
-    })
-    .unwrap()
-    .authenticator_id
-}
+    // Sessionslistan visar den här sessionen.
+    tab.find_element("a[href='/sessioner']")
+        .unwrap()
+        .click()
+        .unwrap();
+    vänta_på_text(&tab, "Den här sessionen");
+    inga_sidfel(&tab);
+    tab.navigate_to(&bas).unwrap();
+    vänta_på_text(&tab, "Lägg upp ett företag");
 
-/// Skickar Ta bort-formuläret på raden för passkeyn `namn`.
-fn ta_bort_passkey(tab: &Tab, namn: &str) {
-    let skript = format!(
-        "[...document.querySelectorAll('li')]\
-         .find(li => li.querySelector('strong')?.textContent === {namn:?})\
-         .querySelector(\"form[action='/konto/passkeys/ta-bort'] button\").click()"
-    );
-    tab.evaluate(&skript, false).unwrap();
-}
-
-fn vänta_på_text_borta(tab: &Tab, text: &str) {
-    let start = Instant::now();
-    loop {
-        let innehåll = tab
-            .evaluate("document.body.innerText", false)
-            .ok()
-            .and_then(|svar| svar.value)
-            .and_then(|v| v.as_str().map(str::to_string))
-            .unwrap_or_default();
-        if !innehåll.is_empty() && !innehåll.contains(text) {
-            return;
-        }
-        assert!(
-            start.elapsed() < VÄNTA,
-            "\"{text}\" försvann aldrig:\n{innehåll}"
-        );
-        std::thread::sleep(Duration::from_millis(100));
-    }
+    // Ett nytt företag: först med fel kontrollsiffra, sedan rätt.
+    tab.find_element("a[href='/foretag/nytt']").unwrap();
+    tab.navigate_to(&format!("{bas}/foretag/nytt")).unwrap();
+    tab.wait_for_element("#orgnr")
+        .unwrap()
+        .type_into("556036-0794")
+        .unwrap();
+    tab.find_element("#namn")
+        .unwrap()
+        .type_into("Exempel AB")
+        .unwrap();
+    tab.evaluate(
+        "document.querySelector('#start').value = '2026-01-01';\
+         document.querySelector('#slut').value = '2026-12-31';",
+        false,
+    )
+    .unwrap();
+    tab.find_element("form[action='/foretag'] button")
+        .unwrap()
+        .click()
+        .unwrap();
+    vänta_på_text(&tab, "Kontrollsiffran stämmer inte");
+    tab.evaluate(
+        "document.querySelector('#orgnr').value = '556036-0793';\
+         document.querySelector('#start').value = '2026-01-01';\
+         document.querySelector('#slut').value = '2026-12-31';",
+        false,
+    )
+    .unwrap();
+    tab.find_element("form[action='/foretag'] button")
+        .unwrap()
+        .click()
+        .unwrap();
+    vänta_på_text(&tab, "Inget att göra ännu");
+    vänta_på_text(&tab, "556036-0793");
+    assert!(tab.get_url().contains("/foretag/"), "{}", tab.get_url());
 }
 
 fn skapa_användare(dir: &Path, bas: &str) -> String {
@@ -272,4 +284,85 @@ fn ledig_port() -> u16 {
         .local_addr()
         .unwrap()
         .port()
+}
+
+/// Lägger till en virtuell autentiserare med användarverifiering och ger dess id.
+fn autentiserare(tab: &Tab) -> String {
+    tab.call_method(WebAuthn::AddVirtualAuthenticator {
+        options: WebAuthn::VirtualAuthenticatorOptions {
+            protocol: WebAuthn::AuthenticatorProtocol::Ctap2,
+            ctap_2_version: Some(WebAuthn::Ctap2Version::Ctap21),
+            transport: WebAuthn::AuthenticatorTransport::Internal,
+            has_resident_key: Some(true),
+            has_user_verification: Some(true),
+            is_user_verified: Some(true),
+            automatic_presence_simulation: Some(true),
+            has_large_blob: None,
+            has_cred_blob: None,
+            has_min_pin_length: None,
+            has_prf: None,
+            default_backup_eligibility: None,
+            default_backup_state: None,
+        },
+    })
+    .unwrap()
+    .authenticator_id
+}
+
+/// Skickar Ta bort-formuläret på raden för passkeyn `namn`.
+fn ta_bort_passkey(tab: &Tab, namn: &str) {
+    let skript = format!(
+        "[...document.querySelectorAll('li')]\
+         .find(li => li.querySelector('strong')?.textContent === {namn:?})\
+         .querySelector(\"form[action='/konto/passkeys/ta-bort'] button\").click()"
+    );
+    tab.evaluate(&skript, false).unwrap();
+}
+
+fn vänta_på_text_borta(tab: &Tab, text: &str) {
+    let start = Instant::now();
+    loop {
+        let innehåll = tab
+            .evaluate("document.body.innerText", false)
+            .ok()
+            .and_then(|svar| svar.value)
+            .and_then(|v| v.as_str().map(str::to_string))
+            .unwrap_or_default();
+        if !innehåll.is_empty() && !innehåll.contains(text) {
+            return;
+        }
+        assert!(
+            start.elapsed() < VÄNTA,
+            "\"{text}\" försvann aldrig:\n{innehåll}"
+        );
+        std::thread::sleep(Duration::from_millis(100));
+    }
+}
+
+/// Sidan har inte loggat något fel, och har hydrerats om WASM:en finns (`cargo leptos build`).
+fn inga_sidfel(tab: &Tab) {
+    let wasm = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/site/pkg/maya.wasm");
+    let start = Instant::now();
+    loop {
+        let fel = tab
+            .evaluate("(window.__fel || []).join('\\n')", false)
+            .ok()
+            .and_then(|svar| svar.value)
+            .and_then(|v| v.as_str().map(str::to_string))
+            .unwrap_or_default();
+        assert!(
+            fel.is_empty(),
+            "sidan {} loggade fel:\n{fel}",
+            tab.get_url()
+        );
+        if !wasm.exists() || tab.find_element("html[data-hydrerad]").is_ok() {
+            return;
+        }
+        assert!(
+            start.elapsed() < VÄNTA,
+            "sidan {} hydrerades aldrig",
+            tab.get_url()
+        );
+        std::thread::sleep(Duration::from_millis(100));
+    }
 }
