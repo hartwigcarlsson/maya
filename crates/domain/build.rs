@@ -23,7 +23,7 @@ fn main() {
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-changed=data");
 
-    let konton = kontoplan_2026(&blad(KONTOPLAN));
+    let (konton, grupper) = kontoplan_2026(&blad(KONTOPLAN));
     let grundkonton = grundkonton_2025(&blad(GRUNDKONTON));
 
     let mut ut = String::from("// Genererad av build.rs ur BAS fria utgåvor. Ändra inte.\n\n");
@@ -35,6 +35,10 @@ fn main() {
             "    BasKonto {{ nummer: Kontonummer({nummer}), namn: {namn:?}, grundkonto: {grundkonto} }},"
         )
         .unwrap();
+    }
+    ut.push_str("];\n\nstatic KONTOGRUPPER: &[(u8, &str)] = &[\n");
+    for (grupp, namn) in &grupper {
+        writeln!(ut, "    ({grupp}, {namn:?}),").unwrap();
     }
     ut.push_str("];\n");
 
@@ -85,10 +89,11 @@ fn kontonummer(text: &str) -> Option<u16> {
 }
 
 /// BAS 2026: kolumnerna A–B är huvudkonton och C–D underkonton. Ett tvåsiffrigt tal i A är en
-/// kontogrupp. Ett nummer som står två gånger (huvud- och underkonto, eller 2087 med två namn)
-/// blir ett konto med det första namnet.
-fn kontoplan_2026(blad: &Range<Data>) -> BTreeMap<u16, String> {
+/// kontogrupp med namnet i versaler i B. Ett nummer som står två gånger (huvud- och underkonto,
+/// eller 2087 med två namn) blir ett konto med det första namnet.
+fn kontoplan_2026(blad: &Range<Data>) -> (BTreeMap<u16, String>, BTreeMap<u8, String>) {
     let mut konton = BTreeMap::new();
+    let mut grupper = BTreeMap::new();
     let (slut, _) = blad.end().unwrap();
     for rad in första_kontoraden(blad)..=slut {
         for (nr, namn) in [(0, 1), (2, 3)] {
@@ -96,6 +101,9 @@ fn kontoplan_2026(blad: &Range<Data>) -> BTreeMap<u16, String> {
                 continue;
             };
             if nr == 0 && cell.len() == 2 && cell.bytes().all(|b| b.is_ascii_digit()) {
+                let namn = text(blad, rad, 1)
+                    .unwrap_or_else(|| panic!("{KONTOPLAN}: kontogrupp {cell} saknar namn"));
+                grupper.insert(cell.parse().unwrap(), gemener(&namn));
                 continue;
             }
             let nummer = kontonummer(&cell).unwrap_or_else(|| {
@@ -109,7 +117,18 @@ fn kontoplan_2026(blad: &Range<Data>) -> BTreeMap<u16, String> {
             konton.entry(nummer).or_insert(namn);
         }
     }
-    konton
+    assert!(!grupper.is_empty(), "{KONTOPLAN}: inga kontogrupper");
+    (konton, grupper)
+}
+
+/// "KASSA OCH BANK" som "Kassa och bank".
+fn gemener(versaler: &str) -> String {
+    let gemener = versaler.to_lowercase();
+    let mut tecken = gemener.chars();
+    tecken
+        .next()
+        .map(|första| första.to_uppercase().chain(tecken).collect())
+        .unwrap_or_default()
 }
 
 /// BAS 2025: kolumn F bär markeringen och G–H kontot. Kolumnerna B–D är tresiffriga

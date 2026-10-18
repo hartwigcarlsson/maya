@@ -44,3 +44,11 @@ pub fn konto(nummer: Kontonummer) -> Option<&'static BasKonto> {
         .ok()
         .map(|i| &KONTON[i])
 }
+
+/// Namnet på kontogruppen (numrets två första siffror), om BAS 2026 har en rubrik för den.
+pub fn kontogrupp(grupp: u8) -> Option<&'static str> {
+    KONTOGRUPPER
+        .binary_search_by_key(&grupp, |&(g, _)| g)
+        .ok()
+        .map(|i| KONTOGRUPPER[i].1)
+}
