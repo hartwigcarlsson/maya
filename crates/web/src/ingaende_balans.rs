@@ -17,6 +17,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::app::{LoggaIn, Läge};
 use crate::foretag::{Företagsval, IngenÅtkomst};
+use crate::installningar::Inställningsmeny;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct KontoVy {
@@ -305,6 +306,7 @@ pub fn IngåendeBalansSida() -> impl IntoView {
     };
     view! {
         <section class="sida">
+            <Inställningsmeny bas=bas.clone() aktiv="/ingaende-balans" />
             <p class="diskret">{företaget.namn} " · " {företaget.orgnr}</p>
             <h1>"Ingående balans"</h1>
             <nav class="filter" aria-label="Räkenskapsår">
