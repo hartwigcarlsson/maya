@@ -1,7 +1,7 @@
 //! axum-routern: sidor, server functions, assets och `/healthz` på en port och ett origin.
 
 use std::net::{IpAddr, SocketAddr};
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
 
 use axum::Router;
 use axum::extract::{ConnectInfo, Request, State};
@@ -10,7 +10,7 @@ use axum::middleware::{self, Next};
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use leptos::prelude::*;
-use leptos_axum::{LeptosRoutes, generate_route_list};
+use leptos_axum::{AxumRouteListing, LeptosRoutes, generate_route_list};
 use maya_auth::Passkeys;
 use maya_core::config::Config;
 use maya_core::installation::RelyingParty;
@@ -26,6 +26,13 @@ use crate::kontoplan::server::{self as kontoplan, KontoplansState};
 use crate::sok::server as sok;
 use crate::verifikat::server::{self as verifikat, VerifikatState};
 
+/// Sidornas rutter, genererade en gång per process. `generate_route_list` renderar appen med en
+/// *processglobal* flagga (`SuppressResourceLoad`) som får varje `Resource` som börjar hämta
+/// under tiden, i vilken tråd som helst, att vänta för evigt. Genererades listan i varje
+/// `router()`, hängde en sida med `Resource` när en annan router byggdes samtidigt (parallella
+/// tester).
+static ROUTES: LazyLock<Vec<AxumRouteListing>> = LazyLock::new(|| generate_route_list(App));
+
 #[derive(Clone)]
 struct AppState {
     config: Arc<Config>,
@@ -40,7 +47,7 @@ pub fn router(config: Arc<Config>, db: Databas) -> Router {
         .site_pkg_dir("pkg")
         .site_addr(config.listen)
         .build();
-    let routes = generate_route_list(App);
+    let routes = ROUTES.clone();
     let klocka = Klocka::system();
     let passkeys = Passkeys::new(
         &RelyingParty::från_publik_url(&config.public_url),
