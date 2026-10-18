@@ -7,13 +7,14 @@ use maya_core::behandlingshistorik::{Aktörsval, Händelse, Urval};
 use maya_core::foretag::{self, FöretagsId};
 use maya_core::inloggning::{self, NyPasskey};
 use maya_core::{
-    Databas, Klocka, behandlingshistorik, export, fakturauppgifter, kontoplan, leverantor, saldo,
-    sie4, testhjalp, underlag, verifikat,
+    Databas, Klocka, behandlingshistorik, export, fakturauppgifter, kontoplan, kund, leverantor,
+    saldo, sie4, testhjalp, underlag, verifikat,
 };
 use maya_domain::fakturauppgifter::Fakturauppgifter;
 use maya_domain::foretag::{Byte, NyttFöretag, Uppgifter};
 use maya_domain::ingaende_balans::{NyIngåendeBalans, NySaldorad};
 use maya_domain::kontoplan::{Kontonummer, NyttKonto};
+use maya_domain::kund::NyKund;
 use maya_domain::leverantor::NyLeverantör;
 use maya_domain::verifikat::{NyRad, NyttVerifikat};
 
@@ -316,6 +317,35 @@ async fn fakturaändringar(db: &Databas, anna: &Aktör, id: FöretagsId, tid: &s
     .unwrap();
     leverantor::arkivera(db, &k, anna, id, l).await.unwrap();
     leverantor::radera(db, &k, anna, id, l).await.unwrap();
+    // #133 Kundregister
+    let kund_ab = kund::skapa(
+        db,
+        &k,
+        anna,
+        id,
+        &NyKund {
+            namn: "Kund AB".into(),
+            ..NyKund::default()
+        },
+    )
+    .await
+    .unwrap();
+    kund::ändra(
+        db,
+        &k,
+        anna,
+        id,
+        kund_ab,
+        &NyKund {
+            namn: "Kund AB".into(),
+            betalningsvillkor: "10".into(),
+            ..NyKund::default()
+        },
+    )
+    .await
+    .unwrap();
+    kund::arkivera(db, &k, anna, id, kund_ab).await.unwrap();
+    kund::radera(db, &k, anna, id, kund_ab).await.unwrap();
 }
 
 #[tokio::test]

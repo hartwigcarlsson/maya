@@ -130,6 +130,8 @@ pub enum Handling {
     SkickaLarm,
     /// Skapa, ändra, arkivera och radera leverantörer i leverantörsregistret (#144).
     HanteraLeverantörer,
+    /// Skapa, ändra, arkivera och radera en kund i kundregistret. Bara webben (#133).
+    HanteraKunder,
 }
 
 /// Kanalpolicyn: om `kanal` får utföra `handling`.
@@ -152,6 +154,7 @@ pub fn tillåter(kanal: Kanal, handling: Handling) -> bool {
         | Handling::HanteraÅtkomst
         | Handling::ExporteraSie4
         | Handling::KvitteraÅterställning
-        | Handling::HanteraLeverantörer => kanal == Kanal::Webb,
+        | Handling::HanteraLeverantörer
+        | Handling::HanteraKunder => kanal == Kanal::Webb,
     }
 }

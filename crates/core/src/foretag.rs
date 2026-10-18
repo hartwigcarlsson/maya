@@ -622,6 +622,8 @@ pub async fn radera(
         "DELETE FROM fakturauppgifter WHERE foretag_id = ?1",
         // #144 leverantörsregistret
         "DELETE FROM leverantor WHERE foretag_id = ?1",
+        // #133 Kundregister: kunder utan fakturor.
+        "DELETE FROM kund WHERE foretag_id = ?1",
         "DELETE FROM foretag WHERE id = ?1",
         "DELETE FROM konto WHERE foretag_id = ?1",
         "DELETE FROM behandlingshistorik WHERE foretag_id = ?1",
