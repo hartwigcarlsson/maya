@@ -55,10 +55,19 @@ impl Urval {
     /// Urvalet ur adressens parametrar; okända värden ger standardvalet.
     pub fn tolka<'a>(par: impl IntoIterator<Item = (&'a str, &'a str)>) -> Self {
         let mut urval = Urval::default();
+        let mut sok = false;
+        let mut visa = false;
         for (nyckel, värde) in par {
             match nyckel {
                 "q" => urval.q = värde.trim().to_string(),
+                // Länken "Aktivera" från verifikatformuläret: sökningen förifylld och alla
+                // konton, så att ett inaktivt konto syns med sin brytare.
+                "sok" => {
+                    urval.q = värde.trim().to_string();
+                    sok = true;
+                }
                 "visa" => {
+                    visa = true;
                     urval.visa = Visa::ALLA
                         .into_iter()
                         .find(|v| v.kod() == värde)
@@ -68,6 +77,9 @@ impl Urval {
                 "nya" => urval.nya = värde == "1",
                 _ => {}
             }
+        }
+        if sok && !visa {
+            urval.visa = Visa::Alla;
         }
         urval
     }

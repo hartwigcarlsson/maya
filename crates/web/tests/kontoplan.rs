@@ -448,3 +448,16 @@ async fn ett_företag_utan_åtkomst_ger_403() {
     assert_eq!(sida.status(), StatusCode::FORBIDDEN);
     assert_eq!(ändring.status(), StatusCode::FORBIDDEN);
 }
+
+#[tokio::test]
+async fn länken_aktivera_från_verifikatet_söker_fram_kontot_bland_alla() {
+    let db = Databas::tillfällig().await;
+    let (session, sida) = företag(&db).await;
+
+    let (response, body) = hämta(&db, &session, &format!("{sida}?sok=6212")).await;
+
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(rader(&body), [6212]);
+    assert!(body.contains("Aktivera 6212"), "{body}");
+    assert!(body.contains(r#"value="6212""#), "sökfältet är förifyllt");
+}
