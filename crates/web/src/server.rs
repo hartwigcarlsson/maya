@@ -27,6 +27,7 @@ use crate::konto::server as konto;
 use crate::kontoplan::server::{self as kontoplan, KontoplansState};
 use crate::rapporter::server::{self as rapporter, RapportState};
 use crate::sok::server as sok;
+use crate::underlag::server::{self as underlag, UnderlagState};
 use crate::utskrift::server::{self as utskrift, UtskriftsState};
 use crate::verifikat::server::{self as verifikat, VerifikatState};
 
@@ -86,6 +87,10 @@ pub fn router(config: Arc<Config>, db: Databas) -> Router {
             provide_context(klocka.clone());
         }
     };
+    let underlag = UnderlagState {
+        db: db.clone(),
+        klocka: inloggning.klocka.clone(),
+    };
     let ingående_balans = IngåendeBalansState {
         db: db.clone(),
         klocka: inloggning.klocka.clone(),
@@ -119,6 +124,10 @@ pub fn router(config: Arc<Config>, db: Databas) -> Router {
         .layer(middleware::from_fn_with_state(
             verifikat.clone(),
             verifikat::lägg_på_verifikatdata,
+        ))
+        .layer(middleware::from_fn_with_state(
+            underlag.clone(),
+            underlag::lägg_på_underlagsdata,
         ))
         .layer(middleware::from_fn_with_state(
             ingående_balans.clone(),
@@ -172,6 +181,17 @@ pub fn router(config: Arc<Config>, db: Databas) -> Router {
         )
         .merge(
             verifikat::routes(verifikat)
+                .layer(middleware::from_fn_with_state(
+                    inloggning.clone(),
+                    inloggning::identifiera,
+                ))
+                .layer(middleware::from_fn_with_state(
+                    inloggning.clone(),
+                    inloggning::kräv_eget_origin,
+                )),
+        )
+        .merge(
+            underlag::routes(underlag)
                 .layer(middleware::from_fn_with_state(
                     inloggning.clone(),
                     inloggning::identifiera,
