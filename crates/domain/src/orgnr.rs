@@ -59,19 +59,10 @@ impl Organisationsnummer {
         if siffror.len() != 10 || !siffror.bytes().all(|b| b.is_ascii_digit()) {
             return Err(OrgnrFel::Längd);
         }
-        let s: Vec<u32> = siffror.bytes().map(|b| u32::from(b - b'0')).collect();
-        if s[2] < 2 {
+        if siffror.as_bytes()[2] < b'2' {
             return Err(OrgnrFel::TredjeSiffran);
         }
-        let summa: u32 = s[..9]
-            .iter()
-            .enumerate()
-            .map(|(i, &d)| {
-                let v = if i % 2 == 0 { d * 2 } else { d };
-                v / 10 + v % 10
-            })
-            .sum();
-        if (10 - summa % 10) % 10 != s[9] {
+        if !crate::luhn::stämmer(&siffror) {
             return Err(OrgnrFel::Kontrollsiffra);
         }
         Ok(Organisationsnummer(siffror))

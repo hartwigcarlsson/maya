@@ -21,6 +21,7 @@ use crate::assets;
 use crate::atkomst::server::{self as atkomst, ÅtkomstState};
 use crate::att_gora::server::{self as att_gora, AttGöraState};
 use crate::bokforing::server::{self as bokforing, BokföringsState};
+use crate::fakturauppgifter::server::{self as fakturauppgifter, FakturauppgiftsState};
 use crate::foretag::server::{self as foretag, FöretagsState};
 use crate::ingaende_balans::server::{self as ingaende_balans, IngåendeBalansState};
 use crate::inloggning::{self, InloggningsState};
@@ -80,6 +81,11 @@ pub fn router(config: Arc<Config>, db: Databas) -> Router {
         klocka: inloggning.klocka.clone(),
     };
     let inställningar = InställningsState {
+        db: db.clone(),
+        klocka: inloggning.klocka.clone(),
+    };
+    // #134 Fakturauppgifter
+    let fakturauppgifter = FakturauppgiftsState {
         db: db.clone(),
         klocka: inloggning.klocka.clone(),
     };
@@ -246,6 +252,18 @@ pub fn router(config: Arc<Config>, db: Databas) -> Router {
                 inloggning.clone(),
                 inloggning::identifiera,
             )),
+        )
+        // #134 Fakturauppgifter
+        .merge(
+            fakturauppgifter::routes(fakturauppgifter)
+                .layer(middleware::from_fn_with_state(
+                    inloggning.clone(),
+                    inloggning::identifiera,
+                ))
+                .layer(middleware::from_fn_with_state(
+                    inloggning.clone(),
+                    inloggning::kräv_eget_origin,
+                )),
         )
         .merge(
             inloggning::routes(inloggning.clone())

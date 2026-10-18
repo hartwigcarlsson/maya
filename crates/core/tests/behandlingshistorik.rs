@@ -7,9 +7,10 @@ use maya_core::behandlingshistorik::{Aktörsval, Händelse, Urval};
 use maya_core::foretag::{self, FöretagsId};
 use maya_core::inloggning::{self, NyPasskey};
 use maya_core::{
-    Databas, Klocka, behandlingshistorik, export, kontoplan, saldo, sie4, testhjalp, underlag,
-    verifikat,
+    Databas, Klocka, behandlingshistorik, export, fakturauppgifter, kontoplan, saldo, sie4,
+    testhjalp, underlag, verifikat,
 };
+use maya_domain::fakturauppgifter::Fakturauppgifter;
 use maya_domain::foretag::{Byte, NyttFöretag, Uppgifter};
 use maya_domain::ingaende_balans::{NyIngåendeBalans, NySaldorad};
 use maya_domain::kontoplan::{Kontonummer, NyttKonto};
@@ -271,12 +272,34 @@ async fn alla_ändringar(db: &Databas, anna: &Aktör, id: FöretagsId, tid: &str
     .await;
 }
 
+/// Kör varje användningsfall i etapp 2 som loggar, en gång var, på tiden `tid`. Bara testet
+/// som kräver en post per typ använder den; CSV-exportens golden-fil följer `alla_ändringar`.
+/// Lägg till anrop sist, under `// #<ticket>`.
+async fn fakturaändringar(db: &Databas, anna: &Aktör, id: FöretagsId, tid: &str) {
+    let k = klocka(tid);
+    // #134 Fakturauppgifter
+    fakturauppgifter::ändra(
+        db,
+        &k,
+        anna,
+        id,
+        &Fakturauppgifter {
+            bankgiro: "5050-1055".into(),
+            ocr: true,
+            ..Fakturauppgifter::default()
+        },
+    )
+    .await
+    .unwrap();
+}
+
 #[tokio::test]
-async fn varje_typ_i_etapp_1_som_har_en_kodväg_ger_en_post() {
+async fn varje_typ_som_har_en_kodväg_ger_en_post() {
     let db = Databas::tillfällig().await;
     let (anna, id) = testhjalp::företag(&db).await;
 
     alla_ändringar(&db, &anna, id, "2026-03-01T09:00:00Z").await;
+    fakturaändringar(&db, &anna, id, "2026-03-01T09:00:00Z").await;
 
     let historik = behandlingshistorik::historik(&db, &anna, id, &Urval::default())
         .await

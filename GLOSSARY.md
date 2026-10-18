@@ -191,6 +191,14 @@ _Avoid_: Attestera, godkänna, ta emot
 Ett uppladdat och arkiverat underlag som ännu inte hör till något verifikat eller någon faktura.
 _Avoid_: Inkorgsdokument, obehandlat kvitto, lös bilaga
 
+**Fakturauppgifter**:
+Det ett företag anger under Inställningar → Företag för sina kundfakturor utöver adress, säte, momsreg-nr och F-skatt: betalsätt, OCR-referens på eller av, logotyp, svarsadress och standardmeddelande för fakturamejl; en utfärdad kundfaktura kopierar in det den använder.
+_Avoid_: Fakturaprofil, fakturahuvud
+
+**Betalsätt**:
+Ett sätt som en faktura kan betalas på: bankgiro, plusgiro eller IBAN med BIC.
+_Avoid_: Betalningsmetod, betalkanal
+
 **Anställd**:
 En person som får lön eller styrelsearvode från ett företag, även en ägare; registreras per företag.
 _Avoid_: Personal, medarbetare, löntagare
