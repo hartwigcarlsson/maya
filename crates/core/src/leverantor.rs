@@ -485,12 +485,13 @@ async fn läs(
     företag: FöretagsId,
     id: Option<LeverantörsId>,
 ) -> Result<Vec<Leverantör>, DatabasFel> {
-    // `har_fakturor` är alltid falskt före leverantörsfakturorna (#145), som prövar sin
-    // tabell här.
+    // En leverantör som en leverantörsfaktura (också ett utkast) pekar på kan inte raderas.
     let rader: Vec<LeverantörsRad> = sqlx::query_as(
         "SELECT l.id, l.status, l.namn, l.orgnr, l.gatuadress, l.postnummer, l.postort, l.land,
                 l.momsregnr, l.bankgiro, l.plusgiro, l.iban, l.bic, l.standardkonto,
-                l.omvand_skattskyldighet, 0 AS har_fakturor
+                l.omvand_skattskyldighet,
+                EXISTS (SELECT 1 FROM leverantorsfaktura f WHERE f.leverantor_id = l.id)
+                    AS har_fakturor
          FROM leverantor l
          WHERE l.foretag_id = ?1 AND l.status IN ('aktiv', 'arkiverad')
            AND (?2 IS NULL OR l.id = ?2)
@@ -509,4 +510,153 @@ async fn läs_en(
     id: LeverantörsId,
 ) -> Result<Option<Leverantör>, DatabasFel> {
     Ok(läs(conn, företag, Some(id)).await?.into_iter().next())
+}
+
+// #145 Nya leverantörer från ett leverantörsfakturautkast: status `ny`, inte i registret. En ny
+// leverantör blir verklig när fakturan registreras och raderas, loggat med Maya som aktör, när
+// inget utkast längre hänvisar till den.
+
+/// Sparar den nya leverantören på ett utkast: skriver om `id` om den finns, annars en ny rad med
+/// status `ny`. Loggas inte; den är en del av utkastet tills fakturan registreras.
+pub(crate) async fn spara_ny_i(
+    ärende: &mut Ärende,
+    id: Option<LeverantörsId>,
+    l: &GiltigLeverantör,
+) -> Result<LeverantörsId, sqlx::Error> {
+    let företag = ärende.företag;
+    if let Some(id) = id {
+        sqlx::query(
+            "UPDATE leverantor SET namn = ?, orgnr = ?, gatuadress = ?, postnummer = ?,
+                 postort = ?, land = ?, momsregnr = ?, bankgiro = ?, plusgiro = ?, iban = ?,
+                 bic = ?, standardkonto = ?, omvand_skattskyldighet = ?
+             WHERE foretag_id = ? AND id = ? AND status = 'ny'",
+        )
+        .bind(&l.namn)
+        .bind(&l.orgnr)
+        .bind(&l.gatuadress)
+        .bind(&l.postnummer)
+        .bind(&l.postort)
+        .bind(&l.land)
+        .bind(&l.momsregnr)
+        .bind(&l.bankgiro)
+        .bind(&l.plusgiro)
+        .bind(&l.iban)
+        .bind(&l.bic)
+        .bind(l.standardkonto.map(Kontonummer::get))
+        .bind(l.omvänd_skattskyldighet.kod())
+        .bind(företag.0)
+        .bind(id.0)
+        .execute(ärende.conn())
+        .await?;
+        return Ok(id);
+    }
+    let (aktör, nu) = (ärende.aktör, ärende.nu);
+    let id: i64 = sqlx::query_scalar(
+        "INSERT INTO leverantor
+             (foretag_id, status, namn, orgnr, gatuadress, postnummer, postort, land, momsregnr,
+              bankgiro, plusgiro, iban, bic, standardkonto, omvand_skattskyldighet,
+              skapad, skapad_kanal, skapad_av)
+         VALUES (?, 'ny', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         RETURNING id",
+    )
+    .bind(företag.0)
+    .bind(&l.namn)
+    .bind(&l.orgnr)
+    .bind(&l.gatuadress)
+    .bind(&l.postnummer)
+    .bind(&l.postort)
+    .bind(&l.land)
+    .bind(&l.momsregnr)
+    .bind(&l.bankgiro)
+    .bind(&l.plusgiro)
+    .bind(&l.iban)
+    .bind(&l.bic)
+    .bind(l.standardkonto.map(Kontonummer::get))
+    .bind(l.omvänd_skattskyldighet.kod())
+    .bind(nu.to_string())
+    .bind(aktör.kanal.namn())
+    .bind(aktör.användare.map(|a| a.0))
+    .fetch_one(ärende.conn())
+    .await?;
+    Ok(LeverantörsId(id))
+}
+
+/// Den nya leverantören `id` på ett utkast, eller `None` om den inte finns eller inte är ny.
+pub(crate) async fn ny_i(
+    conn: &mut SqliteConnection,
+    företag: FöretagsId,
+    id: LeverantörsId,
+) -> Result<Option<GiltigLeverantör>, DatabasFel> {
+    let rad: Option<LeverantörsRad> = sqlx::query_as(
+        "SELECT l.id, 'aktiv' AS status, l.namn, l.orgnr, l.gatuadress, l.postnummer, l.postort,
+                l.land, l.momsregnr, l.bankgiro, l.plusgiro, l.iban, l.bic, l.standardkonto,
+                l.omvand_skattskyldighet, 0 AS har_fakturor
+         FROM leverantor l WHERE l.foretag_id = ? AND l.id = ? AND l.status = 'ny'",
+    )
+    .bind(företag.0)
+    .bind(id.0)
+    .fetch_optional(conn)
+    .await?;
+    rad.map(|r| r.leverantör().map(|l| l.uppgifter)).transpose()
+}
+
+/// Gör den nya leverantören `id` verklig, med uppgifterna `l`, och loggar `leverantör skapad`
+/// (och `standardkonto ändrat` när den har ett) med registreringens aktör.
+pub(crate) async fn gör_verklig_i(
+    ärende: &mut Ärende,
+    id: LeverantörsId,
+    l: &GiltigLeverantör,
+) -> Result<(), sqlx::Error> {
+    spara_ny_i(ärende, Some(id), l).await?;
+    sqlx::query("UPDATE leverantor SET status = 'aktiv' WHERE foretag_id = ? AND id = ?")
+        .bind(ärende.företag.0)
+        .bind(id.0)
+        .execute(ärende.conn())
+        .await?;
+    let mut beskrivning = json!({ "leverantör": id.0 });
+    for (fält, värde) in fält(l) {
+        beskrivning[fält] = värde;
+    }
+    beskrivning["standardkonto"] = konto(l.standardkonto);
+    ärende
+        .logga(Händelse::LeverantörSkapad, &l.namn, beskrivning)
+        .await?;
+    if l.standardkonto.is_some() {
+        logga_standardkonto(ärende, id.0, &l.namn, None, l.standardkonto).await?;
+    }
+    Ok(())
+}
+
+/// Raderar företagets nya leverantörer som inget utkast längre hänvisar till, och loggar varje
+/// radering som `leverantör raderad` med Maya som aktör.
+pub(crate) async fn rensa_nya_i(ärende: &mut Ärende) -> Result<(), sqlx::Error> {
+    let företag = ärende.företag;
+    let föräldralösa: Vec<(i64, String)> = sqlx::query_as(
+        "SELECT l.id, l.namn FROM leverantor l
+         WHERE l.foretag_id = ? AND l.status = 'ny'
+           AND NOT EXISTS (SELECT 1 FROM leverantorsfaktura f WHERE f.leverantor_id = l.id)",
+    )
+    .bind(företag.0)
+    .fetch_all(ärende.conn())
+    .await?;
+    for (id, namn) in föräldralösa {
+        sqlx::query("DELETE FROM leverantor WHERE id = ? AND status = 'ny'")
+            .bind(id)
+            .execute(ärende.conn())
+            .await?;
+        ärende
+            .logga_som(
+                &Aktör::maya(),
+                Händelse::LeverantörRaderad,
+                &namn,
+                json!({
+                    "leverantör": id,
+                    "namn": namn,
+                    "status": "ny",
+                    "skäl": "inget utkast hänvisar längre till den",
+                }),
+            )
+            .await?;
+    }
+    Ok(())
 }

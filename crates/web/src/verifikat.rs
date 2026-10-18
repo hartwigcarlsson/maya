@@ -129,6 +129,7 @@ impl RättelseVy {
                 .collect::<Option<_>>()?,
             rättad_av: None,
             rättar: None,
+            flöde: None,
         })
     }
 

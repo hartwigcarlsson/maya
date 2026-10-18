@@ -179,6 +179,7 @@ pub async fn antal(
          UNION ALL
          SELECT u.foretag_id, count(*) FROM underlag u
          WHERE NOT EXISTS (SELECT 1 FROM underlagskoppling k WHERE k.underlag_id = u.id)
+           AND NOT EXISTS (SELECT 1 FROM leverantorsfaktura f WHERE f.underlag_id = u.id)
          GROUP BY u.foretag_id",
     )
     .fetch_all(db.pool())

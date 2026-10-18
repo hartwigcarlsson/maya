@@ -26,6 +26,9 @@ pub struct Original {
     pub rättad_av: Option<String>,
     /// Numret på verifikatet som det här rättar, om det är en rättelse.
     pub rättar: Option<String>,
+    /// Fakturan som verifikatet bokfördes från, t.ex. "leverantörsfaktura 8812 från Kontorsvaror
+    /// AB", när det kommer från ett av Mayas flöden. Ett sådant verifikat rättas i fakturan.
+    pub flöde: Option<String>,
 }
 
 /// Varför ett verifikat inte kan rättas.
@@ -35,6 +38,8 @@ pub enum Rättelsespärr {
     RedanRättat(String),
     /// Verifikatet är en rättelse av verifikatet med numret.
     ÄrRättelse(String),
+    /// Verifikatet kommer från ett av Mayas flöden, fakturan i texten, och rättas där.
+    FrånFlöde(String),
 }
 
 impl Rättelsespärr {
@@ -42,6 +47,7 @@ impl Rättelsespärr {
         match self {
             Rättelsespärr::RedanRättat(_) => "redan_rattat",
             Rättelsespärr::ÄrRättelse(_) => "ar_rattelse",
+            Rättelsespärr::FrånFlöde(_) => "fran_flode",
         }
     }
 }
@@ -57,6 +63,10 @@ impl fmt::Display for Rättelsespärr {
                 f,
                 "Det här är en rättelse av {original} och kan inte rättas. Blev något fel, \
                  registrera ett nytt verifikat."
+            ),
+            Rättelsespärr::FrånFlöde(faktura) => write!(
+                f,
+                "Verifikatet bokfördes från {faktura}. Rättas i fakturan."
             ),
         }
     }
@@ -86,6 +96,9 @@ pub fn vänd(rader: &[Rad]) -> Vec<Rad> {
 impl Original {
     /// Om verifikatet kan rättas: det är inte redan rättat och inte självt en rättelse.
     pub fn kan_rättas(&self) -> Result<(), Rättelsespärr> {
+        if let Some(faktura) = &self.flöde {
+            return Err(Rättelsespärr::FrånFlöde(faktura.clone()));
+        }
         if let Some(original) = &self.rättar {
             return Err(Rättelsespärr::ÄrRättelse(original.clone()));
         }
@@ -177,6 +190,7 @@ mod tests {
             ],
             rättad_av: None,
             rättar: None,
+            flöde: None,
         }
     }
 
@@ -256,5 +270,20 @@ mod tests {
             ..original()
         };
         assert_eq!(rättelse.kan_rättas().unwrap_err().kod(), "ar_rattelse");
+    }
+
+    #[test]
+    fn ett_verifikat_från_en_faktura_rättas_i_fakturan() {
+        let från_flöde = Original {
+            flöde: Some("leverantörsfaktura 8812 från Kontorsvaror AB".into()),
+            ..original()
+        };
+        let spärr = från_flöde.kan_rättas().unwrap_err();
+        assert_eq!(spärr.kod(), "fran_flode");
+        assert_eq!(
+            spärr.to_string(),
+            "Verifikatet bokfördes från leverantörsfaktura 8812 från Kontorsvaror AB. Rättas i \
+             fakturan."
+        );
     }
 }
