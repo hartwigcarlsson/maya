@@ -1,9 +1,13 @@
-//! Röktest med riktig server och en webbläsare med virtuella autentiserare: första användaren
-//! via CLI-länken, en passkey till, inloggning med e-post och passkey, borttagning av passkeys
-//! utom den sista, ett nytt företag och kontoplanen som PDF.
+//! Röktest med riktig server och en webbläsare med virtuella autentiserare, specens flöde från
+//! början till slut: första användaren via CLI-länken, en passkey till, inloggning med e-post
+//! och passkey, borttagning av passkeys utom den sista, ett nytt företag, kontoplanen som PDF,
+//! ett uppladdat underlag, ett verifikat bokfört från Att göra, en rättelse med registrera om och
+//! exporten av balansräkningen och SIE4.
 //!
-//! Kräver Chrome eller Chromium (sökvägen kan anges i `CHROME`). Sidan behöver ingen WASM:
-//! inloggningen är vanlig HTML med JS-shimmen.
+//! Kräver Chrome eller Chromium (sökvägen kan anges i `CHROME`) och ett `cargo leptos build`,
+//! så att sidorna hydreras. Utan WASM:en hoppar testet över sig självt, utom i CI.
+
+mod stod;
 
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
@@ -26,6 +30,9 @@ addEventListener('unhandledrejection',h=>window.__fel.push(String(h.reason)));";
 
 #[test]
 fn forsta_anvandaren_via_cli_lanken_och_inloggning_med_passkey() {
+    if !stod::sajten_finns() {
+        return;
+    }
     let dir = tempfile::tempdir().unwrap();
     let port = ledig_port();
     let bas = format!("http://localhost:{port}");
@@ -196,6 +203,7 @@ fn forsta_anvandaren_via_cli_lanken_och_inloggning_med_passkey() {
     vänta_på_text(&tab, "Företagskontot");
     vänta_på_text(&tab, "556036-0793");
     assert!(tab.get_url().contains("/foretag/"), "{}", tab.get_url());
+    let företaget = tab.get_url();
 
     // Kontoplanen som PDF: Skriv ut och Exportera är samma PDF, och routern på klienten tar
     // inte över länkarna.
@@ -234,6 +242,168 @@ fn forsta_anvandaren_via_cli_lanken_och_inloggning_med_passkey() {
         "Exportera laddar ned, sidan står kvar"
     );
     inga_sidfel(&tab);
+
+    // Ett underlag laddas upp på sidan Underlag.
+    let kvitto = dir.path().join("kvitto.pdf");
+    std::fs::write(&kvitto, KVITTO).unwrap();
+    tab.navigate_to(&format!("{företaget}/underlag")).unwrap();
+    vänta_på_hydreringen(&tab);
+    tab.wait_for_element("form.uppladdning input[type='file']")
+        .unwrap()
+        .set_input_files(&[kvitto.to_str().unwrap()])
+        .unwrap();
+    klicka(&tab, "form.uppladdning button[type='submit']");
+    vänta_på_text(&tab, "kvitto.pdf");
+    inga_sidfel(&tab);
+
+    // Att göra: underlaget blir ett kvitto, och utkastet bokförs därifrån.
+    klicka(&tab, "nav.flikar a:first-child");
+    vänta_på_text(&tab, "okopplat");
+    klicka(&tab, ".acard[id^='underlag-'] a.ah");
+    klicka(&tab, "form[action$='/kvitto'] button");
+    vänta_på_text(&tab, "Ett verifikatutkast skapades med underlaget kopplat.");
+    vänta_på_hydreringen(&tab);
+    fyll(&tab, "#verifikatformular #datum", "2026-03-14");
+    fyll(
+        &tab,
+        "#verifikatformular #beskrivning",
+        "Kaffe till kontoret",
+    );
+    fyll(&tab, "#verifikatformular [name='konto_0']", "1930");
+    fyll(&tab, "#verifikatformular [name='debet_0']", "125");
+    fyll(&tab, "#verifikatformular [name='konto_1']", "3001");
+    fyll(&tab, "#verifikatformular [name='kredit_1']", "125");
+    klicka(
+        &tab,
+        "#verifikatformular button[value='bokfor']:not([disabled])",
+    );
+    vänta_på_text(&tab, "Bokförd som V1.");
+    inga_sidfel(&tab);
+
+    // Rätta V1 med registrera om: rättelsen blir V2 och kopian bokförs med rätt belopp som V3.
+    klicka(&tab, "nav.flikar a[href$='/verifikat']");
+    klicka(&tab, "a[href*='/verifikat?v=']");
+    vänta_på_text(&tab, "kvitto.pdf");
+    klicka(&tab, "a[href*='ratta=1']");
+    vänta_på_text(&tab, "Rättelse av V1");
+    fyll(&tab, ".rattelse-formular [name='datum']", "2026-03-20");
+    fyll(&tab, ".rattelse-formular [name='orsak']", "fel belopp");
+    klicka(
+        &tab,
+        ".rattelse-formular button[value='registrera_om']:not([disabled])",
+    );
+    vänta_på_text(&tab, "Rättelsen bokfördes som V2.");
+    vänta_på_hydreringen(&tab);
+    fyll(&tab, "#verifikatformular [name='debet_0']", "150");
+    fyll(&tab, "#verifikatformular [name='kredit_1']", "150");
+    klicka(
+        &tab,
+        "#verifikatformular button[value='bokfor']:not([disabled])",
+    );
+    vänta_på_text(&tab, "V1 (kopia av dess rader)");
+    vänta_på_text(&tab, "Bokfört 150,00 kr");
+    // Originalet står kvar och visar att det är rättat.
+    klicka(&tab, "a[href$='/verifikat?v=1']");
+    vänta_på_text(&tab, "Rättad av V2");
+    inga_sidfel(&tab);
+
+    // Balansräkningen visar det rättade beloppet och exporteras som PDF och CSV.
+    klicka(&tab, "nav.flikar a[href$='/rapporter']");
+    klicka(&tab, ".rapportmeny a[href$='/rapporter/balansrakning']");
+    vänta_på_text(&tab, "Balansräkning");
+    vänta_på_text(&tab, "150,00");
+    inga_sidfel(&tab);
+    let pdf = hämta(&tab, "a.exportera-pdf");
+    assert_eq!(
+        (pdf.status, pdf.typ.as_str(), &pdf.text[..5]),
+        (200, "application/pdf", "%PDF-")
+    );
+    let csv = hämta(&tab, "a.exportera-csv");
+    assert_eq!(csv.status, 200);
+    assert!(csv.typ.starts_with("text/csv"), "{}", csv.typ);
+    assert!(
+        csv.text.contains("1930") && csv.text.contains("150,00"),
+        "{}",
+        csv.text
+    );
+
+    // SIE4 för året: tre verifikat, och filen avslutas med sin kontrollsumma.
+    klicka(&tab, "nav.flikar a[href$='/rapporter']");
+    let sie = hämta(&tab, "a[href*='/sie4?ar=2026-01-01']");
+    assert_eq!(sie.status, 200, "{}", sie.text);
+    assert!(sie.text.starts_with("#FLAGGA 0"), "{}", sie.text);
+    assert_eq!(sie.text.matches("#VER ").count(), 3, "{}", sie.text);
+    assert!(sie.text.contains("#KSUMMA "), "{}", sie.text);
+    inga_sidfel(&tab);
+}
+
+/// Ett litet PDF-dokument som underlag.
+const KVITTO: &[u8] = b"%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n\
+2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n\
+3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 200 200]>>endobj\n\
+trailer<</Root 1 0 R>>\n%%EOF\n";
+
+/// Klickar på elementet med ett DOM-klick, som når elementet även om något annat ligger över
+/// dess mittpunkt (ett musklick på koordinater kan träffa grannen).
+fn klicka(tab: &Tab, selektor: &str) {
+    tab.wait_for_element(selektor)
+        .unwrap_or_else(|e| panic!("{selektor} finns inte på {}: {e}", tab.get_url()));
+    tab.evaluate(
+        &format!("document.querySelector({selektor:?}).click()"),
+        false,
+    )
+    .unwrap();
+}
+
+/// Skriver ett värde i ett fält som användaren skulle, så att sidans kontroller ser det.
+fn fyll(tab: &Tab, selektor: &str, värde: &str) {
+    tab.wait_for_element(selektor)
+        .unwrap_or_else(|e| panic!("{selektor} finns inte på {}: {e}", tab.get_url()));
+    tab.evaluate(
+        &format!(
+            "(() => {{ const e = document.querySelector({selektor:?}); e.value = {värde:?}; \
+             e.dispatchEvent(new Event('input', {{bubbles: true}})); }})()"
+        ),
+        false,
+    )
+    .unwrap();
+}
+
+struct Svar {
+    status: u16,
+    typ: String,
+    text: String,
+}
+
+/// Hämtar länkens adress från sidan, med sessionscookien, som en nedladdning gör.
+fn hämta(tab: &Tab, selektor: &str) -> Svar {
+    tab.wait_for_element(selektor)
+        .unwrap_or_else(|e| panic!("{selektor} finns inte på {}: {e}", tab.get_url()));
+    let svar = tab
+        .evaluate(
+            &format!(
+                "(async () => {{ const r = await fetch(document.querySelector({selektor:?}).href); \
+                 return [r.status, r.headers.get('content-type'), await r.text()].join('\\n'); \
+                 }})()"
+            ),
+            true,
+        )
+        .unwrap()
+        .value
+        .and_then(|v| v.as_str().map(str::to_string))
+        .unwrap_or_else(|| panic!("{selektor} gav inget svar"));
+    let mut delar = svar.splitn(3, '\n');
+    let mut del = || delar.next().unwrap_or_default().to_string();
+    Svar {
+        status: del().parse().unwrap(),
+        typ: del(),
+        text: del(),
+    }
+}
+
+/// Väntar tills `hydrate()` har kört klart (den sätter `<html data-hydrerad>`).
+fn vänta_på_hydreringen(tab: &Tab) {
+    tab.wait_for_element("html[data-hydrerad]").unwrap();
 }
 
 fn skapa_användare(dir: &Path, bas: &str) -> String {
@@ -377,9 +547,8 @@ fn vänta_på_text_borta(tab: &Tab, text: &str) {
     }
 }
 
-/// Sidan har inte loggat något fel, och har hydrerats om WASM:en finns (`cargo leptos build`).
+/// Sidan har inte loggat något fel och har hydrerats.
 fn inga_sidfel(tab: &Tab) {
-    let wasm = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/site/pkg/maya.wasm");
     let start = Instant::now();
     loop {
         let fel = tab
@@ -393,7 +562,7 @@ fn inga_sidfel(tab: &Tab) {
             "sidan {} loggade fel:\n{fel}",
             tab.get_url()
         );
-        if !wasm.exists() || tab.find_element("html[data-hydrerad]").is_ok() {
+        if tab.find_element("html[data-hydrerad]").is_ok() {
             return;
         }
         assert!(

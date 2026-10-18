@@ -277,5 +277,6 @@ async fn ett_redan_rättat_verifikat_rättas_inte_igen() {
 
     assert_eq!(plats(&response), format!("{bas}/verifikat?v={id}"));
     let (_, body) = hämta(&db, &session, &format!("{bas}/verifikat?urval=bokforda")).await;
-    assert!(body.contains("V2") && !body.contains("V3"), "{body}");
+    // Med `>` framför: sidans nonce kan innehålla "V3".
+    assert!(body.contains(">V2") && !body.contains(">V3"), "{body}");
 }
