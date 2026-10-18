@@ -5,8 +5,54 @@ pub mod ink2;
 
 /// Kontona som Mayas flöden bokför på, med flödets namn. De är aktiva från början och kan aldrig
 /// inaktiveras ("Används av flödet X"). Varje etapp lägger till sina konton.
-const FLÖDENAS_KONTON: &[(Kontonummer, &str)] =
-    &[(Kontonummer(2099), "Preliminär ingående balans")];
+/// Listan står i nummerordning.
+const FLÖDENAS_KONTON: &[(Kontonummer, &str)] = &[
+    // Etapp 2: fakturaflödena (#135 lägger till alla på en gång, som specen listar dem).
+    (Kontonummer(1510), "Kundfakturor"),
+    (Kontonummer(1930), "Betalningar av fakturor"),
+    (Kontonummer(2099), "Preliminär ingående balans"),
+    (Kontonummer(2440), "Leverantörsfakturor"),
+    (Kontonummer(2611), "Kundfakturor"),
+    (
+        Kontonummer(2614),
+        "Leverantörsfakturor med omvänd skattskyldighet",
+    ),
+    (Kontonummer(2621), "Kundfakturor"),
+    (
+        Kontonummer(2624),
+        "Leverantörsfakturor med omvänd skattskyldighet",
+    ),
+    (Kontonummer(2631), "Kundfakturor"),
+    (
+        Kontonummer(2634),
+        "Leverantörsfakturor med omvänd skattskyldighet",
+    ),
+    (Kontonummer(2641), "Leverantörsfakturor"),
+    (
+        Kontonummer(2645),
+        "Leverantörsfakturor med omvänd skattskyldighet",
+    ),
+    (
+        Kontonummer(2647),
+        "Leverantörsfakturor med omvänd skattskyldighet",
+    ),
+    (Kontonummer(3001), "Kundfakturor"),
+    (Kontonummer(3002), "Kundfakturor"),
+    (Kontonummer(3003), "Kundfakturor"),
+    (Kontonummer(3004), "Kundfakturor"),
+    (Kontonummer(3231), "Kundfakturor med omvänd skattskyldighet"),
+    (Kontonummer(3308), "Kundfakturor med omvänd skattskyldighet"),
+    (Kontonummer(3740), "Öresutjämning vid betalning av fakturor"),
+    (
+        Kontonummer(3960),
+        "Kursdifferens vid betalning av leverantörsfakturor",
+    ),
+    (Kontonummer(6351), "Kundförlust"),
+    (
+        Kontonummer(7960),
+        "Kursdifferens vid betalning av leverantörsfakturor",
+    ),
+];
 
 /// Flödenas konton, med flödets namn per konto.
 pub fn flödenas_konton() -> &'static [(Kontonummer, &'static str)] {

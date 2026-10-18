@@ -103,8 +103,9 @@ async fn kontoplanen_är_en_kopia_av_bas_med_grundkontona_och_flödenas_konton_a
     }
     assert!(!konto(1950).aktiv, "inte grundkonto");
     let aktiva: Vec<_> = konton.iter().filter(|k| k.aktiv).collect();
-    // BAS 2026 har 336 grundkonton, och 2099 är ett av dem.
-    assert_eq!(aktiva.len(), 336);
+    // BAS 2026 har 336 grundkonton, och 2099 och de flesta av fakturaflödenas konton är bland
+    // dem. Två av fakturaflödenas konton är inga grundkonton.
+    assert_eq!(aktiva.len(), 338);
     assert!(
         aktiva
             .iter()

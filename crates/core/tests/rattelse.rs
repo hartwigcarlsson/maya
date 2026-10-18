@@ -476,19 +476,19 @@ async fn ett_verifikat_rättas_också_när_ett_av_dess_konton_har_inaktiverats()
         &anna,
         id,
         "2026-03-14",
-        &[(1930, 100, 0), (3001, 0, 100)],
+        &[(1930, 100, 0), (3000, 0, 100)],
     )
     .await;
-    // Saldot på 3001 nollas, och kontot inaktiveras.
+    // Saldot på 3000 nollas, och kontot inaktiveras.
     testhjalp::bokför(
         &db,
         &anna,
         id,
         "2026-03-15",
-        &[(3001, 100, 0), (1930, 0, 100)],
+        &[(3000, 100, 0), (1930, 0, 100)],
     )
     .await;
-    let konto = maya_domain::kontoplan::Kontonummer::new(3001).unwrap();
+    let konto = maya_domain::kontoplan::Kontonummer::new(3000).unwrap();
     maya_core::kontoplan::inaktivera(&db, &klocka(), &anna, id, konto)
         .await
         .unwrap();
