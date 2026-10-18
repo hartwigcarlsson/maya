@@ -20,6 +20,7 @@ axum = "0.8"
 calamine = "0.36"
 clap = { version = "4", features = ["derive"] }
 console_error_panic_hook = "0.1"
+crc32fast = "1.5"
 dotenvy = "0.15"
 getrandom = "0.3"
 hayro-cmap = "0.1"

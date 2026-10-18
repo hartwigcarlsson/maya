@@ -8,12 +8,13 @@ use leptos_router::hooks::use_params_map;
 use leptos_router::path;
 use serde::{Deserialize, Serialize};
 
+use crate::atkomst::ÅtkomstSida;
 use crate::foretag::{AttGöra, Företagslista, NyttFöretagSida, Toppmeny, företagsval};
 use crate::ingaende_balans::IngåendeBalansSida;
 use crate::installningar::FöretagsInställningar;
 use crate::konto::{Passkeys, Sessioner};
 use crate::kontoplan::KontoplanSida;
-use crate::rapporter::{Balansräkning, RapporterSida, Resultaträkning};
+use crate::rapporter::{Balansräkning, Rapporter, Resultaträkning};
 use crate::sok::SökSida;
 use crate::verifikat::{NyttVerifikatSida, VerifikatSida};
 
@@ -136,7 +137,7 @@ fn Innehåll() -> impl IntoView {
                 <Route path=path!("foretag/:id") view=AttGöra />
                 <Route path=path!("foretag/:id/verifikat") view=VerifikatSida />
                 <Route path=path!("foretag/:id/verifikat/nytt") view=NyttVerifikatSida />
-                <Route path=path!("foretag/:id/rapporter") view=RapporterSida />
+                <Route path=path!("foretag/:id/rapporter") view=Rapporter />
                 <Route path=path!("foretag/:id/rapporter/resultatrakning") view=Resultaträkning />
                 <Route path=path!("foretag/:id/rapporter/balansrakning") view=Balansräkning />
                 <Route path=path!("foretag/:id/sok") view=SökSida />
@@ -146,6 +147,7 @@ fn Innehåll() -> impl IntoView {
                     view=IngåendeBalansSida
                 />
                 <Route path=path!("foretag/:id/installningar/kontoplan") view=KontoplanSida />
+                <Route path=path!("foretag/:id/installningar/atkomst") view=ÅtkomstSida />
             </Routes>
         }
         .into_any()
@@ -192,8 +194,8 @@ pub(crate) fn LoggaIn() -> impl IntoView {
     }
 }
 
-/// Sidan som registrerings- och återställningslänkarna från CLI:t leder till. Efteråt ber
-/// Maya användaren lägga till en passkey till.
+/// Sidan som registrerings- och återställningslänkarna från CLI:t och inbjudningslänkarna
+/// leder till. Efteråt ber Maya användaren lägga till en passkey till.
 #[component]
 fn Registrera() -> impl IntoView {
     let token = use_params_map().with_untracked(|p| p.get("token").unwrap_or_default());

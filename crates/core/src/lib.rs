@@ -14,6 +14,7 @@ mod klocka;
 pub mod kontoplan;
 pub mod rapport;
 pub mod saldo;
+pub mod sie4;
 #[cfg(feature = "test-support")]
 pub mod testhjalp;
 pub mod utskrift;

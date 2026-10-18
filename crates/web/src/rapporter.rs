@@ -1,7 +1,12 @@
-//! Rapporter: fliken med rapporterna, och resultat- och balansräkningen som dokument (variant A
-//! i `prototype/69-rapporter`).
+//! Rapporter: fliken med rapporterna och SIE4-exporten, och resultat- och balansräkningen som
+//! dokument (variant A i `prototype/69-rapporter`).
 //!
-//! Urvalet står i adressen: `ar` (räkenskapsårets start), `tom` (periodens sista månad,
+//! SIE4-filen hämtas med `GET /foretag/<id>/sie4?ar=<start>`. `core` läser tillbaka och stämmer
+//! av filen innan den lämnas ut; stoppas exporten skickas användaren tillbaka till fliken med
+//! `fel=sie4`.
+//!
+//! I resultat- och balansräkningen
+//! står urvalet i adressen: `ar` (räkenskapsårets start), `tom` (periodens sista månad,
 //! `ÅÅÅÅ-MM`), `visa` (resultaträkningen: `manad|ackumulerat|bada`), `jmf=1` (jämförelse med
 //! föregående år), `niva` (`rubriker|ink2|konton`) och `konto` (panelen med kontots verifikat).
 //! Datan kommer från middleware vid serverrenderingen, så länkar som ändrar urvalet har
@@ -9,12 +14,36 @@
 //! CSV) tar samma urval och ger samma kolumner och nivå som sidan.
 
 use leptos::prelude::*;
-use leptos_router::hooks::use_params_map;
+use leptos_router::hooks::{use_params_map, use_query_map};
 use serde::{Deserialize, Serialize};
 
 use crate::app::{LoggaIn, Läge};
 use crate::foretag::{FöretagVy, Företagsval, IngenÅtkomst};
 use crate::utskrift::Utskrift;
+
+/// Koden i `fel=` när SIE4-exporten stoppades vid återläsningen.
+pub const SIE4_STOPPAD: &str = "sie4";
+
+/// Det som fliken visar. Middleware hämtar det ur `core` och lägger det på begäran, och det
+/// följer med till webbläsaren vid hydreringen.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Rapportdata {
+    /// Räkenskapsåren i ordning, som start och slut `ÅÅÅÅ-MM-DD`.
+    pub år: Vec<(String, String)>,
+}
+
+fn data() -> Rapportdata {
+    SharedValue::new(|| {
+        #[cfg(feature = "ssr")]
+        if let Some(parts) = use_context::<axum::http::request::Parts>()
+            && let Some(data) = parts.extensions.get::<Rapportdata>()
+        {
+            return data.clone();
+        }
+        Rapportdata::default()
+    })
+    .into_inner()
+}
 
 /// Rapporterna i fliken, i grupper: (grupp, namn, sökväg under företaget). Nya rapporter läggs
 /// till här.
@@ -68,7 +97,7 @@ pub struct PanelVy {
 /// Det som rapportsidan visar. Middleware hämtar det ur `core` och lägger det på begäran, och
 /// det följer med till webbläsaren vid hydreringen.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Rapportdata {
+pub struct Rapportvy {
     /// `resultatrakning` eller `balansrakning`.
     pub typ: String,
     pub titel: String,
@@ -92,7 +121,7 @@ pub struct Rapportdata {
     pub filnamn: String,
 }
 
-impl Rapportdata {
+impl Rapportvy {
     /// Adressen till rapporten med urvalet, ändrat enligt `ändra` (ett tomt värde tar bort
     /// parametern). Panelen följer inte med om den inte anges.
     fn adress(&self, sökväg: &str, ändra: &[(&str, &str)]) -> String {
@@ -119,15 +148,15 @@ impl Rapportdata {
     }
 }
 
-fn data() -> Rapportdata {
+fn rapportvy() -> Rapportvy {
     SharedValue::new(|| {
         #[cfg(feature = "ssr")]
         if let Some(parts) = use_context::<axum::http::request::Parts>()
-            && let Some(data) = parts.extensions.get::<Rapportdata>()
+            && let Some(data) = parts.extensions.get::<Rapportvy>()
         {
             return data.clone();
         }
-        Rapportdata::default()
+        Rapportvy::default()
     })
     .into_inner()
 }
@@ -188,18 +217,49 @@ fn Rapportmeny(bas: String, aktiv: &'static str) -> impl IntoView {
     }
 }
 
-/// Fliken Rapporter: rapporterna att välja bland.
+/// Fliken Rapporter: rapporterna att välja bland och SIE4-exporten per räkenskapsår.
 #[component]
-pub fn RapporterSida() -> impl IntoView {
+pub fn Rapporter() -> impl IntoView {
     let f = match företaget() {
         Ok(f) => f,
         Err(vy) => return vy,
     };
+    let stoppad = use_query_map().with_untracked(|q| q.get("fel").as_deref() == Some(SIE4_STOPPAD));
+    let bas = f.href();
+    let år = data()
+        .år
+        .into_iter()
+        .map(|(start, slut)| {
+            view! {
+                <li>
+                    <a rel="external" href=format!("{bas}/sie4?ar={start}")>
+                        {format!("{start} – {slut}")}
+                    </a>
+                </li>
+            }
+        })
+        .collect_view();
     view! {
         <section class="sida rapporter">
             <p class="diskret">{f.namn.clone()} " · " {f.orgnr.clone()}</p>
             <h1>"Rapporter"</h1>
-            <Rapportmeny bas=f.href() aktiv="" />
+            <Rapportmeny bas=bas.clone() aktiv="" />
+            <h2>"SIE4"</h2>
+            <p>
+                "En SIE 4E-fil per räkenskapsår, för revisorn eller ett annat program. Maya läser "
+                "tillbaka filen och stämmer av den mot bokföringen innan den laddas ned."
+            </p>
+            {stoppad
+                .then(|| {
+                    view! {
+                        <p class="fel" role="alert">
+                            "Exporten stoppades: filen stämmer inte med bokföringen. Ingen fil "
+                            "laddades ned. Försök igen, och kontakta den som driver Maya om det "
+                            "händer igen."
+                        </p>
+                    }
+                })}
+            <ul class="lista">{år}</ul>
         </section>
     }
     .into_any()
@@ -223,7 +283,7 @@ fn RapportSida(sökväg: &'static str) -> impl IntoView {
         Err(vy) => return vy,
     };
     let bas = f.href();
-    let d = data();
+    let d = rapportvy();
     let sida = format!("{bas}{sökväg}");
     let export = |format: &str| d.adress(&format!("{sida}/{format}"), &[]);
     let banderoller = {
@@ -288,7 +348,7 @@ fn RapportSida(sökväg: &'static str) -> impl IntoView {
 
 /// År och period t.o.m. i ett formulär, och visning, jämförelse och nivå som länkar.
 #[component]
-fn Verktygsrad(d: Rapportdata, sida: String) -> impl IntoView {
+fn Verktygsrad(d: Rapportvy, sida: String) -> impl IntoView {
     let val =
         |nyckel: &'static str, alternativ: Vec<(&'static str, &'static str)>, aktiv: String| {
             let d = d.clone();
@@ -392,7 +452,7 @@ fn Verktygsrad(d: Rapportdata, sida: String) -> impl IntoView {
 
 /// Rapporten som dokument. Ett konto öppnar panelen; en rubrik eller INK2-rad visar nivån under.
 #[component]
-fn Dokument(d: Rapportdata, sida: String, namn: String, orgnr: String) -> impl IntoView {
+fn Dokument(d: Rapportvy, sida: String, namn: String, orgnr: String) -> impl IntoView {
     let rader = d
         .rader
         .iter()
@@ -489,7 +549,7 @@ fn Dokument(d: Rapportdata, sida: String, namn: String, orgnr: String) -> impl I
 
 /// Kontots verifikat i perioden med löpande saldo, och länk till varje verifikat.
 #[component]
-fn Panel(d: Rapportdata, sida: String, bas: String, p: PanelVy) -> impl IntoView {
+fn Panel(d: Rapportvy, sida: String, bas: String, p: PanelVy) -> impl IntoView {
     let stäng = d.adress(&sida, &[]);
     view! {
         <aside class="sidopanel" aria-labelledby="panelrubrik">
@@ -570,7 +630,7 @@ pub(crate) mod server {
     use std::sync::Arc;
 
     use axum::Router;
-    use axum::extract::{Extension, Path, RawQuery, Request, State};
+    use axum::extract::{Extension, Path, Query, RawQuery, Request, State};
     use axum::http::{StatusCode, header};
     use axum::middleware::Next;
     use axum::response::{IntoResponse, Redirect, Response};
@@ -581,14 +641,16 @@ pub(crate) mod server {
     use maya_core::inloggning::Inloggad;
     use maya_core::rapport::{self, Urval};
     use maya_core::saldo::SaldoFel;
+    use maya_core::sie4::{self, Sie4Fel};
     use maya_core::utskrift::{self, UtskriftFel};
     use maya_core::{Databas, Klocka};
     use maya_domain::belopp::{Belopp, Saldo};
     use maya_domain::kontoplan::Kontonummer;
     use maya_domain::rakenskapsar::periodnamn;
     use maya_domain::rapport::{Nivå, Radslag, Rapporttyp, Visning, periodspann};
+    use serde::Deserialize;
 
-    use super::{KolumnVy, PanelVy, PanelradVy, RadVy, Rapportdata};
+    use super::{KolumnVy, PanelVy, PanelradVy, RadVy, Rapportdata, Rapportvy, SIE4_STOPPAD};
 
     #[derive(Clone)]
     pub(crate) struct RapportState {
@@ -597,7 +659,7 @@ pub(crate) mod server {
     }
 
     pub(crate) fn routes(state: RapportState) -> Router {
-        let mut router = Router::new();
+        let mut router = Router::new().route("/foretag/{id}/sie4", get(exportera_sie4));
         for typ in Rapporttyp::ALLA {
             router = router
                 .route(
@@ -610,6 +672,97 @@ pub(crate) mod server {
                 );
         }
         router.with_state(Arc::new(state))
+    }
+
+    /// Hämtar räkenskapsåren för fliken `/foretag/<id>/rapporter`. Körs efter
+    /// `inloggning::identifiera`.
+    pub(crate) async fn lägg_på_rapportdata(
+        State(state): State<RapportState>,
+        mut req: Request,
+        next: Next,
+    ) -> Response {
+        let Some(inloggad) = req.extensions().get::<Inloggad>().cloned() else {
+            return next.run(req).await;
+        };
+        let delar: Vec<&str> = req.uri().path().trim_matches('/').split('/').collect();
+        let ["foretag", id, "rapporter"] = delar.as_slice() else {
+            return next.run(req).await;
+        };
+        let Ok(företag) = id.parse::<FöretagsId>() else {
+            return next.run(req).await;
+        };
+        match foretag::företaget(&state.db, &inloggad.aktör, företag).await {
+            Ok(f) => {
+                req.extensions_mut().insert(Rapportdata {
+                    år: f
+                        .räkenskapsår
+                        .iter()
+                        .map(|å| (å.start.to_string(), å.slut.to_string()))
+                        .collect(),
+                });
+            }
+            // Sidan visar att användaren saknar åtkomst, ur företagsvalet.
+            Err(ÅtkomstFel::IngenÅtkomst | ÅtkomstFel::KanalenFårInte) => {}
+            Err(e) => return serverfel(e),
+        }
+        next.run(req).await
+    }
+
+    #[derive(Deserialize)]
+    struct Årsval {
+        #[serde(default)]
+        ar: String,
+    }
+
+    /// SIE4-filen för räkenskapsåret som börjar `ar`, som en bilaga.
+    async fn exportera_sie4(
+        State(state): State<Arc<RapportState>>,
+        Path(id): Path<String>,
+        Query(urval): Query<Årsval>,
+        inloggad: Option<Extension<Inloggad>>,
+    ) -> Response {
+        let (Some(Extension(inloggad)), Ok(företag)) = (inloggad, id.parse::<FöretagsId>())
+        else {
+            return ingen_åtkomst();
+        };
+        let Ok(år) = urval.ar.parse::<Date>() else {
+            return okänt_år();
+        };
+        match sie4::exportera(&state.db, &state.klocka, &inloggad.aktör, företag, år).await {
+            Ok(export) => (
+                StatusCode::OK,
+                [
+                    (
+                        header::CONTENT_TYPE,
+                        "text/plain; charset=IBM437".to_string(),
+                    ),
+                    (
+                        header::CONTENT_DISPOSITION,
+                        format!("attachment; filename=\"{}\"", export.filnamn),
+                    ),
+                    (header::CACHE_CONTROL, "no-store".to_string()),
+                ],
+                export.innehåll,
+            )
+                .into_response(),
+            Err(e @ (Sie4Fel::Avvikelse(_) | Sie4Fel::Återläsning(_))) => {
+                tracing::error!("SIE4-exporten stoppades: {e}");
+                Redirect::to(&format!("/foretag/{företag}/rapporter?fel={SIE4_STOPPAD}"))
+                    .into_response()
+            }
+            Err(Sie4Fel::OkäntRäkenskapsår) => okänt_år(),
+            Err(Sie4Fel::Åtkomst(ÅtkomstFel::IngenÅtkomst | ÅtkomstFel::KanalenFårInte)) => {
+                ingen_åtkomst()
+            }
+            Err(e) => serverfel(e),
+        }
+    }
+
+    fn okänt_år() -> Response {
+        text(
+            StatusCode::NOT_FOUND,
+            "Företaget har inget sådant räkenskapsår.\n",
+        )
     }
 
     /// Urvalet i adressen, med räkenskapsåret och kontot för panelen. Saknas eller är något
@@ -739,7 +892,7 @@ pub(crate) mod server {
         företag: FöretagsId,
         typ: Rapporttyp,
         query: Option<&str>,
-    ) -> Result<Option<Rapportdata>, SaldoFel> {
+    ) -> Result<Option<Rapportvy>, SaldoFel> {
         let db = &state.db;
         let aktör = &inloggad.aktör;
         let år = räkenskapsåren(db, inloggad, företag).await?;
@@ -794,7 +947,7 @@ pub(crate) mod server {
             .take_while(|(s, _)| *s != valt.år)
             .last()
             .map(|(s, e)| (s.to_string(), e.to_string()));
-        Ok(Some(Rapportdata {
+        Ok(Some(Rapportvy {
             typ: typ.kod().into(),
             titel: typ.namn().into(),
             år: år
@@ -856,7 +1009,7 @@ pub(crate) mod server {
             Err(e) => return åtkomstfel(e),
         };
         let Some(valt) = välj(typ, query.as_deref(), &år, state.klocka.idag()) else {
-            return finns_inte();
+            return okänt_år();
         };
         match utskrift::rapport(
             &state.db,
@@ -870,7 +1023,7 @@ pub(crate) mod server {
         {
             Ok(pdf) => crate::utskrift::server::svar(pdf),
             Err(UtskriftFel::Åtkomst(e)) => åtkomstfel(e),
-            Err(UtskriftFel::OkäntRäkenskapsår) => finns_inte(),
+            Err(UtskriftFel::OkäntRäkenskapsår) => okänt_år(),
             Err(e) => serverfel(e),
         }
     }
@@ -893,7 +1046,7 @@ pub(crate) mod server {
             Err(e) => return åtkomstfel(e),
         };
         let Some(valt) = välj(typ, query.as_deref(), &år, state.klocka.idag()) else {
-            return finns_inte();
+            return okänt_år();
         };
         match rapport::csv(&state.db, &inloggad.aktör, företag, valt.år, &valt.urval).await {
             Ok(csv) => (
@@ -909,7 +1062,7 @@ pub(crate) mod server {
             )
                 .into_response(),
             Err(SaldoFel::Åtkomst(e)) => åtkomstfel(e),
-            Err(SaldoFel::OkäntRäkenskapsår) => finns_inte(),
+            Err(SaldoFel::OkäntRäkenskapsår) => okänt_år(),
         }
     }
 
@@ -925,10 +1078,6 @@ pub(crate) mod server {
             StatusCode::FORBIDDEN,
             "Du har inte åtkomst till företaget.\n",
         )
-    }
-
-    fn finns_inte() -> Response {
-        text(StatusCode::NOT_FOUND, "Räkenskapsåret finns inte.\n")
     }
 
     fn serverfel(e: impl std::fmt::Display) -> Response {

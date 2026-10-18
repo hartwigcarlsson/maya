@@ -197,7 +197,9 @@ pub fn Toppmeny() -> impl IntoView {
             <nav class="flikar" aria-label="Huvudmeny">
                 <a href=bas.clone()>"Att göra"</a>
                 <a href=format!("{bas}/verifikat")>"Verifikat"</a>
-                <a href=format!("{bas}/rapporter")>"Rapporter"</a>
+                <a rel="external" href=format!("{bas}/rapporter")>
+                    "Rapporter"
+                </a>
             </nav>
             <Sökfält valt=valt.clone() alla=val.0.clone() />
             <a

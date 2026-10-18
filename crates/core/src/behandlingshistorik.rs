@@ -27,6 +27,11 @@ pub enum Händelse {
     VerifikatBokfört,
     UtkastRaderat,
     IngåendeBalansÄndrad,
+    ÅtkomstGiven,
+    ÅtkomstTagen,
+    InbjudanSkapad,
+    InbjudanAnvänd,
+    Sie4Exporterad,
 }
 
 impl Händelse {
@@ -46,6 +51,11 @@ impl Händelse {
             Händelse::VerifikatBokfört => "verifikat bokfört",
             Händelse::UtkastRaderat => "utkast raderat",
             Händelse::IngåendeBalansÄndrad => "ingående balans ändrad",
+            Händelse::ÅtkomstGiven => "åtkomst given",
+            Händelse::ÅtkomstTagen => "åtkomst tagen",
+            Händelse::InbjudanSkapad => "inbjudan skapad",
+            Händelse::InbjudanAnvänd => "inbjudan använd",
+            Händelse::Sie4Exporterad => "SIE4 exporterad",
         }
     }
 }

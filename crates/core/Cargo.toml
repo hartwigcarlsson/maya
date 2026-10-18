@@ -12,6 +12,7 @@ test-support = ["dep:tempfile"]
 
 [dependencies]
 maya-domain.workspace = true
+maya-sie.workspace = true
 maya-pdf.workspace = true
 getrandom.workspace = true
 hex.workspace = true
