@@ -4,8 +4,9 @@
 use jiff::civil::date;
 use maya_core::atkomst::ÅtkomstFel;
 use maya_core::foretag::{self, FöretagsFel};
-use maya_core::{Databas, Klocka, behandlingshistorik, installationslogg, testhjalp};
+use maya_core::{Databas, Klocka, behandlingshistorik, installationslogg, testhjalp, verifikat};
 use maya_domain::foretag::{Bokföringsmetod, Byte, Momsperiod, NyttFöretag, Uppgifter};
+use maya_domain::verifikat::{NyRad, NyttVerifikat};
 
 const NU: &str = "2026-10-18T08:00:00Z";
 
@@ -478,4 +479,26 @@ async fn den_utan_åtkomst_kan_inte_radera_företaget() {
         FöretagsFel::Åtkomst(ÅtkomstFel::IngenÅtkomst)
     ));
     assert_eq!(foretag::mina_företag(&db, &anna).await.unwrap().len(), 1);
+}
+
+#[tokio::test]
+async fn ett_företag_med_bara_utkast_raderas_med_utkasten() {
+    let db = Databas::tillfällig().await;
+    let (anna, id) = testhjalp::företag(&db).await;
+    let utkast = NyttVerifikat {
+        datum: "2026-11-30".into(),
+        beskrivning: "Halvfärdigt".into(),
+        rader: vec![NyRad {
+            konto: "1930".into(),
+            debet: "100".into(),
+            ..NyRad::default()
+        }],
+    };
+    verifikat::spara_utkast(&db, &klocka(), &anna, id, None, &utkast)
+        .await
+        .unwrap();
+
+    foretag::radera(&db, &klocka(), &anna, id).await.unwrap();
+
+    assert!(foretag::mina_företag(&db, &anna).await.unwrap().is_empty());
 }
