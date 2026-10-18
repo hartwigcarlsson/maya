@@ -7,6 +7,7 @@
 pub mod app;
 pub mod foretag;
 pub mod ingaende_balans;
+pub mod konto;
 pub mod kontoplan;
 pub mod verifikat;
 
