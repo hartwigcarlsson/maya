@@ -176,6 +176,47 @@ async fn öppna_inbjudningar_listas_tills_de_används_eller_löper_ut() {
 }
 
 #[tokio::test]
+async fn registrering_med_en_inbjudan_använder_varje_öppen_inbjudan_till_samma_adress() {
+    let db = Databas::tillfällig().await;
+    let (anna, första) = anna(&db).await;
+    let andra = eget_företag(&db, &anna.aktör, "556677-8899").await;
+    let länk1 = länk(
+        atkomst::bjud_in(&db, &nu(), &anna, första, "bo@example.se")
+            .await
+            .unwrap(),
+    );
+    länk(
+        atkomst::bjud_in(&db, &nu(), &anna, andra, "Bo@example.se")
+            .await
+            .unwrap(),
+    );
+
+    let session =
+        inloggning::slutför_registrering(&db, &nu(), länk1.token(), passkey(b"bo"), None)
+            .await
+            .unwrap();
+    let bo = inloggning::session(&db, &nu(), session.token())
+        .await
+        .unwrap()
+        .unwrap();
+
+    assert!(har_åtkomst(&db, &bo.aktör, första).await);
+    assert!(har_åtkomst(&db, &bo.aktör, andra).await);
+    let lista = atkomst::åtkomst(&db, &nu(), &anna.aktör, andra)
+        .await
+        .unwrap();
+    assert!(lista.inbjudningar.is_empty(), "{:?}", lista.inbjudningar);
+    let typer: Vec<String> = behandlingshistorik::läs(&db, &anna.aktör, andra)
+        .await
+        .unwrap()
+        .into_iter()
+        .filter(|p| p.aktör == bo.aktör)
+        .map(|p| p.typ)
+        .collect();
+    assert_eq!(typer, ["inbjudan använd", "åtkomst given"]);
+}
+
+#[tokio::test]
 async fn en_inbjudan_till_en_befintlig_epost_ger_bara_åtkomst() {
     let db = Databas::tillfällig().await;
     let (anna, företag) = anna(&db).await;

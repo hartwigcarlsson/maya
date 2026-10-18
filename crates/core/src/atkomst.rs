@@ -503,30 +503,53 @@ pub(crate) async fn använd_inbjudan(
     .bind(nu.to_string())
     .fetch_one(&mut *conn)
     .await?;
-    sqlx::query("UPDATE inbjudan SET anvand = ?, anvandare_id = ? WHERE hash = ?")
-        .bind(nu.to_string())
-        .bind(id)
-        .bind(&inbjudan.hash)
-        .execute(&mut *conn)
-        .await?;
-    sqlx::query("INSERT INTO atkomst (foretag_id, anvandare_id) VALUES (?, ?)")
-        .bind(inbjudan.företag.0)
-        .bind(id)
-        .execute(&mut *conn)
-        .await?;
+    // Inbjudan som användes och varje annan giltig, oanvänd inbjudan till samma adress (från
+    // andra företag): användaren får åtkomst till vart och ett, och inbjudningarna är använda.
+    let inbjudningar: Vec<(Vec<u8>, i64)> = sqlx::query_as(
+        "SELECT hash, foretag_id FROM inbjudan
+         WHERE hash = ?1 OR (epost = ?2 AND anvand IS NULL AND giltig_till > ?3)
+         ORDER BY hash = ?1 DESC, skapad, rowid",
+    )
+    .bind(&inbjudan.hash)
+    .bind(&epost)
+    .bind(nu.to_string())
+    .fetch_all(&mut *conn)
+    .await?;
     let aktör = Aktör::webb(AnvändarId(id));
     let beskrivning = serde_json::json!({ "användare": id, "epost": epost });
-    for händelse in [Händelse::InbjudanAnvänd, Händelse::ÅtkomstGiven] {
-        behandlingshistorik::skriv(
-            conn,
-            inbjudan.företag,
-            nu,
-            &aktör,
-            händelse,
-            &epost,
-            beskrivning.clone(),
+    for (hash, företag) in inbjudningar {
+        sqlx::query("UPDATE inbjudan SET anvand = ?, anvandare_id = ? WHERE hash = ?")
+            .bind(nu.to_string())
+            .bind(id)
+            .bind(&hash)
+            .execute(&mut *conn)
+            .await?;
+        let ny = sqlx::query(
+            "INSERT INTO atkomst (foretag_id, anvandare_id) VALUES (?, ?) ON CONFLICT DO NOTHING",
         )
-        .await?;
+        .bind(företag)
+        .bind(id)
+        .execute(&mut *conn)
+        .await?
+        .rows_affected()
+            == 1;
+        let händelser: &[Händelse] = if ny {
+            &[Händelse::InbjudanAnvänd, Händelse::ÅtkomstGiven]
+        } else {
+            &[Händelse::InbjudanAnvänd]
+        };
+        for &händelse in händelser {
+            behandlingshistorik::skriv(
+                conn,
+                FöretagsId(företag),
+                nu,
+                &aktör,
+                händelse,
+                &epost,
+                beskrivning.clone(),
+            )
+            .await?;
+        }
     }
     Ok(AnvändarId(id))
 }
