@@ -192,6 +192,40 @@ fn menylankarna_navigerar_pa_klienten_och_sidorna_visar_sina_data() {
     klicka(&tab, "nav.flikar a[href$='/verifikat']");
     vänta_på_text(&tab, "Kaffe till kontoret");
 
+    // #134 Fakturauppgifterna och logotypen på Inställningar → Företag.
+    posta(
+        &tab,
+        &format!("/foretag/{id}/installningar/fakturauppgifter"),
+        "bankgiro=50501055&ocr=ja&standardmeddelande=Hej",
+    );
+    let logotyp = tab
+        .evaluate(
+            &format!(
+                "(() => {{ const f = new FormData(); \
+                 f.append('fil', new Blob(['<svg xmlns=\"http://www.w3.org/2000/svg\"/>']), \
+                 'logga.svg'); \
+                 return fetch('/foretag/{id}/installningar/logotyp', {{method: 'POST', body: f}}) \
+                 .then(r => r.ok ? r.url : Promise.reject(r.status + ' ' + r.url)); }})()"
+            ),
+            true,
+        )
+        .unwrap()
+        .value;
+    assert!(
+        format!("{logotyp:?}").contains("sparat=logotyp"),
+        "{logotyp:?}"
+    );
+    klicka(&tab, "a.kugghjul");
+    vänta_på_text(&tab, "logga.svg");
+    let bankgiro = tab
+        .evaluate(
+            "document.querySelector(\"input[name='bankgiro']\").value",
+            false,
+        )
+        .unwrap()
+        .value;
+    assert_eq!(bankgiro, Some("5050-1055".into()));
+
     let samma_sida = tab
         .evaluate("window.__samma_sida === true", false)
         .unwrap()
