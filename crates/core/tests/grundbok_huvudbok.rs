@@ -3,10 +3,14 @@
 use jiff::civil::{Date, date};
 use maya_core::aktor::Aktör;
 use maya_core::atkomst::ÅtkomstFel;
+use maya_core::bokforing::Huvudbok;
 use maya_core::bokforing::{self, Periodurval, RapportFel};
 use maya_core::foretag::FöretagsId;
+use maya_core::saldo::{self, Status};
 use maya_core::verifikat::{self, Bokfört};
 use maya_core::{Databas, Klocka, testhjalp};
+use maya_domain::ingaende_balans::{NyIngåendeBalans, NySaldorad};
+use maya_domain::kontourval::Kontourval;
 use maya_domain::verifikat::{NyRad, NyttVerifikat};
 
 const ÅR_2026: Date = date(2026, 1, 1);
@@ -255,4 +259,197 @@ async fn den_som_saknar_åtkomst_får_ingen_grundbok() {
         bokforing::grundbok(&db, &bertil, id, &hela_året()).await,
         Err(RapportFel::Åtkomst(ÅtkomstFel::IngenÅtkomst))
     ));
+    assert!(matches!(
+        bokforing::huvudbok(&db, &bertil, id, &hela_året(), &Kontourval::alla()).await,
+        Err(RapportFel::Åtkomst(ÅtkomstFel::IngenÅtkomst))
+    ));
+}
+
+/// Ingående balans 1 000 kr på banken, en försäljning (V1), en hyra som är daterad före
+/// försäljningen men bokförd efter den (V2), en telefonräkning i april (V3) och ett utkast.
+async fn exempel(db: &Databas) -> (Aktör, FöretagsId) {
+    let (anna, id) = testhjalp::företag(db).await;
+    let ib = NyIngåendeBalans {
+        rader: vec![
+            NySaldorad {
+                konto: "1930".into(),
+                debet: "1 000".into(),
+                kredit: String::new(),
+            },
+            NySaldorad {
+                konto: "2081".into(),
+                debet: String::new(),
+                kredit: "1 000".into(),
+            },
+        ],
+    };
+    saldo::ändra_ingående_balans(db, &klocka("2026-01-02T08:00:00Z"), &anna, id, ÅR_2026, &ib)
+        .await
+        .unwrap();
+    let mut v1 = formulär(
+        "2026-03-20",
+        "Försäljning; kund \"A\"",
+        &[(1930, "500", ""), (3001, "", "500")],
+    );
+    v1.rader[0].text = "Swish".into();
+    bokför(db, &anna, id, "2026-03-25T09:00:00Z", v1).await;
+    bokför(
+        db,
+        &anna,
+        id,
+        "2026-03-25T10:00:00.5Z",
+        formulär(
+            "2026-03-05",
+            "Hyra",
+            &[(5010, "200", ""), (1930, "", "200")],
+        ),
+    )
+    .await;
+    bokför(
+        db,
+        &anna,
+        id,
+        "2026-05-02T08:00:00Z",
+        formulär(
+            "2026-04-30",
+            "Telefon",
+            &[(6210, "50", ""), (1930, "", "50")],
+        ),
+    )
+    .await;
+    verifikat::spara_utkast(
+        db,
+        &klocka("2026-05-03T08:00:00Z"),
+        &anna,
+        id,
+        None,
+        &formulär("2026-04-01", "Utkast", &[(1930, "9", ""), (3001, "", "9")]),
+    )
+    .await
+    .unwrap();
+    (anna, id)
+}
+
+/// Huvudboken som text: konto, ingående balans, transaktionerna med löpande saldo och
+/// utgående balans.
+fn som_text(h: &Huvudbok) -> Vec<String> {
+    let mut rader = Vec::new();
+    for k in &h.konton {
+        rader.push(format!("{} {} IB {}", k.konto, k.namn, k.ingående));
+        for t in &k.transaktioner {
+            rader.push(format!(
+                "  {} {} {} D{} K{} = {}",
+                t.nummer, t.datum, t.text, t.debet, t.kredit, t.saldo
+            ));
+        }
+        rader.push(format!("  UB {}", k.utgående));
+    }
+    rader
+}
+
+#[tokio::test]
+async fn huvudboken_ger_ingående_balans_löpande_saldo_och_utgående_balans_per_konto() {
+    let db = Databas::tillfällig().await;
+    let (anna, id) = exempel(&db).await;
+
+    let h = bokforing::huvudbok(
+        &db,
+        &anna,
+        id,
+        &hela_året(),
+        &Kontourval::tolka("1930, 3000-3999").unwrap(),
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(h.status, Status::Inskriven);
+    assert_eq!(
+        som_text(&h),
+        [
+            "1930 Företagskonto IB 1 000,00",
+            "  V1 2026-03-20 Swish D500,00 K0,00 = 1 500,00",
+            "  V2 2026-03-05 Hyra D0,00 K200,00 = 1 300,00",
+            "  V3 2026-04-30 Telefon D0,00 K50,00 = 1 250,00",
+            "  UB 1 250,00",
+            "3001 Försäljning inom Sverige, 25 % moms IB 0,00",
+            "  V1 2026-03-20 Försäljning; kund \"A\" D0,00 K500,00 = -500,00",
+            "  UB -500,00",
+        ]
+    );
+}
+
+#[tokio::test]
+async fn huvudboken_från_en_period_mitt_i_året_börjar_på_saldot_före_den() {
+    let db = Databas::tillfällig().await;
+    let (anna, id) = exempel(&db).await;
+    let april = Periodurval {
+        år: ÅR_2026,
+        från: Some(date(2026, 4, 1)),
+        till: Some(date(2026, 4, 30)),
+    };
+
+    let h = bokforing::huvudbok(&db, &anna, id, &april, &Kontourval::alla())
+        .await
+        .unwrap();
+
+    assert_eq!(
+        som_text(&h),
+        [
+            "1930 Företagskonto IB 1 300,00",
+            "  V3 2026-04-30 Telefon D0,00 K50,00 = 1 250,00",
+            "  UB 1 250,00",
+            "2081 Aktiekapital IB -1 000,00",
+            "  UB -1 000,00",
+            "3001 Försäljning inom Sverige, 25 % moms IB -500,00",
+            "  UB -500,00",
+            "5010 Lokalhyra IB 200,00",
+            "  UB 200,00",
+            "6210 Telekommunikation IB 0,00",
+            "  V3 2026-04-30 Telefon D50,00 K0,00 = 50,00",
+            "  UB 50,00",
+        ]
+    );
+}
+
+#[tokio::test]
+async fn huvudboken_för_ett_år_med_preliminär_ingående_balans() {
+    let db = Databas::tillfällig().await;
+    let (anna, id) = exempel(&db).await;
+    // Ett verifikat i 2027 skapar året; 2026 är inte stängt.
+    bokför(
+        &db,
+        &anna,
+        id,
+        "2027-01-10T08:00:00Z",
+        formulär("2027-01-10", "Ränta", &[(1930, "10", ""), (8310, "", "10")]),
+    )
+    .await;
+    let år_2027 = Periodurval {
+        år: date(2027, 1, 1),
+        från: None,
+        till: None,
+    };
+
+    let h = bokforing::huvudbok(
+        &db,
+        &anna,
+        id,
+        &år_2027,
+        &Kontourval::tolka("1930, 2099, 3001").unwrap(),
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(h.status, Status::Preliminär);
+    assert_eq!(
+        som_text(&h),
+        [
+            "1930 Företagskonto IB 1 250,00",
+            "  V1 2027-01-10 Ränta D10,00 K0,00 = 1 260,00",
+            "  UB 1 260,00",
+            // Årets resultat 2026 (vinst 250 kr) ligger på 2099 tills året stängs.
+            "2099 Årets resultat IB -250,00",
+            "  UB -250,00",
+        ]
+    );
 }

@@ -13,14 +13,16 @@ use std::collections::BTreeMap;
 
 use jiff::Timestamp;
 use jiff::civil::Date;
-use maya_domain::belopp::Belopp;
+use maya_domain::belopp::{Belopp, Saldo};
 use maya_domain::kontoplan::Kontonummer;
+use maya_domain::kontourval::Kontourval;
 use maya_domain::rakenskapsar::{Period, Räkenskapsår};
 use sqlx::SqliteConnection;
 
 use crate::aktor::{Aktör, Handling, Kanal};
 use crate::atkomst::{self, ÅtkomstFel};
 use crate::foretag::{FöretagsId, datum};
+use crate::saldo::{self, Status};
 use crate::verifikat::{VerifikatId, Verifikationsnummer, kanalens_namn, verifikationsnummer};
 use crate::{Databas, DatabasFel};
 
@@ -127,6 +129,131 @@ pub async fn grundbok(
         })
         .collect();
     Ok(Grundbok { år, perioder })
+}
+
+/// En transaktion på ett konto i huvudboken.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Transaktion {
+    pub id: VerifikatId,
+    pub nummer: Verifikationsnummer,
+    pub datum: Date,
+    pub bokförd: Bokföring,
+    /// Radens text, eller verifikatets beskrivning om raden saknar text.
+    pub text: String,
+    pub debet: Belopp,
+    pub kredit: Belopp,
+    /// Kontots saldo efter transaktionen.
+    pub saldo: Saldo,
+}
+
+/// Ett konto i huvudboken.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Huvudbokskonto {
+    pub konto: Kontonummer,
+    pub namn: String,
+    /// Saldot när urvalets första period börjar.
+    pub ingående: Saldo,
+    /// Transaktionerna i urvalets perioder, i registreringsordning.
+    pub transaktioner: Vec<Transaktion>,
+    /// Saldot när urvalets sista period slutar.
+    pub utgående: Saldo,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Huvudbok {
+    pub år: Räkenskapsår,
+    pub perioder: Vec<Period>,
+    /// Årets ingående balans status: en preliminär ska visas som preliminär.
+    pub status: Status,
+    /// Konton i urvalet med ett ingående saldo eller transaktioner, i kontoordning.
+    pub konton: Vec<Huvudbokskonto>,
+}
+
+/// Huvudboken för kontona i `konton` och urvalets perioder: per konto ingående balans,
+/// transaktionerna i registreringsordning med löpande saldo, och utgående balans.
+pub async fn huvudbok(
+    db: &Databas,
+    aktör: &Aktör,
+    företag: FöretagsId,
+    urval: &Periodurval,
+    konton: &Kontourval,
+) -> Result<Huvudbok, RapportFel> {
+    let mut tx = db.pool().begin().await?;
+    atkomst::kräv(&mut tx, aktör, företag, Handling::LäsaFöretag).await?;
+    let (år_id, år, perioder) = välj(&mut tx, företag, urval).await?;
+    let poster = bokförda(&mut tx, företag, år_id).await?;
+    let saldobalans = saldo::saldobalanser(&mut tx, företag)
+        .await?
+        .into_iter()
+        .find(|sb| sb.år.start() == år.start())
+        .ok_or(RapportFel::OkäntRäkenskapsår)?;
+    let namn: BTreeMap<i64, String> =
+        sqlx::query_as("SELECT nummer, namn FROM konto WHERE foretag_id = ?")
+            .bind(företag.0)
+            .fetch_all(&mut *tx)
+            .await?
+            .into_iter()
+            .collect();
+    let (första, sista) = (perioder[0].start, perioder[perioder.len() - 1].slut);
+
+    let mut böcker: BTreeMap<Kontonummer, Huvudbokskonto> = BTreeMap::new();
+    fn bok<'a>(
+        böcker: &'a mut BTreeMap<Kontonummer, Huvudbokskonto>,
+        namn: &BTreeMap<i64, String>,
+        konto: Kontonummer,
+    ) -> &'a mut Huvudbokskonto {
+        böcker.entry(konto).or_insert_with(|| Huvudbokskonto {
+            konto,
+            namn: namn
+                .get(&i64::from(konto.get()))
+                .cloned()
+                .unwrap_or_default(),
+            ingående: Saldo::NOLL,
+            transaktioner: Vec::new(),
+            utgående: Saldo::NOLL,
+        })
+    }
+    for k in saldobalans
+        .konton
+        .iter()
+        .filter(|k| konton.omfattar(k.konto))
+    {
+        bok(&mut böcker, &namn, k.konto).ingående = k.ingående;
+    }
+    for post in poster.iter().filter(|p| p.datum <= sista) {
+        for rad in post.rader.iter().filter(|r| konton.omfattar(r.konto)) {
+            let b = bok(&mut böcker, &namn, rad.konto);
+            let förändring = Saldo::av(rad.debet, rad.kredit);
+            if post.datum < första {
+                b.ingående += förändring;
+                continue;
+            }
+            let saldo = b.transaktioner.last().map_or(b.ingående, |t| t.saldo) + förändring;
+            b.transaktioner.push(Transaktion {
+                id: post.id,
+                nummer: post.nummer,
+                datum: post.datum,
+                bokförd: post.bokförd.clone(),
+                text: rad.text.clone().unwrap_or_else(|| post.beskrivning.clone()),
+                debet: rad.debet,
+                kredit: rad.kredit,
+                saldo,
+            });
+        }
+    }
+    let konton = böcker
+        .into_values()
+        .filter_map(|mut k| {
+            k.utgående = k.transaktioner.last().map_or(k.ingående, |t| t.saldo);
+            (k.ingående != Saldo::NOLL || !k.transaktioner.is_empty()).then_some(k)
+        })
+        .collect();
+    Ok(Huvudbok {
+        år,
+        perioder,
+        status: saldobalans.status,
+        konton,
+    })
 }
 
 /// Räkenskapsårets id, året och urvalets perioder.
