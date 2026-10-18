@@ -200,6 +200,76 @@ main {
   color: var(--primary-foreground);
 }
 
-.tom-sida .fel {
+.tom-sida .fel,
+.sida .fel {
   color: var(--destructive);
+}
+
+a.knapp {
+  display: inline-flex;
+  align-items: center;
+  text-decoration: none;
+}
+
+.sida {
+  max-width: 48rem;
+  margin: 0 auto;
+}
+
+.sida h1 {
+  font-size: 20px;
+  font-weight: 600;
+  margin: 0 0 1rem;
+}
+
+.sida .formular {
+  margin: 1.5rem 0 0;
+}
+
+.uppmaning {
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--muted);
+}
+
+.lista {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border-top: 1px solid var(--border);
+}
+
+.lista li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.detalj {
+  flex: 1;
+  color: var(--muted-foreground);
+}
+
+.markering {
+  color: var(--primary);
+}
+
+.rad-formular {
+  display: flex;
+  gap: 0.25rem;
+  margin: 0;
+}
+
+.rad-formular input[type="text"] {
+  height: var(--control-height);
+  padding: 0 8px;
+  border: 1px solid var(--input);
+  border-radius: var(--radius);
+  background: var(--background);
+  color: var(--foreground);
+  font: inherit;
 }

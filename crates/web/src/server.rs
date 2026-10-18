@@ -48,10 +48,18 @@ pub fn router(config: Arc<Config>, db: Databas) -> Router {
         klocka,
         passkeys: Arc::new(passkeys),
     };
+    let kontext = {
+        let db = db.clone();
+        let klocka = inloggning.klocka.clone();
+        move || {
+            provide_context(db.clone());
+            provide_context(klocka.clone());
+        }
+    };
     let state = AppState { config, db };
 
     let pages = Router::new()
-        .leptos_routes(&leptos_options, routes, {
+        .leptos_routes_with_context(&leptos_options, routes, kontext, {
             let options = leptos_options.clone();
             move || shell(options.clone())
         })
@@ -62,10 +70,15 @@ pub fn router(config: Arc<Config>, db: Databas) -> Router {
             inloggning::identifiera,
         ))
         .merge(
-            inloggning::routes(inloggning.clone()).layer(middleware::from_fn_with_state(
-                inloggning,
-                inloggning::kräv_eget_origin,
-            )),
+            inloggning::routes(inloggning.clone())
+                .layer(middleware::from_fn_with_state(
+                    inloggning.clone(),
+                    inloggning::identifiera,
+                ))
+                .layer(middleware::from_fn_with_state(
+                    inloggning,
+                    inloggning::kräv_eget_origin,
+                )),
         )
         .layer(middleware::from_fn_with_state(
             state.clone(),

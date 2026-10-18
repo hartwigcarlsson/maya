@@ -2,6 +2,7 @@
 //! `maya-core` (ADR 0003).
 
 pub mod app;
+pub mod konto;
 
 #[cfg(feature = "ssr")]
 mod assets;

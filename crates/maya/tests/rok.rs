@@ -1,5 +1,6 @@
-//! Röktest med riktig server och en webbläsare med virtuell autentiserare: första användaren
-//! via CLI-länken, och inloggning med e-post och passkey.
+//! Röktest med riktig server och en webbläsare med virtuella autentiserare: första användaren
+//! via CLI-länken, en passkey till, inloggning med e-post och passkey, och borttagning av
+//! passkeys utom den sista.
 //!
 //! Kräver Chrome eller Chromium (sökvägen kan anges i `CHROME`). Sidan behöver ingen WASM:
 //! inloggningen är vanlig HTML med JS-shimmen.
@@ -46,24 +47,7 @@ fn forsta_anvandaren_via_cli_lanken_och_inloggning_med_passkey() {
         enable_ui: Some(false),
     })
     .unwrap();
-    tab.call_method(WebAuthn::AddVirtualAuthenticator {
-        options: WebAuthn::VirtualAuthenticatorOptions {
-            protocol: WebAuthn::AuthenticatorProtocol::Ctap2,
-            ctap_2_version: Some(WebAuthn::Ctap2Version::Ctap21),
-            transport: WebAuthn::AuthenticatorTransport::Internal,
-            has_resident_key: Some(true),
-            has_user_verification: Some(true),
-            is_user_verified: Some(true),
-            automatic_presence_simulation: Some(true),
-            has_large_blob: None,
-            has_cred_blob: None,
-            has_min_pin_length: None,
-            has_prf: None,
-            default_backup_eligibility: None,
-            default_backup_state: None,
-        },
-    })
-    .unwrap();
+    let första_nyckeln = autentiserare(&tab);
 
     // Innan någon användare finns: bara hänvisningen till CLI:t.
     tab.navigate_to(&bas).unwrap();
@@ -82,7 +66,7 @@ fn forsta_anvandaren_via_cli_lanken_och_inloggning_med_passkey() {
         .unwrap()
         .click()
         .unwrap();
-    vänta_på_text(&tab, "Du är inloggad som anna@example.se");
+    vänta_på_text(&tab, "Lägg till en passkey till");
 
     let kaka = tab
         .get_cookies()
@@ -106,7 +90,23 @@ fn forsta_anvandaren_via_cli_lanken_och_inloggning_med_passkey() {
     vänta_på_text(&ny_flik, "länken är ogiltig");
     ny_flik.close(true).unwrap();
 
-    // Logga ut och in igen: e-post först, sedan passkey.
+    // En passkey till, på en annan enhet. Sessionen är nyss inloggad och har en färsk passkey.
+    tab.call_method(WebAuthn::RemoveVirtualAuthenticator {
+        authenticator_id: första_nyckeln,
+    })
+    .unwrap();
+    autentiserare(&tab);
+    tab.wait_for_element("form[data-passkey='lagg-till'] #namn")
+        .unwrap()
+        .type_into("Andra nyckeln")
+        .unwrap();
+    tab.find_element("form[data-passkey='lagg-till'] button")
+        .unwrap()
+        .click()
+        .unwrap();
+    vänta_på_text(&tab, "Andra nyckeln");
+
+    // Logga ut och in igen med den andra nyckeln: e-post först, sedan passkey.
     tab.find_element("form[action='/auth/utloggning'] button")
         .unwrap()
         .click()
@@ -122,6 +122,68 @@ fn forsta_anvandaren_via_cli_lanken_och_inloggning_med_passkey() {
         .click()
         .unwrap();
     vänta_på_text(&tab, "Du är inloggad som anna@example.se");
+
+    // Den första nyckeln kan tas bort, men inte den sista.
+    tab.navigate_to(&format!("{bas}/passkeys")).unwrap();
+    vänta_på_text(&tab, "Virtuell nyckel");
+    ta_bort_passkey(&tab, "Virtuell nyckel");
+    vänta_på_text_borta(&tab, "Virtuell nyckel");
+    ta_bort_passkey(&tab, "Andra nyckeln");
+    vänta_på_text(&tab, "Den sista passkeyn går inte att ta bort");
+    vänta_på_text(&tab, "Andra nyckeln");
+}
+
+/// Lägger till en virtuell autentiserare med användarverifiering och ger dess id.
+fn autentiserare(tab: &Tab) -> String {
+    tab.call_method(WebAuthn::AddVirtualAuthenticator {
+        options: WebAuthn::VirtualAuthenticatorOptions {
+            protocol: WebAuthn::AuthenticatorProtocol::Ctap2,
+            ctap_2_version: Some(WebAuthn::Ctap2Version::Ctap21),
+            transport: WebAuthn::AuthenticatorTransport::Internal,
+            has_resident_key: Some(true),
+            has_user_verification: Some(true),
+            is_user_verified: Some(true),
+            automatic_presence_simulation: Some(true),
+            has_large_blob: None,
+            has_cred_blob: None,
+            has_min_pin_length: None,
+            has_prf: None,
+            default_backup_eligibility: None,
+            default_backup_state: None,
+        },
+    })
+    .unwrap()
+    .authenticator_id
+}
+
+/// Skickar Ta bort-formuläret på raden för passkeyn `namn`.
+fn ta_bort_passkey(tab: &Tab, namn: &str) {
+    let skript = format!(
+        "[...document.querySelectorAll('li')]\
+         .find(li => li.querySelector('strong')?.textContent === {namn:?})\
+         .querySelector(\"form[action='/konto/passkeys/ta-bort'] button\").click()"
+    );
+    tab.evaluate(&skript, false).unwrap();
+}
+
+fn vänta_på_text_borta(tab: &Tab, text: &str) {
+    let start = Instant::now();
+    loop {
+        let innehåll = tab
+            .evaluate("document.body.innerText", false)
+            .ok()
+            .and_then(|svar| svar.value)
+            .and_then(|v| v.as_str().map(str::to_string))
+            .unwrap_or_default();
+        if !innehåll.is_empty() && !innehåll.contains(text) {
+            return;
+        }
+        assert!(
+            start.elapsed() < VÄNTA,
+            "\"{text}\" försvann aldrig:\n{innehåll}"
+        );
+        std::thread::sleep(Duration::from_millis(100));
+    }
 }
 
 fn skapa_användare(dir: &Path, bas: &str) -> String {

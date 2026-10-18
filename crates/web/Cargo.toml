@@ -25,6 +25,8 @@ ssr = [
   "dep:axum",
   "dep:maya-core",
   "dep:maya-auth",
+  "dep:maya-domain",
+  "dep:jiff",
   "dep:serde_json",
   "dep:rust-embed",
   "dep:ipnet",
@@ -43,9 +45,11 @@ web-sys = { workspace = true, optional = true }
 
 axum = { workspace = true, optional = true }
 ipnet = { workspace = true, optional = true }
+jiff = { workspace = true, optional = true }
 leptos_axum = { workspace = true, optional = true }
 maya-auth = { workspace = true, optional = true }
 maya-core = { workspace = true, optional = true }
+maya-domain = { workspace = true, optional = true }
 serde_json = { workspace = true, optional = true }
 rust-embed = { workspace = true, optional = true }
 tower = { workspace = true, optional = true }
