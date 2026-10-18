@@ -4,14 +4,14 @@
 //!
 //! Sidan fungerar utan WASM: urvalet står i adressen och servern filtrerar, och ändringarna är
 //! vanliga formulär som `core` tar emot och som leder tillbaka hit med urvalet kvar. Servern
-//! bygger hela sidans innehåll ([`Kontoplansida`]) och det följer med till webbläsaren vid
-//! hydreringen.
+//! bygger hela sidans innehåll ([`Kontoplansida`]), som sidan läser med `sidodata::sida`.
 
 use leptos::prelude::*;
 use serde::{Deserialize, Serialize};
 
 use crate::app::{LoggaIn, Läge};
 use crate::foretag::{FöretagVy, IngenÅtkomst};
+use crate::sidodata::sida;
 
 /// Fliken: aktiva (standard), alla eller inaktiva konton.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -297,24 +297,26 @@ pub fn ordna(alla: &[Kontorad], urval: &Urval) -> (Vec<Klass>, Antal, usize) {
     (klasser, antal, dolda)
 }
 
-fn kontoplansida() -> Option<Kontoplansida> {
-    SharedValue::new(|| {
-        #[cfg(feature = "ssr")]
-        if let Some(parts) = use_context::<axum::http::request::Parts>() {
-            return parts.extensions.get::<Kontoplansida>().cloned();
-        }
-        None
-    })
-    .into_inner()
+/// Sidan för `/foretag/<id>/installningar/kontoplan`, eller `None` utan åtkomst.
+#[server(prefix = "/api", endpoint = "kontoplansida", input = server_fn::codec::GetUrl)]
+pub async fn hämta_kontoplansida(adress: String) -> Result<Option<Kontoplansida>, ServerFnError> {
+    match crate::sidodata::Sidbegäran::för(&adress)? {
+        Some(begäran) => server::kontoplansida(&begäran).await,
+        None => Ok(None),
+    }
 }
 
 /// Inställningar → Kontoplan.
 #[component]
 pub fn KontoplanSida() -> impl IntoView {
+    sida(hämta_kontoplansida, kontoplan)
+}
+
+fn kontoplan(sida: Option<Kontoplansida>) -> AnyView {
     if !matches!(use_context::<Läge>(), Some(Läge::Inloggad { .. })) {
         return view! { <LoggaIn /> }.into_any();
     }
-    let Some(sida) = kontoplansida() else {
+    let Some(sida) = sida else {
         return view! { <IngenÅtkomst /> }.into_any();
     };
     let href = sida.sida();
@@ -333,7 +335,6 @@ pub fn KontoplanSida() -> impl IntoView {
                 </div>
                 <a
                     class="knapp"
-                    rel="external"
                     href=sida.urval.href(&href, &[("nytt", "1")])
                 >
                     "Nytt konto"
@@ -349,7 +350,7 @@ pub fn KontoplanSida() -> impl IntoView {
                     view! {
                         <p class="fler">
                             {format!("{} inaktiva konton matchar också. ", sida.dolda_inaktiva)}
-                            <a rel="external" href=visa_alla>
+                            <a href=visa_alla>
                                 "Visa alla"
                             </a>
                         </p>
@@ -394,7 +395,7 @@ fn Filterrad(sida: Kontoplansida) -> impl IntoView {
             let länk = u.med(|u| u.visa = visa).href(&href, &[]);
             let vald = (u.visa == visa).then_some("page");
             view! {
-                <a rel="external" href=länk aria-current=vald>
+                <a href=länk aria-current=vald>
                     {visa.namn()}
                     " "
                     <span class="diskret">{n}</span>
@@ -409,7 +410,7 @@ fn Filterrad(sida: Kontoplansida) -> impl IntoView {
             let länk = u.med(växla).href(&href, &[]);
             let klass = if på { "chip pa" } else { "chip" };
             view! {
-                <a rel="external" class=klass href=länk aria-pressed=på.to_string()>
+                <a class=klass href=länk aria-pressed=på.to_string()>
                     {namn}
                     " "
                     <span class="diskret">{n}</span>
@@ -591,7 +592,6 @@ fn Rad(sida: Kontoplansida, rad: Kontorad, tillbaka: String) -> impl IntoView {
             <td class="ikon">
                 <a
                     class="knapp knapp-diskret"
-                    rel="external"
                     href=historik
                     title="Historik"
                     aria-label=format!("Historik för {}", rad.nummer)
@@ -677,7 +677,7 @@ fn NyttKontoDialog(sida: Kontoplansida, f: NyttFormulär) -> impl IntoView {
                     }
                 }}
                 <div class="knappar">
-                    <a class="knapp knapp-diskret" rel="external" href=stäng>
+                    <a class="knapp knapp-diskret" href=stäng>
                         "Avbryt"
                     </a>
                     <button
@@ -708,7 +708,7 @@ fn Sidopanel(sida: Kontoplansida, p: Panel) -> impl IntoView {
         <aside class="sidopanel" aria-labelledby="panelrubrik">
             <div class="panelhuvud">
                 <h2 id="panelrubrik">{format!("{} {}", p.nummer, p.namn)}</h2>
-                <a class="knapp knapp-diskret" rel="external" href=stäng aria-label="Stäng">
+                <a class="knapp knapp-diskret" href=stäng aria-label="Stäng">
                     "×"
                 </a>
             </div>
@@ -770,9 +770,8 @@ fn Sidopanel(sida: Kontoplansida, p: Panel) -> impl IntoView {
 pub(crate) mod server {
     use std::sync::Arc;
 
-    use axum::extract::{Path, Request, State};
+    use axum::extract::{Path, State};
     use axum::http::{StatusCode, header};
-    use axum::middleware::Next;
     use axum::response::{IntoResponse, Redirect, Response};
     use axum::routing::post;
     use axum::{Extension, Form, Router};
@@ -790,6 +789,7 @@ pub(crate) mod server {
 
     use super::*;
     use crate::foretag::server::vy;
+    use crate::sidodata::{self, Sidbegäran};
 
     #[derive(Clone)]
     pub(crate) struct KontoplansState {
@@ -805,30 +805,23 @@ pub(crate) mod server {
             .with_state(Arc::new(state))
     }
 
-    /// Bygger kontoplanens sida när begäran gäller den. Körs efter `inloggning::identifiera`.
-    /// Utan åtkomst läggs ingenting på, och sidan svarar 403.
-    pub(crate) async fn lägg_på_kontoplan(
-        State(state): State<KontoplansState>,
-        mut req: Request,
-        next: Next,
-    ) -> Response {
-        let id = req
-            .uri()
-            .path()
-            .strip_prefix("/foretag/")
-            .and_then(|rest| rest.strip_suffix("/installningar/kontoplan"))
-            .and_then(|id| id.parse::<FöretagsId>().ok());
-        if let (Some(id), Some(inloggad)) = (id, req.extensions().get::<Inloggad>().cloned()) {
-            let query = req.uri().query().unwrap_or_default().to_string();
-            match bygg(&state.db, &inloggad, id, &query).await {
-                Ok(sida) => {
-                    req.extensions_mut().insert(sida);
-                }
-                Err(ÅtkomstFel::IngenÅtkomst | ÅtkomstFel::KanalenFårInte) => {}
-                Err(e) => return serverfel(e),
-            }
+    /// Bygger kontoplanens sida när begäran gäller den. Utan åtkomst blir den `None`, och
+    /// sidan svarar 403.
+    pub(crate) async fn kontoplansida(
+        b: &Sidbegäran,
+    ) -> Result<Option<Kontoplansida>, ServerFnError> {
+        let delar = b.delar();
+        let ["foretag", id, "installningar", "kontoplan"] = delar.as_slice() else {
+            return Ok(None);
+        };
+        let Ok(id) = id.parse::<FöretagsId>() else {
+            return Ok(None);
+        };
+        match bygg(&b.db, &b.inloggad, id, b.fråga()).await {
+            Ok(sida) => Ok(Some(sida)),
+            Err(ÅtkomstFel::IngenÅtkomst | ÅtkomstFel::KanalenFårInte) => Ok(None),
+            Err(e) => Err(sidodata::serverfel(e)),
         }
-        next.run(req).await
     }
 
     fn ink2_text(nummer: Kontonummer) -> String {

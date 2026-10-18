@@ -21,9 +21,7 @@ use crate::assets;
 use crate::foretag::server::{self as foretag, FöretagsState};
 use crate::ingaende_balans::server::{self as ingaende_balans, IngåendeBalansState};
 use crate::inloggning::{self, InloggningsState};
-use crate::konto::server as konto;
 use crate::kontoplan::server::{self as kontoplan, KontoplansState};
-use crate::sok::server as sok;
 use crate::verifikat::server::{self as verifikat, VerifikatState};
 
 /// Sidornas rutter, genererade en gång per process. `generate_route_list` renderar appen med en
@@ -94,26 +92,6 @@ pub fn router(config: Arc<Config>, db: Databas) -> Router {
         })
         .fallback(assets::serve_site)
         .with_state(leptos_options)
-        .layer(middleware::from_fn_with_state(
-            state.db.clone(),
-            sok::lägg_på_sökdata,
-        ))
-        .layer(middleware::from_fn_with_state(
-            kontoplan.clone(),
-            kontoplan::lägg_på_kontoplan,
-        ))
-        .layer(middleware::from_fn_with_state(
-            verifikat.clone(),
-            verifikat::lägg_på_verifikatdata,
-        ))
-        .layer(middleware::from_fn_with_state(
-            ingående_balans.clone(),
-            ingaende_balans::lägg_på_ingående_balans,
-        ))
-        .layer(middleware::from_fn_with_state(
-            inloggning.clone(),
-            konto::lägg_på_kontodata,
-        ))
         .layer(middleware::from_fn_with_state(
             företag.clone(),
             foretag::lägg_på_företagsval,

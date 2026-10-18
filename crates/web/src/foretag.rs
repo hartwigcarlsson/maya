@@ -9,6 +9,7 @@ use maya_domain::orgnr::Organisationsnummer;
 use serde::{Deserialize, Serialize};
 
 use crate::app::{LoggaIn, Läge};
+use crate::sidodata::per_adress;
 use crate::sok::Sökfält;
 
 /// Koden när organisationsnumret redan finns i installationen. Bara servern kan se det.
@@ -350,6 +351,10 @@ fn kontrollera(f: &NyttFöretag, finns: bool) -> Vec<Felvisning> {
 /// tillbaka hit med det användaren skrev om något är fel.
 #[component]
 pub fn NyttFöretagSida() -> impl IntoView {
+    per_adress(nytt_företag)
+}
+
+fn nytt_företag() -> AnyView {
     if !inloggad() {
         return view! { <LoggaIn /> }.into_any();
     }
@@ -549,18 +554,22 @@ pub(crate) fn IngenÅtkomst() -> impl IntoView {
 /// Att göra, företagets startsida. Innehållet kommer med sina tickets.
 #[component]
 pub fn AttGöra() -> impl IntoView {
-    view! { <Företagssida rubrik="Att göra" tom="Inget att göra ännu." /> }
+    per_adress(|| view! { <Företagssida rubrik="Att göra" tom="Inget att göra ännu." /> })
 }
 
 #[component]
 pub fn Rapporter() -> impl IntoView {
-    view! { <Företagssida rubrik="Rapporter" tom="Rapporterna kommer snart." /> }
+    per_adress(|| view! { <Företagssida rubrik="Rapporter" tom="Rapporterna kommer snart." /> })
 }
 
 /// Inställningar bakom kugghjulet. Företag, Åtkomst, Behandlingshistorik och
 /// Systemdokumentation kommer med sina tickets.
 #[component]
 pub fn Inställningar() -> impl IntoView {
+    per_adress(inställningar)
+}
+
+fn inställningar() -> AnyView {
     if !inloggad() {
         return view! { <LoggaIn /> }.into_any();
     }
@@ -576,12 +585,12 @@ pub fn Inställningar() -> impl IntoView {
                     <h1>"Inställningar"</h1>
                     <ul class="lista">
                         <li>
-                            <a rel="external" href=kontoplan>
+                            <a href=kontoplan>
                                 "Kontoplan"
                             </a>
                         </li>
                         <li>
-                            <a rel="external" href=ingående_balans>
+                            <a href=ingående_balans>
                                 "Ingående balans"
                             </a>
                         </li>

@@ -5,7 +5,7 @@ use leptos::prelude::*;
 use leptos_meta::{MetaTags, Stylesheet, Title, provide_meta_context};
 use leptos_router::components::{Route, Router, Routes};
 use leptos_router::hooks::use_params_map;
-use leptos_router::path;
+use leptos_router::{SsrMode, path};
 use serde::{Deserialize, Serialize};
 
 use crate::foretag::{
@@ -14,6 +14,7 @@ use crate::foretag::{
 use crate::ingaende_balans::IngåendeBalansSida;
 use crate::konto::{Passkeys, Sessioner};
 use crate::kontoplan::KontoplanSida;
+use crate::sidodata::per_adress;
 use crate::sok::SökSida;
 use crate::verifikat::{NyttVerifikatSida, VerifikatSida};
 
@@ -85,10 +86,10 @@ pub fn App() -> impl IntoView {
     let användarmeny = match läge {
         Läge::Inloggad { visningsnamn } => Some(view! {
             <span class="anvandare">{visningsnamn}</span>
-            <a class="knapp knapp-diskret" href="/passkeys" rel="external">
+            <a class="knapp knapp-diskret" href="/passkeys">
                 "Passkeys"
             </a>
-            <a class="knapp knapp-diskret" href="/sessioner" rel="external">
+            <a class="knapp knapp-diskret" href="/sessioner">
                 "Sessioner"
             </a>
             <form method="post" action="/auth/utloggning">
@@ -130,20 +131,29 @@ fn Innehåll() -> impl IntoView {
             <Routes fallback=|| view! { <SidanFinnsInte /> }>
                 <Route path=path!("") view=Startsida />
                 <Route path=path!("registrera/:token") view=Registrera />
-                <Route path=path!("passkeys") view=Passkeys />
-                <Route path=path!("sessioner") view=Sessioner />
+                <Route path=path!("passkeys") view=Passkeys ssr=SsrMode::Async />
+                <Route path=path!("sessioner") view=Sessioner ssr=SsrMode::Async />
                 <Route path=path!("foretag/nytt") view=NyttFöretagSida />
                 <Route path=path!("foretag/:id") view=AttGöra />
-                <Route path=path!("foretag/:id/verifikat") view=VerifikatSida />
-                <Route path=path!("foretag/:id/verifikat/nytt") view=NyttVerifikatSida />
+                <Route path=path!("foretag/:id/verifikat") view=VerifikatSida ssr=SsrMode::Async />
+                <Route
+                    path=path!("foretag/:id/verifikat/nytt")
+                    view=NyttVerifikatSida
+                    ssr=SsrMode::Async
+                />
                 <Route path=path!("foretag/:id/rapporter") view=Rapporter />
-                <Route path=path!("foretag/:id/sok") view=SökSida />
+                <Route path=path!("foretag/:id/sok") view=SökSida ssr=SsrMode::Async />
                 <Route path=path!("foretag/:id/installningar") view=Inställningar />
                 <Route
                     path=path!("foretag/:id/installningar/ingaende-balans")
                     view=IngåendeBalansSida
+                    ssr=SsrMode::Async
                 />
-                <Route path=path!("foretag/:id/installningar/kontoplan") view=KontoplanSida />
+                <Route
+                    path=path!("foretag/:id/installningar/kontoplan")
+                    view=KontoplanSida
+                    ssr=SsrMode::Async
+                />
             </Routes>
         }
         .into_any()
@@ -194,6 +204,10 @@ pub(crate) fn LoggaIn() -> impl IntoView {
 /// Maya användaren lägga till en passkey till.
 #[component]
 fn Registrera() -> impl IntoView {
+    per_adress(registrera)
+}
+
+fn registrera() -> impl IntoView {
     let token = use_params_map().with_untracked(|p| p.get("token").unwrap_or_default());
     view! {
         <section class="tom-sida">

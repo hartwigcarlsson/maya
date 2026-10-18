@@ -5,8 +5,7 @@
 //! `core` prövar samma sak när det sparar. Utan JavaScript skickas formuläret till servern, som
 //! skickar tillbaka hit med det användaren skrev; sidan prövar det igen och visar samma koder.
 //!
-//! Datan kommer från middleware vid serverrenderingen, så länkarna hit har `rel="external"`:
-//! klientens router skulle annars rita sidan utan data.
+//! Sidan läser sin data med `sidodata::sida`.
 
 use leptos::prelude::*;
 use leptos_router::hooks::{use_params_map, use_query_map};
@@ -17,6 +16,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::app::{LoggaIn, Läge};
 use crate::foretag::{Företagsval, IngenÅtkomst};
+use crate::sidodata::sida;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct KontoVy {
@@ -25,8 +25,7 @@ pub struct KontoVy {
     pub aktiv: bool,
 }
 
-/// Det som sidan visar. Middleware hämtar det ur `core` och lägger det på begäran, och det
-/// följer med till webbläsaren vid hydreringen.
+/// Det som sidan visar.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct IngåendeBalansdata {
     /// Räkenskapsåren i ordning, som start och slut `ÅÅÅÅ-MM-DD`.
@@ -40,30 +39,26 @@ pub struct IngåendeBalansdata {
     pub saldon: Vec<(u16, i64)>,
 }
 
-fn data() -> IngåendeBalansdata {
-    SharedValue::new(|| {
-        #[cfg(feature = "ssr")]
-        if let Some(parts) = use_context::<axum::http::request::Parts>()
-            && let Some(data) = parts.extensions.get::<IngåendeBalansdata>()
-        {
-            return data.clone();
-        }
-        IngåendeBalansdata::default()
-    })
-    .into_inner()
+/// Datan för `/foretag/<id>/installningar/ingaende-balans?ar=<start>`.
+#[server(prefix = "/api", endpoint = "ingaende_balans", input = server_fn::codec::GetUrl)]
+pub async fn hämta_ingående_balans(adress: String) -> Result<IngåendeBalansdata, ServerFnError> {
+    match crate::sidodata::Sidbegäran::för(&adress)? {
+        Some(begäran) => server::ingående_balans(&begäran).await,
+        None => Ok(IngåendeBalansdata::default()),
+    }
 }
 
 #[cfg(feature = "ssr")]
 pub(crate) mod server {
     use std::sync::Arc;
 
-    use axum::extract::{Path, Request, State};
+    use axum::extract::{Path, State};
     use axum::http::{StatusCode, header};
-    use axum::middleware::Next;
     use axum::response::{IntoResponse, Redirect, Response};
     use axum::routing::post;
     use axum::{Extension, Form, Router};
     use jiff::civil::Date;
+    use leptos::prelude::ServerFnError;
     use maya_core::atkomst::ÅtkomstFel;
     use maya_core::foretag::{self, FöretagsId};
     use maya_core::inloggning::Inloggad;
@@ -73,6 +68,7 @@ pub(crate) mod server {
     use maya_domain::kontoplan::Kontonummer;
 
     use super::{IngåendeBalansdata, KontoVy};
+    use crate::sidodata::{self, Sidbegäran};
 
     #[derive(Clone)]
     pub(crate) struct IngåendeBalansState {
@@ -87,36 +83,25 @@ pub(crate) mod server {
     }
 
     /// Hämtar det som sidan visar, för `/foretag/<id>/installningar/ingaende-balans?ar=<start>`.
-    /// Körs efter `inloggning::identifiera`.
-    pub(crate) async fn lägg_på_ingående_balans(
-        State(state): State<IngåendeBalansState>,
-        mut req: Request,
-        next: Next,
-    ) -> Response {
-        let Some(inloggad) = req.extensions().get::<Inloggad>().cloned() else {
-            return next.run(req).await;
-        };
-        let delar: Vec<&str> = req.uri().path().trim_matches('/').split('/').collect();
+    /// Utan åtkomst blir datan tom; sidan visar det ur företagsvalet.
+    pub(crate) async fn ingående_balans(
+        b: &Sidbegäran,
+    ) -> Result<IngåendeBalansdata, ServerFnError> {
+        let delar = b.delar();
         let ["foretag", id, "installningar", "ingaende-balans"] = delar.as_slice() else {
-            return next.run(req).await;
+            return Ok(IngåendeBalansdata::default());
         };
         let Ok(företag) = id.parse::<FöretagsId>() else {
-            return next.run(req).await;
+            return Ok(IngåendeBalansdata::default());
         };
-        let valt = req.uri().query().and_then(|q| {
-            url::form_urlencoded::parse(q.as_bytes())
-                .find(|(k, _)| k == "ar")
-                .and_then(|(_, v)| v.parse::<Date>().ok())
-        });
-        match hämta(&state.db, &inloggad, företag, valt).await {
-            Ok(data) => {
-                req.extensions_mut().insert(data);
+        let valt = b.värde("ar").and_then(|v| v.parse::<Date>().ok());
+        match hämta(&b.db, &b.inloggad, företag, valt).await {
+            Ok(data) => Ok(data),
+            Err(SaldoFel::Åtkomst(ÅtkomstFel::IngenÅtkomst | ÅtkomstFel::KanalenFårInte)) => {
+                Ok(IngåendeBalansdata::default())
             }
-            // Sidan visar att användaren saknar åtkomst, ur företagsvalet.
-            Err(SaldoFel::Åtkomst(ÅtkomstFel::IngenÅtkomst | ÅtkomstFel::KanalenFårInte)) => {}
-            Err(e) => return serverfel(e),
+            Err(e) => Err(sidodata::serverfel(e)),
         }
-        next.run(req).await
     }
 
     async fn hämta(
@@ -275,6 +260,10 @@ fn saldo_i(saldo: i64, sida: fn(Saldo) -> Belopp) -> String {
 /// Inställningar → Ingående balans.
 #[component]
 pub fn IngåendeBalansSida() -> impl IntoView {
+    sida(hämta_ingående_balans, ingående_balans)
+}
+
+fn ingående_balans(data: IngåendeBalansdata) -> AnyView {
     if !matches!(use_context::<Läge>(), Some(Läge::Inloggad { .. })) {
         return view! { <LoggaIn /> }.into_any();
     }
@@ -284,7 +273,6 @@ pub fn IngåendeBalansSida() -> impl IntoView {
         return view! { <IngenÅtkomst /> }.into_any();
     };
     let bas = företaget.href();
-    let data = data();
     let sida = format!("{bas}/installningar/ingaende-balans");
     let årsval = data
         .år
@@ -292,7 +280,7 @@ pub fn IngåendeBalansSida() -> impl IntoView {
         .map(|(start, slut)| {
             let aktuellt = (*start == data.valt).then_some("page");
             view! {
-                <a rel="external" href=format!("{sida}?ar={start}") aria-current=aktuellt>
+                <a href=format!("{sida}?ar={start}") aria-current=aktuellt>
                     {format!("{start} – {slut}")}
                 </a>
             }
@@ -352,7 +340,7 @@ fn Preliminär(data: IngåendeBalansdata, sida: String) -> impl IntoView {
             <p>
                 <span class="markering">"Preliminär"</span>
                 " Den ingående balansen räknas fram ur föregående års utgående balans, eftersom "
-                <a rel="external" href=format!("{sida}?ar={}", föregående.0)>
+                <a href=format!("{sida}?ar={}", föregående.0)>
                     {format!("{} – {}", föregående.0, föregående.1)}
                 </a>
                 " inte är stängt. Resultatet som inte är ombokat står på 2099. Den sparas inte och ändras när föregående år ändras."

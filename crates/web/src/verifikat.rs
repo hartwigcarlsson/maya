@@ -5,8 +5,7 @@
 //! samma spärrar när det bokför. Utan JavaScript skickas formuläret till servern, som skickar
 //! tillbaka hit med det användaren skrev; sidan prövar det igen och visar samma koder.
 //!
-//! Sidans data läggs på av middleware och följer med vid hydreringen, så länkarna här har
-//! `rel="external"`: en navigering i routern på klienten skulle visa den gamla sidans data.
+//! Sidans data hämtas med `sidodata::sida`, så länkarna navigerar i routern på klienten.
 
 use jiff::civil::Date;
 use leptos::prelude::*;
@@ -18,6 +17,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::app::{LoggaIn, Läge};
 use crate::foretag::{Företagsval, IngenÅtkomst};
+use crate::sidodata::sida;
 
 /// Ett verifikat i listan.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -101,8 +101,7 @@ impl FormulärData {
     }
 }
 
-/// Det som fliken Verifikat visar. Middleware hämtar det ur `core` och lägger det på begäran,
-/// och det följer med till webbläsaren vid hydreringen.
+/// Det som fliken Verifikat visar.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Verifikatdata {
     pub lista: Vec<ListVy>,
@@ -111,17 +110,13 @@ pub struct Verifikatdata {
     pub formulär: Option<FormulärData>,
 }
 
-fn verifikatdata() -> Verifikatdata {
-    SharedValue::new(|| {
-        #[cfg(feature = "ssr")]
-        if let Some(parts) = use_context::<axum::http::request::Parts>()
-            && let Some(data) = parts.extensions.get::<Verifikatdata>()
-        {
-            return data.clone();
-        }
-        Verifikatdata::default()
-    })
-    .into_inner()
+/// Datan för `/foretag/<id>/verifikat` och `/foretag/<id>/verifikat/nytt`.
+#[server(prefix = "/api", endpoint = "verifikatdata", input = server_fn::codec::GetUrl)]
+pub async fn hämta_verifikatdata(adress: String) -> Result<Verifikatdata, ServerFnError> {
+    match crate::sidodata::Sidbegäran::för(&adress)? {
+        Some(begäran) => server::verifikatdata(&begäran).await,
+        None => Ok(Verifikatdata::default()),
+    }
 }
 
 /// Månaden som perioden heter efter, t.ex. "mars 2026".
@@ -151,12 +146,12 @@ pub fn periodnamn(datum: Date) -> String {
 pub(crate) mod server {
     use std::sync::Arc;
 
-    use axum::extract::{Path, Request, State};
+    use axum::extract::{Path, State};
     use axum::http::{StatusCode, header};
-    use axum::middleware::Next;
     use axum::response::{IntoResponse, Redirect, Response};
     use axum::routing::post;
     use axum::{Extension, Form, Router};
+    use leptos::prelude::ServerFnError;
     use maya_core::atkomst::ÅtkomstFel;
     use maya_core::foretag::FöretagsId;
     use maya_core::inloggning::Inloggad;
@@ -168,6 +163,7 @@ pub(crate) mod server {
     use super::{
         DokumentVy, FormulärData, HistorikVy, KontoVy, ListVy, RadVy, Verifikatdata, periodnamn,
     };
+    use crate::sidodata::{self, Sidbegäran};
 
     #[derive(Clone)]
     pub(crate) struct VerifikatState {
@@ -183,52 +179,29 @@ pub(crate) mod server {
     }
 
     /// Hämtar det som fliken Verifikat visar, för `/foretag/<id>/verifikat` och
-    /// `/foretag/<id>/verifikat/nytt`. Körs efter `inloggning::identifiera`.
-    pub(crate) async fn lägg_på_verifikatdata(
-        State(state): State<VerifikatState>,
-        mut req: Request,
-        next: Next,
-    ) -> Response {
-        let Some(inloggad) = req.extensions().get::<Inloggad>().cloned() else {
-            return next.run(req).await;
-        };
-        let delar: Vec<&str> = req.uri().path().trim_matches('/').split('/').collect();
-        let (företag, nytt) = match delar.as_slice() {
+    /// `/foretag/<id>/verifikat/nytt`. Utan åtkomst blir datan tom; sidan visar det ur
+    /// företagsvalet.
+    pub(crate) async fn verifikatdata(b: &Sidbegäran) -> Result<Verifikatdata, ServerFnError> {
+        let (företag, nytt) = match b.delar().as_slice() {
             ["foretag", id, "verifikat"] => (id.parse::<FöretagsId>().ok(), false),
             ["foretag", id, "verifikat", "nytt"] => (id.parse::<FöretagsId>().ok(), true),
             _ => (None, false),
         };
         let Some(företag) = företag else {
-            return next.run(req).await;
+            return Ok(Verifikatdata::default());
         };
-        let query: Vec<(String, String)> = req
-            .uri()
-            .query()
-            .map(|q| {
-                url::form_urlencoded::parse(q.as_bytes())
-                    .into_owned()
-                    .collect()
-            })
-            .unwrap_or_default();
-        let fråga = |namn: &str| {
-            query
-                .iter()
-                .find(|(k, _)| k == namn)
-                .map(|(_, v)| v.clone())
-        };
-        let urval = fråga("urval")
+        let urval = b
+            .värde("urval")
             .and_then(|u| Urval::från_kod(&u))
             .unwrap_or_default();
-        let valt = if nytt { None } else { fråga("v") };
-        match hämta(&state.db, &inloggad, företag, urval, valt, nytt).await {
-            Ok(data) => {
-                req.extensions_mut().insert(data);
+        let valt = if nytt { None } else { b.värde("v") };
+        match hämta(&b.db, &b.inloggad, företag, urval, valt, nytt).await {
+            Ok(data) => Ok(data),
+            Err(ÅtkomstFel::IngenÅtkomst | ÅtkomstFel::KanalenFårInte) => {
+                Ok(Verifikatdata::default())
             }
-            // Sidan visar att användaren saknar åtkomst, ur företagsvalet.
-            Err(ÅtkomstFel::IngenÅtkomst | ÅtkomstFel::KanalenFårInte) => {}
-            Err(e) => return serverfel(e),
+            Err(e) => Err(sidodata::serverfel(e)),
         }
-        next.run(req).await
     }
 
     async fn hämta(
@@ -535,13 +508,16 @@ fn inloggad() -> bool {
 /// Fliken Verifikat: listan och, när ett verifikat är valt, dokumentet.
 #[component]
 pub fn VerifikatSida() -> impl IntoView {
+    sida(hämta_verifikatdata, verifikatsida)
+}
+
+fn verifikatsida(data: Verifikatdata) -> AnyView {
     if !inloggad() {
         return view! { <LoggaIn /> }.into_any();
     }
     let Some(bas) = företagets_bas() else {
         return view! { <IngenÅtkomst /> }.into_any();
     };
-    let data = verifikatdata();
     let fråga = |namn: &str| use_query_map().with_untracked(|q| q.get(namn).is_some());
     let notis = if fråga("raderat") {
         Some("Utkastet raderades och raderingen loggades.")
@@ -563,7 +539,7 @@ pub fn VerifikatSida() -> impl IntoView {
         None => view! {
             <div class="tom">
                 <p>"Välj ett verifikat i listan."</p>
-                <a rel="external" class="knapp" href=format!("{bas}/verifikat/nytt")>
+                <a class="knapp" href=format!("{bas}/verifikat/nytt")>
                     "Nytt verifikat"
                 </a>
             </div>
@@ -603,7 +579,7 @@ fn RaderaUtkast(bas: String, d: DokumentVy) -> impl IntoView {
                 "Raderingen loggas med vem, när och en sammanfattning av utkastet."
             </p>
             <form method="post" action=format!("{bas}/verifikat/{}/radera", d.id)>
-                <a rel="external" class="knapp" href=format!("{bas}/verifikat?v={}", d.id)>
+                <a class="knapp" href=format!("{bas}/verifikat?v={}", d.id)>
                     "Avbryt"
                 </a>
                 " "
@@ -680,13 +656,16 @@ fn UtkastBadge() -> impl IntoView {
 /// Formuläret för ett nytt verifikat, bredvid listan.
 #[component]
 pub fn NyttVerifikatSida() -> impl IntoView {
+    sida(hämta_verifikatdata, nytt_verifikat)
+}
+
+fn nytt_verifikat(data: Verifikatdata) -> AnyView {
     if !inloggad() {
         return view! { <LoggaIn /> }.into_any();
     }
     let Some(bas) = företagets_bas() else {
         return view! { <IngenÅtkomst /> }.into_any();
     };
-    let data = verifikatdata();
     let formulär = data.formulär.clone().unwrap_or_default();
     let detalj = view! { <Formulär bas=bas.clone() data=formulär utkast=None /> }.into_any();
     view! { <Delad bas=bas data=data detalj=detalj /> }.into_any()
@@ -705,7 +684,7 @@ fn Delad(bas: String, data: Verifikatdata, detalj: AnyView) -> impl IntoView {
     .map(|(kod, namn)| {
         let aktuellt = (kod == urval || (urval.is_empty() && kod == "alla")).then_some("page");
         view! {
-            <a rel="external" href=format!("{bas}/verifikat?urval={kod}") aria-current=aktuellt>
+            <a href=format!("{bas}/verifikat?urval={kod}") aria-current=aktuellt>
                 {namn}
             </a>
         }
@@ -724,7 +703,7 @@ fn Delad(bas: String, data: Verifikatdata, detalj: AnyView) -> impl IntoView {
             };
             view! {
                 <li>
-                    <a rel="external" href=href aria-current=aktuellt>
+                    <a href=href aria-current=aktuellt>
                         <span class="verifikatlista-topp">
                             <span>
                                 {nummer}
@@ -744,7 +723,7 @@ fn Delad(bas: String, data: Verifikatdata, detalj: AnyView) -> impl IntoView {
             <div class="verifikat-spalt">
                 <div class="verifikat-spalt-rubrik">
                     <h1>"Verifikat"</h1>
-                    <a rel="external" class="knapp" href=format!("{bas}/verifikat/nytt")>
+                    <a class="knapp" href=format!("{bas}/verifikat/nytt")>
                         "Nytt"
                     </a>
                 </div>
@@ -923,7 +902,7 @@ fn Formulär(bas: String, data: FormulärData, utkast: Option<DokumentVy>) -> im
                             let konto = verifikat.with_untracked(|v| v.rader[i].konto.clone());
                             view! {
                                 " "
-                                <a rel="external" href=format!(
+                                <a href=format!(
                                     "{bas}/installningar/kontoplan?sok={}",
                                     konto.trim(),
                                 )>"Aktivera"</a>
@@ -1038,7 +1017,7 @@ fn Formulär(bas: String, data: FormulärData, utkast: Option<DokumentVy>) -> im
     };
     let radera = utkast_id.clone().map(|id| {
         view! {
-            <a rel="external" class="knapp knapp-fara-diskret" href=format!("{bas}/verifikat?v={id}&radera=1")>
+            <a class="knapp knapp-fara-diskret" href=format!("{bas}/verifikat?v={id}&radera=1")>
                 <Papperskorg />
                 "Radera utkast"
             </a>

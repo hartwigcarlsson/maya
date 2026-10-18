@@ -1,12 +1,13 @@
-//! Användarmenyns sidor för passkeys och sessioner. Sidorna läser data som middleware har
-//! hämtat ur `core`, som i `verifikat.rs`, och ändrar med vanliga formulär (`/konto/…`) och
-//! passkey-ceremonierna i JS-shimmen.
+//! Användarmenyns sidor för passkeys och sessioner. Sidorna läser sin data med
+//! `sidodata::sida` och ändrar med vanliga formulär (`/konto/…`) och passkey-ceremonierna i
+//! JS-shimmen.
 
 use leptos::prelude::*;
 use leptos_router::hooks::use_query_map;
 use serde::{Deserialize, Serialize};
 
 use crate::app::{LoggaIn, Läge};
+use crate::sidodata::sida;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PasskeyVy {
@@ -32,75 +33,47 @@ pub struct SessionVy {
     pub denna: bool,
 }
 
-/// Det som sidorna Passkeys och Sessioner visar. Middleware hämtar det ur `core` och lägger
-/// det på begäran, och det följer med till webbläsaren vid hydreringen.
+/// Det som sidorna Passkeys och Sessioner visar.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Kontodata {
     pub passkeys: Option<PasskeySida>,
     pub sessioner: Option<Vec<SessionVy>>,
 }
 
-fn kontodata() -> Kontodata {
-    SharedValue::new(|| {
-        #[cfg(feature = "ssr")]
-        if let Some(parts) = use_context::<axum::http::request::Parts>()
-            && let Some(data) = parts.extensions.get::<Kontodata>()
-        {
-            return data.clone();
-        }
-        Kontodata::default()
-    })
-    .into_inner()
+/// Datan för `/passkeys` och `/sessioner`.
+#[server(prefix = "/api", endpoint = "kontodata", input = server_fn::codec::GetUrl)]
+pub async fn hämta_kontodata(adress: String) -> Result<Kontodata, ServerFnError> {
+    match crate::sidodata::Sidbegäran::för(&adress)? {
+        Some(begäran) => server::kontodata(&begäran).await,
+        None => Ok(Kontodata::default()),
+    }
 }
 
 #[cfg(feature = "ssr")]
-pub(crate) mod server {
-    use axum::extract::{Request, State};
-    use axum::http::StatusCode;
-    use axum::middleware::Next;
-    use axum::response::{IntoResponse, Response};
+mod server {
+    use leptos::prelude::ServerFnError;
     use maya_core::inloggning::{self, Inloggad, InloggningsFel};
     use maya_core::{Databas, Klocka};
 
     use super::{Kontodata, PasskeySida, PasskeyVy, SessionVy};
-    use crate::inloggning::InloggningsState;
+    use crate::sidodata::{Sidbegäran, serverfel};
 
-    /// Hämtar det som `/passkeys` och `/sessioner` visar. Körs efter `inloggning::identifiera`.
-    pub(crate) async fn lägg_på_kontodata(
-        State(state): State<InloggningsState>,
-        mut req: Request,
-        next: Next,
-    ) -> Response {
-        let Some(inloggad) = req.extensions().get::<Inloggad>().cloned() else {
-            return next.run(req).await;
-        };
-        let data = match req.uri().path() {
-            "/passkeys" => passkeys(&state.db, &state.klocka, &inloggad)
+    /// Hämtar det som `/passkeys` och `/sessioner` visar.
+    pub(crate) async fn kontodata(b: &Sidbegäran) -> Result<Kontodata, ServerFnError> {
+        let data = match b.delar().as_slice() {
+            ["passkeys"] => passkeys(&b.db, &b.klocka, &b.inloggad)
                 .await
                 .map(|p| Kontodata {
                     passkeys: Some(p),
                     sessioner: None,
                 }),
-            "/sessioner" => sessioner(&state.db, &inloggad).await.map(|s| Kontodata {
+            ["sessioner"] => sessioner(&b.db, &b.inloggad).await.map(|s| Kontodata {
                 passkeys: None,
                 sessioner: Some(s),
             }),
-            _ => return next.run(req).await,
+            _ => Ok(Kontodata::default()),
         };
-        match data {
-            Ok(data) => {
-                req.extensions_mut().insert(data);
-                next.run(req).await
-            }
-            Err(e) => {
-                tracing::error!("kontosidan misslyckades: {e}");
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    "Något gick fel i Maya; försök igen.\n",
-                )
-                    .into_response()
-            }
-        }
+        data.map_err(serverfel)
     }
 
     async fn passkeys(
@@ -164,11 +137,15 @@ fn felmeddelande(kod: &str) -> &'static str {
 
 #[component]
 pub fn Passkeys() -> impl IntoView {
+    sida(hämta_kontodata, passkeys)
+}
+
+fn passkeys(data: Kontodata) -> AnyView {
     if !inloggad() {
         return view! { <LoggaIn /> }.into_any();
     }
     let (ny, fel) = use_query_map().with_untracked(|q| (q.get("ny").is_some(), q.get("fel")));
-    let sida = kontodata().passkeys;
+    let sida = data.passkeys;
     view! {
         <section class="sida">
             <h1>"Passkeys"</h1>
@@ -248,10 +225,14 @@ fn PasskeyLista(sida: PasskeySida) -> impl IntoView {
 
 #[component]
 pub fn Sessioner() -> impl IntoView {
+    sida(hämta_kontodata, sessioner)
+}
+
+fn sessioner(data: Kontodata) -> AnyView {
     if !inloggad() {
         return view! { <LoggaIn /> }.into_any();
     }
-    let sessioner = kontodata().sessioner;
+    let sessioner = data.sessioner;
     view! {
         <section class="sida">
             <h1>"Sessioner"</h1>

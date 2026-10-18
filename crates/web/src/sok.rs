@@ -12,6 +12,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::app::{LoggaIn, Läge};
 use crate::foretag::{FöretagVy, Företagsval, IngenÅtkomst};
+use crate::sidodata::sida;
 
 /// Något som sökningen leder till.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -140,40 +141,32 @@ pub async fn sök_verifikat(foretag: String, q: String) -> Result<Vec<Träff>, S
         })
 }
 
-/// Frågan och verifikaten som sidan `/foretag/<id>/sok` visar. Middleware hämtar dem ur `core`
-/// och lägger dem på begäran, och de följer med till webbläsaren vid hydreringen.
+/// Verifikaten som sidan `/foretag/<id>/sok` visar.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Sökdata {
     pub verifikat: Vec<Träff>,
 }
 
-fn sökdata() -> Sökdata {
-    SharedValue::new(|| {
-        #[cfg(feature = "ssr")]
-        if let Some(parts) = use_context::<axum::http::request::Parts>()
-            && let Some(data) = parts.extensions.get::<Sökdata>()
-        {
-            return data.clone();
-        }
-        Sökdata::default()
-    })
-    .into_inner()
+/// Datan för `/foretag/<id>/sok?q=`.
+#[server(prefix = "/api", endpoint = "sokdata", input = server_fn::codec::GetUrl)]
+pub async fn hämta_sökdata(adress: String) -> Result<Sökdata, ServerFnError> {
+    match crate::sidodata::Sidbegäran::för(&adress)? {
+        Some(begäran) => server::sökdata(&begäran).await,
+        None => Ok(Sökdata::default()),
+    }
 }
 
 #[cfg(feature = "ssr")]
 pub(crate) mod server {
-    use axum::extract::{Request, State};
-    use axum::http::{StatusCode, header};
-    use axum::middleware::Next;
-    use axum::response::{IntoResponse, Response};
+    use leptos::prelude::ServerFnError;
     use maya_core::Databas;
     use maya_core::aktor::Aktör;
     use maya_core::atkomst::ÅtkomstFel;
     use maya_core::foretag::FöretagsId;
-    use maya_core::inloggning::Inloggad;
     use maya_core::verifikat;
 
     use super::{Sökdata, Träff};
+    use crate::sidodata::{self, Sidbegäran};
 
     /// Så många verifikat visar sökningen.
     const HÖGST: usize = 20;
@@ -206,49 +199,24 @@ pub(crate) mod server {
             .collect())
     }
 
-    /// Hämtar verifikaten som sidan `/foretag/<id>/sok?q=` visar. Körs efter
-    /// `inloggning::identifiera`.
-    pub(crate) async fn lägg_på_sökdata(
-        State(db): State<Databas>,
-        mut req: Request,
-        next: Next,
-    ) -> Response {
-        let Some(inloggad) = req.extensions().get::<Inloggad>().cloned() else {
-            return next.run(req).await;
+    /// Hämtar verifikaten som sidan `/foretag/<id>/sok?q=` visar. Utan åtkomst blir datan
+    /// tom; sidan visar det ur företagsvalet.
+    pub(crate) async fn sökdata(b: &Sidbegäran) -> Result<Sökdata, ServerFnError> {
+        let delar = b.delar();
+        let ["foretag", id, "sok"] = delar.as_slice() else {
+            return Ok(Sökdata::default());
         };
-        let delar: Vec<&str> = req.uri().path().trim_matches('/').split('/').collect();
-        let Some(företag) = (match delar.as_slice() {
-            ["foretag", id, "sok"] => id.parse::<FöretagsId>().ok(),
-            _ => None,
-        }) else {
-            return next.run(req).await;
+        let Ok(företag) = id.parse::<FöretagsId>() else {
+            return Ok(Sökdata::default());
         };
-        let fråga = req
-            .uri()
-            .query()
-            .and_then(|q| {
-                url::form_urlencoded::parse(q.as_bytes())
-                    .find(|(k, _)| k == "q")
-                    .map(|(_, v)| v.into_owned())
-            })
-            .unwrap_or_default();
-        match verifikatträffar(&db, &inloggad.aktör, företag, &fråga).await {
-            Ok(verifikat) => {
-                req.extensions_mut().insert(Sökdata { verifikat });
+        let fråga = b.värde("q").unwrap_or_default();
+        match verifikatträffar(&b.db, &b.inloggad.aktör, företag, &fråga).await {
+            Ok(verifikat) => Ok(Sökdata { verifikat }),
+            Err(ÅtkomstFel::IngenÅtkomst | ÅtkomstFel::KanalenFårInte) => {
+                Ok(Sökdata::default())
             }
-            // Sidan visar att användaren saknar åtkomst, ur företagsvalet.
-            Err(ÅtkomstFel::IngenÅtkomst | ÅtkomstFel::KanalenFårInte) => {}
-            Err(e) => {
-                tracing::error!("sökningen: {e}");
-                return (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    [(header::CONTENT_TYPE, "text/plain; charset=utf-8")],
-                    "Något gick fel i Maya; försök igen.\n",
-                )
-                    .into_response();
-            }
+            Err(e) => Err(sidodata::serverfel(e)),
         }
-        next.run(req).await
     }
 }
 
@@ -458,6 +426,10 @@ fn Sökning(
 /// Sidan `/foretag/<id>/sok`, dit sökfältet skickar frågan utan JavaScript.
 #[component]
 pub fn SökSida() -> impl IntoView {
+    sida(hämta_sökdata, söksida)
+}
+
+fn söksida(data: Sökdata) -> AnyView {
     if !matches!(use_context::<Läge>(), Some(Läge::Inloggad { .. })) {
         return view! { <LoggaIn /> }.into_any();
     }
@@ -467,7 +439,6 @@ pub fn SökSida() -> impl IntoView {
         return view! { <IngenÅtkomst /> }.into_any();
     };
     let fråga = use_query_map().with_untracked(|q| q.get("q").unwrap_or_default());
-    let data = sökdata();
     view! {
         <section class="sida">
             <h1>"Sök"</h1>
