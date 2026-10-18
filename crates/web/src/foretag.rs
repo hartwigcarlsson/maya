@@ -528,7 +528,7 @@ fn Företagssida(rubrik: &'static str, tom: &'static str) -> impl IntoView {
 }
 
 #[component]
-fn IngenÅtkomst() -> impl IntoView {
+pub(crate) fn IngenÅtkomst() -> impl IntoView {
     #[cfg(feature = "ssr")]
     if let Some(response) = use_context::<leptos_axum::ResponseOptions>() {
         response.set_status(axum::http::StatusCode::FORBIDDEN);
@@ -548,11 +548,6 @@ fn IngenÅtkomst() -> impl IntoView {
 #[component]
 pub fn AttGöra() -> impl IntoView {
     view! { <Företagssida rubrik="Att göra" tom="Inget att göra ännu." /> }
-}
-
-#[component]
-pub fn Verifikat() -> impl IntoView {
-    view! { <Företagssida rubrik="Verifikat" tom="Inga verifikat ännu." /> }
 }
 
 #[component]
