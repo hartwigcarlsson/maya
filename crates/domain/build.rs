@@ -11,6 +11,9 @@ use std::path::{Path, PathBuf};
 
 use calamine::{Data, Range, Reader, Xlsx, open_workbook};
 
+#[path = "build/ink2.rs"]
+mod ink2;
+
 /// Kontoplanen som byggs in.
 const KONTOPLAN: &str = "data/bas/BAS_kontoplan_2026_v2.xlsx";
 /// Den senaste fria utgåvan som markerar grundkontona med ■.
@@ -35,8 +38,9 @@ fn main() {
     }
     ut.push_str("];\n");
 
-    let out = PathBuf::from(std::env::var_os("OUT_DIR").unwrap()).join("bas.rs");
-    std::fs::write(out, ut).unwrap();
+    let out = PathBuf::from(std::env::var_os("OUT_DIR").unwrap());
+    std::fs::write(out.join("bas.rs"), ut).unwrap();
+    std::fs::write(out.join("ink2.rs"), ink2::generera(ink2::KÄLLA)).unwrap();
 }
 
 fn blad(fil: &str) -> Range<Data> {

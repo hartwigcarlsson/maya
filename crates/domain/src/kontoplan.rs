@@ -1,6 +1,7 @@
 //! Kontoplanens regler: kontonummer, kontoklass och den inbyggda BAS-kontoplanen.
 
 pub mod bas;
+pub mod ink2;
 
 /// Kontona som Mayas flöden bokför på, med flödets namn. De är aktiva från början och kan aldrig
 /// inaktiveras ("Används av flödet X"). Varje etapp lägger till sina konton.
