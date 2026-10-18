@@ -5,8 +5,8 @@ use maya_domain::belopp::Belopp;
 use maya_domain::kontoplan::Kontonummer;
 use maya_pdf::testhjalp::{innehåller, sidor, är_pdfa_2b};
 use maya_pdf::{
-    Dokument, Företag, Historikpost, Konto, Kontoplan, Rad, Sidfot, Signatur, Underlag, Verifikat,
-    skriv,
+    Behandlingshistorik, Behandlingspost, Dokument, Företag, Historikpost, Konto, Kontoplan, Rad,
+    Sidfot, Signatur, Underlag, Verifikat, skriv,
 };
 
 fn sidfot() -> Sidfot {
@@ -230,4 +230,63 @@ fn text_ur_indata_tolkas_aldrig_som_typst() {
     let text = sidor(&skriv(&Dokument::Verifikat(v), &sidfot()).unwrap()).concat();
 
     assert!(innehåller(&text, "#panic(\"x\") *fet* $x$ <etikett> @ref"));
+}
+
+fn behandlingshistorik(antal: usize) -> Behandlingshistorik {
+    Behandlingshistorik {
+        företag: företag(),
+        urval: "alla poster".into(),
+        poster: (0..antal)
+            .map(|i| Behandlingspost {
+                tid: tid("2026-03-14T09:05:12Z"),
+                aktör: "Anna Andersson (webb)".into(),
+                typ: "konto namnbytt".into(),
+                objekt: "1930".into(),
+                beskrivning: format!("Namn ändrat från ”Bank {i}” till ”SEB {i}”"),
+            })
+            .collect(),
+    }
+}
+
+#[test]
+fn behandlingshistoriken_är_pdfa_2b_med_poster_och_sidfot_på_varje_sida() {
+    let pdf = skriv(
+        &Dokument::Behandlingshistorik(behandlingshistorik(120)),
+        &sidfot(),
+    )
+    .unwrap();
+
+    är_pdfa_2b(&pdf);
+    let sidor = sidor(&pdf);
+    assert!(sidor.len() > 1, "{} sidor", sidor.len());
+    let antal = sidor.len();
+    for (i, sida) in sidor.iter().enumerate() {
+        assert!(
+            innehåller(sida, &format!("Sida {} av {antal}", i + 1)),
+            "{sida}"
+        );
+    }
+    let text = sidor.concat();
+    for väntat in [
+        "Behandlingshistorik",
+        "Urval: alla poster · 120 poster",
+        "2026-03-14 10:05:12",
+        "Anna Andersson (webb)",
+        "Namn ändrat från ”Bank 0” till ”SEB 0”",
+        "Namn ändrat från ”Bank 119” till ”SEB 119”",
+    ] {
+        assert!(innehåller(&text, väntat), "{väntat}: {text}");
+    }
+}
+
+#[test]
+fn en_tom_behandlingshistorik_säger_det() {
+    let pdf = skriv(
+        &Dokument::Behandlingshistorik(behandlingshistorik(0)),
+        &sidfot(),
+    )
+    .unwrap();
+
+    är_pdfa_2b(&pdf);
+    assert!(innehåller(&sidor(&pdf).concat(), "Inga poster i urvalet."));
 }

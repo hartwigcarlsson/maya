@@ -1,0 +1,17 @@
+﻿Konto;Kontonamn;Bokförd;Verifikat;Verifikatdatum;Text;Debet;Kredit;Saldo
+1930;Företagskonto;;;;Ingående balans;;;1000,00
+1930;Företagskonto;2026-03-25 10:00:00;V1;2026-03-20;Swish;500,00;;1500,00
+1930;Företagskonto;2026-03-25 11:00:00;V2;2026-03-05;Hyra;;200,00;1300,00
+1930;Företagskonto;2026-05-02 10:00:00;V3;2026-04-30;Telefon;;50,00;1250,00
+1930;Företagskonto;;;;Utgående balans;;;1250,00
+2081;Aktiekapital;;;;Ingående balans;;;-1000,00
+2081;Aktiekapital;;;;Utgående balans;;;-1000,00
+3001;Försäljning inom Sverige, 25 % moms;;;;Ingående balans;;;0,00
+3001;Försäljning inom Sverige, 25 % moms;2026-03-25 10:00:00;V1;2026-03-20;"Försäljning; kund ""A""";;500,00;-500,00
+3001;Försäljning inom Sverige, 25 % moms;;;;Utgående balans;;;-500,00
+5010;Lokalhyra;;;;Ingående balans;;;0,00
+5010;Lokalhyra;2026-03-25 11:00:00;V2;2026-03-05;Hyra;200,00;;200,00
+5010;Lokalhyra;;;;Utgående balans;;;200,00
+6210;Telekommunikation;;;;Ingående balans;;;0,00
+6210;Telekommunikation;2026-05-02 10:00:00;V3;2026-04-30;Telefon;50,00;;50,00
+6210;Telekommunikation;;;;Utgående balans;;;50,00

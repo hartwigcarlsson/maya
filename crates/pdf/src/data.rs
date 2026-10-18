@@ -1,11 +1,13 @@
 //! Dokumenten som JSON för mallarna. Allt som mallen visar formateras här.
 
 use jiff::Timestamp;
-use maya_domain::belopp::Belopp;
+use maya_domain::belopp::{Belopp, Saldo};
 use maya_domain::kontoplan::{ink2, klassnamn, om_numret};
+use maya_domain::rapport::Radslag;
 use serde_json::{Value, json};
 
-use crate::{Kontoplan, Sidfot, Signatur, Verifikat};
+use crate::bokforing::{self, Grundbok, Huvudbok};
+use crate::{Behandlingshistorik, Kontoplan, Rapport, Sidfot, Signatur, Verifikat};
 
 /// Ett dokument som Maya kan skriva som PDF. Varje variant har en egen mall.
 // Ett dokument skapas en gång och lånas till `skriv`; storleken spelar ingen roll.
@@ -14,6 +16,10 @@ use crate::{Kontoplan, Sidfot, Signatur, Verifikat};
 pub enum Dokument {
     Verifikat(Verifikat),
     Kontoplan(Kontoplan),
+    Behandlingshistorik(Behandlingshistorik),
+    Grundbok(Grundbok),
+    Huvudbok(Huvudbok),
+    Rapport(Rapport),
 }
 
 impl Dokument {
@@ -22,6 +28,10 @@ impl Dokument {
         match self {
             Dokument::Verifikat(_) => "verifikat.typ",
             Dokument::Kontoplan(_) => "kontoplan.typ",
+            Dokument::Behandlingshistorik(_) => "behandlingshistorik.typ",
+            Dokument::Grundbok(_) => "grundbok.typ",
+            Dokument::Huvudbok(_) => "huvudbok.typ",
+            Dokument::Rapport(_) => "rapport.typ",
         }
     }
 
@@ -30,6 +40,10 @@ impl Dokument {
         let dokument = match self {
             Dokument::Verifikat(v) => verifikat(v),
             Dokument::Kontoplan(k) => kontoplan(k),
+            Dokument::Behandlingshistorik(b) => behandlingshistorik(b),
+            Dokument::Grundbok(g) => bokforing::grundbok(g),
+            Dokument::Huvudbok(h) => bokforing::huvudbok(h),
+            Dokument::Rapport(r) => rapport(r),
         };
         json!({
             "sidfot": {
@@ -44,14 +58,21 @@ impl Dokument {
 }
 
 /// Tid i Stockholm, till minuten.
-fn tid(t: Timestamp) -> String {
+pub(crate) fn tid(t: Timestamp) -> String {
     t.to_zoned(maya_domain::tid::stockholm())
         .strftime("%Y-%m-%d %H:%M")
         .to_string()
 }
 
+/// Tid i Stockholm, till sekunden, som i behandlingshistoriken.
+fn sekund(t: Timestamp) -> String {
+    t.to_zoned(maya_domain::tid::stockholm())
+        .strftime("%Y-%m-%d %H:%M:%S")
+        .to_string()
+}
+
 /// Tomt för noll, som i dokumentvyn.
-fn belopp(b: Belopp) -> String {
+pub(crate) fn belopp(b: Belopp) -> String {
     if b == Belopp::NOLL {
         String::new()
     } else {
@@ -147,6 +168,78 @@ fn kontoplan(k: &Kontoplan) -> Value {
         "bas_version": k.bas_version,
         "antal": k.konton.len(),
         "klasser": klasser,
+    })
+}
+
+fn behandlingshistorik(b: &Behandlingshistorik) -> Value {
+    let antal = match b.poster.len() {
+        1 => "1 post".to_string(),
+        n => format!("{n} poster"),
+    };
+    json!({
+        "foretag": { "namn": b.företag.namn, "orgnr": b.företag.orgnr },
+        "urval": b.urval,
+        "antal": antal,
+        "poster": b.poster.iter().map(|p| json!({
+            "tid": sekund(p.tid),
+            "aktor": p.aktör,
+            "typ": p.typ,
+            "objekt": p.objekt,
+            "beskrivning": p.beskrivning,
+        })).collect::<Vec<_>>(),
+    })
+}
+
+fn rapport(r: &Rapport) -> Value {
+    let rapport = &r.rapport;
+    let mut anmärkningar = Vec::new();
+    if rapport.preliminär_ingående_balans() {
+        anmärkningar.push(
+            "Ingående balans är preliminär: föregående räkenskapsår är inte stängt, så den räknas \
+             ur dess utgående balans och resultatet som inte är ombokat står på 2099.",
+        );
+    }
+    if rapport.första_året() {
+        anmärkningar.push(
+            "Räkenskapsåret är företagets första i Maya, så det finns inga jämförelsesiffror.",
+        );
+    }
+    anmärkningar.push("Bara bokförda verifikat. Belopp i kronor.");
+    let slag = |s: Radslag| match s {
+        Radslag::Sida => "sida",
+        Radslag::Rubrik => "rubrik",
+        Radslag::Underrubrik => "underrubrik",
+        Radslag::Ink2Rad => "rad",
+        Radslag::Konto => "konto",
+        Radslag::Summa => "summa",
+        Radslag::Delsumma => "delsumma",
+        Radslag::Slutsumma => "slutsumma",
+        Radslag::ÅretsResultat => "arets-resultat",
+        Radslag::Kontroll => "kontroll",
+    };
+    json!({
+        "foretag": { "namn": r.företag.namn, "orgnr": r.företag.orgnr },
+        "titel": rapport.urval.typ.namn(),
+        "ar": format!("{} – {}", rapport.år.start(), rapport.år.slut()),
+        "period": rapport.period(),
+        "anmarkningar": anmärkningar,
+        "kolumner": rapport.kolumner.iter().map(|k| json!({
+            "rubrik": k.rubrik,
+            "underrubrik": k.underrubrik,
+            "foregaende": k.föregående,
+        })).collect::<Vec<_>>(),
+        "rader": rapport.rader.iter().map(|rad| json!({
+            "slag": slag(rad.slag),
+            "text": match (rad.konto, &rad.ink2) {
+                (Some(k), _) => format!("{k} {}", rad.text),
+                (None, Some(ink2)) => format!("{ink2} {}", rad.text),
+                (None, None) => rad.text.clone(),
+            },
+            "varden": rad.värden.iter().map(|v| match v {
+                Some(öre) => Saldo::från_öre(*öre).to_string(),
+                None => "–".to_string(),
+            }).collect::<Vec<_>>(),
+        })).collect::<Vec<_>>(),
     })
 }
 

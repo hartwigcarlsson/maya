@@ -1443,3 +1443,335 @@ kbd {
   border-color: var(--destructive);
   color: var(--primary-foreground);
 }
+
+/* Inställningar → Behandlingshistorik: urval i adressen, export av samma urval. */
+.historikfilter {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 0.5rem 1rem;
+  margin: 1rem 0 0.5rem;
+  font-size: 13px;
+}
+
+.historikfilter label {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  color: var(--muted-foreground);
+}
+
+.historikfilter select,
+.historikfilter input {
+  font: inherit;
+  color: var(--foreground);
+  background: var(--background);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 4px 6px;
+}
+
+.historikexport {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.25rem 1rem;
+}
+
+.behandlingshistorik {
+  font-size: 13px;
+}
+
+.behandlingshistorik .tid {
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.behandlingshistorik .typ {
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.behandlingshistorik tr.maya td {
+  color: var(--muted-foreground);
+}
+
+@media (max-width: 760px) {
+  .behandlingshistorik {
+    display: block;
+    overflow-x: auto;
+  }
+}
+
+/* Rapporter → Bokföring: grundboken och huvudboken. */
+
+.verktygsrad {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  margin: 0.5rem 0;
+}
+
+.verktygsrad select,
+.verktygsrad input {
+  height: 28px;
+  padding: 0 8px;
+  border: 1px solid var(--input);
+  border-radius: var(--radius);
+  background: var(--background);
+  color: var(--foreground);
+  font: inherit;
+}
+
+.verktygsrad .fel {
+  flex-basis: 100%;
+}
+
+.exporter {
+  display: flex;
+  align-items: baseline;
+  gap: 0.75rem;
+}
+
+.bokforingsdokument {
+  max-width: none;
+}
+
+.bokforingsdokument .verifikathuvud td {
+  padding-top: 10px;
+  font-weight: 500;
+}
+
+/* Rapporter: menyn, verktygsraden, banderollerna och dokumentet (variant A i #69). */
+
+.sida.rapport {
+  max-width: 80rem;
+}
+
+.rapport-delad {
+  display: grid;
+  grid-template-columns: 200px 1fr;
+  gap: 1.5rem;
+  align-items: start;
+}
+
+@media (max-width: 760px) {
+  .rapport-delad {
+    grid-template-columns: 1fr;
+  }
+}
+
+.rapport-innehall h1 {
+  margin: 0 0 0.5rem;
+}
+
+.rapportmeny h2 {
+  margin: 0.75rem 0 0.25rem;
+  color: var(--muted-foreground);
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.rapportmeny ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.rapportmeny a {
+  display: block;
+  padding: 4px 8px;
+  border-radius: var(--radius);
+  color: inherit;
+  text-decoration: none;
+}
+
+.rapportmeny a:hover,
+.rapportmeny a[aria-current="page"] {
+  background: var(--muted);
+}
+
+.verktygsrad,
+.rapporturval {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.verktygsrad {
+  margin: 0.5rem 0;
+}
+
+.verktygsrad .filter {
+  margin: 0;
+}
+
+.verktygsgrupp {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  white-space: nowrap;
+}
+
+.rapporturval select {
+  height: var(--control-height);
+}
+
+.banderoll {
+  margin: 0.5rem 0;
+  padding: 6px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--muted);
+}
+
+.banderoll p {
+  margin: 0;
+}
+
+.rapport-export {
+  display: flex;
+  gap: 1rem;
+}
+
+.rapportdokument {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 24px 28px;
+  border-radius: var(--radius);
+  background: var(--background);
+  box-shadow: 0 0 0 1px color-mix(in oklch, var(--foreground) 10%, transparent);
+}
+
+.rapportdokument-huvud {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.rapportdokument-huvud .hoger {
+  text-align: right;
+}
+
+.rapportdokument-titel {
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.rapporttabell {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12.5px;
+}
+
+.rapporttabell th {
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--foreground);
+  color: var(--muted-foreground);
+  font-size: 11px;
+  font-weight: 500;
+  vertical-align: bottom;
+  white-space: nowrap;
+}
+
+.rapporttabell th .underrubrik {
+  display: block;
+  font-weight: 400;
+}
+
+.rapporttabell td {
+  padding: 3px 8px;
+}
+
+.rapporttabell .belopp {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.rapporttabell .foregaende {
+  color: var(--muted-foreground);
+}
+
+.rapporttabell a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.rapporttabell a:hover {
+  text-decoration: underline;
+}
+
+.rapporttabell .ink2 {
+  display: inline-block;
+  min-width: 34px;
+  color: var(--muted-foreground);
+  font-size: 10px;
+  font-weight: 500;
+}
+
+.rapporttabell tr.sida td {
+  padding-top: 14px;
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+.rapporttabell tr.rubrik td {
+  padding-top: 8px;
+  font-weight: 600;
+}
+
+.rapporttabell tr.underrubrik td {
+  font-style: italic;
+  font-weight: 500;
+}
+
+.rapporttabell tr.rad td:first-child,
+.rapporttabell tr.arets-resultat td:first-child {
+  padding-left: 22px;
+}
+
+.rapporttabell tr.arets-resultat td {
+  font-style: italic;
+}
+
+.rapporttabell tr.konto td {
+  color: var(--muted-foreground);
+  font-size: 12px;
+}
+
+.rapporttabell tr.konto td:first-child {
+  padding-left: 42px;
+}
+
+.rapporttabell tr.summa td,
+.rapporttabell tr.delsumma td {
+  border-top: 1px solid var(--border);
+  font-weight: 600;
+}
+
+.rapporttabell tr.slutsumma td {
+  padding: 6px 8px;
+  border-top: 1px solid var(--foreground);
+  font-weight: 700;
+}
+
+.rapporttabell tr.kontroll td {
+  border-top: 1px dashed var(--border);
+  color: var(--muted-foreground);
+  font-size: 11px;
+}
+
+.kontoutdrag {
+  font-size: 12px;
+}
+
+.kontoutdrag .ingaende td {
+  color: var(--muted-foreground);
+  font-style: italic;
+}
