@@ -8,10 +8,10 @@ use std::io::{self, Read};
 use std::path::Path;
 use std::time::Duration;
 
-use jiff::Timestamp;
 use sha2::{Digest, Sha256};
 use url::Url;
 
+use crate::Klocka;
 use crate::config::S3Target;
 
 /// SHA-256 av en tom kropp.
@@ -38,6 +38,8 @@ pub(crate) enum S3Fel {
 pub(crate) struct S3 {
     mål: S3Target,
     agent: ureq::Agent,
+    /// Tiden i signaturen (SigV4).
+    klocka: Klocka,
 }
 
 impl S3 {
@@ -49,7 +51,13 @@ impl S3 {
         S3 {
             mål: mål.clone(),
             agent: ureq::Agent::new_with_config(config),
+            klocka: Klocka::system(),
         }
+    }
+
+    pub(crate) fn med_klocka(mut self, klocka: Klocka) -> Self {
+        self.klocka = klocka;
+        self
     }
 
     /// Bucketen och tjänstens adress, för meddelanden.
@@ -204,7 +212,7 @@ impl S3 {
         url.set_path(&väg);
         let frågetext = kanonisk_fråga(fråga);
         url.set_query((!frågetext.is_empty()).then_some(frågetext.as_str()));
-        let datum = Timestamp::now().strftime("%Y%m%dT%H%M%SZ").to_string();
+        let datum = self.klocka.nu().strftime("%Y%m%dT%H%M%SZ").to_string();
         let auth = signatur(&Begäran {
             metod,
             url: &url,
