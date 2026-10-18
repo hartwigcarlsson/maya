@@ -3,7 +3,7 @@
 //! `core` på servern, med samma koder.
 
 use leptos::prelude::*;
-use leptos_router::hooks::{use_location, use_params_map, use_query_map};
+use leptos_router::hooks::{use_location, use_query_map};
 use maya_domain::foretag::{Bokföringsmetod, Fält, Momsperiod, NyttFöretag};
 use maya_domain::orgnr::Organisationsnummer;
 use serde::{Deserialize, Serialize};
@@ -21,6 +21,8 @@ pub struct FöretagVy {
     pub id: String,
     pub orgnr: String,
     pub namn: String,
+    /// Antalet saker att göra i företaget.
+    pub att_göra: usize,
 }
 
 impl FöretagVy {
@@ -57,6 +59,7 @@ pub(crate) mod server {
     use axum::response::{IntoResponse, Redirect, Response};
     use axum::routing::post;
     use axum::{Extension, Form, Router};
+    use maya_core::att_gora;
     use maya_core::foretag::{self, FöretagsFel};
     use maya_core::inloggning::Inloggad;
     use maya_core::{Databas, Klocka};
@@ -82,6 +85,7 @@ pub(crate) mod server {
             id: rad.id.to_string(),
             orgnr: rad.orgnr.to_string(),
             namn: rad.namn,
+            att_göra: 0,
         }
     }
 
@@ -93,9 +97,24 @@ pub(crate) mod server {
         next: Next,
     ) -> Response {
         if let Some(inloggad) = req.extensions().get::<Inloggad>() {
+            let antal = match att_gora::antal(&state.db, &inloggad.aktör).await {
+                Ok(antal) => antal,
+                Err(e) => return serverfel(e),
+            };
             match foretag::mina_företag(&state.db, &inloggad.aktör).await {
                 Ok(rader) => {
-                    let val = Företagsval(rader.into_iter().map(vy).collect());
+                    let val = Företagsval(
+                        rader
+                            .into_iter()
+                            .map(|rad| {
+                                let n = antal.get(&rad.id).copied().unwrap_or_default();
+                                FöretagVy {
+                                    att_göra: n,
+                                    ..vy(rad)
+                                }
+                            })
+                            .collect(),
+                    );
                     req.extensions_mut().insert(val);
                 }
                 Err(e) => return serverfel(e),
@@ -196,7 +215,10 @@ pub fn Toppmeny() -> impl IntoView {
             <div class="toppmeny-foretag">
             <Företagsväljare valt=valt.clone() alla=val.0.clone() />
             <nav class="flikar" aria-label="Huvudmeny">
-                <a href=bas.clone()>"Att göra"</a>
+                <a rel="external" href=bas.clone()>
+                    "Att göra"
+                    <Antal n=valt.att_göra />
+                </a>
                 <a href=format!("{bas}/verifikat")>"Verifikat"</a>
                 <a href=format!("{bas}/rapporter")>
                     "Rapporter"
@@ -229,9 +251,10 @@ fn Företagsväljare(valt: FöretagVy, alla: Vec<FöretagVy>) -> impl IntoView {
                         let href = f.href();
                         view! {
                             <li>
-                                <a href=href aria-current=aktuellt>
+                                <a rel="external" href=href aria-current=aktuellt>
                                     {f.namn}
                                     <span class="diskret">{f.orgnr}</span>
+                                    <Antal n=f.att_göra />
                                 </a>
                             </li>
                         }
@@ -243,6 +266,12 @@ fn Företagsväljare(valt: FöretagVy, alla: Vec<FöretagVy>) -> impl IntoView {
             </ul>
         </details>
     }
+}
+
+/// Antalet saker att göra, som en liten räknare; inget när det är noll.
+#[component]
+pub(crate) fn Antal(n: usize) -> impl IntoView {
+    (n > 0).then(|| view! { <span class="antal">{n}</span> })
 }
 
 /// Lucides kugghjul (`settings`).
@@ -296,9 +325,13 @@ pub fn Företagslista() -> impl IntoView {
                         let href = f.href();
                         view! {
                             <li>
-                                <a href=href>{f.namn}</a>
+                                <a rel="external" href=href>
+                                    {f.namn}
+                                </a>
                                 " "
                                 <span class="diskret">{f.orgnr}</span>
+                                " "
+                                <Antal n=f.att_göra />
                             </li>
                         }
                     })
@@ -514,28 +547,6 @@ fn nytt_företag() -> AnyView {
     .into_any()
 }
 
-/// En sida i företaget i sökvägen, eller att användaren saknar åtkomst till det. Listan över
-/// företagen kommer från `core`, som avgör åtkomsten.
-#[component]
-fn Företagssida(rubrik: &'static str, tom: &'static str) -> impl IntoView {
-    if !inloggad() {
-        return view! { <LoggaIn /> }.into_any();
-    }
-    let id = use_params_map().with_untracked(|p| p.get("id").unwrap_or_default());
-    let val = use_context::<Företagsval>().unwrap_or_default();
-    match val.0.into_iter().find(|f| f.id == id) {
-        Some(f) => view! {
-            <section class="sida">
-                <p class="diskret">{f.namn} " · " {f.orgnr}</p>
-                <h1>{rubrik}</h1>
-                <p class="tom">{tom}</p>
-            </section>
-        }
-        .into_any(),
-        None => view! { <IngenÅtkomst /> }.into_any(),
-    }
-}
-
 #[component]
 pub(crate) fn IngenÅtkomst() -> impl IntoView {
     #[cfg(feature = "ssr")]
@@ -551,10 +562,4 @@ pub(crate) fn IngenÅtkomst() -> impl IntoView {
             </p>
         </section>
     }
-}
-
-/// Att göra, företagets startsida. Innehållet kommer med sina tickets.
-#[component]
-pub fn AttGöra() -> impl IntoView {
-    per_adress(|| view! { <Företagssida rubrik="Att göra" tom="Inget att göra ännu." /> })
 }

@@ -193,7 +193,7 @@ fn forsta_anvandaren_via_cli_lanken_och_inloggning_med_passkey() {
         .unwrap()
         .click()
         .unwrap();
-    vänta_på_text(&tab, "Inget att göra ännu");
+    vänta_på_text(&tab, "Företagskontot");
     vänta_på_text(&tab, "556036-0793");
     assert!(tab.get_url().contains("/foretag/"), "{}", tab.get_url());
 

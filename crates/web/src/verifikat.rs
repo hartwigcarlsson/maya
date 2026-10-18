@@ -9,6 +9,7 @@
 
 use leptos::prelude::*;
 use leptos_router::hooks::{use_params_map, use_query_map};
+use maya_domain::att_gora::{Frist, Utkastläge, dag_lång, frist, rör_kassan};
 use maya_domain::belopp::Belopp;
 use maya_domain::kontoplan::Kontonummer;
 use maya_domain::rakenskapsar::Räkenskapsår;
@@ -167,6 +168,8 @@ pub struct FormulärData {
     /// Underlagen som formuläret har kopplade när det öppnas: utkastets, eller de som skickades
     /// tillbaka med formuläret.
     pub valda: Vec<UnderlagVy>,
+    /// Dagens datum, `ÅÅÅÅ-MM-DD`, för kontantfristens notis. Tomt: ingen notis.
+    pub idag: String,
 }
 
 impl FormulärData {
@@ -290,7 +293,12 @@ pub(crate) mod server {
         )
         .await
         {
-            Ok(data) => Ok(data),
+            Ok(mut data) => {
+                if let Some(f) = &mut data.formulär {
+                    f.idag = b.klocka.idag().to_string();
+                }
+                Ok(data)
+            }
             Err(ÅtkomstFel::IngenÅtkomst | ÅtkomstFel::KanalenFårInte) => {
                 Ok(Verifikatdata::default())
             }
@@ -299,7 +307,7 @@ pub(crate) mod server {
     }
 
     #[allow(clippy::too_many_arguments)]
-    async fn hämta(
+    pub(crate) async fn hämta(
         db: &Databas,
         idag: jiff::civil::Date,
         inloggad: &Inloggad,
@@ -452,6 +460,7 @@ pub(crate) mod server {
                     .map(|å| (å.start().to_string(), å.slut().to_string()))
                     .collect(),
                 valda,
+                idag: String::new(),
             })
         } else {
             None
@@ -553,6 +562,7 @@ pub(crate) mod server {
         };
         let handling = skickat.värde("handling");
         let spara = handling == Some("utkast");
+        let till_att_göra = skickat.värde("efter") == Some("att_gora");
         let formulär = tolka(&skickat.fält);
         let (db, klocka, aktör) = (&state.db, &state.klocka, &inloggad.aktör);
         let mut valda = Vec::new();
@@ -638,6 +648,9 @@ pub(crate) mod server {
             },
         };
         match resultat {
+            Ok(plats) if till_att_göra => {
+                Redirect::to(&efter_att_göra(företag, &plats, spara)).into_response()
+            }
             Ok(plats) => {
                 let plats = match dubblett {
                     Some(u) => format!("{plats}&dubblett={u}"),
@@ -659,6 +672,21 @@ pub(crate) mod server {
                 ingen_åtkomst()
             }
             Err(e) => serverfel(e),
+        }
+    }
+
+    /// Tillbaka till Att göra efter Spara utkast (utkastet utfällt) eller Bokför (nästa utkast
+    /// utfällt). `plats` är adressen till verifikatet, med `v=<id>`.
+    fn efter_att_göra(företag: FöretagsId, plats: &str, spara: bool) -> String {
+        let id = plats
+            .split("v=")
+            .nth(1)
+            .and_then(|rest| rest.split('&').next())
+            .unwrap_or_default();
+        if spara {
+            format!("/foretag/{företag}?oppna=utkast-{id}&sparat=1")
+        } else {
+            format!("/foretag/{företag}?bokford={id}")
         }
     }
 
@@ -1239,7 +1267,7 @@ fn Papperskorg() -> impl IntoView {
 
 /// Den neutrala streckade badgen med pennikon som utkast har.
 #[component]
-fn UtkastBadge() -> impl IntoView {
+pub(crate) fn UtkastBadge() -> impl IntoView {
     view! {
         <span class="badge badge-utkast">
             <Penna />
@@ -1748,12 +1776,15 @@ fn FormuläretsUnderlag(
 /// Formuläret för ett nytt verifikat eller ett utkast. Spärrarna visas vid sina fält medan
 /// användaren skriver, och Bokför är inaktiv med antalet problem kvar. Spara utkast går alltid
 /// att trycka på.
+/// Formuläret för ett nytt verifikat eller ett utkast. `efter = "att_gora"` skickar tillbaka
+/// till Att göra efter Spara utkast och Bokför.
 #[component]
-fn Formulär(
+pub(crate) fn Formulär(
     bas: String,
     data: FormulärData,
     okopplade: Vec<UnderlagVy>,
     utkast: Option<DokumentVy>,
+    #[prop(optional)] efter: Option<&'static str>,
 ) -> impl IntoView {
     // De kopplade och de okopplade kan väljas; ett bortkopplat kan kopplas igen före sparning.
     let mut tillgängliga = data.valda.clone();
@@ -1805,6 +1836,7 @@ fn Formulär(
     start.rader.resize(antal_rader, NyRad::default());
     let verifikat = RwSignal::new(start);
     let förutsättningar = data.förutsättningar();
+    let fristnotis = kontantfristens_notis(data.idag.parse().ok(), verifikat);
     let spärrar = Memo::new(move |_| {
         verifikat.with(|v| v.kontrollera(&förutsättningar).err().unwrap_or_default())
     });
@@ -1986,6 +2018,8 @@ fn Formulär(
                     }
                 })}
             <input type="hidden" name="utkast" value=utkast_id.clone().unwrap_or_default() />
+            {efter.map(|e| view! { <input type="hidden" name="efter" value=e /> })}
+            {fristnotis}
             <input type="hidden" name="underlag_finns" value="1" />
             <div class="falt-rad">
                 <div>
@@ -2051,5 +2085,49 @@ fn Formulär(
             </p>
         </form>
         </div>
+    }
+}
+
+/// Notisen om kontantfristen (T1, BFL 5:2) när formuläret har ett datum och en rad på kassan
+/// (grupp 191). Fristen varnar men spärrar inte.
+fn kontantfristens_notis(
+    idag: Option<jiff::civil::Date>,
+    verifikat: RwSignal<NyttVerifikat>,
+) -> impl Fn() -> Option<AnyView> {
+    let frist = Memo::new(move |_| {
+        let idag = idag?;
+        verifikat.with(|v| {
+            let läge = Utkastläge {
+                datum: Some(v.datum.trim().parse().ok()?),
+                kassa: rör_kassan(v.rader.iter().filter_map(|r| {
+                    r.konto
+                        .trim()
+                        .parse::<u16>()
+                        .ok()
+                        .and_then(Kontonummer::new)
+                })),
+            };
+            match frist(&läge, idag) {
+                Frist::Kontantfrist { senast, försenad } => Some((senast, försenad)),
+                _ => None,
+            }
+        })
+    });
+    move || {
+        frist.get().map(|(senast, försenad)| {
+            let text = if försenad {
+                format!(
+                    "Kontantfristen gick ut {}. Bokför så snart som möjligt.",
+                    dag_lång(senast)
+                )
+            } else {
+                format!(
+                    "Kontantfristen: verifikatet för pengar in i eller ut ur kassan och ska \
+                     bokföras senast {} (BFL 5:2).",
+                    dag_lång(senast)
+                )
+            };
+            view! { <p class="notis notis-frist" role="status">{text}</p> }.into_any()
+        })
     }
 }
