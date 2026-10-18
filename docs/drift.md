@@ -41,6 +41,8 @@ Direkt efter varje backup läser Maya tillbaka den ur målet och verifierar den:
 
 Lagra backupen i Sverige. Förvaring i ett annat EU-land kräver en anmälan till Skatteverket och utanför EU ett tillstånd (BFL 7:3 a). Maya krypterar inte backupen; om målet är krypterat ska nyckeln bevaras som räkenskapsinformation och anges i arkivplanen (`MAYA_ARKIVPLAN_NYCKEL`), så att kopian kan läsas under hela bevarandetiden.
 
+Går något fel visas en driftvarning överst i Att göra för alla användare, i alla företag, tills det är löst: backupen är äldre än 36 timmar, verifieringen misslyckades, backupkatalogen ligger på samma enhet som databasen (eller saknas) eller arkivplanen saknar land. Sidan Installation i användarmenyn visar version, publik URL, senaste backup och verifiering och arkivplanen. Med `MAYA_SMTP_HOST` och `MAYA_DRIFT_EPOST` mejlar Maya driften när backupen eller verifieringen misslyckas eller backupen är äldre än 36 timmar: högst ett mejl per dygn och fel, och ett när felet är löst. Maya ser efter fel var tionde minut.
+
 Provåterställ en gång per år: `docker compose exec maya maya backup verify` verifierar den senaste backupen (eller `maya backup verify <namn>` en viss), skriver resultatet på svenska och loggar körningen i installationsloggen.
 
 ## Uppgradera
@@ -58,8 +60,8 @@ All konfiguration läses ur miljön och `.env`. Se `.env.example` för alla vari
 | `MAYA_TRUSTED_PROXY` | Adresser eller nätblock vars `X-Forwarded-For` godtas. Sätts av `compose.yaml`. |
 | `MAYA_LISTEN`, `MAYA_DATA_DIR` | `0.0.0.0:8080` och `/data` i imagen. |
 | `MAYA_BACKUP_TIME` | Den nattliga backupen, som standard 03:00 i `Europe/Stockholm`. |
-| `MAYA_SMTP_…`, `MAYA_DRIFT_EPOST` | Valfria, för larm till driften. |
-| `MAYA_ARKIVPLAN_…` | Arkivplanens fritext: plats och land, offsite, nyckel, ansvarig. |
+| `MAYA_SMTP_…`, `MAYA_DRIFT_EPOST` | Valfria, för larm till driften. Port 465 ger TLS direkt, annars STARTTLS när servern erbjuder det; ett lösenord skickas aldrig okrypterat till en annan värd. |
+| `MAYA_ARKIVPLAN_…` | Arkivplanens fritext: plats och land (`PLATS`), offsite, nyckel, ansvarig. Utan `MAYA_ARKIVPLAN_PLATS` visar Att göra en driftvarning. |
 
 En hemlighet (`MAYA_SMTP_PASSWORD`, `MAYA_BACKUP_S3_SECRET_ACCESS_KEY`) kan i stället anges som en fil med `_FILE`-varianten, till exempel en Docker secret: `MAYA_SMTP_PASSWORD_FILE=/run/secrets/smtp`.
 
