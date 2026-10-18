@@ -1,0 +1,64 @@
+[workspace]
+resolver = "3"
+members = ["crates/*"]
+
+[workspace.package]
+version = "0.1.0-dev"
+edition = "2024"
+rust-version = "1.99"
+publish = false
+
+[workspace.dependencies]
+maya-domain = { path = "crates/domain" }
+maya-core = { path = "crates/core" }
+maya-web = { path = "crates/web" }
+maya-auth = { path = "crates/auth" }
+maya-sie = { path = "crates/sie" }
+
+axum = "0.8"
+clap = { version = "4", features = ["derive"] }
+console_error_panic_hook = "0.1"
+dotenvy = "0.15"
+http-body-util = "0.1"
+ipnet = "2"
+jiff = { version = "0.2", default-features = false, features = ["std", "static"] }
+leptos = "0.8"
+leptos_axum = "0.8"
+leptos_meta = "0.8"
+rust-embed = { version = "8", features = ["interpolate-folder-path"] }
+sqlx = { version = "0.9", default-features = false, features = ["sqlite", "runtime-tokio", "migrate", "macros"] }
+tempfile = "3"
+thiserror = "2"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "net", "signal", "time"] }
+tower = { version = "0.5", features = ["util"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+url = "2"
+wasm-bindgen = "=0.2.129"
+
+[workspace.lints.rust]
+unsafe_code = "deny"
+
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }
+
+[profile.release]
+codegen-units = 1
+lto = true
+
+[profile.wasm-release]
+inherits = "release"
+opt-level = "z"
+panic = "abort"
+
+[[workspace.metadata.leptos]]
+name = "maya"
+bin-package = "maya"
+lib-package = "maya-web"
+output-name = "maya"
+site-pkg-dir = "pkg"
+style-file = "crates/web/style/maya.css"
+assets-dir = "crates/web/public"
+lib-features = ["hydrate"]
+lib-default-features = false
+lib-profile-release = "wasm-release"
