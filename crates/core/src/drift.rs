@@ -23,8 +23,8 @@ pub enum Driftvarning {
         /// Felen, en per rad.
         meddelande: String,
     },
-    /// Backupmålet ligger på samma enhet som databasen eller finns inte.
-    Backupmål(String),
+    /// Backupkatalogen i konfigurationen finns inte.
+    BackupkatalogSaknas(String),
 }
 
 impl Driftvarning {
@@ -35,7 +35,7 @@ impl Driftvarning {
             Driftvarning::VerifieringMisslyckades { .. } => {
                 "Verifieringen av backupen misslyckades"
             }
-            Driftvarning::Backupmål(_) => "Backupen är inte åtskild från databasen",
+            Driftvarning::BackupkatalogSaknas(_) => "Backupkatalogen finns inte",
         }
     }
 
@@ -64,7 +64,7 @@ impl Driftvarning {
                     meddelande.lines().collect::<Vec<_>>().join("; ")
                 )
             }
-            Driftvarning::Backupmål(text) => text.clone(),
+            Driftvarning::BackupkatalogSaknas(text) => text.clone(),
         }
     }
 }
@@ -91,9 +91,9 @@ pub async fn driftvarningar(
         });
     }
     varningar.extend(
-        backup::varningar(&config.data_dir, &config.backup)
+        backup::varningar(&config.backup)
             .into_iter()
-            .map(Driftvarning::Backupmål),
+            .map(Driftvarning::BackupkatalogSaknas),
     );
     Ok(varningar)
 }
