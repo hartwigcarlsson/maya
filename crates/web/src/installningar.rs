@@ -18,6 +18,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::app::{LoggaIn, Läge};
 use crate::foretag::{Företagsval, IngenÅtkomst};
+use crate::sidodata::sida;
 
 /// Koden när bekräftelsen av raderingen inte är företagets organisationsnummer.
 pub const BEKRÄFTELSE_FEL: &str = "bekraftelse_fel";
@@ -26,16 +27,14 @@ pub const BEKRÄFTELSE_FEL: &str = "bekraftelse_fel";
 pub const HAR_RÄKENSKAPSINFORMATION: &str = "har_rakenskapsinformation";
 
 /// Inställningssidorna i menyn, i ordning: sökvägen under `/foretag/<id>/installningar` och
-/// namnet. Behandlingshistorik och Systemdokumentation läggs till med sina tickets.
-const SIDOR: [(&str, &str); 4] = [
+/// namnet. Åtkomst, Behandlingshistorik och Systemdokumentation läggs till med sina tickets.
+const SIDOR: [(&str, &str); 3] = [
     ("", "Företag"),
     ("/kontoplan", "Kontoplan"),
     ("/ingaende-balans", "Ingående balans"),
-    ("/atkomst", "Åtkomst"),
 ];
 
-/// Menyn överst på inställningssidorna. `aktiv` är sidans sökväg i [`SIDOR`]. Sidorna hämtar
-/// sina data på servern, så länkarna laddar om hela sidan.
+/// Menyn överst på inställningssidorna. `aktiv` är sidans sökväg i [`SIDOR`].
 #[component]
 pub fn Inställningsmeny(bas: String, aktiv: &'static str) -> impl IntoView {
     view! {
@@ -46,7 +45,6 @@ pub fn Inställningsmeny(bas: String, aktiv: &'static str) -> impl IntoView {
                     let aktuell = (sökväg == aktiv).then_some("page");
                     view! {
                         <a
-                            rel="external"
                             href=format!("{bas}/installningar{sökväg}")
                             aria-current=aktuell
                         >
@@ -89,8 +87,7 @@ impl From<&UppgifterVy> for Uppgifter {
     }
 }
 
-/// Det som sidan Företag visar. Middleware hämtar det ur `core` och lägger det på begäran, och
-/// det följer med till webbläsaren vid hydreringen.
+/// Det som sidan Företag visar.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Inställningsdata {
     pub orgnr: String,
@@ -132,27 +129,27 @@ impl Inställningsdata {
     }
 }
 
-fn inställningsdata() -> Option<Inställningsdata> {
-    SharedValue::new(|| {
-        #[cfg(feature = "ssr")]
-        if let Some(parts) = use_context::<axum::http::request::Parts>() {
-            return parts.extensions.get::<Inställningsdata>().cloned();
-        }
-        None
-    })
-    .into_inner()
+/// Datan för `/foretag/<id>/installningar`, eller `None` utan åtkomst.
+#[server(prefix = "/api", endpoint = "installningsdata", input = server_fn::codec::GetUrl)]
+pub async fn hämta_inställningsdata(
+    adress: String,
+) -> Result<Option<Inställningsdata>, ServerFnError> {
+    match crate::sidodata::Sidbegäran::för(&adress)? {
+        Some(begäran) => server::inställningsdata(&begäran).await,
+        None => Ok(None),
+    }
 }
 
 #[cfg(feature = "ssr")]
 pub(crate) mod server {
     use std::sync::Arc;
 
-    use axum::extract::{Path, Request, State};
+    use axum::extract::{Path, State};
     use axum::http::{StatusCode, header};
-    use axum::middleware::Next;
     use axum::response::{IntoResponse, Redirect, Response};
     use axum::routing::post;
     use axum::{Extension, Form, Router};
+    use leptos::prelude::ServerFnError;
     use maya_core::atkomst::ÅtkomstFel;
     use maya_core::foretag::{self, FöretagsFel, FöretagsId};
     use maya_core::inloggning::Inloggad;
@@ -160,6 +157,7 @@ pub(crate) mod server {
     use maya_domain::foretag::{Byte, Uppgifter, föreslaget_momsregnr};
 
     use super::{BEKRÄFTELSE_FEL, HAR_RÄKENSKAPSINFORMATION, Inställningsdata, UppgifterVy};
+    use crate::sidodata::{self, Sidbegäran};
 
     #[derive(Clone)]
     pub(crate) struct InställningsState {
@@ -177,32 +175,23 @@ pub(crate) mod server {
             .with_state(Arc::new(state))
     }
 
-    /// Hämtar det som sidan Företag under Inställningar visar. Körs efter
-    /// `inloggning::identifiera`.
-    pub(crate) async fn lägg_på_inställningar(
-        State(state): State<InställningsState>,
-        mut req: Request,
-        next: Next,
-    ) -> Response {
-        let Some(inloggad) = req.extensions().get::<Inloggad>().cloned() else {
-            return next.run(req).await;
-        };
-        let delar: Vec<&str> = req.uri().path().trim_matches('/').split('/').collect();
+    /// Hämtar det som sidan Företag under Inställningar visar. Utan åtkomst blir den `None`;
+    /// sidan visar det ur företagsvalet.
+    pub(crate) async fn inställningsdata(
+        b: &Sidbegäran,
+    ) -> Result<Option<Inställningsdata>, ServerFnError> {
+        let delar = b.delar();
         let ["foretag", id, "installningar"] = delar.as_slice() else {
-            return next.run(req).await;
+            return Ok(None);
         };
         let Ok(id) = id.parse::<FöretagsId>() else {
-            return next.run(req).await;
+            return Ok(None);
         };
-        match hämta(&state.db, &inloggad, id).await {
-            Ok(data) => {
-                req.extensions_mut().insert(data);
-            }
-            // Sidan visar att användaren saknar åtkomst, ur företagsvalet.
-            Err(ÅtkomstFel::IngenÅtkomst | ÅtkomstFel::KanalenFårInte) => {}
-            Err(e) => return serverfel(e),
+        match hämta(&b.db, &b.inloggad, id).await {
+            Ok(data) => Ok(Some(data)),
+            Err(ÅtkomstFel::IngenÅtkomst | ÅtkomstFel::KanalenFårInte) => Ok(None),
+            Err(e) => Err(sidodata::serverfel(e)),
         }
-        next.run(req).await
     }
 
     async fn hämta(
@@ -523,13 +512,16 @@ fn momsnamn(kod: &str) -> &'static str {
 /// Inställningar → Företag.
 #[component]
 pub fn FöretagsInställningar() -> impl IntoView {
+    sida(hämta_inställningsdata, företagsinställningar)
+}
+
+fn företagsinställningar(data: Option<Inställningsdata>) -> AnyView {
     if !matches!(use_context::<Läge>(), Some(Läge::Inloggad { .. })) {
         return view! { <LoggaIn /> }.into_any();
     }
     let id = use_params_map().with_untracked(|p| p.get("id").unwrap_or_default());
     let val = use_context::<Företagsval>().unwrap_or_default();
-    let (Some(f), Some(data)) = (val.0.into_iter().find(|f| f.id == id), inställningsdata())
-    else {
+    let (Some(f), Some(data)) = (val.0.into_iter().find(|f| f.id == id), data) else {
         return view! { <IngenÅtkomst /> }.into_any();
     };
     let bas = f.href();

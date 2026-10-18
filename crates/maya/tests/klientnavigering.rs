@@ -114,6 +114,7 @@ fn menylankarna_navigerar_pa_klienten_och_sidorna_visar_sina_data() {
     vänta_på_text(&tab, "Historik");
 
     klicka(&tab, "a.kugghjul");
+    vänta_på_text(&tab, "Organisationsnummer 556036-0793");
     klicka(&tab, "a[href$='/installningar/kontoplan']");
     vänta_på_text(&tab, "2.26 Kassa, bank och redovisningsmedel");
 

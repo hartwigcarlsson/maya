@@ -103,10 +103,6 @@ pub fn router(config: Arc<Config>, db: Databas) -> Router {
         .fallback(assets::serve_site)
         .with_state(leptos_options)
         .layer(middleware::from_fn_with_state(
-            inställningar.clone(),
-            installningar::lägg_på_inställningar,
-        ))
-        .layer(middleware::from_fn_with_state(
             företag.clone(),
             foretag::lägg_på_företagsval,
         ))

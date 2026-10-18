@@ -203,7 +203,6 @@ pub fn Toppmeny() -> impl IntoView {
             <Sökfält valt=valt.clone() alla=val.0.clone() />
             <a
                 class="knapp knapp-diskret kugghjul"
-                rel="external"
                 href=format!("{bas}/installningar")
                 title="Inställningar"
                 aria-label="Inställningar"
