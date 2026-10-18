@@ -10,6 +10,7 @@ use maya_core::installation::{self, RelyingParty};
 use maya_core::kontoplan;
 use maya_core::{Databas, Klocka};
 
+mod backup;
 mod healthcheck;
 mod user;
 
@@ -36,6 +37,11 @@ enum Command {
         #[command(subcommand)]
         command: user::DomainCommand,
     },
+    /// Hanterar backuperna.
+    Backup {
+        #[command(subcommand)]
+        command: backup::BackupCommand,
+    },
 }
 
 fn main() -> ExitCode {
@@ -51,6 +57,7 @@ fn main() -> ExitCode {
         Command::Healthcheck => healthcheck::run(),
         Command::User { command } => user::run_user(command),
         Command::Domain { command } => user::run_domain(command),
+        Command::Backup { command } => backup::run(command),
     }
 }
 
@@ -90,7 +97,12 @@ async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
     if tillagda > 0 {
         tracing::info!("{tillagda} nya BAS-konton tillagda som inaktiva");
     }
+    backup::varna_vid_start(&config);
     let config = Arc::new(config);
+    let jobb = {
+        let (config, db) = (config.clone(), db.clone());
+        tokio::spawn(async move { backup::nattligt_jobb(&config, db).await })
+    };
     let app = maya_web::router(config.clone(), db);
 
     let listener = tokio::net::TcpListener::bind(config.listen)
@@ -109,6 +121,7 @@ async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
     )
     .with_graceful_shutdown(shutdown())
     .await?;
+    jobb.abort();
     tracing::info!("Maya har stannat");
     Ok(())
 }

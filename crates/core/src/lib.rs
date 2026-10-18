@@ -3,6 +3,7 @@
 
 pub mod aktor;
 pub mod atkomst;
+pub mod backup;
 pub mod behandlingshistorik;
 pub mod bokforing;
 pub mod config;
@@ -14,6 +15,7 @@ pub mod installation;
 pub mod installationslogg;
 mod klocka;
 pub mod kontoplan;
+pub mod kontrollsumma;
 pub mod rapport;
 pub mod saldo;
 pub mod sie4;
