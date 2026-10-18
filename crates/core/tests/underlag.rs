@@ -593,3 +593,30 @@ async fn ett_underlag_som_hört_till_ett_bokfört_verifikat_kan_aldrig_tas_bort(
         .unwrap_err();
     assert!(fel.to_string().contains("går inte att ändra"), "{fel}");
 }
+
+#[tokio::test]
+async fn ett_företag_med_underlag_har_räkenskapsinformation_och_raderas_inte() {
+    let db = Databas::tillfällig().await;
+    let (anna, id) = testhjalp::företag(&db).await;
+    let kvitto = ladda_upp(&db, &anna, id, "kvitto.pdf").await;
+    spara(&db, &anna, id, None, &[kvitto]).await.unwrap();
+
+    assert!(
+        foretag::har_räkenskapsinformation(&db, &anna, id)
+            .await
+            .unwrap()
+    );
+    let fel = foretag::radera(&db, &klocka(), &anna, id)
+        .await
+        .unwrap_err();
+    assert!(
+        matches!(fel, foretag::FöretagsFel::HarRäkenskapsinformation),
+        "{fel:?}"
+    );
+
+    // Utan underlag går företaget att radera, med utkastet.
+    underlag::ta_bort(&db, &klocka(), &anna, id, kvitto)
+        .await
+        .unwrap();
+    foretag::radera(&db, &klocka(), &anna, id).await.unwrap();
+}
