@@ -139,7 +139,7 @@ fn Innehåll() -> impl IntoView {
                 <Route path=path!("passkeys") view=Passkeys ssr=SsrMode::Async />
                 <Route path=path!("sessioner") view=Sessioner ssr=SsrMode::Async />
                 <Route path=path!("foretag/nytt") view=NyttFöretagSida />
-                <Route path=path!("foretag/:id") view=AttGöra />
+                <Route path=path!("foretag/:id") view=AttGöra ssr=SsrMode::Async />
                 <Route path=path!("foretag/:id/verifikat") view=VerifikatSida ssr=SsrMode::Async />
                 <Route
                     path=path!("foretag/:id/verifikat/nytt")

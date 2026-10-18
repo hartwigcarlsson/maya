@@ -215,7 +215,7 @@ pub fn Toppmeny() -> impl IntoView {
             <div class="toppmeny-foretag">
             <Företagsväljare valt=valt.clone() alla=val.0.clone() />
             <nav class="flikar" aria-label="Huvudmeny">
-                <a rel="external" href=bas.clone()>
+                <a href=bas.clone()>
                     "Att göra"
                     <Antal n=valt.att_göra />
                 </a>
@@ -251,7 +251,7 @@ fn Företagsväljare(valt: FöretagVy, alla: Vec<FöretagVy>) -> impl IntoView {
                         let href = f.href();
                         view! {
                             <li>
-                                <a rel="external" href=href aria-current=aktuellt>
+                                <a href=href aria-current=aktuellt>
                                     {f.namn}
                                     <span class="diskret">{f.orgnr}</span>
                                     <Antal n=f.att_göra />
@@ -325,7 +325,7 @@ pub fn Företagslista() -> impl IntoView {
                         let href = f.href();
                         view! {
                             <li>
-                                <a rel="external" href=href>
+                                <a href=href>
                                     {f.namn}
                                 </a>
                                 " "

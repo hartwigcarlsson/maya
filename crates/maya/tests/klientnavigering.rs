@@ -129,6 +129,15 @@ fn menylankarna_navigerar_pa_klienten_och_sidorna_visar_sina_data() {
     // Samma route med en annan fråga (`?v=`): dokumentet för det valda verifikatet.
     klicka(&tab, "a[href*='/verifikat?v=']");
     vänta_på_text(&tab, "Historik");
+    // Rättelsepanelen (`&ratta=1`) på samma route.
+    klicka(&tab, "a[href*='ratta=1']");
+    vänta_på_text(&tab, "Rättelse av V1");
+    // Att göra och tillbaka till Verifikat, båda i routern.
+    klicka(&tab, "nav.flikar a:first-child");
+    vänta_på_text(&tab, "Företagskontot");
+    klicka(&tab, "nav.flikar a[href$='/verifikat']");
+    vänta_på_text(&tab, "Välj ett verifikat i listan.");
+    vänta_på_text(&tab, "Kaffe till kontoret");
 
     klicka(&tab, "a.kugghjul");
     vänta_på_text(&tab, "Organisationsnummer 556036-0793");

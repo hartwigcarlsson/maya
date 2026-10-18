@@ -8,20 +8,20 @@
 //! nästa utkast, och ett underlag med "Vad är det här?". Sakernas sorter kommer från
 //! `maya_core::att_gora::Sak`; en ny sort får ett eget kort här ([`Sort`]).
 //!
-//! Sidans data läggs på av middleware och följer med vid hydreringen, så länkarna hit och
-//! härifrån har `rel="external"`.
+//! Sidan läser sin data med `sidodata::sida`, så korten fälls ut i routern på klienten.
 
 use leptos::prelude::*;
 use serde::{Deserialize, Serialize};
 
 use crate::app::LoggaIn;
 use crate::foretag::{Företagsval, IngenÅtkomst};
+use crate::sidodata::sida;
 use crate::underlag::{Förhandsvisning, Gem, UnderlagVy};
 use crate::verifikat::{
     DokumentVy, Formulär, FormulärData, UtkastBadge, företagets_bas, inloggad
 };
 
-/// Det som Att göra visar. Middleware hämtar det ur `core` och lägger det på begäran.
+/// Det som Att göra visar.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AttGöradata {
     /// Dagens datum med veckodag.
@@ -106,30 +106,26 @@ pub enum Öppet {
     },
 }
 
-fn att_göradata() -> AttGöradata {
-    SharedValue::new(|| {
-        #[cfg(feature = "ssr")]
-        if let Some(parts) = use_context::<axum::http::request::Parts>()
-            && let Some(data) = parts.extensions.get::<AttGöradata>()
-        {
-            return data.clone();
-        }
-        AttGöradata::default()
-    })
-    .into_inner()
+/// Datan för `/foretag/<id>`.
+#[server(prefix = "/api", endpoint = "att_gora", input = server_fn::codec::GetUrl)]
+pub async fn hämta_att_göra(adress: String) -> Result<AttGöradata, ServerFnError> {
+    match crate::sidodata::Sidbegäran::för(&adress)? {
+        Some(begäran) => server::att_göra(&begäran).await,
+        None => Ok(AttGöradata::default()),
+    }
 }
 
 #[cfg(feature = "ssr")]
 pub(crate) mod server {
     use std::sync::Arc;
 
-    use axum::extract::{Path, Request, State};
+    use axum::extract::{Path, State};
     use axum::http::{StatusCode, header};
-    use axum::middleware::Next;
     use axum::response::{IntoResponse, Redirect, Response};
     use axum::routing::post;
     use axum::{Extension, Form, Router};
     use jiff::civil::Date;
+    use leptos::prelude::ServerFnError;
     use maya_core::atkomst::ÅtkomstFel;
     use maya_core::att_gora::{self, Sak, Utkastsak};
     use maya_core::foretag::FöretagsId;
@@ -146,6 +142,7 @@ pub(crate) mod server {
     use serde::Deserialize;
 
     use super::{AttGöradata, DagVy, KortVy, NyckeltalVy, PeriodVy, Sort, Öppet};
+    use crate::sidodata::{self, Sidbegäran};
     use crate::underlag::server::vy;
 
     #[derive(Clone)]
@@ -165,43 +162,30 @@ pub(crate) mod server {
             .with_state(Arc::new(state))
     }
 
-    /// Hämtar det som Att göra visar, för `/foretag/<id>`. Körs efter `inloggning::identifiera`.
-    pub(crate) async fn lägg_på_att_göra(
-        State(state): State<AttGöraState>,
-        mut req: Request,
-        next: Next,
-    ) -> Response {
-        let Some(inloggad) = req.extensions().get::<Inloggad>().cloned() else {
-            return next.run(req).await;
+    /// Hämtar det som Att göra visar, för `/foretag/<id>`. Utan åtkomst blir datan tom; sidan
+    /// visar det ur företagsvalet.
+    pub(crate) async fn att_göra(b: &Sidbegäran) -> Result<AttGöradata, ServerFnError> {
+        let delar = b.delar();
+        let ["foretag", id] = delar.as_slice() else {
+            return Ok(AttGöradata::default());
         };
-        let företag = {
-            let delar: Vec<&str> = req.uri().path().trim_matches('/').split('/').collect();
-            match delar.as_slice() {
-                ["foretag", id] => id.parse::<FöretagsId>().ok(),
-                _ => None,
+        let Ok(företag) = id.parse::<FöretagsId>() else {
+            return Ok(AttGöradata::default());
+        };
+        let query: Vec<(String, String)> = url::form_urlencoded::parse(b.fråga().as_bytes())
+            .into_owned()
+            .collect();
+        let state = AttGöraState {
+            db: b.db.clone(),
+            klocka: b.klocka.clone(),
+        };
+        match hämta(&state, &b.inloggad, företag, &query).await {
+            Ok(data) => Ok(data),
+            Err(ÅtkomstFel::IngenÅtkomst | ÅtkomstFel::KanalenFårInte) => {
+                Ok(AttGöradata::default())
             }
-        };
-        let Some(företag) = företag else {
-            return next.run(req).await;
-        };
-        let query: Vec<(String, String)> = req
-            .uri()
-            .query()
-            .map(|q| {
-                url::form_urlencoded::parse(q.as_bytes())
-                    .into_owned()
-                    .collect()
-            })
-            .unwrap_or_default();
-        match hämta(&state, &inloggad, företag, &query).await {
-            Ok(data) => {
-                req.extensions_mut().insert(data);
-            }
-            // Sidan visar att användaren saknar åtkomst, ur företagsvalet.
-            Err(ÅtkomstFel::IngenÅtkomst | ÅtkomstFel::KanalenFårInte) => {}
-            Err(e) => return serverfel(e),
+            Err(e) => Err(sidodata::serverfel(e)),
         }
-        next.run(req).await
     }
 
     async fn hämta(
@@ -612,6 +596,10 @@ pub(crate) mod server {
 /// Att göra, företagets startsida.
 #[component]
 pub fn AttGöra() -> impl IntoView {
+    sida(hämta_att_göra, att_göra)
+}
+
+fn att_göra(data: AttGöradata) -> AnyView {
     if !inloggad() {
         return view! { <LoggaIn /> }.into_any();
     }
@@ -626,7 +614,6 @@ pub fn AttGöra() -> impl IntoView {
             .map(|f| format!("{} · {}", f.namn, f.orgnr))
             .unwrap_or_default()
     };
-    let data = att_göradata();
     let mut sammanfattning = Vec::new();
     if data.försenade > 0 {
         sammanfattning.push(format!("{} försenade", data.försenade));
@@ -822,7 +809,7 @@ fn Kort(bas: String, k: KortVy, öppet: Option<Öppet>) -> impl IntoView {
     });
     view! {
         <div class=klass id=k.nyckel.clone()>
-            <a class="ah" rel="external" href=href>
+            <a class="ah" href=href>
                 <span class="ah-text">
                     <b>{k.rubrik.clone()}</b>
                     <span class="s">{märke} {gem}</span>
@@ -880,7 +867,7 @@ fn VadÄrDetHär(
                     <button class="knapp knapp-fara" type="submit">
                         "Ta bort underlaget"
                     </button>
-                    <a class="knapp" rel="external" href=format!("{bas}?oppna=underlag-{}", u.id)>
+                    <a class="knapp" href=format!("{bas}?oppna=underlag-{}", u.id)>
                         "Avbryt"
                     </a>
                 </form>
@@ -891,7 +878,6 @@ fn VadÄrDetHär(
         view! {
             <a
                 class="knapp knapp-diskret"
-                rel="external"
                 href=format!("{bas}?oppna=underlag-{}&ta_bort=1", u.id)
             >
                 "Dubblett eller fel fil…"
