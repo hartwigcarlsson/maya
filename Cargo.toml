@@ -85,3 +85,20 @@ lib-profile-release = "wasm-release"
 # Ett vanligt `cargo build`/`cargo test` bygger om servern utan den, och då panikar WASM:en
 # vid hydreringen ("expected a marker node"). Samma flaggor överallt.
 disable-erase-components = true
+
+# Typst och PDF-skrivningen är mycket långsammare utan optimering; kontoplanen (BAS, över tusen
+# konton) tog ~20 s i debugläge. Bara de tunga craterna optimeras, så resten byggs som förut.
+[profile.dev.package]
+comemo = { opt-level = 2 }
+hayro-interpret = { opt-level = 2 }
+hayro-syntax = { opt-level = 2 }
+krilla = { opt-level = 2 }
+rustybuzz = { opt-level = 2 }
+subsetter = { opt-level = 2 }
+ttf-parser = { opt-level = 2 }
+typst-eval = { opt-level = 2 }
+typst-layout = { opt-level = 2 }
+typst-library = { opt-level = 2 }
+typst-pdf = { opt-level = 2 }
+typst-realize = { opt-level = 2 }
+typst-syntax = { opt-level = 2 }
