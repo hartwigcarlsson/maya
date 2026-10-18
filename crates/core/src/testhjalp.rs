@@ -168,7 +168,7 @@ pub async fn logga_återställning(db: &Databas, klocka: &Klocka, backup_tid: ji
     .expect("återställningen loggas");
 }
 
-/// En konfiguration utan driftvarningar: S3-mål (aldrig samma enhet som databasen). Inget SMTP.
+/// En konfiguration utan driftvarningar: S3-mål. Inget SMTP.
 pub fn config() -> crate::config::Config {
     crate::config::Config::from_env(
         [

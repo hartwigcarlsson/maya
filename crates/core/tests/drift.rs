@@ -15,7 +15,7 @@ fn klocka(tid: &str) -> Klocka {
     Klocka::fast(tid.parse().unwrap())
 }
 
-/// En konfiguration där inget är fel: S3-mål (aldrig samma enhet).
+/// En konfiguration där inget är fel: S3-mål.
 fn hel_konfiguration(extra: &[(&str, &str)]) -> Config {
     // En variabel i `extra` ersätter standardvärdet; ett tomt värde räknas som saknat.
     let env: std::collections::HashMap<String, String> = [
@@ -151,7 +151,7 @@ async fn en_misslyckad_verifiering_ger_en_varning_tills_en_verifiering_lyckas() 
 }
 
 #[tokio::test]
-async fn ett_backupmål_på_samma_enhet_som_databasen_ger_en_varning() {
+async fn en_backupkatalog_som_inte_finns_ger_en_varning_men_samma_disk_gör_det_inte() {
     let db = Databas::tillfällig().await;
     let (anna, företag) = testhjalp::företag(&db).await;
     let (mål, arbete) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
@@ -159,24 +159,41 @@ async fn ett_backupmål_på_samma_enhet_som_databasen_ger_en_varning() {
     let k = klocka("2026-10-18T08:00:00Z");
 
     let data = tempfile::tempdir().unwrap();
-    let samma = hel_konfiguration(&[
-        ("MAYA_DATA_DIR", data.path().to_str().unwrap()),
-        ("MAYA_BACKUP_DIR", mål.path().to_str().unwrap()),
-        ("MAYA_BACKUP_S3_ENDPOINT", ""),
-        ("MAYA_BACKUP_S3_BUCKET", ""),
-        ("MAYA_BACKUP_S3_ACCESS_KEY_ID", ""),
-        ("MAYA_BACKUP_S3_SECRET_ACCESS_KEY", ""),
-    ]);
-    let varningar = driftvarningar(&db, &k, &samma, &anna, företag).await;
-    let [Driftvarning::Backupmål(text)] = varningar.as_slice() else {
-        panic!("väntade en varning om backupmålet: {varningar:?}");
+    let katalog = |dir: &str| {
+        hel_konfiguration(&[
+            ("MAYA_DATA_DIR", data.path().to_str().unwrap()),
+            ("MAYA_BACKUP_DIR", dir),
+            ("MAYA_BACKUP_S3_ENDPOINT", ""),
+            ("MAYA_BACKUP_S3_BUCKET", ""),
+            ("MAYA_BACKUP_S3_ACCESS_KEY_ID", ""),
+            ("MAYA_BACKUP_S3_SECRET_ACCESS_KEY", ""),
+        ])
     };
-    assert!(text.contains("samma enhet som databasen"), "{text}");
 
-    // Ett S3-mål ligger aldrig på samma enhet.
+    // Att katalogen ligger på samma disk som databasen är driftens val: ingen varning.
     assert_eq!(
-        driftvarningar(&db, &k, &hel_konfiguration(&[]), &anna, företag).await,
+        driftvarningar(
+            &db,
+            &k,
+            &katalog(mål.path().to_str().unwrap()),
+            &anna,
+            företag
+        )
+        .await,
         vec![]
+    );
+
+    let saknas = mål.path().join("saknas");
+    let varningar =
+        driftvarningar(&db, &k, &katalog(saknas.to_str().unwrap()), &anna, företag).await;
+    let [varning @ Driftvarning::BackupkatalogSaknas(_)] = varningar.as_slice() else {
+        panic!("väntade en varning om backupkatalogen: {varningar:?}");
+    };
+    assert_eq!(varning.rubrik(), "Backupkatalogen finns inte");
+    assert!(
+        varning.text().contains("saknas finns inte"),
+        "{}",
+        varning.text()
     );
 }
 

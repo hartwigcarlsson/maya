@@ -581,9 +581,9 @@ async fn filhash(fil: &Path) -> Result<(u64, String), BackupFel> {
     .map_err(|e| BackupFel::Mål(e.to_string()))
 }
 
-/// Varningar om målet i konfigurationen, för loggen vid start och för Att göra: målet ligger på
-/// samma enhet som databasen (kopian är inte åtskild, A5), eller katalogen finns inte.
-pub fn varningar(data_dir: &Path, mål: &BackupTarget) -> Vec<String> {
+/// Varningar om målet i konfigurationen, för loggen vid start och för Att göra: katalogen finns
+/// inte. Var målet ligger är driftens val; Maya kräver bara att det är angivet.
+pub fn varningar(mål: &BackupTarget) -> Vec<String> {
     let BackupTarget::Dir(dir) = mål else {
         return Vec::new();
     };
@@ -593,27 +593,5 @@ pub fn varningar(data_dir: &Path, mål: &BackupTarget) -> Vec<String> {
             dir.display()
         )];
     }
-    if samma_enhet(data_dir, dir) {
-        return vec![format!(
-            "Backupkatalogen {} ligger på samma enhet som databasen i {}. Kopian är inte åtskild \
-             från originalet: montera en annan disk eller använd S3-kompatibel lagring.",
-            dir.display(),
-            data_dir.display()
-        )];
-    }
     Vec::new()
-}
-
-#[cfg(unix)]
-fn samma_enhet(a: &Path, b: &Path) -> bool {
-    use std::os::unix::fs::MetadataExt;
-    match (std::fs::metadata(a), std::fs::metadata(b)) {
-        (Ok(a), Ok(b)) => a.dev() == b.dev(),
-        _ => false,
-    }
-}
-
-#[cfg(not(unix))]
-fn samma_enhet(_: &Path, _: &Path) -> bool {
-    false
 }

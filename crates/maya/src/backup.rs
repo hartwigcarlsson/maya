@@ -72,9 +72,9 @@ async fn verify(config: &Config, db: &Databas, namn: Option<&str>) -> crate::cli
     }
 }
 
-/// Varningar om backupmålet vid start (A5).
+/// Varningar om backupmålet vid start.
 pub fn varna_vid_start(config: &Config) {
-    for varning in backup::varningar(&config.data_dir, &config.backup) {
+    for varning in backup::varningar(&config.backup) {
         tracing::warn!("{varning}");
     }
 }

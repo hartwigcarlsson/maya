@@ -255,6 +255,24 @@ async fn arkivplanen_förutsätter_att_databasen_och_backuperna_förvaras_i_sver
 }
 
 #[tokio::test]
+async fn arkivplanen_lägger_backupmålets_åtskillnad_på_den_som_driftar_servern() {
+    let db = Databas::tillfällig().await;
+    let (anna, företag) = testhjalp::företag(&db).await;
+
+    let dok = systemdokumentation(&db, &config(&[]), &anna, företag)
+        .await
+        .unwrap();
+
+    let t = text(avsnitt(&dok, "arkivplan"));
+    for väntat in [
+        "Den som driftar servern väljer ett backupmål som är åtskilt från databasen",
+        "Maya kräver att ett backupmål är angivet men kontrollerar inte var det ligger",
+    ] {
+        assert!(t.contains(väntat), "saknar {väntat:?}:\n{t}");
+    }
+}
+
+#[tokio::test]
 async fn versionen_ink2_utgåvan_bas_och_ändringsloggen_visas() {
     let db = Databas::tillfällig().await;
     let (anna, företag) = testhjalp::företag(&db).await;
