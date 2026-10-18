@@ -21,6 +21,7 @@ use crate::kontoplan::KontoplanSida;
 use crate::rapporter::{Balansräkning, Rapporter, Resultaträkning};
 use crate::sidodata::per_adress;
 use crate::sok::SökSida;
+use crate::systemdokumentation::SystemdokumentationSida;
 use crate::underlag::UnderlagSida;
 use crate::verifikat::{NyttVerifikatSida, VerifikatSida};
 
@@ -197,6 +198,11 @@ fn Innehåll() -> impl IntoView {
                 <Route
                     path=path!("foretag/:id/installningar/behandlingshistorik")
                     view=BehandlingshistorikSida
+                    ssr=SsrMode::Async
+                />
+                <Route
+                    path=path!("foretag/:id/installningar/systemdokumentation")
+                    view=SystemdokumentationSida
                     ssr=SsrMode::Async
                 />
             </Routes>

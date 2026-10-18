@@ -151,6 +151,18 @@ fn menylankarna_navigerar_pa_klienten_och_sidorna_visar_sina_data() {
     vänta_på_text(&tab, "(du)");
     klicka(&tab, "a[href$='/installningar/behandlingshistorik']");
     vänta_på_text(&tab, "verifikat bokfört");
+    klicka(
+        &tab,
+        ".installningsmeny a[href$='/installningar/systemdokumentation']",
+    );
+    vänta_på_text(&tab, "Version och ändringslogg");
+    vänta_på_text(&tab, "Rättelse av ett bokfört verifikat");
+    // Länkarna i dokumentet är sidor i appen.
+    klicka(&tab, ".sd-lank a[href$='/rapporter/grundbok']");
+    vänta_på_text(&tab, "Kaffe till kontoret");
+    klicka(&tab, "a.kugghjul");
+    klicka(&tab, "a[href$='/installningar/behandlingshistorik']");
+    vänta_på_text(&tab, "verifikat bokfört");
 
     klicka(&tab, "a[href='/passkeys']");
     vänta_på_text(&tab, "Virtuell nyckel");

@@ -84,6 +84,7 @@ pub fn router(config: Arc<Config>, db: Databas) -> Router {
         klocka: inloggning.klocka.clone(),
     };
     let utskrift = UtskriftsState {
+        config: config.clone(),
         db: db.clone(),
         klocka: inloggning.klocka.clone(),
     };
