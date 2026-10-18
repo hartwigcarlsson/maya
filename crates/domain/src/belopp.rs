@@ -48,7 +48,7 @@ impl fmt::Display for Belopp {
         let kronor = (self.0 / 100).to_string();
         let mut med_avgränsare = String::new();
         for (i, c) in kronor.chars().enumerate() {
-            if i > 0 && (kronor.len() - i) % 3 == 0 {
+            if i > 0 && (kronor.len() - i).is_multiple_of(3) {
                 med_avgränsare.push(' ');
             }
             med_avgränsare.push(c);
