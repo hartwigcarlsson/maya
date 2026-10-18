@@ -573,12 +573,15 @@ pub async fn radera(
         return Err(FöretagsFel::HarRäkenskapsinformation);
     }
     let (orgnr, uppgifter) = läs_uppgifter(&mut *conn, id).await?;
-    // Företagsraden tas bort före kontoplanen och behandlingshistoriken, som bara går att
-    // radera för ett företag som inte finns; främmande nycklar prövas vid COMMIT.
+    // Företaget, kontoplanen och behandlingshistoriken går bara att radera med en markering i
+    // `foretag_radering`, som schemat bara godtar för ett företag utan räkenskapsinformation.
+    // Företagsraden tas bort före kontoplanen och historiken; främmande nycklar prövas vid
+    // COMMIT. Markeringen tas bort i samma transaktion.
     sqlx::query("PRAGMA defer_foreign_keys = ON")
         .execute(&mut *conn)
         .await?;
     for sql in [
+        "INSERT INTO foretag_radering (foretag_id) VALUES (?1)",
         // Inga underlag finns (de är räkenskapsinformation), men listan täcker varje tabell
         // med företagets data.
         "DELETE FROM underlagskoppling
@@ -599,6 +602,7 @@ pub async fn radera(
         "DELETE FROM foretag WHERE id = ?1",
         "DELETE FROM konto WHERE foretag_id = ?1",
         "DELETE FROM behandlingshistorik WHERE foretag_id = ?1",
+        "DELETE FROM foretag_radering WHERE foretag_id = ?1",
     ] {
         sqlx::query(sql).bind(id.0).execute(&mut *conn).await?;
     }
