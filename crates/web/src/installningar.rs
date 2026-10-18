@@ -27,13 +27,14 @@ pub const BEKRÄFTELSE_FEL: &str = "bekraftelse_fel";
 pub const HAR_RÄKENSKAPSINFORMATION: &str = "har_rakenskapsinformation";
 
 /// Inställningssidorna i menyn, i ordning: sökvägen under `/foretag/<id>/installningar` och
-/// namnet. Systemdokumentation läggs till med sitt ticket.
-const SIDOR: [(&str, &str); 5] = [
+/// namnet.
+const SIDOR: [(&str, &str); 6] = [
     ("", "Företag"),
     ("/kontoplan", "Kontoplan"),
     ("/ingaende-balans", "Ingående balans"),
     ("/atkomst", "Åtkomst"),
     ("/behandlingshistorik", "Behandlingshistorik"),
+    ("/systemdokumentation", "Systemdokumentation"),
 ];
 
 /// Menyn överst på inställningssidorna. `aktiv` är sidans sökväg i [`SIDOR`].

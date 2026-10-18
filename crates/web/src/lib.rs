@@ -18,6 +18,7 @@ pub mod kontoplan;
 pub mod rapporter;
 pub mod sidodata;
 pub mod sok;
+pub mod systemdokumentation;
 pub mod underlag;
 pub mod utskrift;
 pub mod verifikat;

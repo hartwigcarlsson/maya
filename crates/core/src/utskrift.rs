@@ -12,6 +12,7 @@ use maya_pdf::{Dokument, Sidfot};
 use crate::aktor::{Aktör, Kanal};
 use crate::atkomst::ÅtkomstFel;
 use crate::behandlingshistorik;
+use crate::config::Config;
 use crate::foretag::{self, FöretagsId};
 use crate::rapport::{self, Urval};
 use crate::saldo::SaldoFel;
@@ -229,6 +230,32 @@ pub async fn rapport(
         rapport: r,
     });
     skriv(db, klocka, aktör, filnamn, &dokument).await
+}
+
+/// Systemdokumentationen som PDF (S1–S6), med samma avsnitt som sidan. Filnamnet är
+/// `systemdokumentation_<orgnr>_<ÅÅÅÅMMDD>.pdf`.
+pub async fn systemdokumentation(
+    db: &Databas,
+    klocka: &Klocka,
+    config: &Config,
+    aktör: &Aktör,
+    företag: FöretagsId,
+) -> Result<Pdf, UtskriftFel> {
+    let dokument =
+        crate::systemdokumentation::systemdokumentation(db, config, aktör, företag).await?;
+    let filnamn = format!(
+        "systemdokumentation_{}_{}.pdf",
+        dokument.orgnr.replace('-', ""),
+        klocka.idag().strftime("%Y%m%d")
+    );
+    skriv(
+        db,
+        klocka,
+        aktör,
+        filnamn,
+        &Dokument::Systemdokumentation(dokument),
+    )
+    .await
 }
 
 pub(crate) async fn skriv(

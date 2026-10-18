@@ -31,6 +31,7 @@ pub(crate) mod server {
     use axum::response::{IntoResponse, Redirect, Response};
     use axum::routing::get;
     use maya_core::atkomst::ÅtkomstFel;
+    use maya_core::config::Config;
     use maya_core::foretag::FöretagsId;
     use maya_core::inloggning::Inloggad;
     use maya_core::utskrift::{self, Pdf, UtskriftFel};
@@ -41,6 +42,7 @@ pub(crate) mod server {
 
     #[derive(Clone)]
     pub(crate) struct UtskriftsState {
+        pub config: Arc<Config>,
         pub db: Databas,
         pub klocka: Klocka,
     }
@@ -49,6 +51,10 @@ pub(crate) mod server {
         Router::new()
             .route("/foretag/{id}/verifikat/{v}/pdf", get(verifikat))
             .route("/foretag/{id}/installningar/kontoplan/pdf", get(kontoplan))
+            .route(
+                "/foretag/{id}/installningar/systemdokumentation/pdf",
+                get(systemdokumentation),
+            )
             .route(
                 "/foretag/{id}/installningar/behandlingshistorik/pdf",
                 get(behandlingshistorik_pdf),
@@ -93,6 +99,31 @@ pub(crate) mod server {
             return ingen_åtkomst();
         };
         match utskrift::kontoplan(&state.db, &state.klocka, &inloggad.aktör, företag).await {
+            Ok(pdf) => svar(pdf),
+            Err(e) => fel(e),
+        }
+    }
+
+    async fn systemdokumentation(
+        State(state): State<Arc<UtskriftsState>>,
+        Path(id): Path<String>,
+        inloggad: Option<Extension<Inloggad>>,
+    ) -> Response {
+        let Some(Extension(inloggad)) = inloggad else {
+            return Redirect::to("/").into_response();
+        };
+        let Ok(företag) = id.parse::<FöretagsId>() else {
+            return ingen_åtkomst();
+        };
+        match utskrift::systemdokumentation(
+            &state.db,
+            &state.klocka,
+            &state.config,
+            &inloggad.aktör,
+            företag,
+        )
+        .await
+        {
             Ok(pdf) => svar(pdf),
             Err(e) => fel(e),
         }

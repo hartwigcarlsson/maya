@@ -17,6 +17,7 @@
 
 mod bokforing;
 mod data;
+mod systemdokumentation;
 #[cfg(feature = "test-support")]
 pub mod testhjalp;
 mod varld;
