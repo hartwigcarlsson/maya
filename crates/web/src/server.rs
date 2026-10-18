@@ -19,6 +19,7 @@ use maya_core::{Databas, Klocka};
 use crate::app::{App, shell};
 use crate::assets;
 use crate::foretag::server::{self as foretag, FöretagsState};
+use crate::ingaende_balans::server::{self as ingaende_balans, IngåendeBalansState};
 use crate::inloggning::{self, InloggningsState};
 use crate::verifikat::server::{self as verifikat, VerifikatState};
 
@@ -58,6 +59,10 @@ pub fn router(config: Arc<Config>, db: Databas) -> Router {
         db: db.clone(),
         klocka: inloggning.klocka.clone(),
     };
+    let ingående_balans = IngåendeBalansState {
+        db: db.clone(),
+        klocka: inloggning.klocka.clone(),
+    };
     let state = AppState { config, db };
 
     let pages = Router::new()
@@ -70,6 +75,10 @@ pub fn router(config: Arc<Config>, db: Databas) -> Router {
         .layer(middleware::from_fn_with_state(
             verifikat.clone(),
             verifikat::lägg_på_verifikatdata,
+        ))
+        .layer(middleware::from_fn_with_state(
+            ingående_balans.clone(),
+            ingaende_balans::lägg_på_ingående_balans,
         ))
         .layer(middleware::from_fn_with_state(
             företag.clone(),
@@ -92,6 +101,17 @@ pub fn router(config: Arc<Config>, db: Databas) -> Router {
         )
         .merge(
             verifikat::routes(verifikat)
+                .layer(middleware::from_fn_with_state(
+                    inloggning.clone(),
+                    inloggning::identifiera,
+                ))
+                .layer(middleware::from_fn_with_state(
+                    inloggning.clone(),
+                    inloggning::kräv_eget_origin,
+                )),
+        )
+        .merge(
+            ingaende_balans::routes(ingående_balans)
                 .layer(middleware::from_fn_with_state(
                     inloggning.clone(),
                     inloggning::identifiera,

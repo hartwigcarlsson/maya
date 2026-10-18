@@ -557,5 +557,26 @@ pub fn Rapporter() -> impl IntoView {
 
 #[component]
 pub fn Inställningar() -> impl IntoView {
-    view! { <Företagssida rubrik="Inställningar" tom="Inställningarna kommer snart." /> }
+    if !inloggad() {
+        return view! { <LoggaIn /> }.into_any();
+    }
+    let id = use_params_map().with_untracked(|p| p.get("id").unwrap_or_default());
+    let val = use_context::<Företagsval>().unwrap_or_default();
+    match val.0.into_iter().find(|f| f.id == id) {
+        Some(f) => view! {
+            <section class="sida">
+                <p class="diskret">{f.namn.clone()} " · " {f.orgnr.clone()}</p>
+                <h1>"Inställningar"</h1>
+                <ul>
+                    <li>
+                        <a rel="external" href=format!("{}/installningar/ingaende-balans", f.href())>
+                            "Ingående balans"
+                        </a>
+                    </li>
+                </ul>
+            </section>
+        }
+        .into_any(),
+        None => view! { <IngenÅtkomst /> }.into_any(),
+    }
 }
