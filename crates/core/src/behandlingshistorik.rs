@@ -14,12 +14,16 @@ use crate::{Databas, DatabasFel};
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Händelse {
     FöretagSkapat,
+    RäkenskapsårSkapat,
+    VerifikatBokfört,
 }
 
 impl Händelse {
     pub fn namn(self) -> &'static str {
         match self {
             Händelse::FöretagSkapat => "företag skapat",
+            Händelse::RäkenskapsårSkapat => "räkenskapsår skapat",
+            Händelse::VerifikatBokfört => "verifikat bokfört",
         }
     }
 }
@@ -72,15 +76,39 @@ pub async fn läs(
 ) -> Result<Vec<Post>, ÅtkomstFel> {
     let mut tx = db.pool().begin().await?;
     atkomst::kräv(&mut tx, aktör, företag, Handling::LäsaFöretag).await?;
-    let rader: Vec<(String, String, Option<i64>, String, String, String)> = sqlx::query_as(
+    let rader = sqlx::query_as(
         "SELECT tid, kanal, anvandare_id, typ, objekt, beskrivning
          FROM behandlingshistorik WHERE foretag_id = ? ORDER BY id",
     )
     .bind(företag.0)
     .fetch_all(&mut *tx)
     .await?;
+    Ok(tolka(rader)?)
+}
+
+/// Posterna som rör ett verifikat, i ordning: de vars beskrivning har `"verifikat": id`.
+pub(crate) async fn läs_om_verifikat(
+    conn: &mut SqliteConnection,
+    företag: FöretagsId,
+    verifikat: i64,
+) -> Result<Vec<Post>, DatabasFel> {
+    let rader = sqlx::query_as(
+        "SELECT tid, kanal, anvandare_id, typ, objekt, beskrivning
+         FROM behandlingshistorik
+         WHERE foretag_id = ? AND beskrivning ->> '$.verifikat' = ? ORDER BY id",
+    )
+    .bind(företag.0)
+    .bind(verifikat)
+    .fetch_all(conn)
+    .await?;
+    tolka(rader)
+}
+
+type PostRad = (String, String, Option<i64>, String, String, String);
+
+fn tolka(rader: Vec<PostRad>) -> Result<Vec<Post>, DatabasFel> {
     let fel = |vad: &str| DatabasFel::Korrupt(format!("behandlingshistoriken: {vad}"));
-    let poster = rader
+    rader
         .into_iter()
         .map(|(tid, kanal, användare, typ, objekt, beskrivning)| {
             Ok(Post {
@@ -94,6 +122,5 @@ pub async fn läs(
                 beskrivning: serde_json::from_str(&beskrivning).map_err(|_| fel("beskrivning"))?,
             })
         })
-        .collect::<Result<_, DatabasFel>>()?;
-    Ok(poster)
+        .collect()
 }

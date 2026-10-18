@@ -84,6 +84,26 @@ impl Räkenskapsår {
         Ok(Räkenskapsår { start, slut })
     }
 
+    /// Ett räkenskapsår som redan finns i företaget, som det sparades.
+    pub fn befintligt(start: Date, slut: Date) -> Self {
+        Räkenskapsår { start, slut }
+    }
+
+    /// Räkenskapsåret direkt efter det här: 12 månader med samma slutmånad (Å1).
+    pub fn nästa(&self) -> Self {
+        let start = self.slut.tomorrow().expect("ett datum efter årets slut");
+        let slut = start
+            .checked_add(jiff::Span::new().months(11))
+            .expect("ett datum ett år fram")
+            .last_of_month();
+        Räkenskapsår { start, slut }
+    }
+
+    /// Om `datum` ligger i året.
+    pub fn innehåller(&self, datum: Date) -> bool {
+        self.start <= datum && datum <= self.slut
+    }
+
     pub fn start(&self) -> Date {
         self.start
     }

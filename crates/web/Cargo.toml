@@ -34,6 +34,7 @@ ssr = [
 ]
 
 [dependencies]
+jiff.workspace = true
 leptos.workspace = true
 leptos_meta.workspace = true
 leptos_router.workspace = true

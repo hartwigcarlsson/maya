@@ -318,3 +318,218 @@ main {
   margin: 0;
   color: var(--destructive);
 }
+
+/* Verifikat: lista och detalj sida vid sida, formuläret och dokumentet (variant C). */
+
+.verifikat-delad {
+  display: grid;
+  grid-template-columns: 320px 1fr;
+  gap: 1.5rem;
+  align-items: start;
+}
+
+@media (max-width: 760px) {
+  .verifikat-delad {
+    grid-template-columns: 1fr;
+  }
+}
+
+.verifikat-spalt-rubrik {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.verifikat-spalt h1 {
+  font-size: 16px;
+  font-weight: 600;
+  margin: 0;
+}
+
+.filter {
+  display: inline-flex;
+  gap: 2px;
+  margin: 0.5rem 0;
+  padding: 2px;
+  border-radius: var(--radius);
+  background: var(--muted);
+}
+
+.filter a,
+.verifikatlista a {
+  text-decoration: none;
+  color: inherit;
+}
+
+.filter a {
+  padding: 2px 8px;
+  border-radius: var(--radius);
+  color: var(--muted-foreground);
+}
+
+.filter a[aria-current="page"] {
+  background: var(--background);
+  color: var(--foreground);
+}
+
+.verifikatlista {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.verifikatlista a {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 10px;
+  border-radius: var(--radius);
+}
+
+.verifikatlista a:hover,
+.verifikatlista a[aria-current="page"] {
+  background: var(--accent);
+}
+
+.verifikatlista-topp {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.belopp {
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.dokument,
+.verifikatformular {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  max-width: 860px;
+  padding: 24px 28px;
+  border-radius: var(--radius);
+  background: var(--card);
+  color: var(--card-foreground);
+  box-shadow: 0 0 0 1px var(--border);
+}
+
+.dokument h2,
+.verifikatformular h2 {
+  font-size: 18px;
+  font-weight: 600;
+  margin: 0;
+}
+
+.dokument h3 {
+  font-size: 13px;
+  font-weight: 500;
+  margin: 0 0 0.25rem;
+}
+
+.dokument p {
+  margin: 0;
+}
+
+.dokument-nummer {
+  color: var(--muted-foreground);
+  font-weight: 500;
+}
+
+.markering {
+  padding: 1px 6px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.metadata {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 4px 1rem;
+  margin: 0;
+}
+
+.metadata dt {
+  color: var(--muted-foreground);
+}
+
+.metadata dd {
+  margin: 0;
+}
+
+.rader {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.rader th,
+.rader td {
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+  vertical-align: top;
+}
+
+.rader th {
+  font-weight: 500;
+  color: var(--muted-foreground);
+}
+
+.rader .belopp {
+  text-align: right;
+}
+
+.rader tfoot td {
+  font-weight: 500;
+  border-bottom: none;
+}
+
+.historik {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.verifikatformular .falt-rad {
+  display: grid;
+  grid-template-columns: 160px 1fr;
+  gap: 0.75rem;
+}
+
+.verifikatformular label {
+  display: block;
+  margin-bottom: 4px;
+}
+
+.verifikatformular input {
+  width: 100%;
+  height: var(--control-height);
+  padding: 0 8px;
+  border: 1px solid var(--input);
+  border-radius: var(--radius);
+  background: var(--background);
+  color: var(--foreground);
+  font: inherit;
+}
+
+.verifikatformular .fel {
+  margin: 4px 0 0;
+  color: var(--destructive);
+}
+
+.verifikatformular p {
+  margin: 0;
+}
+
+.knapp-primar {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: var(--primary-foreground);
+}
+
+.knapp-primar:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}

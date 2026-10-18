@@ -72,3 +72,32 @@ fn varje_fel_har_en_kod() {
         assert!(!fel.to_string().is_empty());
     }
 }
+
+#[test]
+fn nästa_räkenskapsår_är_tolv_månader_med_samma_slutmånad() {
+    let första = år(date(2026, 3, 17), date(2027, 6, 30)).unwrap();
+
+    let nästa = första.nästa();
+    assert_eq!(
+        (nästa.start(), nästa.slut()),
+        (date(2027, 7, 1), date(2028, 6, 30))
+    );
+    assert_eq!(nästa.perioder().len(), 12);
+    let tredje = nästa.nästa();
+    assert_eq!(
+        (tredje.start(), tredje.slut()),
+        (date(2028, 7, 1), date(2029, 6, 30))
+    );
+}
+
+#[test]
+fn nästa_räkenskapsår_efter_ett_år_som_slutar_i_februari_slutar_den_sista_februari() {
+    let första = år(date(2027, 3, 1), date(2028, 2, 29)).unwrap();
+
+    let nästa = första.nästa();
+    assert_eq!(
+        (nästa.start(), nästa.slut()),
+        (date(2028, 3, 1), date(2029, 2, 28))
+    );
+    assert_eq!(nästa.nästa().slut(), date(2030, 2, 28));
+}
