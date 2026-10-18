@@ -100,6 +100,10 @@ _Avoid_: Verifikatnummer, löpnummer, id
 Dagen då affärshändelsen inträffade; avgör vilken period och vilket räkenskapsår verifikatet hör till.
 _Avoid_: Bokföringsdatum, transaktionsdatum, affärshändelsedatum (i UI)
 
+**Kontantfrist**:
+Sista dag att bokföra ett utkast som för pengar in i eller ut ur kassan: första arbetsdagen efter verifikatdatumet.
+_Avoid_: Kassafrist, nästa-dag-regeln
+
 **Rättelse**:
 Ett verifikat som vänder samtliga rader i ett tidigare bokfört verifikat och är länkat till det; det rättade verifikatet visar att det är rättat.
 _Avoid_: Makulering, korrigering, ändring
