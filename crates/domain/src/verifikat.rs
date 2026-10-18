@@ -64,6 +64,40 @@ pub enum Fält {
     Summa,
 }
 
+/// Spärrarna vid bokföring som Systemdokumentationen återger (S2): koden och regeln. Varje kod
+/// som [`NyttVerifikat::kontrollera`] kan ge står här, och ingen annan.
+pub const SPÄRRAR: &[(&str, &str)] = &[
+    ("datum_saknas", "Verifikatdatum krävs."),
+    ("datum_ogiltigt", "Verifikatdatumet skrivs som ÅÅÅÅ-MM-DD."),
+    (
+        "fore_forsta_aret",
+        "Verifikatdatumet är inte före första räkenskapsårets start.",
+    ),
+    (
+        "saknat_rakenskapsar",
+        "Verifikatdatumet ligger i ett räkenskapsår som finns, eller i året direkt efter det \
+         senaste, som då skapas i samma transaktion.",
+    ),
+    ("beskrivning_saknas", "Beskrivning krävs."),
+    ("rader_for_fa", "Verifikatet har minst två rader."),
+    ("konto_saknas", "Varje rad med belopp har ett konto."),
+    ("konto_okant", "Kontot finns i företagets kontoplan."),
+    ("konto_inaktivt", "Kontot är aktivt."),
+    (
+        "belopp_ogiltigt",
+        "Beloppet är i kronor, inte negativt och har högst två decimaler.",
+    ),
+    (
+        "belopp_saknas",
+        "Varje rad har ett belopp i debet eller kredit.",
+    ),
+    (
+        "belopp_debet_och_kredit",
+        "En rad har sitt belopp antingen i debet eller i kredit, inte båda.",
+    ),
+    ("differens", "Summa debet är lika med summa kredit (L7)."),
+];
+
 /// Något som hindrar bokföringen, med en kod som formuläret visar vid fältet.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Spärr {

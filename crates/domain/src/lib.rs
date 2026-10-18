@@ -16,6 +16,7 @@ pub mod rakenskapsar;
 pub mod rapport;
 pub mod rattelse;
 pub mod sok;
+pub mod systemdokumentation;
 pub mod tid;
 pub mod underlag;
 pub mod verifikat;

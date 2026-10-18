@@ -78,3 +78,18 @@ pub fn koppling(nummer: Kontonummer) -> Option<Koppling> {
         minus: &FÄLT[minus as usize],
     })
 }
+
+/// Kopplingstabellens intervall i kontoordning: första och sista kontot och kopplingen, för
+/// Systemdokumentationens sammanställning till årsredovisningen (S1).
+pub fn intervall() -> impl Iterator<Item = (Kontonummer, Kontonummer, Koppling)> {
+    INTERVALL.iter().map(|&(från, till, plus, minus)| {
+        (
+            Kontonummer(från),
+            Kontonummer(till),
+            Koppling {
+                plus: &FÄLT[plus as usize],
+                minus: &FÄLT[minus as usize],
+            },
+        )
+    })
+}
