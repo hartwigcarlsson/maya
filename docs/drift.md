@@ -30,6 +30,19 @@ Det som rör en användare som helhet görs bara med CLI:t på servern. Varje ko
 - `maya user reactivate <e-post>`: användaren kan logga in med sina passkeys igen.
 - `maya domain change`: byt först `MAYA_PUBLIC_URL` i `.env`, och kör sedan `docker compose run --rm maya maya domain change` (Maya startar inte med den nya domänen förrän bytet är gjort). Kommandot sparar nytt `rp_id` och origin och tömmer alla passkeys och sessioner. Ge sedan varje användare en ny passkey med `maya user reset` och starta Maya.
 
+## Backup
+
+Maya säkerhetskopierar hela installationen varje natt på `MAYA_BACKUP_TIME` (som standard 03:00 i `Europe/Stockholm`). Backupen är en ögonblicksbild av databasen med `VACUUM INTO`, alltså också alla underlag, och ett manifest med kontrollsummor: antal bokförda verifikat per serie och räkenskapsår, debet och kredit per konto och år, en hash över de bokförda raderna och varje underlags SHA-256. I målet heter filerna `maya-<tid i UTC>.db` och `maya-<tid i UTC>.json`.
+
+Direkt efter varje backup läser Maya tillbaka den ur målet och verifierar den: filens SHA-256 mot manifestet, `PRAGMA integrity_check`, underlagens innehåll och kontrollsummorna. Sedan gallras äldre backuper: den senaste från var och en av de 7 senaste dagarna och de 12 senaste månaderna sparas. Resultatet syns i loggen och sparas för Att göra och sidan Installation.
+
+- **Katalog** (`MAYA_BACKUP_DIR`, i containern `/backup`): lägg den på en annan disk än databasen. Maya varnar vid start om katalogen ligger på samma enhet som databasen, eftersom kopian då inte är åtskild från originalet.
+- **S3-kompatibel lagring** (`MAYA_BACKUP_S3_ENDPOINT`, `_BUCKET`, `_REGION`, `_ACCESS_KEY_ID`, `_SECRET_ACCESS_KEY` eller `_SECRET_ACCESS_KEY_FILE`): Maya använder path-style-adresser (`<endpoint>/<bucket>/<fil>`), så det fungerar med AWS S3, MinIO, Garage och liknande. Bucketen måste finnas; nyckeln behöver rätt att lista, läsa, skriva och radera i den.
+
+Lagra backupen i Sverige. Förvaring i ett annat EU-land kräver en anmälan till Skatteverket och utanför EU ett tillstånd (BFL 7:3 a). Maya krypterar inte backupen; om målet är krypterat ska nyckeln bevaras som räkenskapsinformation och anges i arkivplanen (`MAYA_ARKIVPLAN_NYCKEL`), så att kopian kan läsas under hela bevarandetiden.
+
+Provåterställ en gång per år: `docker compose exec maya maya backup verify` verifierar den senaste backupen (eller `maya backup verify <namn>` en viss), skriver resultatet på svenska och loggar körningen i installationsloggen.
+
 ## Uppgradera
 
 Byt taggen i `compose.yaml` och kör `docker compose up -d`. Maya uppdateras aldrig automatiskt, och taggen är alltid en exakt version, aldrig `latest`. Migreringarna körs i ordning vid start, så det går att hoppa över versioner. Maya vägrar starta mot en databas med nyare schema än binären; nedgradering görs bara med `maya restore`.

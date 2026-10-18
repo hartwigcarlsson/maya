@@ -58,9 +58,9 @@ pub fn run_domain(command: DomainCommand) -> ExitCode {
     })
 }
 
-type Resultat = Result<(), Box<dyn std::error::Error>>;
+pub(crate) type Resultat = Result<(), Box<dyn std::error::Error>>;
 
-fn kör_med_databas<F, Fut>(f: F) -> ExitCode
+pub(crate) fn kör_med_databas<F, Fut>(f: F) -> ExitCode
 where
     F: FnOnce(Config, Databas) -> Fut,
     Fut: Future<Output = Resultat>,
