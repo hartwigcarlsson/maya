@@ -140,6 +140,8 @@ fn menylankarna_navigerar_pa_klienten_och_sidorna_visar_sina_data() {
     vänta_på_text(&tab, "Aktiekapital");
     klicka(&tab, "a[href$='/installningar/atkomst']");
     vänta_på_text(&tab, "(du)");
+    klicka(&tab, "a[href$='/installningar/behandlingshistorik']");
+    vänta_på_text(&tab, "verifikat bokfört");
 
     klicka(&tab, "a[href='/passkeys']");
     vänta_på_text(&tab, "Virtuell nyckel");
@@ -154,6 +156,10 @@ fn menylankarna_navigerar_pa_klienten_och_sidorna_visar_sina_data() {
     vänta_på_text(&tab, "Kaffe till kontoret");
     klicka(&tab, "nav.flikar a[href$='/rapporter']");
     vänta_på_text(&tab, "2026-01-01 – 2026-12-31");
+    klicka(&tab, ".rapportmeny a[href$='/rapporter/resultatrakning']");
+    vänta_på_text(&tab, "125,00");
+    klicka(&tab, ".rapportmeny a[href$='/rapporter/grundbok']");
+    vänta_på_text(&tab, "Kaffe till kontoret");
     // Underlag nås via sökningen, som navigerar i routern.
     klicka(&tab, ".sokfalt input");
     tab.wait_for_element(".palett input[name='q']")

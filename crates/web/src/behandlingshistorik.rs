@@ -6,7 +6,7 @@
 //! historiken själv, så att typer som tillkommer i senare versioner går att välja utan ändring
 //! här.
 //!
-//! Datan kommer från middleware vid serverrenderingen, så länkarna hit har `rel="external"`.
+//! Sidan läser sin data med `sidodata::sida`.
 
 use leptos::prelude::*;
 use leptos_router::hooks::use_params_map;
@@ -15,6 +15,7 @@ use serde::{Deserialize, Serialize};
 use crate::app::{LoggaIn, Läge};
 use crate::foretag::{Företagsval, IngenÅtkomst};
 use crate::installningar::Inställningsmeny;
+use crate::sidodata::sida;
 use crate::utskrift::Utskrift;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -54,26 +55,21 @@ pub struct Behandlingshistorikdata {
     pub filnamn: String,
 }
 
-fn data() -> Behandlingshistorikdata {
-    SharedValue::new(|| {
-        #[cfg(feature = "ssr")]
-        if let Some(parts) = use_context::<axum::http::request::Parts>()
-            && let Some(data) = parts.extensions.get::<Behandlingshistorikdata>()
-        {
-            return data.clone();
-        }
-        Behandlingshistorikdata::default()
-    })
-    .into_inner()
+/// Datan för `/foretag/<id>/installningar/behandlingshistorik`.
+#[server(prefix = "/api", endpoint = "behandlingshistorik", input = server_fn::codec::GetUrl)]
+pub async fn hämta_behandlingshistorik(
+    adress: String,
+) -> Result<Behandlingshistorikdata, ServerFnError> {
+    match crate::sidodata::Sidbegäran::för(&adress)? {
+        Some(begäran) => server::behandlingshistorik(&begäran).await,
+        None => Ok(Behandlingshistorikdata::default()),
+    }
 }
 
 #[cfg(feature = "ssr")]
 pub(crate) mod server {
-    use axum::extract::{Request, State};
-    use axum::http::{StatusCode, header};
-    use axum::middleware::Next;
-    use axum::response::{IntoResponse, Response};
     use jiff::civil::Date;
+    use leptos::prelude::ServerFnError;
     use maya_core::atkomst::ÅtkomstFel;
     use maya_core::behandlingshistorik::{self, Aktörsval, Urval};
     use maya_core::foretag::FöretagsId;
@@ -81,6 +77,7 @@ pub(crate) mod server {
     use maya_core::{Databas, Klocka};
 
     use super::{Behandlingshistorikdata, PostVy, UrvalVy};
+    use crate::sidodata::{self, Sidbegäran};
 
     #[derive(Clone)]
     pub(crate) struct BehandlingshistorikState {
@@ -125,33 +122,30 @@ pub(crate) mod server {
         q.finish()
     }
 
-    /// Hämtar det som sidan visar, för `/foretag/<id>/installningar/behandlingshistorik`.
-    /// Körs efter `inloggning::identifiera`.
-    pub(crate) async fn lägg_på_behandlingshistorik(
-        State(state): State<BehandlingshistorikState>,
-        mut req: Request,
-        next: Next,
-    ) -> Response {
-        let Some(inloggad) = req.extensions().get::<Inloggad>().cloned() else {
-            return next.run(req).await;
-        };
-        let delar: Vec<&str> = req.uri().path().trim_matches('/').split('/').collect();
+    /// Hämtar det som sidan visar, för `/foretag/<id>/installningar/behandlingshistorik`. Utan
+    /// åtkomst blir datan tom; sidan visar det ur företagsvalet.
+    pub(crate) async fn behandlingshistorik(
+        b: &Sidbegäran,
+    ) -> Result<Behandlingshistorikdata, ServerFnError> {
+        let delar = b.delar();
         let ["foretag", id, "installningar", "behandlingshistorik"] = delar.as_slice() else {
-            return next.run(req).await;
+            return Ok(Behandlingshistorikdata::default());
         };
         let Ok(företag) = id.parse::<FöretagsId>() else {
-            return next.run(req).await;
+            return Ok(Behandlingshistorikdata::default());
         };
-        let urval = urval(req.uri().query());
-        match hämta(&state, &inloggad, företag, &urval).await {
-            Ok(data) => {
-                req.extensions_mut().insert(data);
+        let urval = urval(Some(b.fråga()));
+        let state = BehandlingshistorikState {
+            db: b.db.clone(),
+            klocka: b.klocka.clone(),
+        };
+        match hämta(&state, &b.inloggad, företag, &urval).await {
+            Ok(data) => Ok(data),
+            Err(ÅtkomstFel::IngenÅtkomst | ÅtkomstFel::KanalenFårInte) => {
+                Ok(Behandlingshistorikdata::default())
             }
-            // Sidan visar att användaren saknar åtkomst, ur företagsvalet.
-            Err(ÅtkomstFel::IngenÅtkomst | ÅtkomstFel::KanalenFårInte) => {}
-            Err(e) => return serverfel(e),
+            Err(e) => Err(sidodata::serverfel(e)),
         }
-        next.run(req).await
     }
 
     async fn hämta(
@@ -202,21 +196,15 @@ pub(crate) mod server {
             ),
         })
     }
-
-    fn serverfel(e: impl std::fmt::Display) -> Response {
-        tracing::error!("behandlingshistorik: {e}");
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            [(header::CONTENT_TYPE, "text/plain; charset=utf-8")],
-            "Något gick fel i Maya; försök igen.\n",
-        )
-            .into_response()
-    }
 }
 
 /// Inställningar → Behandlingshistorik.
 #[component]
 pub fn BehandlingshistorikSida() -> impl IntoView {
+    sida(hämta_behandlingshistorik, behandlingshistoriksida)
+}
+
+fn behandlingshistoriksida(data: Behandlingshistorikdata) -> AnyView {
     if !matches!(use_context::<Läge>(), Some(Läge::Inloggad { .. })) {
         return view! { <LoggaIn /> }.into_any();
     }
@@ -226,7 +214,6 @@ pub fn BehandlingshistorikSida() -> impl IntoView {
         return view! { <IngenÅtkomst /> }.into_any();
     };
     let bas = företaget.href();
-    let data = data();
     let sida = format!("{bas}/installningar/behandlingshistorik");
     let med_query = |sökväg: String| {
         if data.query.is_empty() {
@@ -334,7 +321,7 @@ pub fn BehandlingshistorikSida() -> impl IntoView {
                 <button class="knapp" type="submit">
                     "Visa"
                 </button>
-                <a rel="external" href=sida.clone()>
+                <a href=sida.clone()>
                     "Rensa"
                 </a>
             </form>

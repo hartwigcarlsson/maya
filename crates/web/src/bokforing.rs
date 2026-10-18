@@ -3,8 +3,7 @@
 //! under Inställningar.
 //!
 //! Urvalet står i adressen (`ar`, `fran`, `till`, `konton`, `v` för panelen) och väljs med ett
-//! vanligt GET-formulär. Datan kommer från middleware vid serverrenderingen, så länkarna hit har
-//! `rel="external"`: klientens router skulle annars rita sidan utan data.
+//! vanligt GET-formulär. Sidan läser sin data med `sidodata::sida`.
 
 use leptos::prelude::*;
 use leptos_router::hooks::use_params_map;
@@ -12,6 +11,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::app::{LoggaIn, Läge};
 use crate::foretag::{FöretagVy, Företagsval, IngenÅtkomst};
+use crate::sidodata::sida;
 use crate::utskrift::Utskrift;
 
 /// Sidorna under Bokföring: sökväg under företaget och namn.
@@ -21,7 +21,7 @@ const SIDOR: [(&str, &str); 3] = [
     ("/installningar/kontoplan", "Kontoplan"),
 ];
 
-/// Bokföringens sidor som en meny, på Rapporter och på sidorna själva.
+/// Bokföringens sidor som en meny på sidorna själva.
 #[component]
 pub fn Bokföringsmeny(bas: String, aktiv: &'static str) -> impl IntoView {
     view! {
@@ -31,7 +31,7 @@ pub fn Bokföringsmeny(bas: String, aktiv: &'static str) -> impl IntoView {
                 .map(|(sökväg, namn)| {
                     let aktuell = (sökväg == aktiv).then_some("page");
                     view! {
-                        <a rel="external" href=format!("{bas}{sökväg}") aria-current=aktuell>
+                        <a href=format!("{bas}{sökväg}") aria-current=aktuell>
                             {namn}
                         </a>
                     }
@@ -113,17 +113,13 @@ pub struct Bokföringsdata {
     pub query: String,
 }
 
-fn data() -> Bokföringsdata {
-    SharedValue::new(|| {
-        #[cfg(feature = "ssr")]
-        if let Some(parts) = use_context::<axum::http::request::Parts>()
-            && let Some(data) = parts.extensions.get::<Bokföringsdata>()
-        {
-            return data.clone();
-        }
-        Bokföringsdata::default()
-    })
-    .into_inner()
+/// Datan för `/foretag/<id>/rapporter/grundbok|huvudbok`.
+#[server(prefix = "/api", endpoint = "bokforingsdata", input = server_fn::codec::GetUrl)]
+pub async fn hämta_bokföringsdata(adress: String) -> Result<Bokföringsdata, ServerFnError> {
+    match crate::sidodata::Sidbegäran::för(&adress)? {
+        Some(begäran) => server::bokföringsdata(&begäran).await,
+        None => Ok(Bokföringsdata::default()),
+    }
 }
 
 #[cfg(feature = "ssr")]
@@ -131,13 +127,13 @@ pub(crate) mod server {
     use std::sync::Arc;
 
     use axum::Router;
-    use axum::extract::{Extension, Path, RawQuery, Request, State};
+    use axum::extract::{Extension, Path, RawQuery, State};
     use axum::http::{StatusCode, header};
-    use axum::middleware::Next;
     use axum::response::{IntoResponse, Redirect, Response};
     use axum::routing::get;
     use jiff::Timestamp;
     use jiff::civil::Date;
+    use leptos::prelude::ServerFnError;
     use maya_core::atkomst::ÅtkomstFel;
     use maya_core::bokforing::{self, Bokföringsrad, Fil, Periodurval, RapportFel};
     use maya_core::foretag::{self, FöretagsId};
@@ -151,6 +147,7 @@ pub(crate) mod server {
     use maya_domain::rakenskapsar::periodnamn;
 
     use super::{Bokföringsdata, KontoVy, PeriodVy, PostVy, RadVy, TransaktionVy};
+    use crate::sidodata::{self, Sidbegäran};
 
     #[derive(Clone)]
     pub(crate) struct BokföringsState {
@@ -228,17 +225,10 @@ pub(crate) mod server {
         ))
     }
 
-    /// Hämtar det som sidan visar, för `/foretag/<id>/rapporter/grundbok|huvudbok`. Körs efter
-    /// `inloggning::identifiera`.
-    pub(crate) async fn lägg_på_bokföringsdata(
-        State(state): State<BokföringsState>,
-        mut req: Request,
-        next: Next,
-    ) -> Response {
-        let Some(inloggad) = req.extensions().get::<Inloggad>().cloned() else {
-            return next.run(req).await;
-        };
-        let delar: Vec<&str> = req.uri().path().trim_matches('/').split('/').collect();
+    /// Hämtar det som sidan visar, för `/foretag/<id>/rapporter/grundbok|huvudbok`. Utan
+    /// åtkomst blir datan tom; sidan visar det ur företagsvalet.
+    pub(crate) async fn bokföringsdata(b: &Sidbegäran) -> Result<Bokföringsdata, ServerFnError> {
+        let delar = b.delar();
         let [
             "foretag",
             id,
@@ -246,23 +236,24 @@ pub(crate) mod server {
             rapport @ ("grundbok" | "huvudbok"),
         ] = delar.as_slice()
         else {
-            return next.run(req).await;
+            return Ok(Bokföringsdata::default());
         };
         let Ok(företag) = id.parse::<FöretagsId>() else {
-            return next.run(req).await;
+            return Ok(Bokföringsdata::default());
         };
-        let fråga = Fråga::tolka(req.uri().query());
+        let fråga = Fråga::tolka(Some(b.fråga()));
         let huvudbok = *rapport == "huvudbok";
-        match hämta(&state, &inloggad, företag, &fråga, huvudbok).await {
-            Ok(data) => {
-                req.extensions_mut().insert(data);
-            }
-            // Sidan visar att användaren saknar åtkomst, ur företagsvalet.
+        let state = BokföringsState {
+            db: b.db.clone(),
+            klocka: b.klocka.clone(),
+        };
+        match hämta(&state, &b.inloggad, företag, &fråga, huvudbok).await {
+            Ok(data) => Ok(data),
             Err(RapportFel::Åtkomst(ÅtkomstFel::IngenÅtkomst | ÅtkomstFel::KanalenFårInte)) => {
+                Ok(Bokföringsdata::default())
             }
-            Err(e) => return serverfel(e),
+            Err(e) => Err(sidodata::serverfel(e)),
         }
-        next.run(req).await
     }
 
     async fn hämta(
@@ -564,30 +555,19 @@ fn företaget() -> Option<FöretagVy> {
         .find(|f| f.id == id)
 }
 
-/// Bokföringens sidor som ett avsnitt på Rapporter.
-#[component]
-pub fn BokföringPåRapporter(bas: String) -> impl IntoView {
-    view! {
-        <h2>"Bokföring"</h2>
-        <p>"Grundboken och huvudboken ur de bokförda verifikaten, och kontoplanen."</p>
-        <Bokföringsmeny bas=bas aktiv="" />
-    }
-}
-
 /// Rapporter → Bokföring → Grundbok.
 #[component]
 pub fn GrundbokSida() -> impl IntoView {
-    view! { <Bokföringssida huvudbok=false /> }
+    sida(hämta_bokföringsdata, |data| bokföringssida(false, data))
 }
 
 /// Rapporter → Bokföring → Huvudbok.
 #[component]
 pub fn HuvudbokSida() -> impl IntoView {
-    view! { <Bokföringssida huvudbok=true /> }
+    sida(hämta_bokföringsdata, |data| bokföringssida(true, data))
 }
 
-#[component]
-fn Bokföringssida(huvudbok: bool) -> impl IntoView {
+fn bokföringssida(huvudbok: bool, data: Bokföringsdata) -> AnyView {
     if !matches!(use_context::<Läge>(), Some(Läge::Inloggad { .. })) {
         return view! { <LoggaIn /> }.into_any();
     }
@@ -595,7 +575,6 @@ fn Bokföringssida(huvudbok: bool) -> impl IntoView {
         return view! { <IngenÅtkomst /> }.into_any();
     };
     let bas = företaget.href();
-    let data = data();
     let (rubrik, aktiv, sökväg) = if huvudbok {
         ("Huvudbok", SIDOR[1].0, format!("{bas}{}", SIDOR[1].0))
     } else {
@@ -708,7 +687,7 @@ fn Verktygsrad(data: Bokföringsdata, sida: String, huvudbok: bool) -> impl Into
 /// Länken som öppnar verifikatet i panelen och behåller urvalet.
 fn panellänk(sida: &str, query: &str, id: &str, nummer: String) -> impl IntoView {
     view! {
-        <a rel="external" href=format!("{sida}?{query}&v={id}")>
+        <a href=format!("{sida}?{query}&v={id}")>
             {nummer}
         </a>
     }
@@ -878,7 +857,7 @@ fn Panel(v: PostVy, bas: String, stäng: String) -> impl IntoView {
         <aside class="sidopanel" aria-label="Verifikat">
             <div class="panelhuvud">
                 <h2>{v.nummer.clone()} " · " {v.beskrivning.clone()}</h2>
-                <a rel="external" class="knapp knapp-diskret" href=stäng aria-label="Stäng">
+                <a class="knapp knapp-diskret" href=stäng aria-label="Stäng">
                     "Stäng"
                 </a>
             </div>
@@ -918,7 +897,6 @@ fn Panel(v: PostVy, bas: String, stäng: String) -> impl IntoView {
             </table>
             <p>
                 <a
-                    rel="external"
                     class="till-verifikatet"
                     href=format!("{bas}/verifikat?v={}", v.id)
                 >

@@ -9,9 +9,9 @@
 //! står urvalet i adressen: `ar` (räkenskapsårets start), `tom` (periodens sista månad,
 //! `ÅÅÅÅ-MM`), `visa` (resultaträkningen: `manad|ackumulerat|bada`), `jmf=1` (jämförelse med
 //! föregående år), `niva` (`rubriker|ink2|konton`) och `konto` (panelen med kontots verifikat).
-//! Datan kommer från middleware vid serverrenderingen, så länkar som ändrar urvalet har
-//! `rel="external"`: klientens router skulle annars rita sidan utan ny data. Exporten (PDF och
-//! CSV) tar samma urval och ger samma kolumner och nivå som sidan.
+//! Sidorna läser sin data med `sidodata::sida`, så länkar som ändrar urvalet navigerar i
+//! routern. Exporten (PDF och CSV) tar samma urval och ger samma kolumner och nivå som sidan;
+//! dess länkar och SIE4-filen har `download` eller `rel="external"` (de är inga sidor i appen).
 
 use leptos::prelude::*;
 use leptos_router::hooks::{use_params_map, use_query_map};
@@ -19,30 +19,26 @@ use serde::{Deserialize, Serialize};
 
 use crate::app::{LoggaIn, Läge};
 use crate::foretag::{FöretagVy, Företagsval, IngenÅtkomst};
+use crate::sidodata::sida;
 use crate::utskrift::Utskrift;
 
 /// Koden i `fel=` när SIE4-exporten stoppades vid återläsningen.
 pub const SIE4_STOPPAD: &str = "sie4";
 
-/// Det som fliken visar. Middleware hämtar det ur `core` och lägger det på begäran, och det
-/// följer med till webbläsaren vid hydreringen.
+/// Det som fliken visar.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Rapportdata {
     /// Räkenskapsåren i ordning, som start och slut `ÅÅÅÅ-MM-DD`.
     pub år: Vec<(String, String)>,
 }
 
-fn data() -> Rapportdata {
-    SharedValue::new(|| {
-        #[cfg(feature = "ssr")]
-        if let Some(parts) = use_context::<axum::http::request::Parts>()
-            && let Some(data) = parts.extensions.get::<Rapportdata>()
-        {
-            return data.clone();
-        }
-        Rapportdata::default()
-    })
-    .into_inner()
+/// Datan för fliken `/foretag/<id>/rapporter`.
+#[server(prefix = "/api", endpoint = "rapportdata", input = server_fn::codec::GetUrl)]
+pub async fn hämta_rapportdata(adress: String) -> Result<Rapportdata, ServerFnError> {
+    match crate::sidodata::Sidbegäran::för(&adress)? {
+        Some(begäran) => server::rapportdata(&begäran).await,
+        None => Ok(Rapportdata::default()),
+    }
 }
 
 /// Rapporterna i fliken, i grupper: (grupp, namn, sökväg under företaget). Nya rapporter läggs
@@ -150,17 +146,13 @@ impl Rapportvy {
     }
 }
 
-fn rapportvy() -> Rapportvy {
-    SharedValue::new(|| {
-        #[cfg(feature = "ssr")]
-        if let Some(parts) = use_context::<axum::http::request::Parts>()
-            && let Some(data) = parts.extensions.get::<Rapportvy>()
-        {
-            return data.clone();
-        }
-        Rapportvy::default()
-    })
-    .into_inner()
+/// Rapporten för `/foretag/<id>/rapporter/<resultatrakning|balansrakning>`.
+#[server(prefix = "/api", endpoint = "rapportvy", input = server_fn::codec::GetUrl)]
+pub async fn hämta_rapportvy(adress: String) -> Result<Rapportvy, ServerFnError> {
+    match crate::sidodata::Sidbegäran::för(&adress)? {
+        Some(begäran) => server::rapportvy(&begäran).await,
+        None => Ok(Rapportvy::default()),
+    }
 }
 
 /// Företaget i sökvägen, om den inloggade har åtkomst till det.
@@ -201,7 +193,6 @@ fn Rapportmeny(bas: String, aktiv: &'static str) -> impl IntoView {
                                     view! {
                                         <li>
                                             <a
-                                                rel="external"
                                                 href=format!("{bas}{sökväg}")
                                                 aria-current=aktuell
                                             >
@@ -222,13 +213,17 @@ fn Rapportmeny(bas: String, aktiv: &'static str) -> impl IntoView {
 /// Fliken Rapporter: rapporterna att välja bland och SIE4-exporten per räkenskapsår.
 #[component]
 pub fn Rapporter() -> impl IntoView {
+    sida(hämta_rapportdata, rapporter)
+}
+
+fn rapporter(data: Rapportdata) -> AnyView {
     let f = match företaget() {
         Ok(f) => f,
         Err(vy) => return vy,
     };
     let stoppad = use_query_map().with_untracked(|q| q.get("fel").as_deref() == Some(SIE4_STOPPAD));
     let bas = f.href();
-    let år = data()
+    let år = data
         .år
         .into_iter()
         .map(|(start, slut)| {
@@ -269,23 +264,25 @@ pub fn Rapporter() -> impl IntoView {
 
 #[component]
 pub fn Resultaträkning() -> impl IntoView {
-    view! { <RapportSida sökväg="/rapporter/resultatrakning" /> }
+    sida(hämta_rapportvy, |d| {
+        rapportsida("/rapporter/resultatrakning", d)
+    })
 }
 
 #[component]
 pub fn Balansräkning() -> impl IntoView {
-    view! { <RapportSida sökväg="/rapporter/balansrakning" /> }
+    sida(hämta_rapportvy, |d| {
+        rapportsida("/rapporter/balansrakning", d)
+    })
 }
 
 /// Resultat- eller balansräkningen: verktygsraden, banderollerna, dokumentet och panelen.
-#[component]
-fn RapportSida(sökväg: &'static str) -> impl IntoView {
+fn rapportsida(sökväg: &'static str, d: Rapportvy) -> AnyView {
     let f = match företaget() {
         Ok(f) => f,
         Err(vy) => return vy,
     };
     let bas = f.href();
-    let d = rapportvy();
     let sida = format!("{bas}{sökväg}");
     let export = |format: &str| d.adress(&format!("{sida}/{format}"), &[]);
     let banderoller = {
@@ -295,7 +292,7 @@ fn RapportSida(sökväg: &'static str) -> impl IntoView {
                     <p>
                         <span class="markering">"Preliminär"</span>
                         " Den ingående balansen räknas ur föregående års utgående balans, eftersom "
-                        <a rel="external" href=format!("{sida}?ar={start}")>
+                        <a href=format!("{sida}?ar={start}")>
                             {format!("{start} – {slut}")}
                         </a>
                         " inte är stängt. Resultatet som inte är ombokat står på 2099."
@@ -363,7 +360,6 @@ fn Verktygsrad(d: Rapportvy, sida: String) -> impl IntoView {
                             let aktuell = (kod == aktiv).then_some("page");
                             view! {
                                 <a
-                                    rel="external"
                                     href=d.adress(&sida, &[(nyckel, kod)])
                                     aria-current=aktuell
                                 >
@@ -466,7 +462,6 @@ fn Dokument(d: Rapportvy, sida: String, namn: String, orgnr: String) -> impl Int
             let text = match (r.konto, &r.ink2) {
                 (Some(konto), _) => view! {
                     <a
-                        rel="external"
                         href=d.adress(&sida, &[("konto", &konto.to_string())])
                     >
                         {format!("{konto} {}", r.text)}
@@ -474,14 +469,14 @@ fn Dokument(d: Rapportvy, sida: String, namn: String, orgnr: String) -> impl Int
                 }
                 .into_any(),
                 (None, Some(ink2)) if r.slag == "rad" => view! {
-                    <a rel="external" href=d.adress(&sida, &[("niva", "konton")])>
+                    <a href=d.adress(&sida, &[("niva", "konton")])>
                         <span class="ink2">{ink2.clone()}</span>
                         {r.text.clone()}
                     </a>
                 }
                 .into_any(),
                 _ if r.slag == "rubrik" && !r.värden.is_empty() => view! {
-                    <a rel="external" href=d.adress(&sida, &[("niva", "ink2")])>
+                    <a href=d.adress(&sida, &[("niva", "ink2")])>
                         {r.text.clone()}
                     </a>
                 }
@@ -561,7 +556,7 @@ fn Panel(d: Rapportvy, sida: String, bas: String, p: PanelVy) -> impl IntoView {
         <aside class="sidopanel" aria-labelledby="panelrubrik">
             <div class="panelhuvud">
                 <h2 id="panelrubrik">{format!("{} {}", p.konto, p.namn)}</h2>
-                <a class="knapp knapp-diskret" rel="external" href=stäng aria-label="Stäng">
+                <a class="knapp knapp-diskret" href=stäng aria-label="Stäng">
                     "×"
                 </a>
             </div>
@@ -602,7 +597,6 @@ fn Panel(d: Rapportvy, sida: String, bas: String, p: PanelVy) -> impl IntoView {
                                     <td>{r.datum.clone()}</td>
                                     <td>
                                         <a
-                                            rel="external"
                                             href=format!("{bas}/verifikat?v={}", r.verifikat)
                                         >
                                             {r.nummer.clone()}
@@ -636,12 +630,12 @@ pub(crate) mod server {
     use std::sync::Arc;
 
     use axum::Router;
-    use axum::extract::{Extension, Path, Query, RawQuery, Request, State};
+    use axum::extract::{Extension, Path, Query, RawQuery, State};
     use axum::http::{StatusCode, header};
-    use axum::middleware::Next;
     use axum::response::{IntoResponse, Redirect, Response};
     use axum::routing::get;
     use jiff::civil::Date;
+    use leptos::prelude::ServerFnError;
     use maya_core::atkomst::ÅtkomstFel;
     use maya_core::foretag::{self, FöretagsId};
     use maya_core::inloggning::Inloggad;
@@ -657,6 +651,7 @@ pub(crate) mod server {
     use serde::Deserialize;
 
     use super::{KolumnVy, PanelVy, PanelradVy, RadVy, Rapportdata, Rapportvy, SIE4_STOPPAD};
+    use crate::sidodata::{self, Sidbegäran};
 
     #[derive(Clone)]
     pub(crate) struct RapportState {
@@ -680,38 +675,29 @@ pub(crate) mod server {
         router.with_state(Arc::new(state))
     }
 
-    /// Hämtar räkenskapsåren för fliken `/foretag/<id>/rapporter`. Körs efter
-    /// `inloggning::identifiera`.
-    pub(crate) async fn lägg_på_rapportdata(
-        State(state): State<RapportState>,
-        mut req: Request,
-        next: Next,
-    ) -> Response {
-        let Some(inloggad) = req.extensions().get::<Inloggad>().cloned() else {
-            return next.run(req).await;
-        };
-        let delar: Vec<&str> = req.uri().path().trim_matches('/').split('/').collect();
+    /// Hämtar räkenskapsåren för fliken `/foretag/<id>/rapporter`. Utan åtkomst blir datan
+    /// tom; sidan visar det ur företagsvalet.
+    pub(crate) async fn rapportdata(b: &Sidbegäran) -> Result<Rapportdata, ServerFnError> {
+        let delar = b.delar();
         let ["foretag", id, "rapporter"] = delar.as_slice() else {
-            return next.run(req).await;
+            return Ok(Rapportdata::default());
         };
         let Ok(företag) = id.parse::<FöretagsId>() else {
-            return next.run(req).await;
+            return Ok(Rapportdata::default());
         };
-        match foretag::företaget(&state.db, &inloggad.aktör, företag).await {
-            Ok(f) => {
-                req.extensions_mut().insert(Rapportdata {
-                    år: f
-                        .räkenskapsår
-                        .iter()
-                        .map(|å| (å.start.to_string(), å.slut.to_string()))
-                        .collect(),
-                });
+        match foretag::företaget(&b.db, &b.inloggad.aktör, företag).await {
+            Ok(f) => Ok(Rapportdata {
+                år: f
+                    .räkenskapsår
+                    .iter()
+                    .map(|å| (å.start.to_string(), å.slut.to_string()))
+                    .collect(),
+            }),
+            Err(ÅtkomstFel::IngenÅtkomst | ÅtkomstFel::KanalenFårInte) => {
+                Ok(Rapportdata::default())
             }
-            // Sidan visar att användaren saknar åtkomst, ur företagsvalet.
-            Err(ÅtkomstFel::IngenÅtkomst | ÅtkomstFel::KanalenFårInte) => {}
-            Err(e) => return serverfel(e),
+            Err(e) => Err(sidodata::serverfel(e)),
         }
-        next.run(req).await
     }
 
     #[derive(Deserialize)]
@@ -834,35 +820,29 @@ pub(crate) mod server {
             .collect())
     }
 
-    /// Hämtar rapporten för `/foretag/<id>/rapporter/<resultatrakning|balansrakning>`. Körs
-    /// efter `inloggning::identifiera`.
-    pub(crate) async fn lägg_på_rapport(
-        State(state): State<RapportState>,
-        mut req: Request,
-        next: Next,
-    ) -> Response {
-        let Some(inloggad) = req.extensions().get::<Inloggad>().cloned() else {
-            return next.run(req).await;
-        };
-        let delar: Vec<&str> = req.uri().path().trim_matches('/').split('/').collect();
+    /// Hämtar rapporten för `/foretag/<id>/rapporter/<resultatrakning|balansrakning>`. Utan
+    /// åtkomst blir den tom; sidan visar det ur företagsvalet.
+    pub(crate) async fn rapportvy(b: &Sidbegäran) -> Result<Rapportvy, ServerFnError> {
+        let delar = b.delar();
         let ["foretag", id, "rapporter", kod] = delar.as_slice() else {
-            return next.run(req).await;
+            return Ok(Rapportvy::default());
         };
         let (Ok(företag), Some(typ)) = (id.parse::<FöretagsId>(), Rapporttyp::från_kod(kod))
         else {
-            return next.run(req).await;
+            return Ok(Rapportvy::default());
         };
-        let query = req.uri().query().map(str::to_string);
-        match hämta(&state, &inloggad, företag, typ, query.as_deref()).await {
-            Ok(Some(data)) => {
-                req.extensions_mut().insert(data);
+        let state = RapportState {
+            db: b.db.clone(),
+            klocka: b.klocka.clone(),
+        };
+        let query = (!b.fråga().is_empty()).then(|| b.fråga());
+        match hämta(&state, &b.inloggad, företag, typ, query).await {
+            Ok(data) => Ok(data.unwrap_or_default()),
+            Err(SaldoFel::Åtkomst(ÅtkomstFel::IngenÅtkomst | ÅtkomstFel::KanalenFårInte)) => {
+                Ok(Rapportvy::default())
             }
-            Ok(None) => {}
-            // Sidan visar att användaren saknar åtkomst, ur företagsvalet.
-            Err(SaldoFel::Åtkomst(ÅtkomstFel::IngenÅtkomst | ÅtkomstFel::KanalenFårInte)) => {}
-            Err(e) => return serverfel(e),
+            Err(e) => Err(sidodata::serverfel(e)),
         }
-        next.run(req).await
     }
 
     fn kronor(öre: i64) -> String {

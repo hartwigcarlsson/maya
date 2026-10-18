@@ -145,11 +145,27 @@ fn Innehåll() -> impl IntoView {
                     view=NyttVerifikatSida
                     ssr=SsrMode::Async
                 />
-                <Route path=path!("foretag/:id/rapporter") view=Rapporter />
-                <Route path=path!("foretag/:id/rapporter/grundbok") view=GrundbokSida />
-                <Route path=path!("foretag/:id/rapporter/huvudbok") view=HuvudbokSida />
-                <Route path=path!("foretag/:id/rapporter/resultatrakning") view=Resultaträkning />
-                <Route path=path!("foretag/:id/rapporter/balansrakning") view=Balansräkning />
+                <Route path=path!("foretag/:id/rapporter") view=Rapporter ssr=SsrMode::Async />
+                <Route
+                    path=path!("foretag/:id/rapporter/grundbok")
+                    view=GrundbokSida
+                    ssr=SsrMode::Async
+                />
+                <Route
+                    path=path!("foretag/:id/rapporter/huvudbok")
+                    view=HuvudbokSida
+                    ssr=SsrMode::Async
+                />
+                <Route
+                    path=path!("foretag/:id/rapporter/resultatrakning")
+                    view=Resultaträkning
+                    ssr=SsrMode::Async
+                />
+                <Route
+                    path=path!("foretag/:id/rapporter/balansrakning")
+                    view=Balansräkning
+                    ssr=SsrMode::Async
+                />
                 <Route path=path!("foretag/:id/sok") view=SökSida ssr=SsrMode::Async />
                 <Route path=path!("foretag/:id/underlag") view=UnderlagSida ssr=SsrMode::Async />
                 <Route
@@ -175,6 +191,7 @@ fn Innehåll() -> impl IntoView {
                 <Route
                     path=path!("foretag/:id/installningar/behandlingshistorik")
                     view=BehandlingshistorikSida
+                    ssr=SsrMode::Async
                 />
             </Routes>
         }
