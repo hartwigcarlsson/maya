@@ -16,6 +16,7 @@ pub enum Händelse {
     FöretagSkapat,
     RäkenskapsårSkapat,
     VerifikatBokfört,
+    IngåendeBalansÄndrad,
 }
 
 impl Händelse {
@@ -24,6 +25,7 @@ impl Händelse {
             Händelse::FöretagSkapat => "företag skapat",
             Händelse::RäkenskapsårSkapat => "räkenskapsår skapat",
             Händelse::VerifikatBokfört => "verifikat bokfört",
+            Händelse::IngåendeBalansÄndrad => "ingående balans ändrad",
         }
     }
 }
