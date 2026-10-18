@@ -7,12 +7,13 @@ use maya_core::behandlingshistorik::{Aktörsval, Händelse, Urval};
 use maya_core::foretag::{self, FöretagsId};
 use maya_core::inloggning::{self, NyPasskey};
 use maya_core::{
-    Databas, Klocka, behandlingshistorik, export, kontoplan, saldo, sie4, testhjalp, underlag,
-    verifikat,
+    Databas, Klocka, behandlingshistorik, export, kontoplan, leverantor, saldo, sie4, testhjalp,
+    underlag, verifikat,
 };
 use maya_domain::foretag::{Byte, NyttFöretag, Uppgifter};
 use maya_domain::ingaende_balans::{NyIngåendeBalans, NySaldorad};
 use maya_domain::kontoplan::{Kontonummer, NyttKonto};
+use maya_domain::leverantor::NyLeverantör;
 use maya_domain::verifikat::{NyRad, NyttVerifikat};
 
 #[tokio::test]
@@ -271,12 +272,44 @@ async fn alla_ändringar(db: &Databas, anna: &Aktör, id: FöretagsId, tid: &str
     .await;
 }
 
+/// Kör varje användningsfall i etapp 2 som loggar, en gång var, på tiden `tid`. Bara testet
+/// som kräver en post per typ använder den; CSV-exportens golden-fil följer `alla_ändringar`.
+/// Lägg till anrop sist, under `// #<ticket>`.
+async fn fakturaändringar(db: &Databas, anna: &Aktör, id: FöretagsId, tid: &str) {
+    let k = klocka(tid);
+    // #144 Leverantörsregister
+    let leverantör = NyLeverantör {
+        namn: "Kontorsvaror AB".into(),
+        standardkonto: "5410".into(),
+        ..NyLeverantör::default()
+    };
+    let l = leverantor::skapa(db, &k, anna, id, &leverantör)
+        .await
+        .unwrap();
+    leverantor::ändra(
+        db,
+        &k,
+        anna,
+        id,
+        l,
+        &NyLeverantör {
+            postort: "Göteborg".into(),
+            ..leverantör
+        },
+    )
+    .await
+    .unwrap();
+    leverantor::arkivera(db, &k, anna, id, l).await.unwrap();
+    leverantor::radera(db, &k, anna, id, l).await.unwrap();
+}
+
 #[tokio::test]
-async fn varje_typ_i_etapp_1_som_har_en_kodväg_ger_en_post() {
+async fn varje_typ_som_har_en_kodväg_ger_en_post() {
     let db = Databas::tillfällig().await;
     let (anna, id) = testhjalp::företag(&db).await;
 
     alla_ändringar(&db, &anna, id, "2026-03-01T09:00:00Z").await;
+    fakturaändringar(&db, &anna, id, "2026-03-01T09:00:00Z").await;
 
     let historik = behandlingshistorik::historik(&db, &anna, id, &Urval::default())
         .await

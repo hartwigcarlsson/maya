@@ -255,3 +255,27 @@ pub async fn misslyckad_migrering(
         .expect("misslyckandet loggas");
     tx.commit().await.expect("commit");
 }
+
+// #144 leverantörsregistret
+/// En aktiv leverantör `namn` med standardkontot 5410 och bankgiro 5050-1055.
+pub async fn leverantör(
+    db: &Databas,
+    aktör: &Aktör,
+    företag: FöretagsId,
+    namn: &str,
+) -> crate::leverantor::LeverantörsId {
+    crate::leverantor::skapa(
+        db,
+        &Klocka::system(),
+        aktör,
+        företag,
+        &maya_domain::leverantor::NyLeverantör {
+            namn: namn.into(),
+            bankgiro: "5050-1055".into(),
+            standardkonto: "5410".into(),
+            ..Default::default()
+        },
+    )
+    .await
+    .expect("testleverantör")
+}
