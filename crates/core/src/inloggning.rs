@@ -41,6 +41,12 @@ pub enum InloggningsFel {
     TomtNamn,
     #[error("sessionen hör inte till användaren")]
     OkändSession,
+    #[error("det finns ingen användare med den e-postadressen")]
+    OkändAnvändare,
+    #[error("användaren är avaktiverad")]
+    Avaktiverad,
+    #[error("användaren är inte avaktiverad")]
+    InteAvaktiverad,
     #[error(transparent)]
     Databas(#[from] DatabasFel),
 }
@@ -219,7 +225,7 @@ pub async fn skapa_första_användare(
     .bind(nu.to_string())
     .fetch_one(&mut *tx)
     .await?;
-    let länk = ny_registreringslänk(&mut tx, nu, AnvändarId(id)).await?;
+    let länk = ny_länk(&mut tx, nu, AnvändarId(id), Syfte::Registrering).await?;
     installationslogg::skriv(
         &mut tx,
         nu,
@@ -236,24 +242,175 @@ pub async fn skapa_första_användare(
     Ok(länk)
 }
 
-async fn ny_registreringslänk(
+/// Vad en engångslänk är till för. Båda ger en ny passkey.
+#[derive(Debug, Clone, Copy)]
+enum Syfte {
+    Registrering,
+    Återställning,
+}
+
+impl Syfte {
+    fn namn(self) -> &'static str {
+        match self {
+            Syfte::Registrering => "registrering",
+            Syfte::Återställning => "aterstallning",
+        }
+    }
+}
+
+async fn ny_länk(
     conn: &mut SqliteConnection,
     nu: Timestamp,
     användare: AnvändarId,
+    syfte: Syfte,
 ) -> Result<Registreringslänk, sqlx::Error> {
     let token = Token::ny();
     let giltig_till = nu + LÄNK_GILTIG;
     sqlx::query(
         "INSERT INTO engangslank (hash, syfte, anvandare_id, skapad, giltig_till)
-         VALUES (?, 'registrering', ?, ?, ?)",
+         VALUES (?, ?, ?, ?, ?)",
     )
     .bind(hash(&token.0))
+    .bind(syfte.namn())
     .bind(användare.0)
     .bind(nu.to_string())
     .bind(giltig_till.to_string())
     .execute(conn)
     .await?;
     Ok(Registreringslänk { token, giltig_till })
+}
+
+/// Ger en användare som har tappat alla sina passkeys en återställningslänk, där hen
+/// registrerar en ny. Bara CLI:t (ADR 0005). Händelsen skrivs i installationsloggen.
+pub async fn återställ_användare(
+    db: &Databas,
+    klocka: &Klocka,
+    aktör: &Aktör,
+    epost: &str,
+) -> Result<Registreringslänk, InloggningsFel> {
+    let (mut tx, id, epost) = hela_användaren(db, aktör, epost).await?;
+    if avaktiverad(&mut tx, id).await? {
+        return Err(InloggningsFel::Avaktiverad);
+    }
+    let nu = klocka.nu();
+    let länk = ny_länk(&mut tx, nu, id, Syfte::Återställning).await?;
+    installationslogg::skriv(
+        &mut tx,
+        nu,
+        aktör,
+        Händelse::AnvändareÅterställd,
+        &epost,
+        serde_json::json!({
+            "epost": epost,
+            "återställningslänk_giltig_till": länk.giltig_till.to_string(),
+        }),
+    )
+    .await?;
+    tx.commit().await?;
+    Ok(länk)
+}
+
+/// Avaktiverar en användare: hen kan inte logga in, och hens sessioner och oanvända länkar
+/// upphör. Användaren raderas aldrig. Bara CLI:t (ADR 0005).
+pub async fn avaktivera_användare(
+    db: &Databas,
+    klocka: &Klocka,
+    aktör: &Aktör,
+    epost: &str,
+) -> Result<(), InloggningsFel> {
+    let (mut tx, id, epost) = hela_användaren(db, aktör, epost).await?;
+    if avaktiverad(&mut tx, id).await? {
+        return Err(InloggningsFel::Avaktiverad);
+    }
+    let nu = klocka.nu().to_string();
+    sqlx::query("UPDATE anvandare SET avaktiverad = ? WHERE id = ?")
+        .bind(&nu)
+        .bind(id.0)
+        .execute(&mut *tx)
+        .await?;
+    let sessioner = sqlx::query("DELETE FROM session WHERE anvandare_id = ?")
+        .bind(id.0)
+        .execute(&mut *tx)
+        .await?
+        .rows_affected();
+    let länkar =
+        sqlx::query("UPDATE engangslank SET anvand = ? WHERE anvandare_id = ? AND anvand IS NULL")
+            .bind(&nu)
+            .bind(id.0)
+            .execute(&mut *tx)
+            .await?
+            .rows_affected();
+    installationslogg::skriv(
+        &mut tx,
+        klocka.nu(),
+        aktör,
+        Händelse::AnvändareAvaktiverad,
+        &epost,
+        serde_json::json!({
+            "epost": epost,
+            "avslutade_sessioner": sessioner,
+            "upphävda_länkar": länkar,
+        }),
+    )
+    .await?;
+    tx.commit().await?;
+    Ok(())
+}
+
+/// Återaktiverar en avaktiverad användare: hen kan logga in med sina passkeys igen. Bara
+/// CLI:t (ADR 0005).
+pub async fn återaktivera_användare(
+    db: &Databas,
+    klocka: &Klocka,
+    aktör: &Aktör,
+    epost: &str,
+) -> Result<(), InloggningsFel> {
+    let (mut tx, id, epost) = hela_användaren(db, aktör, epost).await?;
+    if !avaktiverad(&mut tx, id).await? {
+        return Err(InloggningsFel::InteAvaktiverad);
+    }
+    sqlx::query("UPDATE anvandare SET avaktiverad = NULL WHERE id = ?")
+        .bind(id.0)
+        .execute(&mut *tx)
+        .await?;
+    installationslogg::skriv(
+        &mut tx,
+        klocka.nu(),
+        aktör,
+        Händelse::AnvändareÅteraktiverad,
+        &epost,
+        serde_json::json!({ "epost": epost }),
+    )
+    .await?;
+    tx.commit().await?;
+    Ok(())
+}
+
+/// Kontrollerar att aktören får hantera användare som helhet och slår upp användaren med
+/// e-postadressen `epost` i en ny transaktion.
+async fn hela_användaren(
+    db: &Databas,
+    aktör: &Aktör,
+    epost: &str,
+) -> Result<(sqlx::Transaction<'static, sqlx::Sqlite>, AnvändarId, String), InloggningsFel> {
+    if !aktor::tillåter(aktör.kanal, Handling::HanteraAnvändare) {
+        return Err(InloggningsFel::KanalenFårInte);
+    }
+    let epost = maya_domain::epost::normalisera(epost)?;
+    let mut tx = db.pool().begin_with("BEGIN IMMEDIATE").await?;
+    let id: Option<i64> = sqlx::query_scalar("SELECT id FROM anvandare WHERE epost = ?")
+        .bind(&epost)
+        .fetch_optional(&mut *tx)
+        .await?;
+    let id = id.ok_or(InloggningsFel::OkändAnvändare)?;
+    Ok((tx, AnvändarId(id), epost))
+}
+
+async fn avaktiverad(conn: &mut SqliteConnection, id: AnvändarId) -> Result<bool, sqlx::Error> {
+    sqlx::query_scalar("SELECT avaktiverad IS NOT NULL FROM anvandare WHERE id = ?")
+        .bind(id.0)
+        .fetch_one(conn)
+        .await
 }
 
 /// Användaren som en giltig, oanvänd registreringslänk hör till. Förbrukar inte länken.

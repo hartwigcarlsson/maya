@@ -30,6 +30,11 @@ enum Command {
         #[command(subcommand)]
         command: user::UserCommand,
     },
+    /// Hanterar installationens domän.
+    Domain {
+        #[command(subcommand)]
+        command: user::DomainCommand,
+    },
 }
 
 fn main() -> ExitCode {
@@ -43,7 +48,8 @@ fn main() -> ExitCode {
     match cli.command {
         Command::Serve => serve(),
         Command::Healthcheck => healthcheck::run(),
-        Command::User { command } => user::run(command),
+        Command::User { command } => user::run_user(command),
+        Command::Domain { command } => user::run_domain(command),
     }
 }
 
