@@ -659,9 +659,7 @@ pub async fn session(
     let Some((id, skapad, senast_aktiv, passkey_använd)) = rad else {
         return Ok(None);
     };
-    if nu >= tidpunkt(&senast_aktiv)? + SESSION_INAKTIV
-        || nu >= tidpunkt(&skapad)? + SESSION_LÄNGST
-    {
+    if utgången(nu, tidpunkt(&skapad)?, tidpunkt(&senast_aktiv)?) {
         sqlx::query("DELETE FROM session WHERE hash = ?")
             .bind(&hash)
             .execute(&mut *tx)
@@ -863,11 +861,13 @@ pub async fn bekräfta_passkey(
     Ok(())
 }
 
-/// Den inloggades sessioner, senast aktiv först.
+/// Den inloggades sessioner som inte har gått ut, senast aktiv först.
 pub async fn sessioner(
     db: &Databas,
+    klocka: &Klocka,
     inloggad: &Inloggad,
 ) -> Result<Vec<SessionRad>, InloggningsFel> {
+    let nu = klocka.nu();
     let rader: Vec<(Vec<u8>, String, String, Option<String>)> = sqlx::query_as(
         "SELECT hash, skapad, senast_aktiv, enhet FROM session
          WHERE anvandare_id = ? ORDER BY senast_aktiv DESC, skapad DESC",
@@ -875,18 +875,27 @@ pub async fn sessioner(
     .bind(inloggad.användare.id.0)
     .fetch_all(db.pool())
     .await?;
-    rader
-        .into_iter()
-        .map(|(hash, skapad, senast_aktiv, enhet)| {
-            Ok(SessionRad {
-                denna: hash == inloggad.session,
-                id: hex::encode(hash),
-                skapad: tidpunkt(&skapad)?,
-                senast_aktiv: tidpunkt(&senast_aktiv)?,
-                enhet,
-            })
-        })
-        .collect()
+    let mut sessioner = Vec::new();
+    for (hash, skapad, senast_aktiv, enhet) in rader {
+        let (skapad, senast_aktiv) = (tidpunkt(&skapad)?, tidpunkt(&senast_aktiv)?);
+        if utgången(nu, skapad, senast_aktiv) {
+            continue;
+        }
+        sessioner.push(SessionRad {
+            denna: hash == inloggad.session,
+            id: hex::encode(hash),
+            skapad,
+            senast_aktiv,
+            enhet,
+        });
+    }
+    Ok(sessioner)
+}
+
+/// Om en session har gått ut: [`SESSION_INAKTIV`] utan aktivitet eller [`SESSION_LÄNGST`]
+/// sedan den skapades.
+fn utgången(nu: Timestamp, skapad: Timestamp, senast_aktiv: Timestamp) -> bool {
+    nu >= senast_aktiv + SESSION_INAKTIV || nu >= skapad + SESSION_LÄNGST
 }
 
 /// Avslutar en av den inloggades sessioner. Den som har sessionen är utloggad direkt.

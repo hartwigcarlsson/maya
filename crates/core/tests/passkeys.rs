@@ -178,7 +178,7 @@ async fn sessionslistan_visar_sessionerna_och_en_avslutad_session_ar_utloggad_di
     .await
     .unwrap();
 
-    let sessioner = inloggning::sessioner(&db, &anna).await.unwrap();
+    let sessioner = inloggning::sessioner(&db, &nu(), &anna).await.unwrap();
     assert_eq!(sessioner.len(), 2);
     assert_eq!(sessioner[0].enhet.as_deref(), Some("Firefox på Linux"));
     assert!(!sessioner[0].denna);
@@ -195,9 +195,40 @@ async fn sessionslistan_visar_sessionerna_och_en_avslutad_session_ar_utloggad_di
             .unwrap()
             .is_none()
     );
-    let kvar = inloggning::sessioner(&db, &anna).await.unwrap();
+    let kvar = inloggning::sessioner(&db, &nu(), &anna).await.unwrap();
     assert_eq!(kvar.len(), 1);
     assert!(kvar[0].denna);
+}
+
+#[tokio::test]
+async fn sessionslistan_visar_inte_utgångna_sessioner() {
+    let db = Databas::tillfällig().await;
+    let token = anna(&db).await;
+    let anna = inloggad(&db, &nu(), &token).await;
+    // En session som inte har använts på åtta dagar.
+    inloggning::logga_in(
+        &db,
+        &klocka(minuter(-8 * 24 * 60)),
+        anna.användare.id,
+        b"ett",
+        None,
+        Some("Gammal dator"),
+    )
+    .await
+    .unwrap();
+
+    let sessioner = inloggning::sessioner(&db, &nu(), &anna).await.unwrap();
+
+    assert_eq!(sessioner.len(), 1, "{sessioner:?}");
+    assert!(sessioner[0].denna);
+    // Efter 30 dagar har också den aktiva sessionen gått ut.
+    let senare = klocka(minuter(31 * 24 * 60));
+    assert!(
+        inloggning::sessioner(&db, &senare, &anna)
+            .await
+            .unwrap()
+            .is_empty()
+    );
 }
 
 #[tokio::test]
