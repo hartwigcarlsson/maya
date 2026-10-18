@@ -148,7 +148,7 @@ pub async fn kontoplan(
     skriv(db, klocka, aktör, "kontoplan.pdf".into(), &dokument).await
 }
 
-async fn skriv(
+pub(crate) async fn skriv(
     db: &Databas,
     klocka: &Klocka,
     aktör: &Aktör,

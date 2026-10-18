@@ -12,6 +12,7 @@ use maya_core::{Databas, Klocka, testhjalp};
 use maya_domain::ingaende_balans::{NyIngåendeBalans, NySaldorad};
 use maya_domain::kontourval::Kontourval;
 use maya_domain::verifikat::{NyRad, NyttVerifikat};
+use maya_pdf::testhjalp::{innehåller, sidor, är_pdfa_2b};
 
 const ÅR_2026: Date = date(2026, 1, 1);
 
@@ -510,4 +511,78 @@ async fn filnamnet_har_urvalets_sista_period() {
         .unwrap();
 
     assert_eq!(csv.filnamn, "grundbok_5560360793_2026_202604.csv");
+}
+
+#[tokio::test]
+async fn grundboken_som_pdf_är_pdfa_2b_med_verifikaten_i_registreringsordning() {
+    let db = Databas::tillfällig().await;
+    let (anna, id) = exempel(&db).await;
+
+    let pdf = bokforing::grundbok_pdf(
+        &db,
+        &klocka("2026-10-18T12:34:00Z"),
+        &anna,
+        id,
+        &hela_året(),
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(pdf.filnamn, "grundbok_5560360793_2026_202612.pdf");
+    är_pdfa_2b(&pdf.innehåll);
+    let text = sidor(&pdf.innehåll).concat();
+    for väntat in [
+        "Grundbok",
+        "Exempel AB",
+        "556036-0793",
+        "januari 2026 – december 2026",
+        "mars 2026",
+        "Försäljning; kund \"A\"",
+        "Bokfört 2026-03-25 10:00 av anna@example.se",
+        "Swish",
+        "Lokalhyra",
+        "april 2026",
+        "Telekommunikation",
+        "Utskrivet 2026-10-18 14:34 av anna@example.se",
+    ] {
+        assert!(innehåller(&text, väntat), "saknar {väntat:?} i {text}");
+    }
+    assert!(!innehåller(&text, "Utkast"), "{text}");
+    let (v1, v2) = (text.find("V1").unwrap(), text.find("V2").unwrap());
+    assert!(v1 < v2, "V1 bokfördes före V2: {text}");
+}
+
+#[tokio::test]
+async fn huvudboken_som_pdf_är_pdfa_2b_med_balanser_och_löpande_saldo() {
+    let db = Databas::tillfällig().await;
+    let (anna, id) = exempel(&db).await;
+
+    let pdf = bokforing::huvudbok_pdf(
+        &db,
+        &klocka("2026-10-18T12:34:00Z"),
+        &anna,
+        id,
+        &hela_året(),
+        &Kontourval::tolka("1930").unwrap(),
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(pdf.filnamn, "huvudbok_5560360793_2026_202612.pdf");
+    är_pdfa_2b(&pdf.innehåll);
+    let text = sidor(&pdf.innehåll).concat();
+    for väntat in [
+        "Huvudbok",
+        "Konton 1930",
+        "1930 Företagskonto",
+        "Ingående balans",
+        "1 000,00",
+        "1 500,00",
+        "1 300,00",
+        "Utgående balans",
+        "1 250,00",
+    ] {
+        assert!(innehåller(&text, väntat), "saknar {väntat:?} i {text}");
+    }
+    assert!(!innehåller(&text, "Lokalhyra"), "bara konto 1930: {text}");
 }

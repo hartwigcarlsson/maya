@@ -15,6 +15,7 @@
 //! Ny mall: lägg till en variant i [`Dokument`], en `.typ`-fil i `mallar/` som importerar
 //! `mall.typ`, och en gren i `Dokument::mall`/`Dokument::data`.
 
+mod bokforing;
 mod data;
 #[cfg(feature = "test-support")]
 pub mod testhjalp;
@@ -25,6 +26,10 @@ use jiff::civil::Date;
 use maya_domain::belopp::Belopp;
 use maya_domain::kontoplan::Kontonummer;
 
+pub use bokforing::{
+    Bokföringsurval, Grundbok, Grundboksperiod, Grundbokspost, Huvudbok, Huvudbokskonto,
+    Transaktion,
+};
 pub use data::Dokument;
 
 /// Det som står längst ned på varje sida, utöver versionen och INK2-utgåvan som Maya själv vet.

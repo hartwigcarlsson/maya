@@ -17,14 +17,16 @@ use maya_domain::belopp::{Belopp, Saldo};
 use maya_domain::kontoplan::Kontonummer;
 use maya_domain::kontourval::Kontourval;
 use maya_domain::rakenskapsar::{Period, Räkenskapsår};
+use maya_pdf::Dokument;
 use sqlx::SqliteConnection;
 
 use crate::aktor::{Aktör, Handling, Kanal};
 use crate::atkomst::{self, ÅtkomstFel};
-use crate::foretag::{FöretagsId, datum};
+use crate::foretag::{self, FöretagsId, datum};
 use crate::saldo::{self, Status};
+use crate::utskrift::{self, Pdf, UtskriftFel};
 use crate::verifikat::{VerifikatId, Verifikationsnummer, kanalens_namn, verifikationsnummer};
-use crate::{Databas, DatabasFel};
+use crate::{Databas, DatabasFel, Klocka};
 
 /// Vilka perioder en grundbok eller huvudbok gäller: ett räkenskapsår och perioderna `från`
 /// t.o.m. `till` i det. Ett datum anger perioden det ligger i; `None` är årets första
@@ -46,6 +48,17 @@ pub enum RapportFel {
     OkändPeriod,
     #[error(transparent)]
     Åtkomst(#[from] ÅtkomstFel),
+    #[error(transparent)]
+    Pdf(#[from] maya_pdf::PdfFel),
+}
+
+impl From<UtskriftFel> for RapportFel {
+    fn from(e: UtskriftFel) -> Self {
+        match e {
+            UtskriftFel::Åtkomst(e) => RapportFel::Åtkomst(e),
+            UtskriftFel::Pdf(e) => RapportFel::Pdf(e),
+        }
+    }
 }
 
 impl From<sqlx::Error> for RapportFel {
@@ -493,6 +506,116 @@ pub async fn huvudbok_csv(
         filnamn: filnamn(db, företag, "huvudbok", h.år, &h.perioder, "csv").await?,
         innehåll: csv.innehåll(),
     })
+}
+
+/// Grundboken som PDF/A-2b (A2). Skriv ut och exporten är samma PDF.
+pub async fn grundbok_pdf(
+    db: &Databas,
+    klocka: &Klocka,
+    aktör: &Aktör,
+    företag: FöretagsId,
+    urval: &Periodurval,
+) -> Result<Pdf, RapportFel> {
+    let g = grundbok(db, aktör, företag, urval).await?;
+    let perioder: Vec<Period> = g.perioder.iter().map(|p| p.period).collect();
+    let dokument = Dokument::Grundbok(maya_pdf::Grundbok {
+        företag: pdf_företag(db, aktör, företag).await?,
+        urval: pdf_urval(g.år, &perioder),
+        perioder: g
+            .perioder
+            .iter()
+            .map(|p| maya_pdf::Grundboksperiod {
+                start: p.period.start,
+                verifikat: p
+                    .verifikat
+                    .iter()
+                    .map(|v| maya_pdf::Grundbokspost {
+                        nummer: v.nummer.to_string(),
+                        datum: v.datum,
+                        beskrivning: v.beskrivning.clone(),
+                        bokförd: v.bokförd.tid,
+                        bokförd_av: v.bokförd.namn.clone(),
+                        rader: v
+                            .rader
+                            .iter()
+                            .map(|r| maya_pdf::Rad {
+                                konto: Some(r.konto),
+                                kontonamn: r.kontonamn.clone(),
+                                text: r.text.clone(),
+                                debet: r.debet,
+                                kredit: r.kredit,
+                            })
+                            .collect(),
+                    })
+                    .collect(),
+            })
+            .collect(),
+    });
+    let filnamn = filnamn(db, företag, "grundbok", g.år, &perioder, "pdf").await?;
+    Ok(utskrift::skriv(db, klocka, aktör, filnamn, &dokument).await?)
+}
+
+/// Huvudboken som PDF/A-2b (A2). Skriv ut och exporten är samma PDF.
+pub async fn huvudbok_pdf(
+    db: &Databas,
+    klocka: &Klocka,
+    aktör: &Aktör,
+    företag: FöretagsId,
+    urval: &Periodurval,
+    konton: &Kontourval,
+) -> Result<Pdf, RapportFel> {
+    let h = huvudbok(db, aktör, företag, urval, konton).await?;
+    let dokument = Dokument::Huvudbok(maya_pdf::Huvudbok {
+        företag: pdf_företag(db, aktör, företag).await?,
+        urval: pdf_urval(h.år, &h.perioder),
+        konton_urval: konton.to_string(),
+        preliminär: h.status == Status::Preliminär,
+        konton: h
+            .konton
+            .iter()
+            .map(|k| maya_pdf::Huvudbokskonto {
+                nummer: k.konto,
+                namn: k.namn.clone(),
+                ingående: k.ingående,
+                utgående: k.utgående,
+                transaktioner: k
+                    .transaktioner
+                    .iter()
+                    .map(|t| maya_pdf::Transaktion {
+                        nummer: t.nummer.to_string(),
+                        datum: t.datum,
+                        text: t.text.clone(),
+                        debet: t.debet,
+                        kredit: t.kredit,
+                        saldo: t.saldo,
+                    })
+                    .collect(),
+            })
+            .collect(),
+    });
+    let filnamn = filnamn(db, företag, "huvudbok", h.år, &h.perioder, "pdf").await?;
+    Ok(utskrift::skriv(db, klocka, aktör, filnamn, &dokument).await?)
+}
+
+async fn pdf_företag(
+    db: &Databas,
+    aktör: &Aktör,
+    företag: FöretagsId,
+) -> Result<maya_pdf::Företag, ÅtkomstFel> {
+    let f = foretag::företaget(db, aktör, företag).await?;
+    Ok(maya_pdf::Företag {
+        namn: f.namn,
+        orgnr: f.orgnr.to_string(),
+    })
+}
+
+fn pdf_urval(år: Räkenskapsår, perioder: &[Period]) -> maya_pdf::Bokföringsurval {
+    maya_pdf::Bokföringsurval {
+        år_start: år.start(),
+        år_slut: år.slut(),
+        från: perioder.first().map_or(år.start(), |p| p.start),
+        till: perioder.last().map_or(år.start(), |p| p.start),
+    }
 }
 
 /// `<rapport>_<orgnr>_<år>_<ÅÅÅÅMM>.<ändelse>`, med räkenskapsårets startår och urvalets

@@ -20,6 +20,8 @@ const MALLAR: &[(&str, &str)] = &[
     ("mall.typ", include_str!("../mallar/mall.typ")),
     ("verifikat.typ", include_str!("../mallar/verifikat.typ")),
     ("kontoplan.typ", include_str!("../mallar/kontoplan.typ")),
+    ("grundbok.typ", include_str!("../mallar/grundbok.typ")),
+    ("huvudbok.typ", include_str!("../mallar/huvudbok.typ")),
 ];
 
 /// Typsnitten (SIL OFL respektive Bitstream Vera-licensen; båda tillåter inbäddning, som PDF/A
