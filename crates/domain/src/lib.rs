@@ -6,6 +6,7 @@ pub mod epost;
 pub mod foretag;
 pub mod ingaende_balans;
 pub mod kontoplan;
+pub mod kontourval;
 pub mod orgnr;
 pub mod rakenskapsar;
 pub mod sok;
