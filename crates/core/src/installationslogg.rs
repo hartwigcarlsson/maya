@@ -40,6 +40,8 @@ impl Händelse {
 pub struct Loggpost {
     pub tid: Timestamp,
     pub aktör: Aktör,
+    /// Användarens visningsnamn, när aktören är en användare.
+    pub användarnamn: Option<String>,
     /// Händelsens typ, t.ex. `användare skapad`.
     pub typ: String,
     /// Det händelsen rör, t.ex. en e-postadress.
@@ -74,26 +76,56 @@ pub(crate) async fn skriv(
 
 /// Hela loggen i den ordning posterna skrevs.
 pub async fn läs(db: &Databas) -> Result<Vec<Loggpost>, DatabasFel> {
-    let rader: Vec<(String, String, Option<i64>, String, String, String)> = sqlx::query_as(
-        "SELECT tid, kanal, anvandare_id, typ, objekt, beskrivning
-         FROM installationslogg ORDER BY id",
+    type Rad = (
+        String,
+        String,
+        Option<i64>,
+        Option<String>,
+        String,
+        String,
+        String,
+    );
+    let rader: Vec<Rad> = sqlx::query_as(
+        "SELECT l.tid, l.kanal, l.anvandare_id, u.visningsnamn, l.typ, l.objekt, l.beskrivning
+         FROM installationslogg l LEFT JOIN anvandare u ON u.id = l.anvandare_id
+         ORDER BY l.id",
     )
     .fetch_all(db.pool())
     .await?;
     rader
         .into_iter()
-        .map(|(tid, kanal, användare, typ, objekt, beskrivning)| {
-            let fel = |vad: &str| DatabasFel::Korrupt(format!("installationsloggen: {vad}"));
-            Ok(Loggpost {
-                tid: tid.parse().map_err(|_| fel("tid"))?,
-                aktör: Aktör {
-                    kanal: Kanal::från_namn(&kanal).ok_or_else(|| fel("kanal"))?,
-                    användare: användare.map(AnvändarId),
-                },
-                typ,
-                objekt,
-                beskrivning: serde_json::from_str(&beskrivning).map_err(|_| fel("beskrivning"))?,
-            })
-        })
+        .map(
+            |(tid, kanal, användare, användarnamn, typ, objekt, beskrivning)| {
+                let fel = |vad: &str| DatabasFel::Korrupt(format!("installationsloggen: {vad}"));
+                Ok(Loggpost {
+                    tid: tid.parse().map_err(|_| fel("tid"))?,
+                    aktör: Aktör {
+                        kanal: Kanal::från_namn(&kanal).ok_or_else(|| fel("kanal"))?,
+                        användare: användare.map(AnvändarId),
+                    },
+                    användarnamn,
+                    typ,
+                    objekt,
+                    beskrivning: serde_json::from_str(&beskrivning)
+                        .map_err(|_| fel("beskrivning"))?,
+                })
+            },
+        )
         .collect()
+}
+
+impl Loggpost {
+    /// Aktören som den visas: `Maya`, användarens namn, eller kanalen (`cli`).
+    pub fn aktörsnamn(&self) -> String {
+        match (self.aktör.kanal, &self.användarnamn) {
+            (Kanal::Maya, _) => "Maya".into(),
+            (_, Some(namn)) => namn.clone(),
+            (kanal, None) => kanal.namn().into(),
+        }
+    }
+
+    /// Beskrivningen som text: `nyckel: värde; …`.
+    pub fn text(&self) -> String {
+        crate::behandlingshistorik::fält_som_text(&self.beskrivning)
+    }
 }

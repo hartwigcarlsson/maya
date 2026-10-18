@@ -532,7 +532,7 @@ impl Post {
 }
 
 /// En beskrivning utan egen text: `nyckel: värde` för varje fält, nästlade med punkt.
-fn fält_som_text(v: &Value) -> String {
+pub(crate) fn fält_som_text(v: &Value) -> String {
     fn platta(prefix: &str, v: &Value, ut: &mut Vec<String>) {
         match v {
             Value::Object(fält) => {

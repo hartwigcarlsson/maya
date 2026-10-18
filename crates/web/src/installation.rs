@@ -1,5 +1,6 @@
 //! Sidan Installation i användarmenyn (beslut 12 i #70): version, publik URL, senaste backup och
-//! verifiering och arkivplanen. Bara läsning; konfigurationen ändras bara på servern.
+//! verifiering, arkivplanen och installationens logg. Bara läsning; konfigurationen ändras bara
+//! på servern.
 
 use leptos::prelude::*;
 use serde::{Deserialize, Serialize};
@@ -23,6 +24,18 @@ pub struct Installationsdata {
     pub arkivplan: Vec<(String, String)>,
     pub larm: String,
     pub driftvarningar: Vec<DriftvarningVy>,
+    /// Installationens logg, nyast först.
+    pub logg: Vec<Loggrad>,
+}
+
+/// En post i installationens logg.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Loggrad {
+    pub tid: String,
+    pub aktör: String,
+    pub typ: String,
+    pub objekt: String,
+    pub beskrivning: String,
 }
 
 /// Datan för `/installation`.
@@ -40,7 +53,7 @@ mod server {
     use maya_core::backup::Körning;
     use maya_core::drift;
 
-    use super::Installationsdata;
+    use super::{Installationsdata, Loggrad};
     use crate::att_gora::DriftvarningVy;
     use crate::sidodata::{Sidbegäran, serverfel};
 
@@ -96,6 +109,17 @@ mod server {
                     text: v.text(),
                 })
                 .collect(),
+            logg: i
+                .logg
+                .iter()
+                .map(|p| Loggrad {
+                    tid: tid(p.tid),
+                    aktör: p.aktörsnamn(),
+                    typ: p.typ.clone(),
+                    objekt: p.objekt.clone(),
+                    beskrivning: p.text(),
+                })
+                .collect(),
         })
     }
 
@@ -141,6 +165,40 @@ fn installation(data: Installationsdata) -> AnyView {
             }
         })
         .collect_view();
+    let logg = if data.logg.is_empty() {
+        view! { <p class="diskret">"Inga poster än."</p> }.into_any()
+    } else {
+        let rader = data
+            .logg
+            .into_iter()
+            .map(|p| {
+                view! {
+                    <tr>
+                        <td class="tid">{p.tid}</td>
+                        <td>{p.aktör}</td>
+                        <td>{p.typ}</td>
+                        <td>{p.objekt}</td>
+                        <td>{p.beskrivning}</td>
+                    </tr>
+                }
+            })
+            .collect_view();
+        view! {
+            <table class="rader installationslogg">
+                <thead>
+                    <tr>
+                        <th>"Tid"</th>
+                        <th>"Aktör"</th>
+                        <th>"Typ"</th>
+                        <th>"Objekt"</th>
+                        <th>"Beskrivning"</th>
+                    </tr>
+                </thead>
+                <tbody>{rader}</tbody>
+            </table>
+        }
+        .into_any()
+    };
     view! {
         <section class="sida installation">
             <h1>"Installation"</h1>
@@ -172,6 +230,11 @@ fn installation(data: Installationsdata) -> AnyView {
             </dl>
             <h2>"Arkivplan"</h2>
             <dl class="fakta">{arkivplan}</dl>
+            <h2>"Installationens logg"</h2>
+            <p class="diskret">
+                "Det som gäller hela installationen: användare som driften skapar, återställer och avaktiverar, raderade företag, domänbyten, verifieringar och återställningar. Nyast först; loggen kan inte ändras."
+            </p>
+            {logg}
         </section>
     }
     .into_any()

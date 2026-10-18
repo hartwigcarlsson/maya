@@ -9,7 +9,7 @@ use crate::aktor::{self, Aktör, Handling};
 use crate::backup::{Backupmål, Backupstatus};
 use crate::config::{Arkivplan, Config};
 use crate::inloggning::tidpunkt;
-use crate::{Databas, DatabasFel, Klocka, backup, smtp};
+use crate::{Databas, DatabasFel, Klocka, backup, installationslogg, smtp};
 
 /// Något som är fel i driften.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -292,6 +292,8 @@ pub struct Installation {
     /// Larm skickas: både SMTP och larmadressen är angivna.
     pub larm: bool,
     pub driftvarningar: Vec<Driftvarning>,
+    /// Den installationsövergripande loggen, nyast först.
+    pub logg: Vec<installationslogg::Loggpost>,
 }
 
 /// Installationen för sidan Installation (beslut 12 i #70).
@@ -313,6 +315,11 @@ pub async fn installation(
         larmadress: config.drift_epost.clone(),
         larm: config.smtp.is_some() && config.drift_epost.is_some(),
         driftvarningar: driftvarningar(db, klocka, config).await?,
+        logg: {
+            let mut logg = installationslogg::läs(db).await?;
+            logg.reverse();
+            logg
+        },
     })
 }
 
