@@ -52,7 +52,7 @@ fn läge() -> Läge {
 
 /// Sätter `data-theme` ur det sparade valet innan sidan ritas, så att ett manuellt valt läge
 /// inte blinkar till i systemets läge.
-const TEMA_FÖRE_RITNING: &str = "try{const t=localStorage.getItem('maya-tema');\
+pub(crate) const TEMA_FÖRE_RITNING: &str = "try{const t=localStorage.getItem('maya-tema');\
 if(t==='light'||t==='dark')document.documentElement.dataset.theme=t}catch(e){}";
 
 /// `/` fokuserar sökfältet på en sida som har ett (kontoplanen), utom när man skriver i ett fält.

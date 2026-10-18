@@ -145,10 +145,11 @@ pub async fn hämta_inställningsdata(
 
 #[cfg(feature = "ssr")]
 pub(crate) mod server {
+    use crate::svar::{ingen_åtkomst, serverfel};
     use std::sync::Arc;
 
     use axum::extract::{Path, State};
-    use axum::http::{StatusCode, header};
+
     use axum::response::{IntoResponse, Redirect, Response};
     use axum::routing::post;
     use axum::{Extension, Form, Router};
@@ -446,25 +447,6 @@ pub(crate) mod server {
             query.finish()
         ))
         .into_response()
-    }
-
-    fn ingen_åtkomst() -> Response {
-        (
-            StatusCode::FORBIDDEN,
-            [(header::CONTENT_TYPE, "text/plain; charset=utf-8")],
-            "Du har inte åtkomst till företaget.\n",
-        )
-            .into_response()
-    }
-
-    fn serverfel(e: impl std::fmt::Display) -> Response {
-        tracing::error!("inställningar: {e}");
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            [(header::CONTENT_TYPE, "text/plain; charset=utf-8")],
-            "Något gick fel i Maya; försök igen.\n",
-        )
-            .into_response()
     }
 }
 
@@ -911,7 +893,7 @@ fn Radering(bas: String, data: Inställningsdata) -> impl IntoView {
         let kod = match serverfel.as_deref() {
             Some(HAR_RÄKENSKAPSINFORMATION) => Some((
                 HAR_RÄKENSKAPSINFORMATION,
-                "Företaget har bokförda verifikat eller underlag och kan inte raderas.",
+                "Företaget har bokförda verifikat, underlag eller en ingående balans och kan inte raderas.",
             )),
             _ if !bekräftelse.with(|b| bekräftar(b, &siffror)) => Some((
                 BEKRÄFTELSE_FEL,
@@ -947,7 +929,7 @@ fn Radering(bas: String, data: Inställningsdata) -> impl IntoView {
     let innehåll = if data.kan_raderas {
         view! {
             <p>
-                "Företaget har inga bokförda verifikat eller underlag och kan raderas med kontoplan, räkenskapsår, utkast och behandlingshistorik. Raderingen står i installationens logg."
+                "Företaget har inga bokförda verifikat, underlag eller ingående balans och kan raderas med kontoplan, räkenskapsår, utkast och behandlingshistorik. Raderingen står i installationens logg."
             </p>
             <form
                 class="formular"
@@ -977,7 +959,7 @@ fn Radering(bas: String, data: Inställningsdata) -> impl IntoView {
         .into_any()
     } else {
         view! {
-            <p>"Företaget har bokförda verifikat eller underlag och kan inte raderas."</p>
+            <p>"Företaget har bokförda verifikat, underlag eller en ingående balans och kan inte raderas."</p>
             {felvisning}
         }
         .into_any()

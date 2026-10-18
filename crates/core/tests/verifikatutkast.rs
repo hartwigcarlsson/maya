@@ -266,7 +266,10 @@ async fn ett_utkast_i_nästa_räkenskapsår_skapar_året_i_samma_transaktion() {
     assert_eq!((år.start, år.slut), (date(2027, 1, 1), date(2027, 12, 31)));
     let historik = behandlingshistorik::läs(&db, &anna, id).await.unwrap();
     let typer: Vec<_> = historik.iter().map(|p| p.typ.as_str()).collect();
-    assert_eq!(typer, ["företag skapat", "räkenskapsår skapat"]);
+    assert_eq!(
+        typer,
+        ["företag skapat", "åtkomst given", "räkenskapsår skapat"]
+    );
     let v = verifikat::verifikatet(&db, &anna, id, utkast)
         .await
         .unwrap()

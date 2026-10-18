@@ -33,7 +33,8 @@ pub struct ListVy {
     pub summa: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+/// En rad i ett verifikat, i dokumentet, grundboken och panelerna.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RadVy {
     pub konto: String,
     pub kontonamn: String,
@@ -218,6 +219,7 @@ pub use maya_domain::rakenskapsar::periodnamn;
 
 #[cfg(feature = "ssr")]
 pub(crate) mod server {
+    use crate::svar::{ingen_åtkomst, serverfel};
     use std::sync::Arc;
 
     use axum::extract::{DefaultBodyLimit, Path, Request, State};
@@ -402,8 +404,8 @@ pub(crate) mod server {
                     .map(|r| RadVy {
                         konto: r.konto.map(|k| k.to_string()).unwrap_or_default(),
                         kontonamn: r.konto.map(|k| kontonamn(k.get())).unwrap_or_default(),
-                        debet: belopp(r.debet),
-                        kredit: belopp(r.kredit),
+                        debet: r.debet.eller_tomt(),
+                        kredit: r.kredit.eller_tomt(),
                         text: r.text.clone().unwrap_or_default(),
                     })
                     .collect(),
@@ -474,19 +476,7 @@ pub(crate) mod server {
         })
     }
 
-    fn belopp(b: Belopp) -> String {
-        if b == Belopp::NOLL {
-            String::new()
-        } else {
-            b.to_string()
-        }
-    }
-
-    pub(crate) fn tid(t: jiff::Timestamp) -> String {
-        t.to_zoned(maya_domain::tid::stockholm())
-            .strftime("%Y-%m-%d %H:%M")
-            .to_string()
-    }
+    pub(crate) use maya_domain::tid::minut as tid;
 
     fn signatur(s: &Signatur) -> (String, String, String) {
         (tid(s.tid), s.namn.clone(), s.aktör.kanal.namn().to_string())
@@ -921,25 +911,6 @@ pub(crate) mod server {
         )
             .into_response()
     }
-
-    fn ingen_åtkomst() -> Response {
-        (
-            StatusCode::FORBIDDEN,
-            [(header::CONTENT_TYPE, "text/plain; charset=utf-8")],
-            "Du har inte åtkomst till företaget.\n",
-        )
-            .into_response()
-    }
-
-    fn serverfel(e: impl std::fmt::Display) -> Response {
-        tracing::error!("verifikat: {e}");
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            [(header::CONTENT_TYPE, "text/plain; charset=utf-8")],
-            "Något gick fel i Maya; försök igen.\n",
-        )
-            .into_response()
-    }
 }
 
 /// Företagets sida i sökvägen, eller `None` om användaren saknar åtkomst.
@@ -1074,13 +1045,7 @@ fn Rättelsepanel(bas: String, id: String, r: RättelseVy) -> impl IntoView {
         .as_ref()
         .map(|o| rattelse::vänd(&o.rader))
         .unwrap_or_default();
-    let belopp = |b: Belopp| {
-        if b == Belopp::NOLL {
-            String::new()
-        } else {
-            b.to_string()
-        }
-    };
+    let belopp = Belopp::eller_tomt;
     let rader = vända
         .into_iter()
         .map(|rad| {
@@ -2099,13 +2064,11 @@ fn kontantfristens_notis(
         verifikat.with(|v| {
             let läge = Utkastläge {
                 datum: Some(v.datum.trim().parse().ok()?),
-                kassa: rör_kassan(v.rader.iter().filter_map(|r| {
-                    r.konto
-                        .trim()
-                        .parse::<u16>()
-                        .ok()
-                        .and_then(Kontonummer::new)
-                })),
+                kassa: rör_kassan(
+                    v.rader
+                        .iter()
+                        .filter_map(|r| r.konto.parse::<Kontonummer>().ok()),
+                ),
             };
             match frist(&läge, idag) {
                 Frist::Kontantfrist { senast, försenad } => Some((senast, försenad)),

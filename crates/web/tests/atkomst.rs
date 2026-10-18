@@ -99,33 +99,45 @@ async fn sidan_listar_användarna_och_når_från_inställningsmenyn() {
 }
 
 #[tokio::test]
-async fn en_inbjudan_visar_länken_för_kopiering_och_listas_som_öppen() {
+async fn en_inbjudan_visar_länken_i_svaret_och_aldrig_i_en_adress() {
     let db = Databas::tillfällig().await;
     let (session, _, bas) = anna(&db).await;
 
-    let response = posta(
+    let (response, body) = skicka(
         &db,
-        &session,
-        &format!("{bas}/atkomst/inbjudan"),
-        "epost=bo%40example.se",
+        Request::post(format!("{bas}/atkomst/inbjudan"))
+            .header(header::HOST, HOST)
+            .header(header::ORIGIN, ORIGIN)
+            .header(header::COOKIE, format!("maya_session={session}"))
+            .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+            .body(Body::from("epost=bo%40example.se"))
+            .unwrap(),
     )
     .await;
 
-    let plats = plats(&response);
-    let token = plats
-        .strip_prefix(&format!("{bas}/installningar/atkomst?lank="))
-        .expect(&plats)
-        .to_string();
-    let (_, body) = hämta(&db, &session, &plats).await;
+    // Länken står i svaret på formuläret, inte i en omdirigering som hamnar i historiken.
+    assert_eq!(response.status(), StatusCode::OK, "{body}");
+    assert!(response.headers().get(header::LOCATION).is_none());
+    assert_eq!(response.headers()[header::CACHE_CONTROL], "no-store");
+    assert_eq!(response.headers()["referrer-policy"], "no-referrer");
+    let prefix = format!("{ORIGIN}/registrera/");
+    let start = body.find(&prefix).expect(&body) + prefix.len();
+    let token: String = body[start..]
+        .chars()
+        .take_while(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_')
+        .collect();
+    assert!(!token.is_empty(), "{body}");
     assert!(
-        body.contains(&format!("{ORIGIN}/registrera/{token}")),
+        body.contains(&format!(r#"href="{bas}/installningar/atkomst""#)),
         "{body}"
     );
-    assert!(body.contains("bo@example.se"), "{body}");
     let registrering = inloggning::registrering(&db, &Klocka::system(), &token)
         .await
         .unwrap();
     assert_eq!(registrering.användare.epost, "bo@example.se");
+    let (_, sidan) = hämta(&db, &session, &format!("{bas}/installningar/atkomst")).await;
+    assert!(sidan.contains("bo@example.se"), "{sidan}");
+    assert!(!sidan.contains(&token), "{sidan}");
 }
 
 #[tokio::test]

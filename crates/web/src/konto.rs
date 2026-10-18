@@ -67,10 +67,12 @@ mod server {
                     passkeys: Some(p),
                     sessioner: None,
                 }),
-            ["sessioner"] => sessioner(&b.db, &b.inloggad).await.map(|s| Kontodata {
-                passkeys: None,
-                sessioner: Some(s),
-            }),
+            ["sessioner"] => sessioner(&b.db, &b.klocka, &b.inloggad)
+                .await
+                .map(|s| Kontodata {
+                    passkeys: None,
+                    sessioner: Some(s),
+                }),
             _ => Ok(Kontodata::default()),
         };
         data.map_err(serverfel)
@@ -98,9 +100,10 @@ mod server {
 
     async fn sessioner(
         db: &Databas,
+        klocka: &Klocka,
         inloggad: &Inloggad,
     ) -> Result<Vec<SessionVy>, InloggningsFel> {
-        Ok(inloggning::sessioner(db, inloggad)
+        Ok(inloggning::sessioner(db, klocka, inloggad)
             .await?
             .into_iter()
             .map(|s| SessionVy {
@@ -113,12 +116,7 @@ mod server {
             .collect())
     }
 
-    /// En tidpunkt i Stockholm, till minuten.
-    fn tid(t: jiff::Timestamp) -> String {
-        t.to_zoned(maya_domain::tid::stockholm())
-            .strftime("%Y-%m-%d %H:%M")
-            .to_string()
-    }
+    use maya_domain::tid::minut as tid;
 }
 
 fn inloggad() -> bool {

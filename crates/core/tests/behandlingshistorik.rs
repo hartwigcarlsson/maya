@@ -46,7 +46,7 @@ async fn behandlingshistoriken_går_inte_att_ändra_eller_radera() {
     assert!(radera.unwrap_err().contains("går inte att radera"));
     let db = Databas::öppna(&path).await.unwrap();
     let historik = behandlingshistorik::läs(&db, &anna, id).await.unwrap();
-    assert_eq!(historik.len(), 1);
+    assert_eq!(historik.len(), 2);
     assert_eq!(historik[0].objekt, "556036-0793");
 }
 
@@ -240,6 +240,9 @@ async fn alla_ändringar(db: &Databas, anna: &Aktör, id: FöretagsId, tid: &str
         .await
         .unwrap()
         .unwrap();
+    inloggning::avaktivera_användare(db, &k, &Aktör::cli(), "bo@example.se")
+        .await
+        .unwrap();
     atkomst::ta_åtkomst(db, &k, &inloggad, id, bo.aktör.användare.unwrap())
         .await
         .unwrap();
@@ -248,7 +251,15 @@ async fn alla_ändringar(db: &Databas, anna: &Aktör, id: FöretagsId, tid: &str
         .unwrap();
     // Driften återställer installationen ur nattens backup.
     testhjalp::logga_återställning(db, &k, "2026-03-01T02:00:00Z".parse().unwrap()).await;
-    // En ny Maya-version startar och kör en migrering.
+    // En ny Maya-version försöker en migrering som misslyckas, och sedan en som går igenom.
+    testhjalp::misslyckad_migrering(
+        db,
+        &k,
+        "0.5.0",
+        &[(20270101000000, "exempel")],
+        "no such table: finns_inte",
+    )
+    .await;
     testhjalp::starta_om(
         db,
         &k,
@@ -280,7 +291,7 @@ async fn varje_typ_i_etapp_1_som_har_en_kodväg_ger_en_post() {
     for post in &historik.poster {
         let maya = matches!(
             post.typ.as_str(),
-            "BAS-tillägg" | "migrering körd" | "programversion bytt"
+            "BAS-tillägg" | "migrering körd" | "migrering misslyckad" | "programversion bytt"
         );
         assert_eq!(post.aktör.kanal == Kanal::Maya, maya, "{post:?}");
     }
@@ -427,7 +438,7 @@ async fn filter_på_typ_aktör_och_tid_ger_rätt_urval() {
     let historik = behandlingshistorik::historik(&db, &anna, id, &Urval::default())
         .await
         .unwrap();
-    assert_eq!(historik.poster.len(), 30);
+    assert_eq!(historik.poster.len(), 33);
     let namn: Vec<&str> = historik.aktörer.iter().map(|(_, n)| n.as_str()).collect();
     assert_eq!(namn, ["anna@example.se", "bo@example.se", "cli", "Maya"]);
     assert_eq!(
@@ -452,13 +463,18 @@ async fn filter_på_typ_aktör_och_tid_ger_rätt_urval() {
     };
     assert_eq!(
         typer(&db, &anna, id, maya).await,
-        ["BAS-tillägg", "migrering körd", "programversion bytt"]
+        [
+            "BAS-tillägg",
+            "migrering misslyckad",
+            "migrering körd",
+            "programversion bytt"
+        ]
     );
     let anna_urval = Urval {
         aktör: Some(Aktörsval::Användare(anna.användare.unwrap())),
         ..Urval::default()
     };
-    assert_eq!(typer(&db, &anna, id, anna_urval).await.len(), 24);
+    assert_eq!(typer(&db, &anna, id, anna_urval).await.len(), 25);
     let bo = Urval {
         aktör: Some(historik.aktörer[1].0),
         ..Urval::default()
@@ -476,7 +492,7 @@ async fn filter_på_typ_aktör_och_tid_ger_rätt_urval() {
     };
     assert_eq!(
         typer(&db, &anna, id, tid(None, Some(date(2026, 3, 1)))).await,
-        ["företag skapat"]
+        ["företag skapat", "åtkomst given"]
     );
     assert_eq!(
         typer(
@@ -487,7 +503,7 @@ async fn filter_på_typ_aktör_och_tid_ger_rätt_urval() {
         )
         .await
         .len(),
-        28
+        30
     );
     assert_eq!(
         typer(&db, &anna, id, tid(Some(date(2026, 4, 1)), None)).await,

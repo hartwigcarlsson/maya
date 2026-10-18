@@ -18,7 +18,30 @@ pub async fn exportera_sie4_förvanskad(
     år: jiff::civil::Date,
     förvanska: impl FnOnce(&mut maya_sie::Sie4),
 ) -> Result<sie4::Sie4Export, sie4::Sie4Fel> {
-    sie4::exportera_med(db, klocka, aktör, företag, år, förvanska).await
+    sie4::exportera_med(db, klocka, aktör, företag, år, |_| {}, förvanska).await
+}
+
+/// SIE4-exporten med en läsning som tappar årets sista verifikat, som en bugg i frågan som
+/// filen byggs av, för att visa att avstämningen läser databasen för sig.
+pub async fn exportera_sie4_med_felaktig_läsning(
+    db: &Databas,
+    klocka: &Klocka,
+    aktör: &Aktör,
+    företag: FöretagsId,
+    år: jiff::civil::Date,
+) -> Result<sie4::Sie4Export, sie4::Sie4Fel> {
+    sie4::exportera_med(
+        db,
+        klocka,
+        aktör,
+        företag,
+        år,
+        |verifikat| {
+            verifikat.pop();
+        },
+        |_| {},
+    )
+    .await
 }
 
 /// En ny användare i webben, utan passkey och utan åtkomst till något företag. Inbjudningar
@@ -210,5 +233,27 @@ pub async fn starta_om(
     crate::databas::logga_start(&mut tx, klocka.nu(), till, Some(&körda))
         .await
         .expect("starten loggas");
+    tx.commit().await.expect("commit");
+}
+
+/// Loggar en migrering som misslyckades och rullades tillbaka, utan att köra någon.
+pub async fn misslyckad_migrering(
+    db: &Databas,
+    klocka: &Klocka,
+    version: &str,
+    migreringar: &[(i64, &str)],
+    fel: &str,
+) {
+    let mut tx = db.pool().begin().await.expect("transaktion");
+    let försök = crate::databas::Migreringsresultat {
+        migreringar: migreringar
+            .iter()
+            .map(|(v, namn)| (*v, namn.to_string()))
+            .collect(),
+        backup: None,
+    };
+    crate::databas::logga_misslyckad_i(&mut tx, klocka.nu(), version, &försök, fel)
+        .await
+        .expect("misslyckandet loggas");
     tx.commit().await.expect("commit");
 }

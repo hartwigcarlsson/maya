@@ -9,7 +9,7 @@ use crate::aktor::{self, Aktör, Handling};
 use crate::backup::{Backupmål, Backupstatus};
 use crate::config::{Arkivplan, Config};
 use crate::inloggning::tidpunkt;
-use crate::{Databas, DatabasFel, Klocka, backup, smtp};
+use crate::{Databas, DatabasFel, Klocka, backup, installationslogg, smtp};
 
 /// Något som är fel i driften.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -76,12 +76,7 @@ impl Driftvarning {
     }
 }
 
-/// En tidpunkt i Stockholm, till minuten.
-fn tid(t: Timestamp) -> String {
-    t.to_zoned(maya_domain::tid::stockholm())
-        .strftime("%Y-%m-%d %H:%M")
-        .to_string()
-}
+use maya_domain::tid::minut as tid;
 
 /// Driftvarningarna just nu, i en fast ordning.
 pub async fn driftvarningar(
@@ -172,6 +167,7 @@ pub async fn skicka_larm(
         .clone()
         .unwrap_or_else(|| format!("maya@{}", config.public_url.host_str().unwrap_or("maya")));
     let mut skickat = Vec::new();
+    let mut misslyckade = Vec::new();
     for larm in maya_domain::drift::larm(nu, &fel, &skickade) {
         let (ämne, text) = match larm {
             Larm::Fel(f) => {
@@ -202,7 +198,7 @@ pub async fn skicka_larm(
             ),
         };
         let (smtp, värd, från, till) = (smtp.clone(), värd.clone(), från.clone(), till.clone());
-        tokio::task::spawn_blocking(move || {
+        let utfall = tokio::task::spawn_blocking(move || {
             let brev = smtp::Brev {
                 från: &från,
                 till: &till,
@@ -212,8 +208,14 @@ pub async fn skicka_larm(
             smtp::skicka(&smtp, &värd, &brev, nu)
         })
         .await
-        .map_err(|e| DriftFel::Smtp(e.to_string()))?
-        .map_err(DriftFel::Smtp)?;
+        .map_err(|e| e.to_string())
+        .and_then(|r| r);
+        // Ett larm som inte kom fram stoppar inte de andra; det försöks igen nästa gång.
+        if let Err(e) = utfall {
+            tracing::error!("larmet {larm:?} kunde inte skickas: {e}");
+            misslyckade.push(e);
+            continue;
+        }
         match larm {
             Larm::Fel(f) => {
                 sqlx::query(
@@ -234,7 +236,11 @@ pub async fn skicka_larm(
         }
         skickat.push(larm);
     }
-    Ok(skickat)
+    if misslyckade.is_empty() {
+        Ok(skickat)
+    } else {
+        Err(DriftFel::Smtp(misslyckade.join("; ")))
+    }
 }
 
 /// Felen som driften får larm om just nu, med en beskrivning för mejlet.
@@ -292,6 +298,8 @@ pub struct Installation {
     /// Larm skickas: både SMTP och larmadressen är angivna.
     pub larm: bool,
     pub driftvarningar: Vec<Driftvarning>,
+    /// Den installationsövergripande loggen, nyast först.
+    pub logg: Vec<installationslogg::Loggpost>,
 }
 
 /// Installationen för sidan Installation (beslut 12 i #70).
@@ -313,6 +321,11 @@ pub async fn installation(
         larmadress: config.drift_epost.clone(),
         larm: config.smtp.is_some() && config.drift_epost.is_some(),
         driftvarningar: driftvarningar(db, klocka, config).await?,
+        logg: {
+            let mut logg = installationslogg::läs(db).await?;
+            logg.reverse();
+            logg
+        },
     })
 }
 

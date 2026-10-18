@@ -197,6 +197,24 @@ pub async fn antal(
     Ok(antal)
 }
 
+/// Antalet utkast per företag som aktören har åtkomst till, för företagsväljaren (berättelse 52).
+pub async fn antal_utkast(
+    db: &Databas,
+    aktör: &Aktör,
+) -> Result<BTreeMap<FöretagsId, usize>, DatabasFel> {
+    let företagen = foretag::mina_företag(db, aktör).await?;
+    let rader: Vec<(i64, i64)> = sqlx::query_as(
+        "SELECT foretag_id, count(*) FROM verifikat WHERE bokford IS NULL GROUP BY foretag_id",
+    )
+    .fetch_all(db.pool())
+    .await?;
+    Ok(rader
+        .into_iter()
+        .map(|(f, n)| (FöretagsId(f), usize::try_from(n).unwrap_or_default()))
+        .filter(|(f, _)| företagen.iter().any(|m| m.id == *f))
+        .collect())
+}
+
 /// Kvitterar varningen efter återställningen `id` för aktörens användare. Andra användares
 /// varningar ligger kvar. En redan kvitterad eller okänd varning ändrar inget.
 pub async fn kvittera_återställning(

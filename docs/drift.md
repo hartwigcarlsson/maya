@@ -25,10 +25,10 @@ Vid första start sparar Maya `rp_id` och origin ur `MAYA_PUBLIC_URL`. Passkeys 
 
 Det som rör en användare som helhet görs bara med CLI:t på servern. Varje kommando skrivs i installationsloggen.
 
-- `maya user reset <e-post>`: en användare som har tappat alla sina passkeys får en länk där hen registrerar en ny. Länken gäller i 24 timmar och kan användas en gång.
-- `maya user deactivate <e-post>`: användaren kan inte logga in, och hens sessioner och oanvända länkar upphör. Användare raderas aldrig.
+- `maya user reset <e-post>`: en användare som har tappat alla sina passkeys får en länk där hen registrerar en ny. Hens gamla passkeys och sessioner upphör direkt. Länken gäller i 24 timmar och kan användas en gång.
+- `maya user deactivate <e-post>`: användaren kan inte logga in, och hens sessioner och oanvända länkar upphör. Avaktiveringen står i behandlingshistoriken för varje företag hen har åtkomst till, och nekas om hen är den sista aktiva användaren i något företag. Användare raderas aldrig.
 - `maya user reactivate <e-post>`: användaren kan logga in med sina passkeys igen.
-- `maya domain change`: byt först `MAYA_PUBLIC_URL` i `.env`, och kör sedan `docker compose run --rm maya maya domain change` (Maya startar inte med den nya domänen förrän bytet är gjort). Kommandot sparar nytt `rp_id` och origin och tömmer alla passkeys och sessioner. Ge sedan varje användare en ny passkey med `maya user reset` och starta Maya.
+- `maya domain change`: byt först `MAYA_PUBLIC_URL` i `.env`, och kör sedan `docker compose run --rm maya maya domain change` (Maya startar inte med den nya domänen förrän bytet är gjort). Kommandot sparar nytt `rp_id` och origin och tömmer alla passkeys och sessioner. Ge sedan varje användare en länk för att lägga till en passkey med `maya user reset` och starta Maya.
 
 ## Backup
 
@@ -90,11 +90,11 @@ Proxyn ska skicka hela origin oförändrad (`Host` som klienten skickade), inte 
 
 ### Caddy (standard)
 
-`COMPOSE_PROFILES=caddy` i `.env`. Caddy skaffar certifikatet själv. Konfigurationen är `deploy/Caddyfile`.
+Caddy startar med `docker compose up -d` utan något i `.env`. Caddy skaffar certifikatet själv. Konfigurationen är `deploy/Caddyfile`.
 
 ### Traefik
 
-`COMPOSE_PROFILES=traefik` i `.env`. Traefik körs med file provider (`deploy/traefik-dynamic.yml`), alltså utan Docker-socket, och skaffar certifikatet med ACME via TLS-ALPN-01. Ange `MAYA_ACME_EPOST`.
+`COMPOSE_PROFILES=traefik` och `MAYA_CADDY_SCALE=0` i `.env` (Caddy startar annars också). Traefik körs med file provider (`deploy/traefik-dynamic.yml`), alltså utan Docker-socket, och skaffar certifikatet med ACME via TLS-ALPN-01. Ange `MAYA_ACME_EPOST`.
 
 ### En Traefik som redan finns
 
@@ -110,7 +110,7 @@ Med Funnel blir `MAYA_PUBLIC_URL` maskinens Funnel-namn, till exempel `https://m
 tailscale funnel --bg 8080
 ```
 
-Publicera då port 8080 på `127.0.0.1` (`ports: ["127.0.0.1:8080:8080"]` på tjänsten `maya`) och sätt `COMPOSE_PROFILES=` tomt, så att varken Caddy eller Traefik startar. Anslutningarna kommer då från nätverkets gateway, så sätt `MAYA_TRUSTED_PROXY=172.31.80.1`.
+Publicera då port 8080 på `127.0.0.1` (`ports: ["127.0.0.1:8080:8080"]` på tjänsten `maya`) och sätt `MAYA_CADDY_SCALE=0` utan `COMPOSE_PROFILES`, så att varken Caddy eller Traefik startar. Anslutningarna kommer då från nätverkets gateway, så sätt `MAYA_TRUSTED_PROXY=172.31.80.1`.
 
 ## Containern
 

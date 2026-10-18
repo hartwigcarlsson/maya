@@ -61,7 +61,7 @@ pub struct KolumnVy {
 /// En rad i dokumentet. `slag` är CSS-klassen; beloppen är formaterade, `None` är en
 /// jämförelse som saknas och en tom lista en överskrift utan belopp.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct RadVy {
+pub struct Rapportrad {
     pub slag: String,
     pub text: String,
     pub ink2: Option<String>,
@@ -113,7 +113,7 @@ pub struct Rapportvy {
     pub preliminär: Option<(String, String)>,
     pub första_året: bool,
     pub kolumner: Vec<KolumnVy>,
-    pub rader: Vec<RadVy>,
+    pub rader: Vec<Rapportrad>,
     pub panel: Option<PanelVy>,
     /// Exportens filnamn utan ändelse.
     pub filnamn: String,
@@ -627,6 +627,7 @@ fn Panel(d: Rapportvy, sida: String, bas: String, p: PanelVy) -> impl IntoView {
 
 #[cfg(feature = "ssr")]
 pub(crate) mod server {
+    use crate::svar::{ingen_åtkomst, serverfel, text};
     use std::sync::Arc;
 
     use axum::Router;
@@ -644,13 +645,13 @@ pub(crate) mod server {
     use maya_core::sie4::{self, Sie4Fel};
     use maya_core::utskrift::{self, UtskriftFel};
     use maya_core::{Databas, Klocka};
-    use maya_domain::belopp::{Belopp, Saldo};
+    use maya_domain::belopp::Saldo;
     use maya_domain::kontoplan::Kontonummer;
     use maya_domain::rakenskapsar::periodnamn;
     use maya_domain::rapport::{Nivå, Radslag, Rapporttyp, Visning, periodspann};
     use serde::Deserialize;
 
-    use super::{KolumnVy, PanelVy, PanelradVy, RadVy, Rapportdata, Rapportvy, SIE4_STOPPAD};
+    use super::{KolumnVy, PanelVy, PanelradVy, Rapportdata, Rapportrad, Rapportvy, SIE4_STOPPAD};
     use crate::sidodata::{self, Sidbegäran};
 
     #[derive(Clone)]
@@ -801,9 +802,7 @@ pub(crate) mod server {
                 jämförelse: hämta("jmf") == Some("1"),
                 nivå: hämta("niva").and_then(Nivå::från_kod).unwrap_or_default(),
             },
-            konto: hämta("konto")
-                .and_then(|k| k.parse::<u16>().ok())
-                .and_then(Kontonummer::new),
+            konto: hämta("konto").and_then(|k| k.parse::<Kontonummer>().ok()),
         })
     }
 
@@ -847,14 +846,6 @@ pub(crate) mod server {
 
     fn kronor(öre: i64) -> String {
         Saldo::från_öre(öre).to_string()
-    }
-
-    fn belopp(b: Belopp) -> String {
-        if b == Belopp::NOLL {
-            String::new()
-        } else {
-            b.to_string()
-        }
     }
 
     fn slag(s: Radslag) -> &'static str {
@@ -908,8 +899,8 @@ pub(crate) mod server {
                             nummer: r.nummer.to_string(),
                             datum: r.datum.to_string(),
                             text: r.text.unwrap_or(r.beskrivning),
-                            debet: belopp(r.debet),
-                            kredit: belopp(r.kredit),
+                            debet: r.debet.eller_tomt(),
+                            kredit: r.kredit.eller_tomt(),
                             saldo: r.saldo.to_string(),
                         })
                         .collect(),
@@ -964,7 +955,7 @@ pub(crate) mod server {
             rader: r
                 .rader
                 .iter()
-                .map(|rad| RadVy {
+                .map(|rad| Rapportrad {
                     slag: slag(rad.slag).into(),
                     text: rad.text.clone(),
                     ink2: rad.ink2.clone(),
@@ -1007,7 +998,7 @@ pub(crate) mod server {
         )
         .await
         {
-            Ok(pdf) => crate::utskrift::server::svar(pdf),
+            Ok(pdf) => crate::svar::pdf(pdf),
             Err(UtskriftFel::Åtkomst(e)) => åtkomstfel(e),
             Err(UtskriftFel::OkäntRäkenskapsår) => okänt_år(),
             Err(e) => serverfel(e),
@@ -1035,18 +1026,7 @@ pub(crate) mod server {
             return okänt_år();
         };
         match rapport::csv(&state.db, &inloggad.aktör, företag, valt.år, &valt.urval).await {
-            Ok(csv) => (
-                [
-                    (header::CONTENT_TYPE, "text/csv; charset=utf-8".to_string()),
-                    (
-                        header::CONTENT_DISPOSITION,
-                        format!(r#"attachment; filename="{}""#, csv.filnamn),
-                    ),
-                    (header::CACHE_CONTROL, "no-store".to_string()),
-                ],
-                csv.innehåll,
-            )
-                .into_response(),
+            Ok(csv) => crate::svar::csv(&csv.filnamn, csv.innehåll.into_bytes()),
             Err(SaldoFel::Åtkomst(e)) => åtkomstfel(e),
             Err(SaldoFel::OkäntRäkenskapsår) => okänt_år(),
         }
@@ -1057,29 +1037,5 @@ pub(crate) mod server {
             ÅtkomstFel::IngenÅtkomst | ÅtkomstFel::KanalenFårInte => ingen_åtkomst(),
             e => serverfel(e),
         }
-    }
-
-    fn ingen_åtkomst() -> Response {
-        text(
-            StatusCode::FORBIDDEN,
-            "Du har inte åtkomst till företaget.\n",
-        )
-    }
-
-    fn serverfel(e: impl std::fmt::Display) -> Response {
-        tracing::error!("rapporter: {e}");
-        text(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "Något gick fel i Maya; försök igen.\n",
-        )
-    }
-
-    fn text(status: StatusCode, text: &'static str) -> Response {
-        (
-            status,
-            [(header::CONTENT_TYPE, "text/plain; charset=utf-8")],
-            text,
-        )
-            .into_response()
     }
 }

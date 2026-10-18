@@ -298,7 +298,7 @@ async fn sessionslistan_visar_sessionerna_och_en_avslutad_session_loggas_ut_dire
     assert!(body.contains("Safari på iPhone"), "{body}");
     assert!(body.contains("Den här sessionen"), "{body}");
 
-    let andra = inloggning::sessioner(&db, &inloggad)
+    let andra = inloggning::sessioner(&db, &Klocka::system(), &inloggad)
         .await
         .unwrap()
         .into_iter()

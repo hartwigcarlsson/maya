@@ -1,6 +1,6 @@
 //! Binären `maya`: servern och CLI:t. Kommandona är på engelska och utskrifterna på svenska.
 
-use std::net::{Ipv4Addr, SocketAddr};
+use std::net::SocketAddr;
 use std::process::ExitCode;
 use std::sync::Arc;
 
@@ -11,6 +11,7 @@ use maya_core::kontoplan;
 use maya_core::{Databas, Klocka};
 
 mod backup;
+mod cli;
 mod healthcheck;
 mod restore;
 mod user;
@@ -76,12 +77,9 @@ fn serve() -> ExitCode {
         )
         .init();
 
-    let config = match Config::from_env(std::env::vars()) {
+    let config = match cli::config() {
         Ok(config) => config,
-        Err(e) => {
-            eprint!("{e}");
-            return ExitCode::FAILURE;
-        }
+        Err(kod) => return kod,
     };
     println!("{config}");
 
@@ -98,12 +96,16 @@ fn serve() -> ExitCode {
 async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
     std::fs::create_dir_all(&config.data_dir)
         .map_err(|e| format!("kan inte skapa {}: {e}", config.data_dir.display()))?;
+    // Domänen prövas före öppningen, som migrerar och loggar programversionen: en start med
+    // fel MAYA_PUBLIC_URL ska inte skriva något.
+    let rp = RelyingParty::från_publik_url(&config.public_url);
+    installation::kontrollera_rp_i_fil(&config.database_path(), &rp).await?;
     let db = Databas::öppna_med_backup(
         &config.database_path(),
         &maya_core::backup::Backupmål::från(&config.backup),
     )
     .await?;
-    installation::kontrollera_rp(&db, &RelyingParty::från_publik_url(&config.public_url)).await?;
+    installation::kontrollera_rp(&db, &rp).await?;
     let tillagda = kontoplan::lägg_till_inbyggd_bas(&db, &Klocka::system()).await?;
     if tillagda > 0 {
         tracing::info!("{tillagda} nya BAS-konton tillagda som inaktiva");
@@ -156,12 +158,4 @@ async fn shutdown() {
     }
     #[cfg(not(unix))]
     let _ = ctrl_c.await;
-}
-
-/// Adressen som `MAYA_LISTEN` anger, för kommandon som inte behöver hela konfigurationen.
-fn listen_addr() -> SocketAddr {
-    std::env::var("MAYA_LISTEN")
-        .ok()
-        .and_then(|v| v.trim().parse().ok())
-        .unwrap_or(SocketAddr::from((Ipv4Addr::UNSPECIFIED, 8080)))
 }

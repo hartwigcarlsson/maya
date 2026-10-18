@@ -280,7 +280,8 @@ pub fn behandlingsregler() -> Vec<Block> {
                  den ingående balansen fram vid varje läsning enligt tabellen ovan och sparas \
                  inte: varje balanskonto i klass 1–2 får föregående års utgående balans, och \
                  resultatet som inte är ombokat (klass 3–8) läggs på {PRELIMINÄRT_RESULTAT}. \
-                 Rapporterna och SIE4-exporten märker den som preliminär. Det första årets \
+                 Rapporterna märker den som preliminär. SIE4-exporten skriver den som vanliga \
+                 #IB-poster utan markering, eftersom SIE 4 saknar en sådan. Det första årets \
                  ingående balans skrivs in i ett formulär där summan måste vara noll, och \
                  varje ändring loggas."
             )

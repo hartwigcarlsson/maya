@@ -118,6 +118,7 @@ pub fn router(config: Arc<Config>, db: Databas) -> Router {
     let åtkomst = ÅtkomstState {
         db: db.clone(),
         klocka: inloggning.klocka.clone(),
+        publik_url: config.public_url.as_str().trim_end_matches('/').to_string(),
     };
     let rapporter = RapportState {
         db: db.clone(),

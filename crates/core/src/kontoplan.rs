@@ -206,7 +206,7 @@ async fn saldon_i_öppna_år(
             Some(Årssaldo {
                 start: sb.år.start(),
                 slut: sb.år.slut(),
-                öre: konto.utgående.öre(),
+                saldo: konto.utgående,
             })
         })
         .collect())

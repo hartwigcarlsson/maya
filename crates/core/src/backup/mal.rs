@@ -47,6 +47,14 @@ impl Backupmål {
         }
     }
 
+    /// Samma mål med `klocka` för tiden i S3-begärans signatur. En katalog har ingen.
+    pub fn med_klocka(self, klocka: crate::Klocka) -> Self {
+        match self.0 {
+            Mål::S3(s3) => Backupmål(Mål::S3(Box::new(s3.med_klocka(klocka)))),
+            katalog => Backupmål(katalog),
+        }
+    }
+
     /// En monterad katalog.
     pub fn katalog(dir: &Path) -> Self {
         Backupmål(Mål::Katalog(dir.to_path_buf()))

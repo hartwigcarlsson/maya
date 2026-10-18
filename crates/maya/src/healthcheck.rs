@@ -6,7 +6,7 @@ use std::process::ExitCode;
 use std::time::Duration;
 
 pub fn run() -> ExitCode {
-    let mut addr = super::listen_addr();
+    let mut addr = maya_core::config::listen(std::env::vars());
     if addr.ip().is_unspecified() {
         addr = match addr {
             SocketAddr::V4(_) => SocketAddr::from((Ipv4Addr::LOCALHOST, addr.port())),

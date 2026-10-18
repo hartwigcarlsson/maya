@@ -129,7 +129,7 @@ async fn sidan_visar_posterna_med_tid_aktör_typ_objekt_och_ändring() {
         "Namn ändrat från ”Företagskonto” till ”Bankkonto SEB”",
         "anna@example.se",
         "webb",
-        "2 poster",
+        "3 poster",
         // Filtren med det som finns i historiken.
         r#"<option value="konto namnbytt">"#,
         r#"name="fran""#,

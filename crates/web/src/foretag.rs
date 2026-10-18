@@ -23,6 +23,8 @@ pub struct FöretagVy {
     pub namn: String,
     /// Antalet saker att göra i företaget.
     pub att_göra: usize,
+    /// Antalet utkast i företaget.
+    pub utkast: usize,
 }
 
 impl FöretagVy {
@@ -51,10 +53,11 @@ pub(crate) fn företagsval() -> Företagsval {
 
 #[cfg(feature = "ssr")]
 pub(crate) mod server {
+    use crate::svar::serverfel;
     use std::sync::Arc;
 
     use axum::extract::{Request, State};
-    use axum::http::{StatusCode, header};
+
     use axum::middleware::Next;
     use axum::response::{IntoResponse, Redirect, Response};
     use axum::routing::post;
@@ -88,6 +91,7 @@ pub(crate) mod server {
             orgnr: rad.orgnr.to_string(),
             namn: rad.namn,
             att_göra: 0,
+            utkast: 0,
         }
     }
 
@@ -106,6 +110,10 @@ pub(crate) mod server {
                     Ok(antal) => antal,
                     Err(e) => return serverfel(e),
                 };
+            let utkast = match att_gora::antal_utkast(&state.db, &inloggad.aktör).await {
+                Ok(utkast) => utkast,
+                Err(e) => return serverfel(e),
+            };
             match foretag::mina_företag(&state.db, &inloggad.aktör).await {
                 Ok(rader) => {
                     let val = Företagsval(
@@ -115,6 +123,7 @@ pub(crate) mod server {
                                 let n = antal.get(&rad.id).copied().unwrap_or_default();
                                 FöretagVy {
                                     att_göra: n,
+                                    utkast: utkast.get(&rad.id).copied().unwrap_or_default(),
                                     ..vy(rad)
                                 }
                             })
@@ -184,16 +193,6 @@ pub(crate) mod server {
         }
         Redirect::to(&format!("/foretag/nytt?{}", query.finish())).into_response()
     }
-
-    fn serverfel(e: impl std::fmt::Display) -> Response {
-        tracing::error!("företaget: {e}");
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            [(header::CONTENT_TYPE, "text/plain; charset=utf-8")],
-            "Något gick fel i Maya; försök igen.\n",
-        )
-            .into_response()
-    }
 }
 
 fn inloggad() -> bool {
@@ -259,6 +258,14 @@ fn Företagsväljare(valt: FöretagVy, alla: Vec<FöretagVy>) -> impl IntoView {
                                 <a href=href aria-current=aktuellt>
                                     {f.namn}
                                     <span class="diskret">{f.orgnr}</span>
+                                    {(f.utkast > 0)
+                                        .then(|| {
+                                            view! {
+                                                <span class="utkastantal">
+                                                    {format!("{} utkast", f.utkast)}
+                                                </span>
+                                            }
+                                        })}
                                     <Antal n=f.att_göra />
                                 </a>
                             </li>

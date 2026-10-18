@@ -40,15 +40,26 @@ fn tidpunkt(dag: Date, klockslag: Time) -> Timestamp {
 /// Backuperna i `backuper` (tidpunkter) som ska gallras: allt utom den senaste backupen var och
 /// en av de 7 senaste dagarna med backup och var och en av de 12 senaste månaderna med backup,
 /// räknat i Stockholm. Svaret är sorterat, äldst först.
-pub fn att_gallra(backuper: &[Timestamp]) -> Vec<Timestamp> {
+///
+/// Backuperna i `misslyckade` (vars verifiering misslyckades) tar ingen plats bland de dagliga
+/// och månatliga, så att en rad misslyckade nätter aldrig tränger undan de senaste goda
+/// backuperna. En misslyckad backup gallras när det finns en nyare god.
+pub fn att_gallra(backuper: &[Timestamp], misslyckade: &[Timestamp]) -> Vec<Timestamp> {
     let mut sorterade = backuper.to_vec();
     sorterade.sort_unstable_by(|a, b| b.cmp(a));
     sorterade.dedup();
+    let senaste_goda = sorterade.iter().find(|t| !misslyckade.contains(t)).copied();
 
     let mut behåll = BTreeSet::new();
     let mut dagar = BTreeSet::new();
     let mut månader = BTreeSet::new();
     for tid in &sorterade {
+        if misslyckade.contains(tid) {
+            if senaste_goda.is_none_or(|god| *tid > god) {
+                behåll.insert(*tid);
+            }
+            continue;
+        }
         let dag = datum(*tid);
         if dagar.len() < DAGLIGA && dagar.insert(dag) {
             behåll.insert(*tid);

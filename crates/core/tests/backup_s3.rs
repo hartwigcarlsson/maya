@@ -17,6 +17,9 @@ use sha2::{Digest, Sha256};
 
 type Lager = Arc<Mutex<BTreeMap<String, Vec<u8>>>>;
 
+/// `x-amz-date` i varje begäran som tjänsten tog emot.
+static DATUM: Mutex<Vec<String>> = Mutex::new(Vec::new());
+
 const BUCKET: &str = "maya-backup";
 const NYCKEL_ID: &str = "testnyckel";
 
@@ -41,6 +44,7 @@ fn hantera(lager: Lager, metod: Method, uri: Uri, rubriker: HeaderMap, kropp: By
             .and_then(|v| v.to_str().ok())
             .unwrap_or("")
     };
+    DATUM.lock().unwrap().push(rubrik("x-amz-date").to_string());
     if !rubrik("authorization").starts_with(&format!("AWS4-HMAC-SHA256 Credential={NYCKEL_ID}/"))
         || rubrik("x-amz-date").len() != 16
     {
@@ -231,4 +235,21 @@ async fn fel_från_s3_sparas_som_misslyckad_backup() {
     let senaste = status.senaste_backup.unwrap();
     assert!(!senaste.lyckades);
     assert!(senaste.meddelande.contains("404"), "{}", senaste.meddelande);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn s3_begäran_signeras_med_klockans_tid() {
+    let (endpoint, _) = s3_tjänst().await;
+    let arbete = tempfile::tempdir().unwrap();
+    let mål = mål(&endpoint, &arbete.path().join("hemlighet"))
+        .med_klocka(Klocka::fast("2031-02-03T04:05:06Z".parse().unwrap()));
+
+    backup::lista(&mål).await.unwrap();
+
+    assert!(
+        DATUM
+            .lock()
+            .unwrap()
+            .contains(&"20310203T040506Z".to_string())
+    );
 }

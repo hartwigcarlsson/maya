@@ -1,4 +1,5 @@
 use jiff::civil::date;
+use maya_domain::belopp::Saldo;
 use maya_domain::kontoplan::{Inaktiveringsspärr, Kontonummer, kan_inaktiveras, Årssaldo};
 
 fn nr(n: u16) -> Kontonummer {
@@ -9,7 +10,7 @@ fn år_2026(öre: i64) -> Årssaldo {
     Årssaldo {
         start: date(2026, 1, 1),
         slut: date(2026, 12, 31),
-        öre,
+        saldo: Saldo::från_öre(öre),
     }
 }
 
@@ -27,7 +28,7 @@ fn ett_saldo_i_ett_öppet_år_nekar_med_skäl_och_saldo() {
     assert_eq!(spärr.kod(), "har_saldo");
     assert_eq!(
         spärr.to_string(),
-        "Saldo −1\u{a0}234\u{a0}567,78 kr i räkenskapsåret 2026-01-01–2026-12-31, som inte är stängt. \
+        "Saldo -1 234 567,78 kr i räkenskapsåret 2026-01-01–2026-12-31, som inte är stängt. \
          Bara konton med nollsaldo kan inaktiveras."
     );
 }

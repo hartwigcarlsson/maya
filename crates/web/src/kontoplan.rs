@@ -589,7 +589,7 @@ fn Rad(sida: Kontoplansida, rad: Kontorad, tillbaka: String) -> impl IntoView {
                     .then(|| {
                         view! {
                             <span class="varning" title="Nytt i BAS. Inaktivt tills någon aktiverar det.">
-                                "⚠"
+                                <TriangelVarning />
                             </span>
                         }
                     })}
@@ -773,10 +773,11 @@ fn Sidopanel(sida: Kontoplansida, p: Panel) -> impl IntoView {
 
 #[cfg(feature = "ssr")]
 pub(crate) mod server {
+    use crate::svar::{ingen_åtkomst, serverfel};
     use std::sync::Arc;
 
     use axum::extract::{Path, State};
-    use axum::http::{StatusCode, header};
+
     use axum::response::{IntoResponse, Redirect, Response};
     use axum::routing::post;
     use axum::{Extension, Form, Router};
@@ -963,37 +964,20 @@ pub(crate) mod server {
         })
     }
 
+    /// En post i panelens historik, med samma text och aktör som i behandlingshistoriken.
     fn historikpost(post: Post) -> Historikpost {
-        let b = &post.beskrivning;
-        let fält = |namn: &str| b[namn].as_str().unwrap_or_default().to_string();
-        let text = match post.typ.as_str() {
-            "företag skapat" => format!(
-                "Kopierat från {} när företaget lades upp",
-                fält("kontoplan")
-            ),
-            "konto namnbytt" => format!(
-                "Namn ändrat från \"{}\" till \"{}\"",
-                fält("från"),
-                fält("till")
-            ),
-            "konto aktiverat" => "Aktiverat".into(),
-            "konto inaktiverat" => "Inaktiverat".into(),
-            "konto skapat" => format!("Skapat som eget konto med namnet \"{}\"", fält("namn")),
-            "BAS-tillägg" => format!("Tillagt som inaktivt från {}", fält("bas_version")),
-            annat => annat.to_string(),
-        };
         let maya = post.aktör.kanal == Kanal::Maya;
-        let aktör = match (&post.användarnamn, maya) {
-            (_, true) => "Maya".to_string(),
-            (Some(namn), _) => format!("{namn} ({})", post.aktör.kanal.namn()),
-            (None, _) => post.aktör.kanal.namn().to_string(),
+        let aktör = if maya || post.användarnamn.is_none() {
+            post.aktörsnamn()
+        } else {
+            format!("{} ({})", post.aktörsnamn(), post.aktör.kanal.namn())
         };
         Historikpost {
             datum: maya_domain::tid::datum(post.tid).to_string(),
             aktör,
             maya,
+            text: post.text(),
             typ: post.typ,
-            text,
         }
     }
 
@@ -1014,7 +998,7 @@ pub(crate) mod server {
             ink2: if ink2.is_empty() { "–".into() } else { ink2 },
             saldon: saldon
                 .iter()
-                .map(|s| format!("{} kr ({}–{})", regler::kronor(s.öre), s.start, s.slut))
+                .map(|s| format!("{} kr ({}–{})", s.saldo, s.start, s.slut))
                 .collect(),
             flöde: flöde_som_bokför_på(k.nummer).map(str::to_string),
             poster: poster.into_iter().map(historikpost).collect(),
@@ -1224,23 +1208,28 @@ pub(crate) mod server {
             Err(e) => konto_fel(id, &f.tillbaka, nr, e),
         }
     }
+}
 
-    fn ingen_åtkomst() -> Response {
-        (
-            StatusCode::FORBIDDEN,
-            [(header::CONTENT_TYPE, "text/plain; charset=utf-8")],
-            "Du har inte åtkomst till företaget.\n",
-        )
-            .into_response()
-    }
-
-    fn serverfel(e: impl std::fmt::Display) -> Response {
-        tracing::error!("kontoplanen: {e}");
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            [(header::CONTENT_TYPE, "text/plain; charset=utf-8")],
-            "Något gick fel i Maya; försök igen.\n",
-        )
-            .into_response()
+/// Lucides varningstriangel (`triangle-alert`).
+#[component]
+fn TriangelVarning() -> impl IntoView {
+    view! {
+        <svg
+            class="lucide lucide-triangle-alert"
+            xmlns="http://www.w3.org/2000/svg"
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
+        >
+            <path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3" />
+            <path d="M12 9v4" />
+            <path d="M12 17h.01" />
+        </svg>
     }
 }

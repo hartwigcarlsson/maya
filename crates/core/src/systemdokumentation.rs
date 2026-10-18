@@ -7,7 +7,6 @@
 //!
 //! Länkarna är sökvägar i webben, så att revisorn når varje del som beskrivs.
 
-use jiff::Timestamp;
 use jiff::civil::Date;
 use maya_domain::backup::{DAGLIGA, MÅNATLIGA};
 use maya_domain::kontoplan::{bas, ink2, klassnamn, om_numret};
@@ -112,12 +111,7 @@ fn rad<const N: usize>(celler: [String; N]) -> Tabellrad {
     Tabellrad::Rad(celler.into_iter().map(Text::from).collect())
 }
 
-/// En tidpunkt i Stockholm, till minuten.
-fn tid(t: Timestamp) -> String {
-    t.to_zoned(maya_domain::tid::stockholm())
-        .strftime("%Y-%m-%d %H:%M")
-        .to_string()
-}
+use maya_domain::tid::minut as tid;
 
 fn kontoplanen(konton: &[kontoplan::Konto], bas_version: &str, bas: &str) -> Avsnitt {
     let aktiva = konton.iter().filter(|k| k.aktiv).count();
@@ -290,6 +284,14 @@ fn samlingsplanen(f: &Företag, bokförda: &[verifikat::Verifikatrad], bas: &str
         ),
         tabell(&["Räkenskapsår", "Serie", "Bokförda", "Perioder"], rader),
         stycke(
+            "Det första räkenskapsårets slut kan ändras under Inställningar → Företag, med samma \
+             regler som när företaget lades upp (Å1). Maya vägrar ändringen när ett senare \
+             räkenskapsår redan finns, när ett verifikat är daterat efter det nya slutet, och \
+             när ett byte av bokföringsmetod eller momsperiod gäller från efter årets start: \
+             ändringen skulle annars flytta bokförda verifikat eller byten mellan år. Ändringen \
+             loggas som \"räkenskapsår ändrat\".",
+        ),
+        stycke(
             "Sammanställningarna räknas vid varje läsning ur de bokförda verifikaten, aldrig \
              ur utkast:",
         ),
@@ -383,7 +385,10 @@ fn verifieringskedjan(
                 ),
                 Text::markdown(
                     "**Grundbok och huvudbok**: räknas ur de bokförda verifikaten i \
-                     registreringsordning, per period respektive per konto (L4).",
+                     registreringsordning, per period respektive per konto (L4). Huvudbokens \
+                     CSV har för varje konto en rad *Ingående balans* först (*Ingående balans \
+                     (preliminär)* när den är preliminär) och en rad *Utgående balans* sist, \
+                     med saldot i kolumnen Saldo, så att filen går att stämma av för sig.",
                 ),
                 Text::markdown(
                     "**Rapporter och SIE4**: resultat- och balansräkningen räknas ur samma \
@@ -570,6 +575,7 @@ fn överföringarna(config: &Config, status: &backup::Backupstatus, historik: &[
         .filter(|p| {
             [
                 Händelse::MigreringKörd.namn(),
+                Händelse::MigreringMisslyckad.namn(),
                 Händelse::ProgramversionBytt.namn(),
                 Händelse::ÅterställningGjord.namn(),
             ]
@@ -655,8 +661,8 @@ fn arkivplanen(f: &Företag, config: &Config) -> Avsnitt {
         stycke(
             "Räkenskapsinformationen bevaras till och med 31 december det sjunde året efter \
              kalenderåret då räkenskapsåret slutade (BFL 7:2). Maya erbjuder ingen radering av \
-             räkenskapsinformation; ett företag med bokförda verifikat eller underlag kan inte \
-             raderas.",
+             räkenskapsinformation; ett företag med bokförda verifikat, underlag eller en inskriven \
+             ingående balans kan inte raderas.",
         ),
         tabell(
             &["Räkenskapsår", "Bevaras till och med"],

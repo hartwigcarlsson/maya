@@ -1,7 +1,10 @@
-//! Export som CSV för att räkna vidare i ett kalkylprogram: UTF-8 med BOM, semikolon som
-//! avgränsare, decimalkomma och CRLF. Som PDF:erna skrivs filen om vid varje export.
+//! Export som CSV för att räkna vidare i ett kalkylprogram, med [`maya_domain::csv`]: UTF-8
+//! med BOM, semikolon som avgränsare, decimalkomma och CRLF. Som PDF:erna skrivs filen om vid
+//! varje export.
 
+use jiff::civil::Date;
 use maya_domain::belopp::Saldo;
+use maya_domain::orgnr::Organisationsnummer;
 
 use crate::aktor::Aktör;
 use crate::atkomst::ÅtkomstFel;
@@ -14,6 +17,15 @@ use crate::{Databas, Klocka};
 pub struct Csv {
     pub filnamn: String,
     pub innehåll: Vec<u8>,
+}
+
+/// `behandlingshistorik_<orgnr>_<ÅÅÅÅMMDD>`, utan ändelse: CSV:n och PDF:en heter så.
+pub fn behandlingshistorikens_filnamn(orgnr: &Organisationsnummer, idag: Date) -> String {
+    format!(
+        "behandlingshistorik_{}_{}",
+        orgnr.siffror(),
+        idag.strftime("%Y%m%d")
+    )
 }
 
 /// Behandlingshistoriken i urvalet (A2), en rad per post i den ordning posterna skrevs.
@@ -40,12 +52,11 @@ pub async fn behandlingshistorik(
     });
     Ok(Csv {
         filnamn: format!(
-            "behandlingshistorik_{}_{}.csv",
-            f.orgnr.siffror(),
-            klocka.idag().strftime("%Y%m%d")
+            "{}.csv",
+            behandlingshistorikens_filnamn(&f.orgnr, klocka.idag())
         ),
-        innehåll: skriv(
-            &[
+        innehåll: {
+            let mut csv = maya_domain::csv::Csv::new(&[
                 "Tidpunkt",
                 "Aktör",
                 "Kanal",
@@ -53,48 +64,18 @@ pub async fn behandlingshistorik(
                 "Objekt",
                 "Belopp",
                 "Beskrivning",
-            ],
-            rader,
-        ),
+            ]);
+            for rad in rader {
+                csv.rad(rad);
+            }
+            csv.innehåll()
+        },
     })
 }
 
-/// Tid i Stockholm, till sekunden: `2026-03-14 10:05:12`.
-pub(crate) fn tidpunkt(t: jiff::Timestamp) -> String {
-    t.to_zoned(maya_domain::tid::stockholm())
-        .strftime("%Y-%m-%d %H:%M:%S")
-        .to_string()
-}
+pub(crate) use maya_domain::tid::sekund as tidpunkt;
 
-/// Ett belopp som ett kalkylprogram läser som tal: decimalkomma, inga tusentalsavgränsare och
-/// minus framför, t.ex. `-1234,50`.
+/// Ett belopp som ett kalkylprogram läser som tal, t.ex. `-1234,50`.
 pub(crate) fn belopp(saldo: Saldo) -> String {
-    let öre = saldo.öre();
-    let tecken = if öre < 0 { "-" } else { "" };
-    let öre = öre.unsigned_abs();
-    format!("{tecken}{},{:02}", öre / 100, öre % 100)
-}
-
-/// Rubrikraden och raderna som CSV. Ett fält med semikolon, citattecken eller radbrytning
-/// sätts inom citattecken, med citattecknen dubblerade.
-pub(crate) fn skriv(rubriker: &[&str], rader: impl IntoIterator<Item = Vec<String>>) -> Vec<u8> {
-    let mut ut = String::from("\u{feff}");
-    let mut rad = |fält: &mut dyn Iterator<Item = &str>| {
-        let fält: Vec<String> = fält.map(citera).collect();
-        ut.push_str(&fält.join(";"));
-        ut.push_str("\r\n");
-    };
-    rad(&mut rubriker.iter().copied());
-    for r in rader {
-        rad(&mut r.iter().map(String::as_str));
-    }
-    ut.into_bytes()
-}
-
-fn citera(fält: &str) -> String {
-    if fält.contains([';', '"', '\r', '\n']) {
-        format!("\"{}\"", fält.replace('"', "\"\""))
-    } else {
-        fält.to_string()
-    }
+    maya_domain::csv::belopp(saldo.öre())
 }

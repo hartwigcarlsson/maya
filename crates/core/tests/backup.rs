@@ -260,6 +260,81 @@ async fn gallringen_behåller_sju_dagliga_och_tolv_månatliga_i_målet() {
 }
 
 #[tokio::test]
+async fn en_gallring_som_misslyckas_gör_inte_backupen_misslyckad() {
+    let db = Databas::tillfällig().await;
+    let (mål_dir, arbete) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+    let mål = Backupmål::katalog(mål_dir.path());
+    // En rest utan manifest som inte går att ta bort: en katalog med en backups filnamn.
+    std::fs::create_dir(mål_dir.path().join("maya-20200101T000000Z.db")).unwrap();
+
+    let resultat = backup::ta_backup(&db, &klocka(NU), &Aktör::maya(), &mål, arbete.path())
+        .await
+        .unwrap();
+
+    assert!(resultat.verifiering.lyckades());
+    let fel = resultat.gallringsfel.expect("gallringen misslyckades");
+    assert!(fel.contains("maya-20200101T000000Z.db"), "{fel}");
+    let status = backup::status(&db).await.unwrap();
+    assert!(status.senaste_backup.unwrap().lyckades);
+}
+
+#[tokio::test]
+async fn gallringen_tränger_inte_undan_goda_backuper_med_misslyckade() {
+    let db = Databas::tillfällig().await;
+    let (mål_dir, arbete) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+    let mål = Backupmål::katalog(mål_dir.path());
+    let ta = async |dag: u32| {
+        backup::ta_backup(
+            &db,
+            &klocka(&format!("2026-09-{dag:02}T01:00:00Z")),
+            &Aktör::maya(),
+            &mål,
+            arbete.path(),
+        )
+        .await
+        .unwrap()
+        .backup
+        .namn
+    };
+    for dag in 1..=7 {
+        ta(dag).await;
+    }
+    // Tio nätter där backupen i målet sedan visar sig vara trasig.
+    for dag in 10..=19 {
+        let namn = ta(dag).await;
+        kör_sql(
+            &mål_dir.path().join(format!("{namn}.db")),
+            "CREATE TABLE trasig (id INTEGER)",
+        )
+        .await;
+        let verifiering = backup::verifiera(
+            &db,
+            &klocka(&format!("2026-09-{dag:02}T09:00:00Z")),
+            &Aktör::cli(),
+            &mål,
+            Some(&namn),
+            arbete.path(),
+        )
+        .await
+        .unwrap();
+        assert!(!verifiering.lyckades());
+    }
+    ta(20).await;
+
+    let kvar: Vec<String> = backup::lista(&mål)
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|b| b.namn)
+        .collect();
+    let mut väntat: Vec<String> = (2..=7)
+        .map(|d| format!("maya-2026090{d}T010000Z"))
+        .collect();
+    väntat.push("maya-20260920T010000Z".into());
+    assert_eq!(kvar, väntat);
+}
+
+#[tokio::test]
 async fn backupen_kan_hämtas_till_en_tom_katalog_med_samma_kontrollsummor() {
     let db = med_bokföring().await;
     let före = Kontrollsummor::räkna(&db).await.unwrap();

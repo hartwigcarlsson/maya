@@ -2,8 +2,9 @@
 //! bjuda in och att ge och ta åtkomst. Ändringarna kräver en färsk passkey; utan en ber sidan
 //! om passkeyn med JS-shimmens bekräftelse, som på sidan Passkeys.
 //!
-//! Datan kommer från middleware vid serverrenderingen, och ändringarna är vanliga formulär som
-//! svarar med en omdirigering hit.
+//! Datan kommer från sidodata, och ändringarna är vanliga formulär som svarar med en
+//! omdirigering hit. En ny inbjudningslänk visas i stället i svaret på formuläret, så att den
+//! aldrig står i en adress.
 
 use leptos::prelude::*;
 use leptos_router::hooks::{use_params_map, use_query_map};
@@ -34,8 +35,6 @@ pub struct InbjudanVy {
 /// Det som sidan visar.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Åtkomstdata {
-    /// Mayas publika URL utan avslutande snedstreck, för inbjudningslänken.
-    pub publik_url: String,
     /// Om sessionen har en färsk passkey, så att åtkomsten får ändras.
     pub färsk: bool,
     pub användare: Vec<MedlemVy>,
@@ -54,10 +53,11 @@ pub async fn hämta_åtkomstdata(adress: String) -> Result<Option<Åtkomstdata>,
 
 #[cfg(feature = "ssr")]
 pub(crate) mod server {
+    use crate::svar::{ingen_åtkomst, serverfel};
     use std::sync::Arc;
 
     use axum::extract::{Path, State};
-    use axum::http::{StatusCode, header};
+    use axum::http::header;
     use axum::response::{IntoResponse, Redirect, Response};
     use axum::routing::post;
     use axum::{Extension, Form, Router};
@@ -76,6 +76,8 @@ pub(crate) mod server {
     pub(crate) struct ÅtkomstState {
         pub db: Databas,
         pub klocka: Klocka,
+        /// Mayas publika URL utan avslutande snedstreck, för inbjudningslänken.
+        pub publik_url: String,
     }
 
     pub(crate) fn routes(state: ÅtkomstState) -> Router {
@@ -109,12 +111,6 @@ pub(crate) mod server {
                     avaktiverad: m.avaktiverad,
                 };
                 Ok(Some(Åtkomstdata {
-                    publik_url: b
-                        .config
-                        .public_url
-                        .as_str()
-                        .trim_end_matches('/')
-                        .to_string(),
                     färsk: inloggad.har_färsk_passkey(&b.klocka),
                     användare: lista.användare.into_iter().map(vy).collect(),
                     inbjudningar: lista
@@ -134,12 +130,7 @@ pub(crate) mod server {
         }
     }
 
-    /// En tidpunkt i Stockholm, till minuten.
-    fn tid(t: jiff::Timestamp) -> String {
-        t.to_zoned(maya_domain::tid::stockholm())
-            .strftime("%Y-%m-%d %H:%M")
-            .to_string()
-    }
+    use maya_domain::tid::minut as tid;
 
     #[derive(Deserialize)]
     struct Epost {
@@ -165,6 +156,7 @@ pub(crate) mod server {
             DelningsFel::HarRedanÅtkomst => "har_atkomst",
             DelningsFel::OkändAnvändare => "okand",
             DelningsFel::SistaÅtkomsten => "sista",
+            DelningsFel::Avaktiverad => "avaktiverad",
             DelningsFel::Åtkomst(ÅtkomstFel::IngenÅtkomst | ÅtkomstFel::KanalenFårInte) => {
                 return ingen_åtkomst();
             }
@@ -186,11 +178,69 @@ pub(crate) mod server {
             return ingen_åtkomst();
         };
         match atkomst::bjud_in(&state.db, &state.klocka, &inloggad, företag, &form.epost).await {
-            // Länken visas en gång, för kopiering; den mejlas inte.
-            Ok(Inbjudan::Länk(länk)) => sidan(företag, &format!("lank={}", länk.token())),
+            // Länken visas en gång, för kopiering; den mejlas inte. Den står bara i svaret på
+            // formuläret, aldrig i en adress (historik, loggar, Referer).
+            Ok(Inbjudan::Länk(länk)) => inbjudningslänk(
+                företag,
+                &format!("{}/registrera/{}", state.publik_url, länk.token()),
+                &form.epost,
+            ),
             Ok(Inbjudan::ÅtkomstGiven) => sidan(företag, "meddelande=atkomst_given"),
             Err(e) => fel(företag, e),
         }
+    }
+
+    /// Sidan med inbjudningslänken, som svar på formuläret. Den sparas inte (`no-store`) och
+    /// skickar ingen Referer vidare.
+    fn inbjudningslänk(företag: FöretagsId, url: &str, epost: &str) -> Response {
+        let tillbaka = format!("/foretag/{företag}/installningar/atkomst");
+        let epost = html(
+            &maya_domain::epost::normalisera(epost).unwrap_or_else(|_| epost.trim().to_string()),
+        );
+        let url = html(url);
+        let sida = format!(
+            r#"<!DOCTYPE html>
+<html lang="sv">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<title>Inbjudningslänk · Maya</title>
+<link rel="stylesheet" href="/pkg/maya.css">
+<script>{tema}</script>
+</head>
+<body>
+<main class="sida">
+<h1>Inbjudan till {epost}</h1>
+<section class="notis inbjudningslank" role="status">
+<p>Kopiera länken och skicka den till den du bjuder in. Den gäller i 24 timmar och kan användas en gång. Maya visar den inte igen.</p>
+<input id="inbjudningslank" type="text" readonly value="{url}" aria-label="Inbjudningslänk" onfocus="this.select()">
+</section>
+<p><a class="knapp" href="{tillbaka}">Tillbaka till Åtkomst</a></p>
+</main>
+</body>
+</html>
+"#,
+            tema = crate::app::TEMA_FÖRE_RITNING,
+        );
+        (
+            [
+                (header::CONTENT_TYPE, "text/html; charset=utf-8"),
+                (header::CACHE_CONTROL, "no-store"),
+                (header::REFERRER_POLICY, "no-referrer"),
+            ],
+            sida,
+        )
+            .into_response()
+    }
+
+    /// Text som HTML, för text och attributvärden.
+    fn html(text: &str) -> String {
+        text.replace('&', "&amp;")
+            .replace('<', "&lt;")
+            .replace('>', "&gt;")
+            .replace('"', "&quot;")
+            .replace('\'', "&#39;")
     }
 
     async fn ge(
@@ -238,25 +288,6 @@ pub(crate) mod server {
             Err(e) => fel(företag, e),
         }
     }
-
-    fn ingen_åtkomst() -> Response {
-        (
-            StatusCode::FORBIDDEN,
-            [(header::CONTENT_TYPE, "text/plain; charset=utf-8")],
-            "Du har inte åtkomst till företaget.\n",
-        )
-            .into_response()
-    }
-
-    fn serverfel(e: impl std::fmt::Display) -> Response {
-        tracing::error!("åtkomst: {e}");
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            [(header::CONTENT_TYPE, "text/plain; charset=utf-8")],
-            "Något gick fel i Maya; försök igen.\n",
-        )
-            .into_response()
-    }
 }
 
 /// Felkoderna som formulären skickar tillbaka i `?fel=`.
@@ -266,6 +297,9 @@ fn felmeddelande(kod: &str) -> &'static str {
         "epost" => "Skriv en giltig e-postadress.",
         "har_atkomst" => "Användaren har redan åtkomst till företaget.",
         "okand" => "Det finns ingen sådan användare.",
+        "avaktiverad" => {
+            "Användaren är avaktiverad och kan inte få åtkomst. Driften kan återaktivera hen."
+        }
         "sista" => "Den sista åtkomsten till företaget går inte att ta bort.",
         _ => "Det gick inte. Försök igen.",
     }
@@ -296,26 +330,7 @@ fn åtkomstsida(data: Option<Åtkomstdata>) -> AnyView {
     };
     let bas = f.href();
     let sida = format!("{bas}/installningar/atkomst");
-    let (länk, besked, fel) =
-        use_query_map().with_untracked(|q| (q.get("lank"), q.get("meddelande"), q.get("fel")));
-    let länk = länk.map(|token| {
-        let url = format!("{}/registrera/{token}", data.publik_url);
-        view! {
-            <section class="notis inbjudningslank" role="status">
-                <p>
-                    "Kopiera länken och skicka den till den du bjuder in. Den gäller i 24 timmar och kan användas en gång. Maya visar den inte igen."
-                </p>
-                <input
-                    id="inbjudningslank"
-                    type="text"
-                    readonly
-                    value=url
-                    aria-label="Inbjudningslänk"
-                    onfocus="this.select()"
-                />
-            </section>
-        }
-    });
+    let (besked, fel) = use_query_map().with_untracked(|q| (q.get("meddelande"), q.get("fel")));
     let besked = besked.map(|kod| view! { <p class="notis" role="status">{meddelande(&kod)}</p> });
     let fel = fel.map(|kod| {
         view! {
@@ -433,7 +448,6 @@ fn åtkomstsida(data: Option<Åtkomstdata>) -> AnyView {
             <h1>"Inställningar"</h1>
             <Inställningsmeny bas=bas.clone() aktiv="/atkomst" />
             <div class="installningar-innehall">
-                {länk}
                 {besked}
                 {fel}
                 <h2>"Användare med åtkomst"</h2>

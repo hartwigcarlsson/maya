@@ -23,7 +23,7 @@ impl Kontourval {
         if text.trim().is_empty() {
             return Some(Kontourval::alla());
         }
-        let nummer = |t: &str| t.trim().parse::<u16>().ok().and_then(Kontonummer::new);
+        let nummer = |t: &str| t.parse::<Kontonummer>().ok();
         let intervall = text
             .split(',')
             .map(|del| match del.split_once(['-', '–']) {

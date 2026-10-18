@@ -345,8 +345,8 @@ async fn ett_konto_med_ingående_balans_kan_inte_inaktiveras() {
     let KontoFel::KanInteInaktiveras(spärr) = fel else {
         panic!("{fel:?}")
     };
-    assert!(spärr.to_string().contains("1\u{a0}000,00 kr"), "{spärr}");
+    assert!(spärr.to_string().contains("1 000,00 kr"), "{spärr}");
     let saldon = kontoplan::saldon(&db, &anna, id, bank).await.unwrap();
-    let år: Vec<_> = saldon.iter().map(|s| (s.start, s.öre)).collect();
+    let år: Vec<_> = saldon.iter().map(|s| (s.start, s.saldo.öre())).collect();
     assert_eq!(år, [(ÅR_2026, 100_000), (date(2027, 1, 1), 100_000)]);
 }

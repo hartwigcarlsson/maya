@@ -80,7 +80,8 @@ pub struct Saldopost {
     pub öre: i64,
 }
 
-/// En verifikation. `regdatum` är dagen då den registrerades, `sign` vem som gjorde det.
+/// En verifikation, som posten `#VER` i SIE 4. `regdatum` är dagen då den bokfördes, `sign`
+/// vem som gjorde det.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Verifikation {
     pub serie: String,
@@ -92,7 +93,7 @@ pub struct Verifikation {
     pub transaktioner: Vec<Transaktion>,
 }
 
-/// En rad i en verifikation, i öre med debet positivt.
+/// En rad i en verifikation, som posten `#TRANS` i SIE 4, i öre med debet positivt.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Transaktion {
     pub konto: u32,

@@ -6,9 +6,10 @@ use sha2::{Digest, Sha256};
 use sqlx::SqliteConnection;
 
 use crate::aktor::{self, Aktör, AnvändarId, Handling};
-use crate::atkomst;
+use crate::foretag::FöretagsId;
 use crate::installationslogg::{self, Händelse};
 use crate::{Databas, DatabasFel, Klocka};
+use crate::{atkomst, behandlingshistorik};
 
 /// En session löper ut efter så här lång tid utan aktivitet.
 pub const SESSION_INAKTIV: SignedDuration = SignedDuration::from_hours(7 * 24);
@@ -48,6 +49,12 @@ pub enum InloggningsFel {
     Avaktiverad,
     #[error("användaren är inte avaktiverad")]
     InteAvaktiverad,
+    /// Användaren är den sista aktiva med åtkomst till företaget (namn och orgnr).
+    #[error(
+        "användaren är den sista aktiva med åtkomst till {0}, som då skulle bli utan användare. \
+         Ge någon annan åtkomst till företaget först."
+    )]
+    SistaAnvändaren(String),
     #[error(transparent)]
     Databas(#[from] DatabasFel),
 }
@@ -89,14 +96,14 @@ pub(crate) fn hash(token: &str) -> Vec<u8> {
 
 /// En engångslänk för att registrera en passkey.
 #[derive(Debug, Clone)]
-pub struct Registreringslänk {
+pub struct Engångslänk {
     token: Token,
     pub giltig_till: Timestamp,
 }
 
-impl Registreringslänk {
+impl Engångslänk {
     pub(crate) fn ny(token: Token, giltig_till: Timestamp) -> Self {
-        Registreringslänk { token, giltig_till }
+        Engångslänk { token, giltig_till }
     }
 
     pub fn token(&self) -> &str {
@@ -229,7 +236,7 @@ pub async fn skapa_första_användare(
     klocka: &Klocka,
     aktör: &Aktör,
     epost: &str,
-) -> Result<Registreringslänk, InloggningsFel> {
+) -> Result<Engångslänk, InloggningsFel> {
     if !aktor::tillåter(aktör.kanal, Handling::HanteraAnvändare) {
         return Err(InloggningsFel::KanalenFårInte);
     }
@@ -271,7 +278,7 @@ pub async fn skapa_första_användare(
     Ok(länk)
 }
 
-/// Vad en engångslänk är till för. Båda ger en ny passkey.
+/// Vad en engångslänk är till för. Med båda lägger användaren till en passkey.
 #[derive(Debug, Clone, Copy)]
 enum Syfte {
     Registrering,
@@ -292,7 +299,7 @@ async fn ny_länk(
     nu: Timestamp,
     användare: AnvändarId,
     syfte: Syfte,
-) -> Result<Registreringslänk, sqlx::Error> {
+) -> Result<Engångslänk, sqlx::Error> {
     let token = Token::ny();
     let giltig_till = nu + LÄNK_GILTIG;
     sqlx::query(
@@ -306,22 +313,35 @@ async fn ny_länk(
     .bind(giltig_till.to_string())
     .execute(conn)
     .await?;
-    Ok(Registreringslänk { token, giltig_till })
+    Ok(Engångslänk { token, giltig_till })
 }
 
 /// Ger en användare som har tappat alla sina passkeys en återställningslänk, där hen
-/// registrerar en ny. Bara CLI:t (ADR 0005). Händelsen skrivs i installationsloggen.
+/// registrerar en ny. Hens gamla passkeys och sessioner upphör. Bara CLI:t (ADR 0005).
+/// Händelsen skrivs i installationsloggen.
 pub async fn återställ_användare(
     db: &Databas,
     klocka: &Klocka,
     aktör: &Aktör,
     epost: &str,
-) -> Result<Registreringslänk, InloggningsFel> {
+) -> Result<Engångslänk, InloggningsFel> {
     let (mut tx, id, epost) = hela_användaren(db, aktör, epost).await?;
     if avaktiverad(&mut tx, id).await? {
         return Err(InloggningsFel::Avaktiverad);
     }
     let nu = klocka.nu();
+    // Användaren har tappat sina passkeys: de och hens sessioner upphör, så att den som hittar
+    // en tappad enhet inte kommer in.
+    let passkeys = sqlx::query("DELETE FROM passkey WHERE anvandare_id = ?")
+        .bind(id.0)
+        .execute(&mut *tx)
+        .await?
+        .rows_affected();
+    let sessioner = sqlx::query("DELETE FROM session WHERE anvandare_id = ?")
+        .bind(id.0)
+        .execute(&mut *tx)
+        .await?
+        .rows_affected();
     let länk = ny_länk(&mut tx, nu, id, Syfte::Återställning).await?;
     installationslogg::skriv(
         &mut tx,
@@ -332,6 +352,8 @@ pub async fn återställ_användare(
         serde_json::json!({
             "epost": epost,
             "återställningslänk_giltig_till": länk.giltig_till.to_string(),
+            "borttagna_passkeys": passkeys,
+            "avslutade_sessioner": sessioner,
         }),
     )
     .await?;
@@ -340,7 +362,9 @@ pub async fn återställ_användare(
 }
 
 /// Avaktiverar en användare: hen kan inte logga in, och hens sessioner och oanvända länkar
-/// upphör. Användaren raderas aldrig. Bara CLI:t (ADR 0005).
+/// upphör. Användaren raderas aldrig, och åtkomsten står kvar. Avaktiveringen loggas i
+/// installationsloggen och i varje företag som användaren har åtkomst till, och nekas när
+/// användaren är den sista aktiva i något av dem. Bara CLI:t (ADR 0005).
 pub async fn avaktivera_användare(
     db: &Databas,
     klocka: &Klocka,
@@ -350,6 +374,42 @@ pub async fn avaktivera_användare(
     let (mut tx, id, epost) = hela_användaren(db, aktör, epost).await?;
     if avaktiverad(&mut tx, id).await? {
         return Err(InloggningsFel::Avaktiverad);
+    }
+    // Ett företag blir aldrig utan aktiv användare.
+    let ensam: Option<(String, String)> = sqlx::query_as(
+        "SELECT f.namn, f.orgnr FROM atkomst a JOIN foretag f ON f.id = a.foretag_id
+         WHERE a.anvandare_id = ?1 AND NOT EXISTS (
+             SELECT 1 FROM atkomst b JOIN anvandare u ON u.id = b.anvandare_id
+             WHERE b.foretag_id = a.foretag_id AND b.anvandare_id <> ?1
+               AND u.avaktiverad IS NULL)
+         ORDER BY f.namn, f.id LIMIT 1",
+    )
+    .bind(id.0)
+    .fetch_optional(&mut *tx)
+    .await?;
+    if let Some((namn, orgnr)) = ensam {
+        let orgnr =
+            maya_domain::orgnr::Organisationsnummer::tolka(&orgnr).map_or(orgnr, |o| o.to_string());
+        return Err(InloggningsFel::SistaAnvändaren(
+            format!("{namn} ({orgnr})"),
+        ));
+    }
+    let företag: Vec<i64> =
+        sqlx::query_scalar("SELECT foretag_id FROM atkomst WHERE anvandare_id = ? ORDER BY 1")
+            .bind(id.0)
+            .fetch_all(&mut *tx)
+            .await?;
+    for företag in företag {
+        behandlingshistorik::skriv(
+            &mut tx,
+            FöretagsId(företag),
+            klocka.nu(),
+            aktör,
+            behandlingshistorik::Händelse::AnvändareAvaktiverad,
+            &epost,
+            serde_json::json!({ "användare": id.0, "epost": epost }),
+        )
+        .await?;
     }
     let nu = klocka.nu().to_string();
     sqlx::query("UPDATE anvandare SET avaktiverad = ? WHERE id = ?")
@@ -659,9 +719,7 @@ pub async fn session(
     let Some((id, skapad, senast_aktiv, passkey_använd)) = rad else {
         return Ok(None);
     };
-    if nu >= tidpunkt(&senast_aktiv)? + SESSION_INAKTIV
-        || nu >= tidpunkt(&skapad)? + SESSION_LÄNGST
-    {
+    if utgången(nu, tidpunkt(&skapad)?, tidpunkt(&senast_aktiv)?) {
         sqlx::query("DELETE FROM session WHERE hash = ?")
             .bind(&hash)
             .execute(&mut *tx)
@@ -863,11 +921,13 @@ pub async fn bekräfta_passkey(
     Ok(())
 }
 
-/// Den inloggades sessioner, senast aktiv först.
+/// Den inloggades sessioner som inte har gått ut, senast aktiv först.
 pub async fn sessioner(
     db: &Databas,
+    klocka: &Klocka,
     inloggad: &Inloggad,
 ) -> Result<Vec<SessionRad>, InloggningsFel> {
+    let nu = klocka.nu();
     let rader: Vec<(Vec<u8>, String, String, Option<String>)> = sqlx::query_as(
         "SELECT hash, skapad, senast_aktiv, enhet FROM session
          WHERE anvandare_id = ? ORDER BY senast_aktiv DESC, skapad DESC",
@@ -875,18 +935,27 @@ pub async fn sessioner(
     .bind(inloggad.användare.id.0)
     .fetch_all(db.pool())
     .await?;
-    rader
-        .into_iter()
-        .map(|(hash, skapad, senast_aktiv, enhet)| {
-            Ok(SessionRad {
-                denna: hash == inloggad.session,
-                id: hex::encode(hash),
-                skapad: tidpunkt(&skapad)?,
-                senast_aktiv: tidpunkt(&senast_aktiv)?,
-                enhet,
-            })
-        })
-        .collect()
+    let mut sessioner = Vec::new();
+    for (hash, skapad, senast_aktiv, enhet) in rader {
+        let (skapad, senast_aktiv) = (tidpunkt(&skapad)?, tidpunkt(&senast_aktiv)?);
+        if utgången(nu, skapad, senast_aktiv) {
+            continue;
+        }
+        sessioner.push(SessionRad {
+            denna: hash == inloggad.session,
+            id: hex::encode(hash),
+            skapad,
+            senast_aktiv,
+            enhet,
+        });
+    }
+    Ok(sessioner)
+}
+
+/// Om en session har gått ut: [`SESSION_INAKTIV`] utan aktivitet eller [`SESSION_LÄNGST`]
+/// sedan den skapades.
+fn utgången(nu: Timestamp, skapad: Timestamp, senast_aktiv: Timestamp) -> bool {
+    nu >= senast_aktiv + SESSION_INAKTIV || nu >= skapad + SESSION_LÄNGST
 }
 
 /// Avslutar en av den inloggades sessioner. Den som har sessionen är utloggad direkt.

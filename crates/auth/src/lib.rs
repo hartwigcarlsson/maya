@@ -76,8 +76,9 @@ impl Passkeys {
         })
     }
 
-    /// Börjar registrera en passkey med en registreringslänks token.
-    pub async fn börja_registrering(
+    /// Börjar registrera en passkey med en engångslänks token (första användaren, inbjudan eller
+    /// återställning).
+    pub async fn börja_med_engångslänk(
         &self,
         token: &str,
     ) -> Result<(CeremoniId, CreationChallengeResponse), AuthFel> {
@@ -90,7 +91,7 @@ impl Passkeys {
     }
 
     /// Slutför registreringen, förbrukar länken och loggar in användaren.
-    pub async fn slutför_registrering(
+    pub async fn slutför_med_engångslänk(
         &self,
         ceremoni: CeremoniId,
         namn: &str,
@@ -255,7 +256,15 @@ impl Passkeys {
 fn passkeys(json: &[String]) -> Result<Vec<Passkey>, AuthFel> {
     let passkeys: Vec<Passkey> = json
         .iter()
-        .filter_map(|json| serde_json::from_str(json).ok())
+        .filter_map(|json| match serde_json::from_str(json) {
+            Ok(passkey) => Some(passkey),
+            // En sparad passkey som inte går att läsa är ett fel i databasen; den går inte att
+            // logga in med, och det ska synas i loggen i stället för att tyst försvinna.
+            Err(e) => {
+                tracing::error!("en sparad passkey kunde inte läsas och hoppas över: {e}");
+                None
+            }
+        })
         .collect();
     if passkeys.is_empty() {
         return Err(AuthFel::IngenPasskey);

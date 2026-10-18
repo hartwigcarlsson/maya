@@ -110,3 +110,42 @@ async fn sidan_installation_visar_version_publik_url_backupstatus_och_arkivplane
     // Användarmenyn länkar hit.
     assert!(sida.contains(r#"href="/installation""#), "{sida}");
 }
+
+#[tokio::test]
+async fn sidan_installation_visar_installationsloggen_nyast_först() {
+    let db = Databas::tillfällig().await;
+    let (anna, _) = testhjalp::företag(&db).await;
+    let klocka = Klocka::system();
+    let andra = maya_core::foretag::lägg_upp(
+        &db,
+        &klocka,
+        &anna,
+        &maya_domain::foretag::NyttFöretag {
+            orgnr: "556677-8899".into(),
+            namn: "Provbolaget AB".into(),
+            första_år_start: "2026-01-01".into(),
+            första_år_slut: "2026-12-31".into(),
+            bokföringsmetod: "faktura".into(),
+            momsperiod: "kvartal".into(),
+        },
+    )
+    .await
+    .unwrap();
+    maya_core::foretag::radera(&db, &klocka, &anna, andra)
+        .await
+        .unwrap();
+    testhjalp::användare(&db, "bo@example.se").await;
+    maya_core::inloggning::avaktivera_användare(&db, &klocka, &Aktör::cli(), "bo@example.se")
+        .await
+        .unwrap();
+    let session = session(&db, &anna).await;
+
+    let sida = hämta(&db, config(&[]), &session, "/installation").await;
+
+    assert!(sida.contains("Installationens logg"), "{sida}");
+    let raderat = sida.find("företag raderat").expect(&sida);
+    let avaktiverad = sida.find("användare avaktiverad").expect(&sida);
+    assert!(avaktiverad < raderat, "nyast först: {sida}");
+    assert!(sida.contains("556677-8899"), "{sida}");
+    assert!(sida.contains("Provbolaget AB"), "{sida}");
+}

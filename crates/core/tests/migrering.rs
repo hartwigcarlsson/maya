@@ -264,13 +264,31 @@ async fn en_migrering_som_ändrar_bokförda_data_rullas_tillbaka_och_maya_starta
     )
     .await;
     assert_eq!(antal, 0);
-    assert!(
-        !inst
-            .historik(&db)
-            .await
-            .iter()
-            .any(|p| p.typ == "migrering körd")
+    let historik = inst.historik(&db).await;
+    assert!(!historik.iter().any(|p| p.typ == "migrering körd"));
+    // Försöket står kvar i historiken, fast databasen är återlagd.
+    let misslyckad: Vec<_> = historik
+        .iter()
+        .filter(|p| p.typ == "migrering misslyckad")
+        .collect();
+    assert_eq!(misslyckad.len(), 1, "{historik:?}");
+    let post = misslyckad[0];
+    assert_eq!(post.aktörsnamn(), "Maya");
+    assert_eq!(post.objekt, "29990103000000");
+    assert_eq!(post.beskrivning["programversion"], VERSION);
+    assert_eq!(
+        post.beskrivning["migreringar"],
+        serde_json::json!([
+            {"version": 29990101000000_i64, "namn": "ny tabell"},
+            {"version": 29990103000000_i64, "namn": "andrar bokforingen"},
+        ])
     );
+    let backuper = backup::lista(&inst.mål()).await.unwrap();
+    assert_eq!(post.beskrivning["backup"], backuper[0].namn.as_str());
+    let text = post.text();
+    assert!(text.contains("2 migreringar av Maya 0.4.0"), "{text}");
+    assert!(text.contains("rullades tillbaka"), "{text}");
+    assert!(text.contains("konto 1930"), "{text}");
     db.stäng().await;
     // Nästa start försöker igen och vägrar igen.
     assert!(
@@ -299,6 +317,14 @@ async fn en_migrering_som_misslyckas_halvvägs_rullas_tillbaka_helt() {
 
     assert!(matches!(fel, DatabasFel::Migrering(_)), "{fel:?}");
     assert_eq!(inst.kontrollsummor().await, före);
+    let db = inst.öppna(&Migreringar::nya(&[]), VERSION).await.unwrap();
+    let historik = inst.historik(&db).await;
+    let post = historik
+        .iter()
+        .find(|p| p.typ == "migrering misslyckad")
+        .expect("misslyckad migrering loggad");
+    assert!(post.text().contains("finns_inte"), "{}", post.text());
+    db.stäng().await;
 }
 
 #[tokio::test]
@@ -367,11 +393,14 @@ async fn programversion_bytt_loggas_när_en_annan_version_startar() {
 }
 
 #[tokio::test]
-async fn schemaepoken_är_huvudversionen() {
+async fn schemaepoken_är_0_under_0_x_och_1_från_och_med_1_0() {
     assert_eq!(maya_core::SCHEMAEPOK, "0");
     assert_eq!(maya_core::schemaepok_för("0.4.0"), "0");
     assert_eq!(maya_core::schemaepok_för("1.0.0"), "1");
     assert_eq!(maya_core::schemaepok_för("1.2.3-rc.1"), "1");
+    // En 2.0 öppnar 1.x-databaser: bara gränsen 0.x → 1.0 byter epok.
+    assert_eq!(maya_core::schemaepok_för("2.0.0"), "1");
+    assert_eq!(maya_core::schemaepok_för("10.3.1"), "1");
 }
 
 #[tokio::test]

@@ -324,7 +324,7 @@ fn kontrollera_konto(
         ));
         return None;
     }
-    let konto = text.parse::<u16>().ok().and_then(Kontonummer::new);
+    let konto = text.parse::<Kontonummer>().ok();
     match konto.and_then(|k| förutsättningar.konton.iter().find(|(n, _)| *n == k)) {
         Some((konto, true)) => Some(*konto),
         Some((konto, false)) => {
@@ -432,7 +432,7 @@ impl NyttVerifikat {
             let konto = if text.is_empty() {
                 None
             } else {
-                let konto = text.parse::<u16>().ok().and_then(Kontonummer::new);
+                let konto = text.parse::<Kontonummer>().ok();
                 if konto.is_none() {
                     spärrar.push(Spärr::ny(
                         Fält::Konto(i),

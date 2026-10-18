@@ -3,6 +3,7 @@
 
 use std::io::{BufRead, BufReader, Write};
 use std::net::{TcpListener, TcpStream};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 use maya_core::aktor::Aktör;
@@ -85,15 +86,21 @@ struct FalskSmtp {
 
 impl FalskSmtp {
     fn starta() -> Self {
+        Self::som_avvisar(0)
+    }
+
+    /// En server som avvisar de `antal` första mejlen med 554 efter DATA.
+    fn som_avvisar(antal: usize) -> Self {
         let lyssnare = TcpListener::bind("127.0.0.1:0").unwrap();
         let port = lyssnare.local_addr().unwrap().port();
         let mejl = Arc::new(Mutex::new(Vec::new()));
         let lådan = mejl.clone();
+        let avvisa = Arc::new(AtomicUsize::new(antal));
         std::thread::spawn(move || {
             for ström in lyssnare.incoming() {
                 let Ok(ström) = ström else { return };
-                let lådan = lådan.clone();
-                std::thread::spawn(move || samtal(ström, &lådan));
+                let (lådan, avvisa) = (lådan.clone(), avvisa.clone());
+                std::thread::spawn(move || samtal(ström, &lådan, &avvisa));
             }
         });
         FalskSmtp { port, mejl }
@@ -113,7 +120,7 @@ impl FalskSmtp {
     }
 }
 
-fn samtal(ström: TcpStream, lådan: &Mutex<Vec<Mejl>>) {
+fn samtal(ström: TcpStream, lådan: &Mutex<Vec<Mejl>>, avvisa: &AtomicUsize) {
     let mut ut = ström.try_clone().unwrap();
     let mut in_ = BufReader::new(ström);
     let mut svara = |text: &str| ut.write_all(format!("{text}\r\n").as_bytes()).unwrap();
@@ -146,6 +153,13 @@ fn samtal(ström: TcpStream, lådan: &Mutex<Vec<Mejl>>) {
                     break;
                 }
                 data.push_str(&r);
+            }
+            if avvisa
+                .try_update(Ordering::SeqCst, Ordering::SeqCst, |n| n.checked_sub(1))
+                .is_ok()
+            {
+                svara("554 Avvisat");
+                continue;
             }
             lådan.lock().unwrap().push(Mejl {
                 från: std::mem::take(&mut från),
@@ -308,6 +322,41 @@ async fn ett_larm_som_inte_gick_att_skicka_skickas_nästa_gång() {
         larm(&db, "2026-10-18T08:10:00Z", &smtp.config()).await,
         vec![Larm::Fel(Larmfel::BackupGammal)]
     );
+}
+
+#[tokio::test]
+async fn ett_larm_som_inte_går_att_skicka_stoppar_inte_de_andra() {
+    let db = Databas::tillfällig().await;
+    testhjalp::företag(&db).await;
+    let arbete = tempfile::tempdir().unwrap();
+    let saknas = Backupmål::katalog(&arbete.path().join("finns-inte"));
+    backup::ta_backup(
+        &db,
+        &klocka("2026-10-19T01:00:00Z"),
+        &Aktör::maya(),
+        &saknas,
+        arbete.path(),
+    )
+    .await
+    .unwrap_err();
+    // Två fel: backupen misslyckades och ingen backup har lyckats. Det första mejlet avvisas.
+    let smtp = FalskSmtp::som_avvisar(1);
+    let config = smtp.config();
+
+    let fel = drift::skicka_larm(
+        &db,
+        &klocka("2026-10-19T01:01:00Z"),
+        &config,
+        &Aktör::maya(),
+    )
+    .await;
+
+    assert!(matches!(fel, Err(DriftFel::Smtp(_))), "{fel:?}");
+    assert_eq!(smtp.mejl().len(), 1, "det andra larmet skickades ändå");
+    // Nästa gång skickas bara det som inte kom fram.
+    assert_eq!(larm(&db, "2026-10-19T01:11:00Z", &config).await.len(), 1);
+    assert_eq!(smtp.mejl().len(), 2);
+    assert_ne!(smtp.mejl()[0].ämne(), smtp.mejl()[1].ämne());
 }
 
 #[tokio::test]

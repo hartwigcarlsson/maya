@@ -1,7 +1,7 @@
 //! `maya backup verify`, det nattliga backupjobbet och larmjobbet i `maya serve`. Alla är tunna
 //! adaptrar runt `maya_core::backup` och `maya_core::drift`.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::ExitCode;
 use std::time::Duration;
 
@@ -24,7 +24,7 @@ pub enum BackupCommand {
 }
 
 pub fn run(command: BackupCommand) -> ExitCode {
-    crate::user::kör_med_databas(|config, db| async move {
+    crate::cli::kör_med_databas(|config, db| async move {
         let resultat = match command {
             BackupCommand::Verify { name } => verify(&config, &db, name.as_deref()).await,
         };
@@ -33,12 +33,7 @@ pub fn run(command: BackupCommand) -> ExitCode {
     })
 }
 
-/// Där ögonblicksbilden och en hämtad backup ligger under arbetet.
-fn arbetskatalog(config: &Config) -> PathBuf {
-    config.data_dir.join("backup-arbete")
-}
-
-async fn verify(config: &Config, db: &Databas, namn: Option<&str>) -> crate::user::Resultat {
+async fn verify(config: &Config, db: &Databas, namn: Option<&str>) -> crate::cli::Resultat {
     let mål = Backupmål::från(&config.backup);
     let verifiering = backup::verifiera(
         db,
@@ -46,7 +41,7 @@ async fn verify(config: &Config, db: &Databas, namn: Option<&str>) -> crate::use
         &Aktör::cli(),
         &mål,
         namn,
-        &arbetskatalog(config),
+        &config.arbetskatalog(),
     )
     .await
     .map_err(|e| {
@@ -56,11 +51,7 @@ async fn verify(config: &Config, db: &Databas, namn: Option<&str>) -> crate::use
         )
     })?;
 
-    let tid = verifiering
-        .backup
-        .tid
-        .to_zoned(maya_domain::tid::stockholm())
-        .strftime("%Y-%m-%d %H:%M");
+    let tid = maya_domain::tid::minut(verifiering.backup.tid);
     println!(
         "Backupen {} från {tid} i {}:",
         verifiering.backup.namn,
@@ -92,14 +83,12 @@ pub fn varna_vid_start(config: &Config) {
 /// stannar.
 pub async fn nattligt_jobb(config: &Config, db: Databas) {
     let mål = Backupmål::från(&config.backup);
-    let arbete = arbetskatalog(config);
+    let arbete = config.arbetskatalog();
     loop {
         let nästa = maya_domain::backup::nästa_körning(Timestamp::now(), config.backup_time);
         tracing::info!(
             "nästa backup {} till {}",
-            nästa
-                .to_zoned(maya_domain::tid::stockholm())
-                .strftime("%Y-%m-%d %H:%M"),
+            maya_domain::tid::minut(nästa),
             mål.beskrivning()
         );
         vänta_till(nästa).await;
@@ -108,7 +97,16 @@ pub async fn nattligt_jobb(config: &Config, db: Databas) {
 }
 
 async fn kör(db: &Databas, mål: &Backupmål, arbete: &Path) {
-    match backup::ta_backup(db, &Klocka::system(), &Aktör::maya(), mål, arbete).await {
+    let resultat = backup::ta_backup(db, &Klocka::system(), &Aktör::maya(), mål, arbete).await;
+    if let Ok(r) = &resultat
+        && let Some(fel) = &r.gallringsfel
+    {
+        tracing::error!(
+            "gallringen av äldre backuper efter {} misslyckades: {fel}",
+            r.backup.namn
+        );
+    }
+    match resultat {
         Ok(resultat) if resultat.verifiering.lyckades() => tracing::info!(
             "backupen {} är tagen och verifierad ({} gallrade)",
             resultat.backup.namn,

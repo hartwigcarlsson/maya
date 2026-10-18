@@ -45,7 +45,8 @@ pub enum FöretagsFel {
     Ogiltigt(Vec<Fältfel>),
     #[error("{0} finns redan i Maya. Be någon som har åtkomst till företaget om en inbjudan.")]
     OrgnrFinns(Organisationsnummer),
-    /// Företaget har bokförda verifikat eller underlag och kan inte raderas (A1).
+    /// Företaget har bokförda verifikat, underlag eller en ingående balans och kan inte raderas
+    /// (A1, Å2).
     #[error("företaget har räkenskapsinformation och kan inte raderas")]
     HarRäkenskapsinformation,
     #[error(transparent)]
@@ -168,6 +169,18 @@ pub async fn lägg_upp(
                 "momsperiod": nytt.momsperiod.kod(),
                 "kontoplan": bas::VERSION,
             }),
+        )
+        .await?;
+    // Skaparen får åtkomst som vem som helst, och det står i historiken.
+    let epost: String = sqlx::query_scalar("SELECT epost FROM anvandare WHERE id = ?")
+        .bind(användare.0)
+        .fetch_one(ärende.conn())
+        .await?;
+    ärende
+        .logga(
+            Händelse::ÅtkomstGiven,
+            &epost,
+            serde_json::json!({ "användare": användare.0, "epost": epost }),
         )
         .await?;
     ärende.slutför().await?;
@@ -573,12 +586,15 @@ pub async fn radera(
         return Err(FöretagsFel::HarRäkenskapsinformation);
     }
     let (orgnr, uppgifter) = läs_uppgifter(&mut *conn, id).await?;
-    // Företagsraden tas bort före kontoplanen och behandlingshistoriken, som bara går att
-    // radera för ett företag som inte finns; främmande nycklar prövas vid COMMIT.
+    // Företaget, kontoplanen och behandlingshistoriken går bara att radera med en markering i
+    // `foretag_radering`, som schemat bara godtar för ett företag utan räkenskapsinformation.
+    // Företagsraden tas bort före kontoplanen och historiken; främmande nycklar prövas vid
+    // COMMIT. Markeringen tas bort i samma transaktion.
     sqlx::query("PRAGMA defer_foreign_keys = ON")
         .execute(&mut *conn)
         .await?;
     for sql in [
+        "INSERT INTO foretag_radering (foretag_id) VALUES (?1)",
         // Inga underlag finns (de är räkenskapsinformation), men listan täcker varje tabell
         // med företagets data.
         "DELETE FROM underlagskoppling
@@ -599,6 +615,7 @@ pub async fn radera(
         "DELETE FROM foretag WHERE id = ?1",
         "DELETE FROM konto WHERE foretag_id = ?1",
         "DELETE FROM behandlingshistorik WHERE foretag_id = ?1",
+        "DELETE FROM foretag_radering WHERE foretag_id = ?1",
     ] {
         sqlx::query(sql).bind(id.0).execute(&mut *conn).await?;
     }
@@ -615,8 +632,8 @@ pub async fn radera(
     Ok(())
 }
 
-/// Om företaget har räkenskapsinformation (bokförda verifikat och underlag; fakturor när de
-/// finns), så att det inte kan raderas.
+/// Om företaget har räkenskapsinformation (bokförda verifikat, underlag och en inskriven
+/// ingående balans, Å2; fakturor när de finns), så att det inte kan raderas.
 pub async fn har_räkenskapsinformation(
     db: &Databas,
     aktör: &Aktör,
@@ -633,7 +650,10 @@ async fn har_räkenskapsinformation_i(
 ) -> Result<bool, sqlx::Error> {
     sqlx::query_scalar(
         "SELECT EXISTS (SELECT 1 FROM verifikat WHERE foretag_id = ?1 AND bokford IS NOT NULL)
-             OR EXISTS (SELECT 1 FROM underlag WHERE foretag_id = ?1)",
+             OR EXISTS (SELECT 1 FROM underlag WHERE foretag_id = ?1)
+             OR EXISTS (SELECT 1 FROM ingaende_balans b
+                        JOIN rakenskapsar r ON r.id = b.rakenskapsar_id
+                        WHERE r.foretag_id = ?1)",
     )
     .bind(id.0)
     .fetch_one(conn)

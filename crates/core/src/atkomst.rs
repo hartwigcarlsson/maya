@@ -12,7 +12,7 @@ use crate::aktor::{self, Aktör, AnvändarId, Handling};
 use crate::behandlingshistorik::{self, Händelse};
 use crate::foretag::FöretagsId;
 use crate::inloggning::{
-    Inloggad, InloggningsFel, LÄNK_GILTIG, Registrant, Registreringslänk, Token, hash, tidpunkt,
+    Engångslänk, Inloggad, InloggningsFel, LÄNK_GILTIG, Registrant, Token, hash, tidpunkt,
 };
 use crate::{Databas, DatabasFel, Klocka};
 
@@ -155,6 +155,9 @@ pub enum DelningsFel {
     OkändAnvändare,
     #[error("den sista åtkomsten till företaget går inte att ta bort")]
     SistaÅtkomsten,
+    /// Användaren är avaktiverad och får ingen ny åtkomst förrän driften återaktiverar hen.
+    #[error("användaren är avaktiverad; driften återaktiverar med `maya user reactivate`")]
+    Avaktiverad,
     #[error(transparent)]
     Åtkomst(#[from] ÅtkomstFel),
 }
@@ -200,7 +203,7 @@ pub struct Åtkomstlista {
 #[derive(Debug, Clone)]
 pub enum Inbjudan {
     /// En ny användare: länken visas för kopiering och skapar användaren med åtkomst.
-    Länk(Registreringslänk),
+    Länk(Engångslänk),
     /// E-postadressen har redan ett konto, som har fått åtkomst direkt.
     ÅtkomstGiven,
 }
@@ -309,11 +312,15 @@ pub async fn bjud_in(
 ) -> Result<Inbjudan, DelningsFel> {
     let epost = maya_domain::epost::normalisera(epost)?;
     let mut ärende = ändra_åtkomst(db, klocka, inloggad, företag).await?;
-    let befintlig: Option<i64> = sqlx::query_scalar("SELECT id FROM anvandare WHERE epost = ?")
-        .bind(&epost)
-        .fetch_optional(ärende.conn())
-        .await?;
-    if let Some(id) = befintlig {
+    let befintlig: Option<(i64, Option<String>)> =
+        sqlx::query_as("SELECT id, avaktiverad FROM anvandare WHERE epost = ?")
+            .bind(&epost)
+            .fetch_optional(ärende.conn())
+            .await?;
+    if let Some((_, Some(_))) = befintlig {
+        return Err(DelningsFel::Avaktiverad);
+    }
+    if let Some((id, None)) = befintlig {
         ge(&mut ärende, AnvändarId(id), &epost).await?;
         ärende.slutför().await?;
         return Ok(Inbjudan::ÅtkomstGiven);
@@ -344,7 +351,7 @@ pub async fn bjud_in(
         )
         .await?;
     ärende.slutför().await?;
-    Ok(Inbjudan::Länk(Registreringslänk::ny(token, giltig_till)))
+    Ok(Inbjudan::Länk(Engångslänk::ny(token, giltig_till)))
 }
 
 /// Ger `användare` åtkomst till företaget. Aktören måste redan dela ett företag med hen.
@@ -356,8 +363,8 @@ pub async fn ge_åtkomst(
     användare: AnvändarId,
 ) -> Result<(), DelningsFel> {
     let mut ärende = ändra_åtkomst(db, klocka, inloggad, företag).await?;
-    let epost: Option<String> = sqlx::query_scalar(
-        "SELECT u.epost FROM anvandare u
+    let rad: Option<(String, Option<String>)> = sqlx::query_as(
+        "SELECT u.epost, u.avaktiverad FROM anvandare u
          WHERE u.id = ?1 AND u.id IN (SELECT a.anvandare_id FROM atkomst a
                                       JOIN atkomst egen ON egen.foretag_id = a.foretag_id
                                       WHERE egen.anvandare_id = ?2)",
@@ -366,7 +373,10 @@ pub async fn ge_åtkomst(
     .bind(inloggad.användare.id.0)
     .fetch_optional(ärende.conn())
     .await?;
-    let epost = epost.ok_or(DelningsFel::OkändAnvändare)?;
+    let (epost, avaktiverad) = rad.ok_or(DelningsFel::OkändAnvändare)?;
+    if avaktiverad.is_some() {
+        return Err(DelningsFel::Avaktiverad);
+    }
     ge(&mut ärende, användare, &epost).await?;
     ärende.slutför().await?;
     Ok(())
@@ -446,7 +456,6 @@ pub async fn ta_åtkomst(
 /// En giltig inbjudan: oanvänd, inte för gammal, och e-postadressen har inget konto än.
 pub(crate) struct GiltigInbjudan {
     pub registrant: Registrant,
-    företag: FöretagsId,
     hash: Vec<u8>,
 }
 
@@ -456,15 +465,15 @@ pub(crate) async fn giltig_inbjudan(
     token: &str,
 ) -> Result<GiltigInbjudan, InloggningsFel> {
     let hash = hash(token);
-    let rad: Option<(i64, String, Vec<u8>, String)> = sqlx::query_as(
-        "SELECT foretag_id, epost, handle, giltig_till FROM inbjudan
+    let rad: Option<(String, Vec<u8>, String)> = sqlx::query_as(
+        "SELECT epost, handle, giltig_till FROM inbjudan
          WHERE hash = ? AND anvand IS NULL
            AND NOT EXISTS (SELECT 1 FROM anvandare u WHERE u.epost = inbjudan.epost)",
     )
     .bind(&hash)
     .fetch_optional(conn)
     .await?;
-    let Some((företag, epost, handle, giltig_till)) = rad else {
+    let Some((epost, handle, giltig_till)) = rad else {
         return Err(InloggningsFel::OgiltigLänk);
     };
     if nu >= tidpunkt(&giltig_till)? {
@@ -479,7 +488,6 @@ pub(crate) async fn giltig_inbjudan(
             visningsnamn: epost.clone(),
             epost,
         },
-        företag: FöretagsId(företag),
         hash,
     })
 }
@@ -503,30 +511,53 @@ pub(crate) async fn använd_inbjudan(
     .bind(nu.to_string())
     .fetch_one(&mut *conn)
     .await?;
-    sqlx::query("UPDATE inbjudan SET anvand = ?, anvandare_id = ? WHERE hash = ?")
-        .bind(nu.to_string())
-        .bind(id)
-        .bind(&inbjudan.hash)
-        .execute(&mut *conn)
-        .await?;
-    sqlx::query("INSERT INTO atkomst (foretag_id, anvandare_id) VALUES (?, ?)")
-        .bind(inbjudan.företag.0)
-        .bind(id)
-        .execute(&mut *conn)
-        .await?;
+    // Inbjudan som användes och varje annan giltig, oanvänd inbjudan till samma adress (från
+    // andra företag): användaren får åtkomst till vart och ett, och inbjudningarna är använda.
+    let inbjudningar: Vec<(Vec<u8>, i64)> = sqlx::query_as(
+        "SELECT hash, foretag_id FROM inbjudan
+         WHERE hash = ?1 OR (epost = ?2 AND anvand IS NULL AND giltig_till > ?3)
+         ORDER BY hash = ?1 DESC, skapad, rowid",
+    )
+    .bind(&inbjudan.hash)
+    .bind(&epost)
+    .bind(nu.to_string())
+    .fetch_all(&mut *conn)
+    .await?;
     let aktör = Aktör::webb(AnvändarId(id));
     let beskrivning = serde_json::json!({ "användare": id, "epost": epost });
-    for händelse in [Händelse::InbjudanAnvänd, Händelse::ÅtkomstGiven] {
-        behandlingshistorik::skriv(
-            conn,
-            inbjudan.företag,
-            nu,
-            &aktör,
-            händelse,
-            &epost,
-            beskrivning.clone(),
+    for (hash, företag) in inbjudningar {
+        sqlx::query("UPDATE inbjudan SET anvand = ?, anvandare_id = ? WHERE hash = ?")
+            .bind(nu.to_string())
+            .bind(id)
+            .bind(&hash)
+            .execute(&mut *conn)
+            .await?;
+        let ny = sqlx::query(
+            "INSERT INTO atkomst (foretag_id, anvandare_id) VALUES (?, ?) ON CONFLICT DO NOTHING",
         )
-        .await?;
+        .bind(företag)
+        .bind(id)
+        .execute(&mut *conn)
+        .await?
+        .rows_affected()
+            == 1;
+        let händelser: &[Händelse] = if ny {
+            &[Händelse::InbjudanAnvänd, Händelse::ÅtkomstGiven]
+        } else {
+            &[Händelse::InbjudanAnvänd]
+        };
+        for &händelse in händelser {
+            behandlingshistorik::skriv(
+                conn,
+                FöretagsId(företag),
+                nu,
+                &aktör,
+                händelse,
+                &epost,
+                beskrivning.clone(),
+            )
+            .await?;
+        }
     }
     Ok(AnvändarId(id))
 }

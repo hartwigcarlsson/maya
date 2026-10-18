@@ -68,10 +68,9 @@ pub(crate) mod server {
         .await
         {
             Ok(dokument) => Ok(Systemdokumentationsdata {
-                filnamn: format!(
-                    "systemdokumentation_{}_{}.pdf",
-                    dokument.orgnr.replace('-', ""),
-                    b.klocka.idag().strftime("%Y%m%d")
+                filnamn: maya_core::utskrift::systemdokumentationens_filnamn(
+                    &dokument.orgnr,
+                    b.klocka.idag(),
                 ),
                 dokument,
             }),

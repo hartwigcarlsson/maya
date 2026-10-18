@@ -33,8 +33,8 @@ pub(crate) struct InloggningsState {
 pub(crate) fn routes(state: InloggningsState) -> Router {
     Router::new()
         .route("/auth/webauthn.js", get(shim))
-        .route("/auth/registrering/start", post(börja_registrering))
-        .route("/auth/registrering/slutfor", post(slutför_registrering))
+        .route("/auth/registrering/start", post(börja_med_engångslänk))
+        .route("/auth/registrering/slutfor", post(slutför_med_engångslänk))
         .route("/auth/inloggning/start", post(börja_inloggning))
         .route("/auth/inloggning/slutfor", post(slutför_inloggning))
         .route("/auth/utloggning", post(logga_ut))
@@ -142,11 +142,11 @@ struct BörjaRegistrering {
     token: String,
 }
 
-async fn börja_registrering(
+async fn börja_med_engångslänk(
     State(state): State<InloggningsState>,
     Json(begäran): Json<BörjaRegistrering>,
 ) -> Response {
-    match state.passkeys.börja_registrering(&begäran.token).await {
+    match state.passkeys.börja_med_engångslänk(&begäran.token).await {
         Ok((ceremoni, utmaning)) => {
             Json(json!({ "ceremoni": ceremoni, "utmaning": utmaning })).into_response()
         }
@@ -162,14 +162,14 @@ struct SlutförRegistrering {
     svar: RegisterPublicKeyCredential,
 }
 
-async fn slutför_registrering(
+async fn slutför_med_engångslänk(
     State(state): State<InloggningsState>,
     headers: HeaderMap,
     Json(begäran): Json<SlutförRegistrering>,
 ) -> Response {
     match state
         .passkeys
-        .slutför_registrering(
+        .slutför_med_engångslänk(
             begäran.ceremoni,
             &begäran.namn,
             &begäran.svar,

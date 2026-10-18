@@ -169,12 +169,12 @@ async fn inaktivering_av_ett_konto_med_saldo_i_ett_öppet_år_nekas_med_skäl_oc
     };
     assert_eq!(
         spärr.to_string(),
-        "Saldo 1\u{a0}234,50 kr i räkenskapsåret 2026-01-01–2026-12-31, som inte är stängt. \
+        "Saldo 1 234,50 kr i räkenskapsåret 2026-01-01–2026-12-31, som inte är stängt. \
          Bara konton med nollsaldo kan inaktiveras."
     );
     assert!(konto(&db, &anna, id, 1930).await.unwrap().aktiv);
     let saldon = kontoplan::saldon(&db, &anna, id, nr(2081)).await.unwrap();
-    assert_eq!(saldon[0].öre, -123_450);
+    assert_eq!(saldon[0].saldo.öre(), -123_450);
 }
 
 #[tokio::test]

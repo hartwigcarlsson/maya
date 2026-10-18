@@ -76,6 +76,50 @@ pub async fn kontrollera_rp(db: &Databas, rp: &RelyingParty) -> Result<(), Insta
     }
 }
 
+/// Prövar `rp` mot det som är sparat i databasfilen `path`, utan att öppna den som [`Databas`]
+/// (som migrerar och loggar starten). Körs före öppningen, så att en start med fel domän aldrig
+/// hinner skriva i databasen. En fil som saknas eller inte har något sparat godtas;
+/// [`kontrollera_rp`] sparar det efter öppningen.
+pub async fn kontrollera_rp_i_fil(
+    path: &std::path::Path,
+    rp: &RelyingParty,
+) -> Result<(), InstallationsFel> {
+    use sqlx::Connection;
+    if !path.exists() {
+        return Ok(());
+    }
+    let options = sqlx::sqlite::SqliteConnectOptions::new()
+        .filename(path)
+        .read_only(true);
+    let mut conn = sqlx::SqliteConnection::connect_with(&options).await?;
+    let finns: bool = sqlx::query_scalar(
+        "SELECT EXISTS (SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'installation')",
+    )
+    .fetch_one(&mut conn)
+    .await?;
+    let sparat: Option<(String, String)> = if finns {
+        sqlx::query_as("SELECT rp_id, origin FROM installation WHERE id = 1")
+            .fetch_optional(&mut conn)
+            .await?
+    } else {
+        None
+    };
+    conn.close().await?;
+    match sparat {
+        Some((sparat_rp_id, sparat_origin))
+            if sparat_rp_id != rp.rp_id || sparat_origin != rp.origin =>
+        {
+            Err(InstallationsFel::AnnatRpId {
+                sparat_rp_id,
+                sparat_origin,
+                nu_rp_id: rp.rp_id.clone(),
+                nu_origin: rp.origin.clone(),
+            })
+        }
+        _ => Ok(()),
+    }
+}
+
 /// Byter installationens domän till `rp`: sparar nytt `rp_id` och origin och tömmer alla
 /// passkeys och sessioner, eftersom passkeys är bundna till domänen. Användarna får sedan en
 /// återställningslänk var. Bara CLI:t (ADR 0005). Händelsen skrivs i installationsloggen.

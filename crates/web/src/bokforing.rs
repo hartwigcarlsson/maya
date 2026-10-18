@@ -41,14 +41,7 @@ pub fn Bokföringsmeny(bas: String, aktiv: &'static str) -> impl IntoView {
     }
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub struct RadVy {
-    pub konto: String,
-    pub kontonamn: String,
-    pub text: String,
-    pub debet: String,
-    pub kredit: String,
-}
+pub use crate::verifikat::RadVy;
 
 /// Ett verifikat i grundboken eller panelen.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -124,25 +117,25 @@ pub async fn hämta_bokföringsdata(adress: String) -> Result<Bokföringsdata, S
 
 #[cfg(feature = "ssr")]
 pub(crate) mod server {
+    use crate::svar::{ingen_åtkomst, serverfel};
     use std::sync::Arc;
 
     use axum::Router;
     use axum::extract::{Extension, Path, RawQuery, State};
-    use axum::http::{StatusCode, header};
+    use axum::http::StatusCode;
     use axum::response::{IntoResponse, Redirect, Response};
     use axum::routing::get;
-    use jiff::Timestamp;
     use jiff::civil::Date;
     use leptos::prelude::ServerFnError;
     use maya_core::atkomst::ÅtkomstFel;
-    use maya_core::bokforing::{self, Bokföringsrad, Fil, Periodurval, RapportFel};
+    use maya_core::bokforing::{self, Bokföringsrad, Periodurval, RapportFel};
     use maya_core::foretag::{self, FöretagsId};
     use maya_core::inloggning::Inloggad;
     use maya_core::saldo::Status;
-    use maya_core::utskrift::Pdf;
+
     use maya_core::verifikat::{self, VerifikatId};
     use maya_core::{Databas, Klocka};
-    use maya_domain::belopp::Belopp;
+
     use maya_domain::kontourval::Kontourval;
     use maya_domain::rakenskapsar::periodnamn;
 
@@ -313,8 +306,8 @@ pub(crate) mod server {
                             nummer: t.nummer.to_string(),
                             datum: t.datum.to_string(),
                             text: t.text.clone(),
-                            debet: belopp(t.debet),
-                            kredit: belopp(t.kredit),
+                            debet: t.debet.eller_tomt(),
+                            kredit: t.kredit.eller_tomt(),
                             saldo: t.saldo.to_string(),
                         })
                         .collect(),
@@ -371,12 +364,7 @@ pub(crate) mod server {
         let orgnr = foretag::företaget(db, aktör, företag).await?.orgnr;
         data.export = (
             format!("/foretag/{företag}/rapporter/{rapport}"),
-            format!(
-                "{rapport}_{}_{}_{}",
-                orgnr.to_string().replace('-', ""),
-                år.start.strftime("%Y"),
-                sista.strftime("%Y%m")
-            ),
+            bokforing::filnamnsstam(rapport, &orgnr.to_string(), år.start, sista),
         );
         Ok(data)
     }
@@ -428,24 +416,12 @@ pub(crate) mod server {
             konto: r.konto.to_string(),
             kontonamn: r.kontonamn.clone(),
             text: r.text.clone().unwrap_or_default(),
-            debet: belopp(r.debet),
-            kredit: belopp(r.kredit),
+            debet: r.debet.eller_tomt(),
+            kredit: r.kredit.eller_tomt(),
         }
     }
 
-    fn belopp(b: Belopp) -> String {
-        if b == Belopp::NOLL {
-            String::new()
-        } else {
-            b.to_string()
-        }
-    }
-
-    fn tid(t: Timestamp) -> String {
-        t.to_zoned(maya_domain::tid::stockholm())
-            .strftime("%Y-%m-%d %H:%M")
-            .to_string()
-    }
+    use maya_domain::tid::minut as tid;
 
     /// GET `/foretag/<id>/rapporter/{grundbok|huvudbok}/{pdf|csv}?<urvalet>`. PDF:en är
     /// `inline` så att Skriv ut visar den; CSV:n laddas ned.
@@ -474,18 +450,18 @@ pub(crate) mod server {
         let svar = match (rapport.as_str(), format.as_str()) {
             ("grundbok", "pdf") => bokforing::grundbok_pdf(db, klocka, aktör, företag, &urval)
                 .await
-                .map(pdf),
+                .map(crate::svar::pdf),
             ("huvudbok", "pdf") => {
                 bokforing::huvudbok_pdf(db, klocka, aktör, företag, &urval, &konton)
                     .await
-                    .map(pdf)
+                    .map(crate::svar::pdf)
             }
             ("grundbok", "csv") => bokforing::grundbok_csv(db, aktör, företag, &urval)
                 .await
-                .map(csv),
+                .map(|f| crate::svar::csv(&f.filnamn, f.innehåll)),
             ("huvudbok", "csv") => bokforing::huvudbok_csv(db, aktör, företag, &urval, &konton)
                 .await
-                .map(csv),
+                .map(|f| crate::svar::csv(&f.filnamn, f.innehåll)),
             _ => return (StatusCode::NOT_FOUND, "Sidan finns inte.\n").into_response(),
         };
         match svar {
@@ -495,53 +471,6 @@ pub(crate) mod server {
             }
             Err(e) => serverfel(e),
         }
-    }
-
-    fn pdf(pdf: Pdf) -> Response {
-        fil(
-            "application/pdf",
-            format!(r#"inline; filename="{}""#, pdf.filnamn),
-            pdf.innehåll,
-        )
-    }
-
-    fn csv(csv: Fil) -> Response {
-        fil(
-            "text/csv; charset=utf-8",
-            format!(r#"attachment; filename="{}""#, csv.filnamn),
-            csv.innehåll,
-        )
-    }
-
-    fn fil(typ: &'static str, disposition: String, innehåll: Vec<u8>) -> Response {
-        (
-            [
-                (header::CONTENT_TYPE, typ.to_string()),
-                (header::CONTENT_DISPOSITION, disposition),
-                (header::CACHE_CONTROL, "no-store".to_string()),
-            ],
-            innehåll,
-        )
-            .into_response()
-    }
-
-    fn ingen_åtkomst() -> Response {
-        (
-            StatusCode::FORBIDDEN,
-            [(header::CONTENT_TYPE, "text/plain; charset=utf-8")],
-            "Du har inte åtkomst till företaget.\n",
-        )
-            .into_response()
-    }
-
-    fn serverfel(e: impl std::fmt::Display) -> Response {
-        tracing::error!("bokföringen: {e}");
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            [(header::CONTENT_TYPE, "text/plain; charset=utf-8")],
-            "Något gick fel i Maya; försök igen.\n",
-        )
-            .into_response()
     }
 }
 

@@ -242,6 +242,12 @@ async fn att_göra_visar_nyckeltalen_ur_bokföringen_och_utkasten_med_sina_frist
     assert!(sida.contains("kvitto.pdf"), "{sida}");
     // Antalet saker att göra i toppmenyn och i företagsväljaren.
     assert_eq!(antal(&sida, r#"<span class="antal">3</span>"#), 2, "{sida}");
+    // Företagsväljaren visar också antalet utkast per företag (berättelse 52).
+    let väljare = &sida[sida.find("foretagsvaljare").expect(&sida)..];
+    assert!(
+        väljare.contains(r#"<span class="utkastantal">2 utkast</span>"#),
+        "{väljare}"
+    );
 
     // Utkastet fälls ut på plats med formuläret, som visar kontantfristen som en notis.
     let sida = hämta(&db, &session, &format!("{bas}?oppna=utkast-{kassa}")).await;

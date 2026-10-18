@@ -5,7 +5,6 @@
 use std::io::BufRead;
 use std::process::ExitCode;
 
-use jiff::Timestamp;
 use maya_core::Klocka;
 use maya_core::aktor::Aktör;
 use maya_core::aterstallning;
@@ -14,12 +13,9 @@ use maya_core::config::Config;
 use maya_core::installation::RelyingParty;
 
 pub fn run(namn: Option<String>) -> ExitCode {
-    let config = match Config::from_env(std::env::vars()) {
+    let config = match crate::cli::config() {
         Ok(config) => config,
-        Err(e) => {
-            eprint!("{e}");
-            return ExitCode::FAILURE;
-        }
+        Err(kod) => return kod,
     };
     let runtime = tokio::runtime::Runtime::new().expect("tokio-runtime");
     match runtime.block_on(restore(&config, namn.as_deref())) {
@@ -31,13 +27,9 @@ pub fn run(namn: Option<String>) -> ExitCode {
     }
 }
 
-fn stockholm(tid: Timestamp) -> String {
-    tid.to_zoned(maya_domain::tid::stockholm())
-        .strftime("%Y-%m-%d %H:%M")
-        .to_string()
-}
+use maya_domain::tid::minut as stockholm;
 
-async fn restore(config: &Config, namn: Option<&str>) -> crate::user::Resultat {
+async fn restore(config: &Config, namn: Option<&str>) -> crate::cli::Resultat {
     let mål = Backupmål::från(&config.backup);
     let vald = aterstallning::välj(&mål, namn)
         .await
@@ -72,7 +64,7 @@ async fn restore(config: &Config, namn: Option<&str>) -> crate::user::Resultat {
         &RelyingParty::från_publik_url(&config.public_url),
         &Klocka::system(),
         &Aktör::cli(),
-        &config.data_dir.join("backup-arbete"),
+        &config.arbetskatalog(),
     )
     .await
     .map_err(|e| format!("Maya kunde inte återställa installationen: {e}"))?;

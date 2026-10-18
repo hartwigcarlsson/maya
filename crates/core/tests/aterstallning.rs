@@ -260,6 +260,70 @@ async fn en_backup_som_inte_stämmer_med_manifestet_vägras() {
     assert_eq!(bokförda.len(), 2);
 }
 
+/// Ändrar backupens databasfil i målet med `sql` och skriver om manifestets storlek och
+/// SHA-256, så att backupen ser hel ut för granskningen före bytet.
+async fn ändra_backupen(inst: &Installation, sql: &'static str) {
+    use sha2::Digest;
+    use sqlx::Connection;
+    let fil = inst.mål_dir.path().join(format!("{BACKUPNAMN}.db"));
+    let mut conn = sqlx::SqliteConnection::connect(&format!("sqlite://{}", fil.display()))
+        .await
+        .unwrap();
+    sqlx::raw_sql(sql).execute(&mut conn).await.unwrap();
+    conn.close().await.unwrap();
+    let innehåll = std::fs::read(&fil).unwrap();
+    let manifestfil = inst.mål_dir.path().join(format!("{BACKUPNAMN}.json"));
+    let mut manifest: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&manifestfil).unwrap()).unwrap();
+    manifest["databas"]["byte"] = innehåll.len().into();
+    manifest["databas"]["sha256"] = hex::encode(sha2::Sha256::digest(&innehåll)).into();
+    std::fs::write(&manifestfil, serde_json::to_vec(&manifest).unwrap()).unwrap();
+}
+
+#[tokio::test]
+async fn när_den_återställda_databasen_inte_kan_öppnas_läggs_den_gamla_tillbaka() {
+    let inst = Installation::ny().await;
+    // Backupen säger sig ha en migrering som den här Maya-versionen inte känner till, så den
+    // vägras först när den ligger på plats och öppnas.
+    ändra_backupen(
+        &inst,
+        "INSERT INTO _sqlx_migrations
+             (version, description, installed_on, success, checksum, execution_time)
+         VALUES (29990101000000, 'framtida', '2999-01-01', 1, x'00', 0)",
+    )
+    .await;
+    let före = std::fs::read(inst.fil()).unwrap();
+
+    let fel = inst
+        .återställ(&Aktör::cli(), &rp("bokforing.example.se"))
+        .await
+        .unwrap_err();
+
+    assert!(matches!(fel, ÅterställningsFel::Databas(_)), "{fel:?}");
+    assert_eq!(std::fs::read(inst.fil()).unwrap(), före);
+    // Ingen undanflyttad fil ligger kvar bredvid databasen.
+    let filer: Vec<String> = std::fs::read_dir(inst.data.path())
+        .unwrap()
+        .map(|f| f.unwrap().file_name().to_string_lossy().into_owned())
+        .filter(|f| f.starts_with("maya.db"))
+        .collect();
+    assert_eq!(filer, ["maya.db"]);
+    let db = inst.öppna().await;
+    let bokförda = verifikat::lista(&db, &inst.anna, inst.företag, Verifikaturval::Bokförda)
+        .await
+        .unwrap();
+    assert_eq!(bokförda.len(), 2);
+    let historik = behandlingshistorik::historik(&db, &inst.anna, inst.företag, &Urval::default())
+        .await
+        .unwrap();
+    assert!(
+        !historik
+            .poster
+            .iter()
+            .any(|p| p.typ == "återställning gjord")
+    );
+}
+
 #[tokio::test]
 async fn bara_cli_återställer() {
     let inst = Installation::ny().await;

@@ -157,17 +157,12 @@ pub(crate) mod server {
         let historik =
             behandlingshistorik::historik(&state.db, &inloggad.aktör, företag, urval).await?;
         let f = maya_core::foretag::företaget(&state.db, &inloggad.aktör, företag).await?;
-        let stockholm = maya_domain::tid::stockholm();
         Ok(Behandlingshistorikdata {
             poster: historik
                 .poster
                 .iter()
                 .map(|p| PostVy {
-                    tid: p
-                        .tid
-                        .to_zoned(stockholm.clone())
-                        .strftime("%Y-%m-%d %H:%M:%S")
-                        .to_string(),
+                    tid: maya_domain::tid::sekund(p.tid),
                     aktör: p.aktörsnamn(),
                     kanal: p.aktör.kanal.namn().to_string(),
                     maya: p.aktör.kanal == maya_core::aktor::Kanal::Maya,
@@ -189,10 +184,9 @@ pub(crate) mod server {
                 till: urval.till.map(|d| d.to_string()).unwrap_or_default(),
             },
             query: query(urval),
-            filnamn: format!(
-                "behandlingshistorik_{}_{}",
-                f.orgnr.siffror(),
-                state.klocka.idag().strftime("%Y%m%d")
+            filnamn: maya_core::export::behandlingshistorikens_filnamn(
+                &f.orgnr,
+                state.klocka.idag(),
             ),
         })
     }

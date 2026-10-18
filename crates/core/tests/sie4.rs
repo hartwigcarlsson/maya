@@ -260,6 +260,30 @@ async fn en_avvikelse_vid_återläsningen_ger_ett_fel_och_ingen_fil() {
 }
 
 #[tokio::test]
+async fn avstämningen_fångar_ett_fel_i_läsningen_som_filen_byggs_av() {
+    let db = Databas::tillfällig().await;
+    let (anna, id) = bokföring(&db).await;
+    let nu = klocka("2027-02-03T08:00:00Z");
+
+    // Läsningen tappar årets sista verifikat; filen byggs av samma läsning och stämmer med den.
+    let fel = testhjalp::exportera_sie4_med_felaktig_läsning(&db, &nu, &anna, id, ÅR_2026)
+        .await
+        .unwrap_err();
+
+    let Sie4Fel::Avvikelse(avvikelser) = fel else {
+        panic!("{fel:?}")
+    };
+    assert!(
+        avvikelser.iter().any(|a| a.contains("verifikat")),
+        "{avvikelser:?}"
+    );
+    assert!(
+        avvikelser.iter().any(|a| a.contains("konto 6570")),
+        "{avvikelser:?}"
+    );
+}
+
+#[tokio::test]
 async fn bara_den_med_åtkomst_till_företaget_kan_exportera() {
     let db = Databas::tillfällig().await;
     let (_, id) = bokföring(&db).await;

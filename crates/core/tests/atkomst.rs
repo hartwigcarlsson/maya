@@ -63,7 +63,7 @@ async fn har_åtkomst(db: &Databas, aktör: &Aktör, företag: FöretagsId) -> b
         .any(|f| f.id == företag)
 }
 
-fn länk(inbjudan: Inbjudan) -> inloggning::Registreringslänk {
+fn länk(inbjudan: Inbjudan) -> inloggning::Engångslänk {
     match inbjudan {
         Inbjudan::Länk(länk) => länk,
         Inbjudan::ÅtkomstGiven => panic!("väntade en länk"),
@@ -176,6 +176,47 @@ async fn öppna_inbjudningar_listas_tills_de_används_eller_löper_ut() {
 }
 
 #[tokio::test]
+async fn registrering_med_en_inbjudan_använder_varje_öppen_inbjudan_till_samma_adress() {
+    let db = Databas::tillfällig().await;
+    let (anna, första) = anna(&db).await;
+    let andra = eget_företag(&db, &anna.aktör, "556677-8899").await;
+    let länk1 = länk(
+        atkomst::bjud_in(&db, &nu(), &anna, första, "bo@example.se")
+            .await
+            .unwrap(),
+    );
+    länk(
+        atkomst::bjud_in(&db, &nu(), &anna, andra, "Bo@example.se")
+            .await
+            .unwrap(),
+    );
+
+    let session =
+        inloggning::slutför_registrering(&db, &nu(), länk1.token(), passkey(b"bo"), None)
+            .await
+            .unwrap();
+    let bo = inloggning::session(&db, &nu(), session.token())
+        .await
+        .unwrap()
+        .unwrap();
+
+    assert!(har_åtkomst(&db, &bo.aktör, första).await);
+    assert!(har_åtkomst(&db, &bo.aktör, andra).await);
+    let lista = atkomst::åtkomst(&db, &nu(), &anna.aktör, andra)
+        .await
+        .unwrap();
+    assert!(lista.inbjudningar.is_empty(), "{:?}", lista.inbjudningar);
+    let typer: Vec<String> = behandlingshistorik::läs(&db, &anna.aktör, andra)
+        .await
+        .unwrap()
+        .into_iter()
+        .filter(|p| p.aktör == bo.aktör)
+        .map(|p| p.typ)
+        .collect();
+    assert_eq!(typer, ["inbjudan använd", "åtkomst given"]);
+}
+
+#[tokio::test]
 async fn en_inbjudan_till_en_befintlig_epost_ger_bara_åtkomst() {
     let db = Databas::tillfällig().await;
     let (anna, företag) = anna(&db).await;
@@ -195,6 +236,34 @@ async fn en_inbjudan_till_en_befintlig_epost_ger_bara_åtkomst() {
         atkomst::bjud_in(&db, &nu(), &anna, företag, "bo@example.se").await,
         Err(DelningsFel::HarRedanÅtkomst)
     ));
+}
+
+#[tokio::test]
+async fn en_avaktiverad_användare_får_ingen_åtkomst_genom_inbjudan_eller_delning() {
+    let db = Databas::tillfällig().await;
+    let (anna, företag) = anna(&db).await;
+    let andra = eget_företag(&db, &anna.aktör, "556677-8899").await;
+    let bo = testhjalp::användare(&db, "bo@example.se").await;
+    atkomst::bjud_in(&db, &nu(), &anna, företag, "bo@example.se")
+        .await
+        .unwrap();
+    inloggning::avaktivera_användare(&db, &nu(), &Aktör::cli(), "bo@example.se")
+        .await
+        .unwrap();
+
+    assert!(matches!(
+        atkomst::bjud_in(&db, &nu(), &anna, andra, "bo@example.se").await,
+        Err(DelningsFel::Avaktiverad)
+    ));
+    assert!(matches!(
+        atkomst::ge_åtkomst(&db, &nu(), &anna, andra, id(&bo)).await,
+        Err(DelningsFel::Avaktiverad)
+    ));
+    let medlemmar = atkomst::åtkomst(&db, &nu(), &anna.aktör, andra)
+        .await
+        .unwrap()
+        .användare;
+    assert_eq!(medlemmar.len(), 1);
 }
 
 #[tokio::test]
@@ -259,6 +328,52 @@ async fn en_avaktiverad_användare_räknas_inte_som_åtkomst() {
         atkomst::ta_åtkomst(&db, &nu(), &anna, företag, anna.användare.id).await,
         Err(DelningsFel::SistaÅtkomsten)
     ));
+}
+
+#[tokio::test]
+async fn den_sista_aktiva_användaren_i_ett_företag_avaktiveras_inte() {
+    let db = Databas::tillfällig().await;
+    let (_anna, _) = anna(&db).await;
+
+    let fel = inloggning::avaktivera_användare(&db, &nu(), &Aktör::cli(), "anna@example.se")
+        .await
+        .unwrap_err();
+
+    assert!(
+        matches!(&fel, InloggningsFel::SistaAnvändaren(f) if f == "Exempel AB (556036-0793)"),
+        "{fel:?}"
+    );
+    assert!(fel.to_string().contains("Exempel AB"), "{fel}");
+}
+
+#[tokio::test]
+async fn avaktiveringen_loggas_i_varje_företag_användaren_har_åtkomst_till() {
+    let db = Databas::tillfällig().await;
+    let (anna, företag) = anna(&db).await;
+    let bo = testhjalp::användare(&db, "bo@example.se").await;
+    atkomst::bjud_in(&db, &nu(), &anna, företag, "bo@example.se")
+        .await
+        .unwrap();
+
+    inloggning::avaktivera_användare(&db, &nu(), &Aktör::cli(), "bo@example.se")
+        .await
+        .unwrap();
+
+    let historik = behandlingshistorik::läs(&db, &anna.aktör, företag)
+        .await
+        .unwrap();
+    let post = historik.last().unwrap();
+    assert_eq!(post.typ, "användare avaktiverad");
+    assert_eq!(post.objekt, "bo@example.se");
+    assert_eq!(post.aktör, Aktör::cli());
+    assert_eq!(
+        post.beskrivning["användare"],
+        id(&bo).to_string().parse::<i64>().unwrap()
+    );
+    assert_eq!(
+        post.text(),
+        "bo@example.se avaktiverad: kan inte logga in, åtkomsten står kvar"
+    );
 }
 
 #[tokio::test]
@@ -395,7 +510,8 @@ async fn alla_åtkomsthändelser_loggas_med_aktör_och_tid() {
         .unwrap();
     let åtkomst: Vec<_> = poster
         .iter()
-        .filter(|p| p.typ != "företag skapat")
+        // Uppläggningen: "företag skapat" och Annas egen åtkomst.
+        .skip(2)
         .map(|p| (p.typ.as_str(), p.objekt.as_str(), p.aktör, p.tid))
         .collect();
     assert_eq!(

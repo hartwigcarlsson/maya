@@ -23,18 +23,19 @@ pub fn Utskrift(href: String, filnamn: String) -> impl IntoView {
 
 #[cfg(feature = "ssr")]
 pub(crate) mod server {
+    use crate::svar::{ingen_åtkomst, text};
     use std::sync::Arc;
 
     use axum::Router;
     use axum::extract::{Extension, Path, RawQuery, State};
-    use axum::http::{StatusCode, header};
+    use axum::http::StatusCode;
     use axum::response::{IntoResponse, Redirect, Response};
     use axum::routing::get;
     use maya_core::atkomst::ÅtkomstFel;
     use maya_core::config::Config;
     use maya_core::foretag::FöretagsId;
     use maya_core::inloggning::Inloggad;
-    use maya_core::utskrift::{self, Pdf, UtskriftFel};
+    use maya_core::utskrift::{self, UtskriftFel};
     use maya_core::verifikat::VerifikatId;
     use maya_core::{Databas, Klocka, export};
 
@@ -81,7 +82,7 @@ pub(crate) mod server {
             return finns_inte();
         };
         match utskrift::verifikat(&state.db, &state.klocka, &inloggad.aktör, företag, v).await {
-            Ok(Some(pdf)) => svar(pdf),
+            Ok(Some(pdf)) => crate::svar::pdf(pdf),
             Ok(None) => finns_inte(),
             Err(e) => fel(e),
         }
@@ -99,7 +100,7 @@ pub(crate) mod server {
             return ingen_åtkomst();
         };
         match utskrift::kontoplan(&state.db, &state.klocka, &inloggad.aktör, företag).await {
-            Ok(pdf) => svar(pdf),
+            Ok(pdf) => crate::svar::pdf(pdf),
             Err(e) => fel(e),
         }
     }
@@ -124,7 +125,7 @@ pub(crate) mod server {
         )
         .await
         {
-            Ok(pdf) => svar(pdf),
+            Ok(pdf) => crate::svar::pdf(pdf),
             Err(e) => fel(e),
         }
     }
@@ -151,7 +152,7 @@ pub(crate) mod server {
         )
         .await
         {
-            Ok(pdf) => svar(pdf),
+            Ok(pdf) => crate::svar::pdf(pdf),
             Err(e) => fel(e),
         }
     }
@@ -179,36 +180,9 @@ pub(crate) mod server {
         )
         .await
         {
-            Ok(csv) => (
-                [
-                    (header::CONTENT_TYPE, "text/csv; charset=utf-8".to_string()),
-                    (
-                        header::CONTENT_DISPOSITION,
-                        format!(r#"attachment; filename="{}""#, csv.filnamn),
-                    ),
-                    (header::CACHE_CONTROL, "no-store".to_string()),
-                ],
-                csv.innehåll,
-            )
-                .into_response(),
+            Ok(csv) => crate::svar::csv(&csv.filnamn, csv.innehåll),
             Err(e) => fel(e.into()),
         }
-    }
-
-    /// `inline`, så att Skriv ut visar PDF:en; Exportera-länkens `download` sparar den.
-    pub(crate) fn svar(pdf: Pdf) -> Response {
-        (
-            [
-                (header::CONTENT_TYPE, "application/pdf".to_string()),
-                (
-                    header::CONTENT_DISPOSITION,
-                    format!(r#"inline; filename="{}""#, pdf.filnamn),
-                ),
-                (header::CACHE_CONTROL, "no-store".to_string()),
-            ],
-            pdf.innehåll,
-        )
-            .into_response()
     }
 
     fn fel(e: UtskriftFel) -> Response {
@@ -226,23 +200,7 @@ pub(crate) mod server {
         }
     }
 
-    fn ingen_åtkomst() -> Response {
-        text(
-            StatusCode::FORBIDDEN,
-            "Du har inte åtkomst till företaget.\n",
-        )
-    }
-
     fn finns_inte() -> Response {
         text(StatusCode::NOT_FOUND, "Verifikatet finns inte.\n")
-    }
-
-    fn text(status: StatusCode, text: &'static str) -> Response {
-        (
-            status,
-            [(header::CONTENT_TYPE, "text/plain; charset=utf-8")],
-            text,
-        )
-            .into_response()
     }
 }

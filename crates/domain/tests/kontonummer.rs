@@ -30,3 +30,11 @@ fn balanskonton_är_klass_1_och_2() {
     assert!(!nr(3001).typ().balanskonto());
     assert!(!nr(8999).typ().balanskonto());
 }
+
+#[test]
+fn ett_kontonummer_i_text_är_fyra_siffror_i_klass_1_till_8() {
+    assert_eq!(" 1930 ".parse::<Kontonummer>(), Ok(nr(1930)));
+    for fel in ["", "193", "19300", "0930", "+1930", "9000", "19a0", "1 930"] {
+        assert!(fel.parse::<Kontonummer>().is_err(), "{fel:?}");
+    }
+}

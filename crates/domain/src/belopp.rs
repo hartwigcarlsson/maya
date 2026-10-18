@@ -41,6 +41,15 @@ impl Belopp {
     pub fn checked_add(self, other: Belopp) -> Option<Belopp> {
         self.0.checked_add(other.0).map(Belopp)
     }
+
+    /// Beloppet som det står i en debet- eller kreditkolumn: tomt för noll.
+    pub fn eller_tomt(self) -> String {
+        if self == Belopp::NOLL {
+            String::new()
+        } else {
+            self.to_string()
+        }
+    }
 }
 
 impl fmt::Display for Belopp {
@@ -108,6 +117,8 @@ impl fmt::Display for Saldo {
     }
 }
 
+/// Kronor som Maya visar dem överallt: mellanslag mellan tusentalen och decimalkomma,
+/// "1 234 567,78"; ett negativt saldo får ett vanligt minus framför.
 fn skriv_kronor(f: &mut fmt::Formatter<'_>, öre: u64) -> fmt::Result {
     let kronor = (öre / 100).to_string();
     let mut med_avgränsare = String::new();
