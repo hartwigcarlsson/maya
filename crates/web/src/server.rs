@@ -25,6 +25,7 @@ use crate::installningar::server::{self as installningar, InställningsState};
 use crate::konto::server as konto;
 use crate::kontoplan::server::{self as kontoplan, KontoplansState};
 use crate::sok::server as sok;
+use crate::utskrift::server::{self as utskrift, UtskriftsState};
 use crate::verifikat::server::{self as verifikat, VerifikatState};
 
 #[derive(Clone)]
@@ -68,6 +69,10 @@ pub fn router(config: Arc<Config>, db: Databas) -> Router {
         klocka: inloggning.klocka.clone(),
     };
     let inställningar = InställningsState {
+        db: db.clone(),
+        klocka: inloggning.klocka.clone(),
+    };
+    let utskrift = UtskriftsState {
         db: db.clone(),
         klocka: inloggning.klocka.clone(),
     };
@@ -178,6 +183,12 @@ pub fn router(config: Arc<Config>, db: Databas) -> Router {
                     inloggning.clone(),
                     inloggning::kräv_eget_origin,
                 )),
+        )
+        .merge(
+            utskrift::routes(utskrift).layer(middleware::from_fn_with_state(
+                inloggning.clone(),
+                inloggning::identifiera,
+            )),
         )
         .merge(
             inloggning::routes(inloggning.clone())
