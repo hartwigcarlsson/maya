@@ -57,6 +57,7 @@ impl From<UtskriftFel> for RapportFel {
         match e {
             UtskriftFel::Åtkomst(e) => RapportFel::Åtkomst(e),
             UtskriftFel::Pdf(e) => RapportFel::Pdf(e),
+            UtskriftFel::OkäntRäkenskapsår => RapportFel::OkäntRäkenskapsår,
         }
     }
 }

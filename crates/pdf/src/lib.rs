@@ -58,6 +58,14 @@ pub struct Kontoplan {
     pub konton: Vec<Konto>,
 }
 
+/// Resultat- eller balansräkningen (A2) som den är uppställd i `maya_domain::rapport`, med
+/// nivån och kolumnerna som visades.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Rapport {
+    pub företag: Företag,
+    pub rapport: maya_domain::rapport::Rapport,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Konto {
     pub nummer: Kontonummer,

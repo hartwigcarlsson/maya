@@ -9,6 +9,7 @@ pub mod kontoplan;
 pub mod kontourval;
 pub mod orgnr;
 pub mod rakenskapsar;
+pub mod rapport;
 pub mod sok;
 pub mod tid;
 pub mod underlag;

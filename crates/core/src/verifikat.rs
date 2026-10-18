@@ -46,7 +46,7 @@ impl FromStr for VerifikatId {
 
 /// Ett verifikationsnummer i räkenskapsårets V-serie, skrivet V1, V2 …
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct Verifikationsnummer(u32);
+pub struct Verifikationsnummer(pub(crate) u32);
 
 impl Verifikationsnummer {
     pub fn get(self) -> u32 {

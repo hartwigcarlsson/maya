@@ -16,7 +16,7 @@ use crate::ingaende_balans::IngåendeBalansSida;
 use crate::installningar::FöretagsInställningar;
 use crate::konto::{Passkeys, Sessioner};
 use crate::kontoplan::KontoplanSida;
-use crate::rapporter::Rapporter;
+use crate::rapporter::{Balansräkning, Rapporter, Resultaträkning};
 use crate::sok::SökSida;
 use crate::underlag::UnderlagSida;
 use crate::verifikat::{NyttVerifikatSida, VerifikatSida};
@@ -143,6 +143,8 @@ fn Innehåll() -> impl IntoView {
                 <Route path=path!("foretag/:id/rapporter") view=Rapporter />
                 <Route path=path!("foretag/:id/rapporter/grundbok") view=GrundbokSida />
                 <Route path=path!("foretag/:id/rapporter/huvudbok") view=HuvudbokSida />
+                <Route path=path!("foretag/:id/rapporter/resultatrakning") view=Resultaträkning />
+                <Route path=path!("foretag/:id/rapporter/balansrakning") view=Balansräkning />
                 <Route path=path!("foretag/:id/sok") view=SökSida />
                 <Route path=path!("foretag/:id/underlag") view=UnderlagSida />
                 <Route path=path!("foretag/:id/installningar") view=FöretagsInställningar />

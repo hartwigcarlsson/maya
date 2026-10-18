@@ -136,6 +136,10 @@ pub fn router(config: Arc<Config>, db: Databas) -> Router {
             bokforing::lägg_på_bokföringsdata,
         ))
         .layer(middleware::from_fn_with_state(
+            rapporter.clone(),
+            rapporter::lägg_på_rapport,
+        ))
+        .layer(middleware::from_fn_with_state(
             verifikat.clone(),
             verifikat::lägg_på_verifikatdata,
         ))
