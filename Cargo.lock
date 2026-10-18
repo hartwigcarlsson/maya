@@ -1704,10 +1704,14 @@ version = "0.1.0-dev"
 name = "maya-core"
 version = "0.1.0-dev"
 dependencies = [
+ "getrandom 0.3.4",
+ "hex",
  "ipnet",
  "jiff",
  "maya-core",
  "maya-domain",
+ "serde_json",
+ "sha2 0.10.9",
  "sqlx",
  "tempfile",
  "thiserror 2.0.21",
