@@ -25,17 +25,27 @@ use crate::kontrollsumma::Kontrollsummor;
 
 static MIGRATOR: Migrator = sqlx::migrate!("./migrations");
 
-/// Schemaepoken som den här binären hör till: huvudversionen. Se [`schemaepok_för`].
-pub const SCHEMAEPOK: &str = env!("CARGO_PKG_VERSION_MAJOR");
+/// Schemaepoken som den här binären hör till. Se [`schemaepok_för`].
+pub const SCHEMAEPOK: &str = epok(env!("CARGO_PKG_VERSION_MAJOR"));
 
 /// Den här binärens version, som loggas när den byts.
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
-/// Schemaepoken för Maya-versionen `version`: huvudversionen, `0` under hela 0.x-tiden.
-/// Migreringsfilerna får slås ihop före `1.0`, och den sammanslagna migreringen sätter epok `1`
-/// (se migreringen `schemaepok`). En binär vägrar en databas från en annan epok (A4).
-pub fn schemaepok_för(version: &str) -> &str {
-    version.split('.').next().unwrap_or(version)
+/// Schemaepoken för Maya-versionen `version`: `0` under hela 0.x-tiden och `1` för varje
+/// version från och med `1.0`. Migreringsfilerna får slås ihop före `1.0`, och den sammanslagna
+/// migreringen sätter epok `1` (se migreringen `schemaepok`). En binär vägrar en databas från en
+/// annan epok (A4), så provdata från 0.x blir aldrig skarp bokföring, medan en senare
+/// huvudversion migrerar 1.x-databaser som vanligt.
+pub fn schemaepok_för(version: &str) -> &'static str {
+    epok(version.split('.').next().unwrap_or(version))
+}
+
+/// Epoken för huvudversionen `major`.
+const fn epok(major: &str) -> &'static str {
+    match major.as_bytes() {
+        b"0" => "0",
+        _ => "1",
+    }
 }
 
 #[derive(Debug, thiserror::Error)]

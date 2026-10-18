@@ -393,11 +393,14 @@ async fn programversion_bytt_loggas_när_en_annan_version_startar() {
 }
 
 #[tokio::test]
-async fn schemaepoken_är_huvudversionen() {
+async fn schemaepoken_är_0_under_0_x_och_1_från_och_med_1_0() {
     assert_eq!(maya_core::SCHEMAEPOK, "0");
     assert_eq!(maya_core::schemaepok_för("0.4.0"), "0");
     assert_eq!(maya_core::schemaepok_för("1.0.0"), "1");
     assert_eq!(maya_core::schemaepok_för("1.2.3-rc.1"), "1");
+    // En 2.0 öppnar 1.x-databaser: bara gränsen 0.x → 1.0 byter epok.
+    assert_eq!(maya_core::schemaepok_för("2.0.0"), "1");
+    assert_eq!(maya_core::schemaepok_för("10.3.1"), "1");
 }
 
 #[tokio::test]
