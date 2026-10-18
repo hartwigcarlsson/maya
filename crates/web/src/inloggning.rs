@@ -3,16 +3,15 @@
 
 use std::sync::Arc;
 
-use axum::Json;
-use axum::Router;
-use axum::extract::{Request, State};
+use axum::extract::{Extension, Form, Request, State};
 use axum::http::{HeaderMap, Method, StatusCode, header};
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Redirect, Response};
 use axum::routing::{get, post};
+use axum::{Json, Router};
 use maya_auth::{AuthFel, CeremoniId, Passkeys, PublicKeyCredential, RegisterPublicKeyCredential};
 use maya_core::config::Config;
-use maya_core::inloggning::{self, Inloggad, SESSION_LÄNGST, Session};
+use maya_core::inloggning::{self, Inloggad, InloggningsFel, SESSION_LÄNGST, Session};
 use maya_core::{Databas, Klocka};
 use serde::Deserialize;
 use serde_json::json;
@@ -39,6 +38,13 @@ pub(crate) fn routes(state: InloggningsState) -> Router {
         .route("/auth/inloggning/start", post(börja_inloggning))
         .route("/auth/inloggning/slutfor", post(slutför_inloggning))
         .route("/auth/utloggning", post(logga_ut))
+        .route("/auth/passkey/start", post(börja_ny_passkey))
+        .route("/auth/passkey/slutfor", post(slutför_ny_passkey))
+        .route("/auth/bekraftelse/start", post(börja_bekräftelse))
+        .route("/auth/bekraftelse/slutfor", post(slutför_bekräftelse))
+        .route("/konto/passkeys/namn", post(byt_namn_på_passkey))
+        .route("/konto/passkeys/ta-bort", post(ta_bort_passkey))
+        .route("/konto/sessioner/avsluta", post(avsluta_session))
         .with_state(state)
 }
 
@@ -104,6 +110,14 @@ fn sessionstoken(headers: &HeaderMap) -> Option<String> {
         .map(|(_, värde)| värde.to_string())
 }
 
+/// Webbläsaren som skapar en session, så att användaren känner igen den i sessionslistan.
+fn enhet(headers: &HeaderMap) -> Option<&str> {
+    headers
+        .get(header::USER_AGENT)
+        .and_then(|v| v.to_str().ok())
+        .filter(|v| !v.trim().is_empty())
+}
+
 fn sessionscookie(session: &Session) -> String {
     format!(
         "{SESSIONSCOOKIE}={}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age={}",
@@ -150,11 +164,17 @@ struct SlutförRegistrering {
 
 async fn slutför_registrering(
     State(state): State<InloggningsState>,
+    headers: HeaderMap,
     Json(begäran): Json<SlutförRegistrering>,
 ) -> Response {
     match state
         .passkeys
-        .slutför_registrering(begäran.ceremoni, &begäran.namn, &begäran.svar)
+        .slutför_registrering(
+            begäran.ceremoni,
+            &begäran.namn,
+            &begäran.svar,
+            enhet(&headers),
+        )
         .await
     {
         Ok(session) => inloggad(&session),
@@ -187,11 +207,12 @@ struct SlutförInloggning {
 
 async fn slutför_inloggning(
     State(state): State<InloggningsState>,
+    headers: HeaderMap,
     Json(begäran): Json<SlutförInloggning>,
 ) -> Response {
     match state
         .passkeys
-        .slutför_inloggning(begäran.ceremoni, &begäran.svar)
+        .slutför_inloggning(begäran.ceremoni, &begäran.svar, enhet(&headers))
         .await
     {
         Ok(session) => inloggad(&session),
@@ -205,8 +226,159 @@ async fn logga_ut(State(state): State<InloggningsState>, headers: HeaderMap) -> 
     {
         return serverfel(e);
     }
+    utloggad()
+}
+
+fn utloggad() -> Response {
     let rensa = format!("{SESSIONSCOOKIE}=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0");
     ([(header::SET_COOKIE, rensa)], Redirect::to("/")).into_response()
+}
+
+/// Svaret till JSON-ändpunkterna när ingen är inloggad.
+fn ej_inloggad() -> Response {
+    (
+        StatusCode::UNAUTHORIZED,
+        Json(json!({ "fel": "du är inte inloggad" })),
+    )
+        .into_response()
+}
+
+async fn börja_ny_passkey(
+    State(state): State<InloggningsState>,
+    inloggad: Option<Extension<Inloggad>>,
+) -> Response {
+    let Some(Extension(inloggad)) = inloggad else {
+        return ej_inloggad();
+    };
+    match state.passkeys.börja_ny_passkey(&inloggad).await {
+        Ok((ceremoni, utmaning)) => {
+            Json(json!({ "ceremoni": ceremoni, "utmaning": utmaning })).into_response()
+        }
+        Err(e) => fel(e),
+    }
+}
+
+async fn slutför_ny_passkey(
+    State(state): State<InloggningsState>,
+    inloggad: Option<Extension<Inloggad>>,
+    Json(begäran): Json<SlutförRegistrering>,
+) -> Response {
+    let Some(Extension(inloggad)) = inloggad else {
+        return ej_inloggad();
+    };
+    match state
+        .passkeys
+        .slutför_ny_passkey(&inloggad, begäran.ceremoni, &begäran.namn, &begäran.svar)
+        .await
+    {
+        Ok(()) => Json(json!({ "ok": true })).into_response(),
+        Err(e) => fel(e),
+    }
+}
+
+async fn börja_bekräftelse(
+    State(state): State<InloggningsState>,
+    inloggad: Option<Extension<Inloggad>>,
+) -> Response {
+    let Some(Extension(inloggad)) = inloggad else {
+        return ej_inloggad();
+    };
+    match state.passkeys.börja_bekräftelse(&inloggad).await {
+        Ok((ceremoni, utmaning)) => {
+            Json(json!({ "ceremoni": ceremoni, "utmaning": utmaning })).into_response()
+        }
+        Err(e) => fel(e),
+    }
+}
+
+async fn slutför_bekräftelse(
+    State(state): State<InloggningsState>,
+    inloggad: Option<Extension<Inloggad>>,
+    Json(begäran): Json<SlutförInloggning>,
+) -> Response {
+    let Some(Extension(inloggad)) = inloggad else {
+        return ej_inloggad();
+    };
+    match state
+        .passkeys
+        .slutför_bekräftelse(&inloggad, begäran.ceremoni, &begäran.svar)
+        .await
+    {
+        Ok(()) => Json(json!({ "ok": true })).into_response(),
+        Err(e) => fel(e),
+    }
+}
+
+#[derive(Deserialize)]
+struct PasskeyFormulär {
+    id: String,
+    #[serde(default)]
+    namn: String,
+}
+
+async fn byt_namn_på_passkey(
+    State(state): State<InloggningsState>,
+    inloggad: Option<Extension<Inloggad>>,
+    Form(formulär): Form<PasskeyFormulär>,
+) -> Response {
+    let Some(Extension(inloggad)) = inloggad else {
+        return Redirect::to("/").into_response();
+    };
+    let resultat = inloggning::byt_namn_på_passkey(
+        &state.db,
+        &state.klocka,
+        &inloggad,
+        &formulär.id,
+        &formulär.namn,
+    )
+    .await;
+    tillbaka_till_passkeys(resultat)
+}
+
+async fn ta_bort_passkey(
+    State(state): State<InloggningsState>,
+    inloggad: Option<Extension<Inloggad>>,
+    Form(formulär): Form<PasskeyFormulär>,
+) -> Response {
+    let Some(Extension(inloggad)) = inloggad else {
+        return Redirect::to("/").into_response();
+    };
+    let resultat =
+        inloggning::ta_bort_passkey(&state.db, &state.klocka, &inloggad, &formulär.id).await;
+    tillbaka_till_passkeys(resultat)
+}
+
+/// Tillbaka till passkeysidan, med en felkod som sidan visar om det inte gick.
+fn tillbaka_till_passkeys(resultat: Result<(), InloggningsFel>) -> Response {
+    let kod = match resultat {
+        Ok(()) => return Redirect::to("/passkeys").into_response(),
+        Err(InloggningsFel::KräverFärskPasskey) => "farsk",
+        Err(InloggningsFel::SistaPasskeyn) => "sista",
+        Err(InloggningsFel::TomtNamn) => "namn",
+        Err(InloggningsFel::OkändPasskey) => "okand",
+        Err(e) => return serverfel(e),
+    };
+    Redirect::to(&format!("/passkeys?fel={kod}")).into_response()
+}
+
+#[derive(Deserialize)]
+struct SessionFormulär {
+    id: String,
+}
+
+async fn avsluta_session(
+    State(state): State<InloggningsState>,
+    inloggad: Option<Extension<Inloggad>>,
+    Form(formulär): Form<SessionFormulär>,
+) -> Response {
+    let Some(Extension(inloggad)) = inloggad else {
+        return Redirect::to("/").into_response();
+    };
+    match inloggning::avsluta_session(&state.db, &inloggad, &formulär.id).await {
+        Ok(()) if formulär.id == inloggad.session_id() => utloggad(),
+        Ok(()) | Err(InloggningsFel::OkändSession) => Redirect::to("/sessioner").into_response(),
+        Err(e) => serverfel(e),
+    }
 }
 
 fn inloggad(session: &Session) -> Response {

@@ -55,10 +55,10 @@ pub async fn verifikat(
     };
     let f = foretag::företaget(db, aktör, företag).await?;
     let konton = kontoplan::konton(db, aktör, företag).await?;
-    let kontonamn = |nr| {
+    let kontonamn = |nr: Option<_>| {
         konton
             .iter()
-            .find(|k| k.nummer == nr)
+            .find(|k| Some(k.nummer) == nr)
             .map(|k| k.namn.clone())
             .unwrap_or_default()
     };

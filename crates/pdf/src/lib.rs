@@ -89,7 +89,8 @@ pub struct Signatur {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Rad {
-    pub konto: Kontonummer,
+    /// `None` bara i ett utkast.
+    pub konto: Option<Kontonummer>,
     pub kontonamn: String,
     pub text: Option<String>,
     pub debet: Belopp,

@@ -43,7 +43,7 @@ async fn användare(db: &Databas, epost: &str, credential: &[u8]) -> String {
         namn: "MacBook".into(),
         passkey: "{}".into(),
     };
-    inloggning::slutför_registrering(db, &Klocka::system(), länk.token(), ny)
+    inloggning::slutför_registrering(db, &Klocka::system(), länk.token(), ny, None)
         .await
         .unwrap()
         .token()

@@ -88,7 +88,7 @@ fn verifikat(v: &Verifikat) -> Value {
         "skapad": signatur(&v.skapad),
         "bokford": v.bokförd.as_ref().map(signatur),
         "rader": v.rader.iter().map(|r| json!({
-            "konto": r.konto.to_string(),
+            "konto": r.konto.map(|k| k.to_string()).unwrap_or_default(),
             "kontonamn": r.kontonamn,
             "text": r.text.clone().unwrap_or_default(),
             "debet": belopp(r.debet),

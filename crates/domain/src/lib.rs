@@ -7,5 +7,6 @@ pub mod foretag;
 pub mod kontoplan;
 pub mod orgnr;
 pub mod rakenskapsar;
+pub mod sok;
 pub mod tid;
 pub mod verifikat;

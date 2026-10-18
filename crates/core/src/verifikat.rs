@@ -15,9 +15,8 @@ use jiff::civil::Date;
 use maya_domain::belopp::Belopp;
 use maya_domain::kontoplan::Kontonummer;
 use maya_domain::rakenskapsar::{Period, Räkenskapsår};
-use maya_domain::verifikat::{
-    BokförbartVerifikat, Förutsättningar, NyttVerifikat, Spärr, Årsval
-};
+use maya_domain::sok::{Fråga, Sökbart};
+use maya_domain::verifikat::{Förutsättningar, NyttVerifikat, Spärr, Årsval};
 use sqlx::SqliteConnection;
 
 use crate::aktor::{Aktör, AnvändarId, Handling, Kanal};
@@ -65,6 +64,9 @@ pub enum VerifikatFel {
     /// Spärrarna i `domain`, med samma koder som formuläret visar.
     #[error("verifikatet kan inte bokföras")]
     Spärrat(Vec<Spärr>),
+    /// Inget utkast med det id:t i företaget: det finns inte, eller är redan bokfört.
+    #[error("utkastet finns inte")]
+    IngetUtkast,
     #[error(transparent)]
     Åtkomst(#[from] ÅtkomstFel),
 }
@@ -99,7 +101,8 @@ pub struct Signatur {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Rad {
-    pub konto: Kontonummer,
+    /// `None` bara i ett utkast.
+    pub konto: Option<Kontonummer>,
     pub debet: Belopp,
     pub kredit: Belopp,
     pub text: Option<String>,
@@ -215,14 +218,54 @@ pub async fn bokför(
     företag: FöretagsId,
     formulär: &NyttVerifikat,
 ) -> Result<Bokfört, VerifikatFel> {
+    let ärende = Ärende::börja(db, klocka, aktör, företag, Handling::Bokföra).await?;
+    bokför_i(ärende, None, formulär).await
+}
+
+/// Bokför ett utkast med innehållet i formuläret, under samma spärrar som [`bokför`]. Utkastet
+/// får sitt nummer först nu.
+pub async fn bokför_utkast(
+    db: &Databas,
+    klocka: &Klocka,
+    aktör: &Aktör,
+    företag: FöretagsId,
+    utkast: VerifikatId,
+    formulär: &NyttVerifikat,
+) -> Result<Bokfört, VerifikatFel> {
     let mut ärende = Ärende::börja(db, klocka, aktör, företag, Handling::Bokföra).await?;
+    kräv_utkast(&mut ärende, utkast).await?;
+    bokför_i(ärende, Some(utkast), formulär).await
+}
+
+async fn bokför_i(
+    mut ärende: Ärende,
+    utkast: Option<VerifikatId>,
+    formulär: &NyttVerifikat,
+) -> Result<Bokfört, VerifikatFel> {
+    let företag = ärende.företag;
     let förutsättningar = läs_förutsättningar(ärende.conn(), företag).await?;
     let v = formulär
         .kontrollera(&förutsättningar)
         .map_err(VerifikatFel::Spärrat)?;
-    let år_id = räkenskapsår_id(&mut ärende, &v).await?;
-    let id = skapa(&mut ärende, år_id, &v).await?;
-    let nummer = bokför_utkast(&mut ärende, id, år_id).await?;
+    let år_id = räkenskapsår_id(&mut ärende, v.räkenskapsår).await?;
+    let innehåll = Innehåll {
+        år_id: Some(år_id),
+        datum: Some(v.datum),
+        beskrivning: &v.beskrivning,
+        rader: v
+            .rader
+            .iter()
+            .map(|r| (Some(r.konto), r.debet, r.kredit, r.text.as_deref()))
+            .collect(),
+    };
+    let id = match utkast {
+        Some(id) => {
+            skriv_om(&mut ärende, id, &innehåll).await?;
+            id
+        }
+        None => skapa(&mut ärende, &innehåll).await?,
+    };
+    let nummer = tilldela_nummer(&mut ärende, id, år_id).await?;
 
     let år = v.räkenskapsår.år();
     ärende
@@ -249,13 +292,125 @@ pub async fn bokför(
     Ok(Bokfört { id, nummer })
 }
 
-/// Räkenskapsårets id, efter att året har skapats om det är nytt.
-async fn räkenskapsår_id(
-    ärende: &mut Ärende,
-    v: &BokförbartVerifikat,
-) -> Result<i64, VerifikatFel> {
+/// Sparar formuläret som ett nytt utkast, eller som nytt innehåll i utkastet `utkast`. Ett
+/// utkast får vara obalanserat och ofullständigt och har inget nummer. Ett datum i året direkt
+/// efter det senaste skapar året i samma transaktion, som när ett verifikat bokförs. Spärrar
+/// bara det som inte går att lagra: ett ogiltigt datum, ett datum utan räkenskapsår, ett
+/// kontonummer eller ett belopp som inte går att tolka.
+pub async fn spara_utkast(
+    db: &Databas,
+    klocka: &Klocka,
+    aktör: &Aktör,
+    företag: FöretagsId,
+    utkast: Option<VerifikatId>,
+    formulär: &NyttVerifikat,
+) -> Result<VerifikatId, VerifikatFel> {
+    let mut ärende = Ärende::börja(db, klocka, aktör, företag, Handling::HanteraUtkast).await?;
+    if let Some(id) = utkast {
+        kräv_utkast(&mut ärende, id).await?;
+    }
+    let förutsättningar = läs_förutsättningar(ärende.conn(), företag).await?;
+    let u = formulär
+        .som_utkast(&förutsättningar)
+        .map_err(VerifikatFel::Spärrat)?;
+    let år_id = match u.räkenskapsår {
+        Some(år) => Some(räkenskapsår_id(&mut ärende, år).await?),
+        None => None,
+    };
+    let innehåll = Innehåll {
+        år_id,
+        datum: u.datum,
+        beskrivning: &u.beskrivning,
+        rader: u
+            .rader
+            .iter()
+            .map(|r| (r.konto, r.debet, r.kredit, r.text.as_deref()))
+            .collect(),
+    };
+    let id = match utkast {
+        Some(id) => {
+            skriv_om(&mut ärende, id, &innehåll).await?;
+            id
+        }
+        None => skapa(&mut ärende, &innehåll).await?,
+    };
+    ärende.slutför().await?;
+    Ok(id)
+}
+
+/// Raderar ett utkast och loggar raderingen med en sammanfattning: datum, beskrivning, summa
+/// och antal rader. Ett bokfört verifikat raderas aldrig (L1).
+pub async fn radera_utkast(
+    db: &Databas,
+    klocka: &Klocka,
+    aktör: &Aktör,
+    företag: FöretagsId,
+    utkast: VerifikatId,
+) -> Result<(), VerifikatFel> {
+    let mut ärende = Ärende::börja(db, klocka, aktör, företag, Handling::HanteraUtkast).await?;
+    kräv_utkast(&mut ärende, utkast).await?;
+    let (datum_, beskrivning, summa, antal): (Option<String>, String, i64, i64) = sqlx::query_as(
+        "SELECT v.datum, v.beskrivning,
+                    coalesce((SELECT sum(debet) FROM verifikatrad WHERE verifikat_id = v.id), 0),
+                    (SELECT count(*) FROM verifikatrad WHERE verifikat_id = v.id)
+             FROM verifikat v WHERE v.id = ?",
+    )
+    .bind(utkast.0)
+    .fetch_one(ärende.conn())
+    .await?;
+    sqlx::query("DELETE FROM verifikatrad WHERE verifikat_id = ?")
+        .bind(utkast.0)
+        .execute(ärende.conn())
+        .await?;
+    sqlx::query("DELETE FROM verifikat WHERE id = ? AND bokford IS NULL")
+        .bind(utkast.0)
+        .execute(ärende.conn())
+        .await?;
+    // Nyckeln är "utkast" och inte "verifikat": SQLite kan ge ett senare verifikat samma id,
+    // och dess historik ska inte visa raderingen.
+    ärende
+        .logga(
+            Händelse::UtkastRaderat,
+            if beskrivning.trim().is_empty() {
+                "utkast utan beskrivning"
+            } else {
+                &beskrivning
+            },
+            serde_json::json!({
+                "utkast": utkast.0,
+                "datum": datum_,
+                "beskrivning": beskrivning,
+                "summa_öre": summa,
+                "antal_rader": antal,
+            }),
+        )
+        .await?;
+    ärende.slutför().await?;
+    Ok(())
+}
+
+/// Att `id` är ett utkast i ärendets företag.
+async fn kräv_utkast(ärende: &mut Ärende, id: VerifikatId) -> Result<(), VerifikatFel> {
     let företag = ärende.företag;
-    match v.räkenskapsår {
+    let finns: bool = sqlx::query_scalar(
+        "SELECT EXISTS (
+             SELECT 1 FROM verifikat WHERE id = ? AND foretag_id = ? AND bokford IS NULL)",
+    )
+    .bind(id.0)
+    .bind(företag.0)
+    .fetch_one(ärende.conn())
+    .await?;
+    if finns {
+        Ok(())
+    } else {
+        Err(VerifikatFel::IngetUtkast)
+    }
+}
+
+/// Räkenskapsårets id, efter att året har skapats om det är nytt.
+async fn räkenskapsår_id(ärende: &mut Ärende, årsval: Årsval) -> Result<i64, VerifikatFel> {
+    let företag = ärende.företag;
+    match årsval {
         Årsval::Befintligt(år) => Ok(sqlx::query_scalar(
             "SELECT id FROM rakenskapsar WHERE foretag_id = ? AND start = ?",
         )
@@ -289,11 +444,18 @@ async fn räkenskapsår_id(
     }
 }
 
+/// Det som lagras om ett verifikat, för ett utkast eller ett verifikat som ska bokföras.
+struct Innehåll<'a> {
+    år_id: Option<i64>,
+    datum: Option<Date>,
+    beskrivning: &'a str,
+    /// Konto, debet, kredit och text.
+    rader: Vec<(Option<Kontonummer>, Belopp, Belopp, Option<&'a str>)>,
+}
+
 /// Skapar verifikatet som utkast med sina rader.
 async fn skapa(
-    ärende: &mut Ärende,
-    år_id: i64,
-    v: &BokförbartVerifikat,
+    ärende: &mut Ärende, innehåll: &Innehåll<'_>
 ) -> Result<VerifikatId, sqlx::Error> {
     let (företag, aktör, nu) = (ärende.företag, ärende.aktör, ärende.nu);
     let id: i64 = sqlx::query_scalar(
@@ -303,33 +465,65 @@ async fn skapa(
          VALUES (?, ?, ?, ?, 'manuell', ?, ?, ?) RETURNING id",
     )
     .bind(företag.0)
-    .bind(år_id)
-    .bind(v.datum.to_string())
-    .bind(&v.beskrivning)
+    .bind(innehåll.år_id)
+    .bind(innehåll.datum.map(|d| d.to_string()))
+    .bind(innehåll.beskrivning)
     .bind(nu.to_string())
     .bind(aktör.kanal.namn())
     .bind(aktör.användare.map(|a| a.0))
     .fetch_one(ärende.conn())
     .await?;
-    for (i, rad) in v.rader.iter().enumerate() {
+    skriv_rader(ärende, id, innehåll).await?;
+    Ok(VerifikatId(id))
+}
+
+/// Ger ett utkast nytt innehåll: datum, beskrivning och rader.
+async fn skriv_om(
+    ärende: &mut Ärende,
+    id: VerifikatId,
+    innehåll: &Innehåll<'_>,
+) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        "UPDATE verifikat SET rakenskapsar_id = ?, datum = ?, beskrivning = ?
+         WHERE id = ? AND bokford IS NULL",
+    )
+    .bind(innehåll.år_id)
+    .bind(innehåll.datum.map(|d| d.to_string()))
+    .bind(innehåll.beskrivning)
+    .bind(id.0)
+    .execute(ärende.conn())
+    .await?;
+    sqlx::query("DELETE FROM verifikatrad WHERE verifikat_id = ?")
+        .bind(id.0)
+        .execute(ärende.conn())
+        .await?;
+    skriv_rader(ärende, id.0, innehåll).await
+}
+
+async fn skriv_rader(
+    ärende: &mut Ärende,
+    id: i64,
+    innehåll: &Innehåll<'_>,
+) -> Result<(), sqlx::Error> {
+    for (i, (konto, debet, kredit, text)) in innehåll.rader.iter().enumerate() {
         sqlx::query(
             "INSERT INTO verifikatrad (verifikat_id, radnr, konto, debet, kredit, text)
              VALUES (?, ?, ?, ?, ?, ?)",
         )
         .bind(id)
         .bind(i as i64 + 1)
-        .bind(i64::from(rad.konto.get()))
-        .bind(rad.debet.öre())
-        .bind(rad.kredit.öre())
-        .bind(&rad.text)
+        .bind(konto.map(|k| i64::from(k.get())))
+        .bind(debet.öre())
+        .bind(kredit.öre())
+        .bind(text)
         .execute(ärende.conn())
         .await?;
     }
-    Ok(VerifikatId(id))
+    Ok(())
 }
 
-/// Bokför ett utkast: nästa nummer i årets serie, inom ärendets transaktion.
-async fn bokför_utkast(
+/// Ger ett utkast nästa nummer i årets serie och bokför det, inom ärendets transaktion.
+async fn tilldela_nummer(
     ärende: &mut Ärende,
     id: VerifikatId,
     år_id: i64,
@@ -403,7 +597,7 @@ pub async fn verifikatet(
     else {
         return Ok(None);
     };
-    let rader: Vec<(i64, i64, i64, Option<String>)> = sqlx::query_as(
+    let rader: Vec<(Option<i64>, i64, i64, Option<String>)> = sqlx::query_as(
         "SELECT konto, debet, kredit, text FROM verifikatrad WHERE verifikat_id = ? ORDER BY radnr",
     )
     .bind(id.0)
@@ -413,7 +607,7 @@ pub async fn verifikatet(
         .into_iter()
         .map(|(konto, debet, kredit, text)| {
             Ok(Rad {
-                konto: kontonummer(konto)?,
+                konto: konto.map(kontonummer).transpose()?,
                 debet: Belopp::från_öre(debet),
                 kredit: Belopp::från_öre(kredit),
                 text,
@@ -494,6 +688,50 @@ pub async fn lista(
         })
         .collect::<Result<_, DatabasFel>>()?;
     Ok(rader)
+}
+
+/// Verifikaten i företaget som frågan träffar på nummer, text (beskrivning och radtexter),
+/// belopp (summan eller en rad) eller datum, i samma ordning som [`lista`]. Andra företags
+/// verifikat söks aldrig. En tom fråga träffar inget.
+pub async fn sök(
+    db: &Databas,
+    aktör: &Aktör,
+    företag: FöretagsId,
+    fråga: &str,
+) -> Result<Vec<Verifikatrad>, ÅtkomstFel> {
+    let alla = lista(db, aktör, företag, Urval::Alla).await?;
+    let Some(fråga) = Fråga::tolka(fråga) else {
+        return Ok(Vec::new());
+    };
+    let rader: Vec<(i64, i64, i64, Option<String>)> = sqlx::query_as(
+        "SELECT r.verifikat_id, r.debet, r.kredit, r.text
+         FROM verifikatrad r JOIN verifikat v ON v.id = r.verifikat_id
+         WHERE v.foretag_id = ?",
+    )
+    .bind(företag.0)
+    .fetch_all(db.pool())
+    .await?;
+    Ok(alla
+        .into_iter()
+        .filter(|v| {
+            let mut sökbart = Sökbart {
+                nummer: v.nummer.map(Verifikationsnummer::get),
+                datum: v.datum,
+                texter: vec![v.beskrivning.as_str()],
+                belopp: vec![v.summa],
+            };
+            for (_, debet, kredit, text) in rader.iter().filter(|r| r.0 == v.id.0) {
+                sökbart.belopp.extend(
+                    [*debet, *kredit]
+                        .into_iter()
+                        .filter(|b| *b != 0)
+                        .map(Belopp::från_öre),
+                );
+                sökbart.texter.extend(text.as_deref());
+            }
+            fråga.träffar_verifikat(&sökbart)
+        })
+        .collect())
 }
 
 /// Namnet som visas för en aktör.

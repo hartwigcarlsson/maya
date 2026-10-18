@@ -117,14 +117,14 @@ fn verifikat() -> Verifikat {
         bokförd: Some(anna("2026-03-14T09:05:00Z")),
         rader: vec![
             Rad {
-                konto: nr(1930),
+                konto: Some(nr(1930)),
                 kontonamn: "Företagskonto".into(),
                 text: Some("Swish".into()),
                 debet: kr(1_250_000),
                 kredit: Belopp::NOLL,
             },
             Rad {
-                konto: nr(3001),
+                konto: Some(nr(3001)),
                 kontonamn: "Försäljning inom Sverige, 25 % moms".into(),
                 text: None,
                 debet: Belopp::NOLL,

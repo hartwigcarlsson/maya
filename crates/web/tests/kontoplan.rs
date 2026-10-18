@@ -51,7 +51,7 @@ async fn företag(db: &TillfälligDatabas) -> (String, String) {
         namn: "MacBook".into(),
         passkey: "{}".into(),
     };
-    let session = inloggning::slutför_registrering(db, &Klocka::system(), länk.token(), ny)
+    let session = inloggning::slutför_registrering(db, &Klocka::system(), länk.token(), ny, None)
         .await
         .unwrap()
         .token()
