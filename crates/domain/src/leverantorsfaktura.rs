@@ -1,0 +1,847 @@
+//! En leverantörsfaktura: formuläret, spärrarna vid registrering och konteringen under
+//! fakturametoden, samma i webbläsaren och i servern (ADR 0003).
+//!
+//! Fälten fylls i i fakturans ordning: leverantör, fakturanummer, fakturadatum, förfallodag, OCR
+//! eller meddelande, totalbelopp och originalvaluta i fritext. Varje rad har konto, netto,
+//! momssats och ett momsbelopp som räknas ur nettot och kan skrivas över. Raderna med moms
+//! summerar till totalen. Registreringen bokför kostnaden per rad netto och 2641 moms mot 2440
+//! totalen, daterat på fakturadatumet; ett företag som inte är momsregistrerat på
+//! fakturadatumet bokför momsen på kostnadskontot.
+
+use std::fmt;
+
+use jiff::civil::Date;
+
+use crate::belopp::Belopp;
+use crate::foretag::{Momsperiod, gäller};
+use crate::kontoplan::Kontonummer;
+use crate::leverantor::{self, NyLeverantör};
+use crate::rakenskapsar::Räkenskapsår;
+use crate::verifikat::{self, Årsval};
+
+/// Leverantörsskulder, som registreringen krediterar.
+pub const LEVERANTÖRSSKULDER: u16 = 2440;
+/// Debiterad ingående moms.
+pub const INGÅENDE_MOMS: u16 = 2641;
+/// Momssatserna i procent, i den ordning väljaren visar dem.
+pub const MOMSSATSER: [u8; 4] = [25, 12, 6, 0];
+/// Leverantörsvalets värde för en ny leverantör som läggs upp från utkastet.
+pub const NY: &str = "ny";
+
+/// Momsen på `netto` med satsen `sats` procent, avrundad till närmaste öre (halva uppåt).
+pub fn moms(netto: Belopp, sats: u8) -> Belopp {
+    let öre = i128::from(netto.öre()) * i128::from(sats);
+    Belopp::från_öre(i64::try_from((öre + 50) / 100).unwrap_or(i64::MAX))
+}
+
+/// En rad i formuläret, som text. Ett tomt momsbelopp räknas ur nettot och momssatsen.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct NyRad {
+    pub konto: String,
+    pub netto: String,
+    /// Procent: `25`, `12`, `6` eller `0`.
+    pub momssats: String,
+    pub moms: String,
+}
+
+impl NyRad {
+    /// En rad utan konto, netto och moms räknas inte; momssatsen har alltid ett värde.
+    pub fn tom(&self) -> bool {
+        [&self.konto, &self.netto, &self.moms]
+            .iter()
+            .all(|f| f.trim().is_empty())
+    }
+}
+
+/// Formuläret som användaren fyllde i, som text.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct NyLeverantörsfaktura {
+    /// Id:t för en leverantör, [`NY`] för en ny leverantör från utkastet, eller tomt.
+    pub leverantör: String,
+    /// Den nya leverantören, när `leverantör` är [`NY`].
+    pub ny_leverantör: NyLeverantör,
+    pub fakturanummer: String,
+    /// `ÅÅÅÅ-MM-DD`.
+    pub fakturadatum: String,
+    pub förfallodag: String,
+    /// OCR eller meddelande.
+    pub referens: String,
+    /// Totalbeloppet i SEK.
+    pub totalbelopp: String,
+    /// Originalvaluta och originalbelopp i fritext, t.ex. `EUR 54,00`.
+    pub originalvaluta: String,
+    pub rader: Vec<NyRad>,
+}
+
+/// En leverantör som formuläret kan välja.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Leverantörsval {
+    pub id: String,
+    pub namn: String,
+    pub standardkonto: Option<Kontonummer>,
+}
+
+/// En annan registrerad faktura i företaget, som dubblettregeln prövas mot.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Registrerad {
+    pub id: String,
+    pub leverantör: String,
+    pub fakturanummer: String,
+    pub fakturadatum: Date,
+    pub total: Belopp,
+}
+
+/// Det som spärrarna prövas mot, läst i samma transaktion som registreringen.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Förutsättningar {
+    /// Kontona i kontoplanen och om de är aktiva.
+    pub konton: Vec<(Kontonummer, bool)>,
+    pub räkenskapsår: Vec<Räkenskapsår>,
+    /// Momsperiodens historik: från vilket datum varje momsperiod gäller.
+    pub momsperioder: Vec<(Date, Momsperiod)>,
+    /// Leverantörerna som kan väljas: de aktiva i registret.
+    pub leverantörer: Vec<Leverantörsval>,
+    /// Företagets andra registrerade leverantörsfakturor.
+    pub registrerade: Vec<Registrerad>,
+}
+
+impl Förutsättningar {
+    /// Om företaget är momsregistrerat på `datum`.
+    pub fn momsregistrerat(&self, datum: Date) -> bool {
+        gäller(&self.momsperioder, datum)
+            .or_else(|| self.momsperioder.first().map(|(_, m)| *m))
+            .is_none_or(|m| m != Momsperiod::EjMomsregistrerad)
+    }
+}
+
+/// Fältet som en spärr gäller. Raderna räknas från 0 i formulärets ordning, tomma medräknade.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Fält {
+    Leverantör,
+    /// Ett fält i den nya leverantörens streckade kort.
+    NyLeverantör(leverantor::Fält),
+    Fakturanummer,
+    Fakturadatum,
+    Förfallodag,
+    Totalbelopp,
+    /// Raderna som helhet: inga rader, eller summan mot totalen.
+    Rader,
+    Konto(usize),
+    Netto(usize),
+    Momssats(usize),
+    Moms(usize),
+    /// Konteringens egna konton (2440 och 2641).
+    Kontering,
+}
+
+/// En genväg som löser spärren.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Åtgärd {
+    /// Byt fakturanumret till det här, med suffix ("Lägg till suffix -2").
+    Fakturanummer(String),
+    /// Aktivera kontot i kontoplanen.
+    Aktivera(Kontonummer),
+}
+
+/// Något som hindrar registreringen, med en kod som formuläret visar vid fältet.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Spärr {
+    pub fält: Fält,
+    pub kod: &'static str,
+    pub text: String,
+    pub åtgärd: Option<Åtgärd>,
+}
+
+impl fmt::Display for Spärr {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.text)
+    }
+}
+
+/// Något som bör granskas men inte spärrar.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Varning {
+    pub kod: &'static str,
+    pub text: String,
+}
+
+/// Spärrarna vid registrering som Systemdokumentationen återger (S2): koden och regeln. Varje kod
+/// som [`NyLeverantörsfaktura::kontrollera`] kan ge står här, och ingen annan.
+pub const REGISTRERINGSSPÄRRAR: &[(&str, &str)] = &[
+    (
+        "leverantor_saknas",
+        "Fakturan har en leverantör ur registret eller en ny leverantör.",
+    ),
+    (
+        "ny_leverantor",
+        "En ny leverantör klarar samma regler som leverantörsregistret.",
+    ),
+    ("fakturanummer_saknas", "Leverantörens fakturanummer krävs."),
+    (
+        "dubblett",
+        "Leverantören har ingen annan registrerad faktura med samma nummer.",
+    ),
+    ("fakturadatum_saknas", "Fakturadatum krävs."),
+    (
+        "fakturadatum_ogiltigt",
+        "Fakturadatumet skrivs som ÅÅÅÅ-MM-DD.",
+    ),
+    (
+        "fore_forsta_aret",
+        "Fakturadatumet är inte före första räkenskapsårets start.",
+    ),
+    (
+        "saknat_rakenskapsar",
+        "Fakturadatumet ligger i ett räkenskapsår som finns, eller i året direkt efter det \
+         senaste, som då skapas i samma transaktion.",
+    ),
+    ("forfallodag_saknas", "Förfallodag krävs."),
+    (
+        "forfallodag_ogiltig",
+        "Förfallodagen skrivs som ÅÅÅÅ-MM-DD.",
+    ),
+    (
+        "forfallodag_fore_fakturadatum",
+        "Förfallodagen är inte före fakturadatumet.",
+    ),
+    ("total_saknas", "Totalbeloppet krävs."),
+    (
+        "total_ogiltig",
+        "Totalbeloppet är i kronor, inte negativt och har högst två decimaler.",
+    ),
+    ("rader_saknas", "Fakturan har minst en konteringsrad."),
+    (
+        "konto_saknas",
+        "Varje rad har ett konto, eller leverantörens standardkonto.",
+    ),
+    ("konto_okant", "Kontot finns i företagets kontoplan."),
+    (
+        "konto_inaktivt",
+        "Radernas konton, 2440 och 2641 är aktiva.",
+    ),
+    ("netto_saknas", "Varje rad har ett nettobelopp."),
+    (
+        "netto_ogiltigt",
+        "Nettot är i kronor, inte negativt och har högst två decimaler.",
+    ),
+    ("momssats_ogiltig", "Momssatsen är 25, 12, 6 eller 0 %."),
+    (
+        "moms_ogiltig",
+        "Momsbeloppet är i kronor, inte negativt och har högst två decimaler.",
+    ),
+    (
+        "summerar_inte",
+        "Radernas netto och moms summerar till totalbeloppet.",
+    ),
+];
+
+/// En kontrollerad rad.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Rad {
+    pub konto: Kontonummer,
+    pub netto: Belopp,
+    pub momssats: u8,
+    /// Momsbeloppet: det beräknade eller det som skrevs över.
+    pub moms: Belopp,
+}
+
+/// En leverantörsfaktura som klarar alla spärrar.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Registrerbar {
+    /// Leverantörens id, eller [`NY`].
+    pub leverantör: String,
+    /// Den nya leverantören, när `leverantör` är [`NY`].
+    pub ny_leverantör: Option<leverantor::GiltigLeverantör>,
+    pub fakturanummer: String,
+    pub fakturadatum: Date,
+    pub förfallodag: Date,
+    pub referens: String,
+    pub total: Belopp,
+    pub originalvaluta: String,
+    pub rader: Vec<Rad>,
+    /// Om företaget är momsregistrerat på fakturadatumet.
+    pub momsregistrerat: bool,
+    pub räkenskapsår: Årsval,
+}
+
+impl Registrerbar {
+    /// Registreringens verifikatrader under fakturametoden: kostnadskontot per rad netto (med
+    /// momsen när företaget inte är momsregistrerat), 2641 momsen och 2440 totalen i kredit.
+    pub fn kontering(&self) -> Vec<verifikat::Rad> {
+        kontering(&self.rader, self.momsregistrerat)
+    }
+}
+
+fn kontering(rader: &[Rad], momsregistrerat: bool) -> Vec<verifikat::Rad> {
+    let konto = |nr: u16| Kontonummer::new(nr).expect("ett kontonummer i klass 1–8");
+    let mut ut = Vec::new();
+    let mut moms = 0;
+    let mut total = 0;
+    for r in rader {
+        let kostnad = if momsregistrerat {
+            moms += r.moms.öre();
+            r.netto.öre()
+        } else {
+            r.netto.öre() + r.moms.öre()
+        };
+        total += r.netto.öre() + r.moms.öre();
+        if kostnad != 0 {
+            ut.push(verifikat::Rad {
+                konto: r.konto,
+                debet: Belopp::från_öre(kostnad),
+                kredit: Belopp::NOLL,
+                text: None,
+            });
+        }
+    }
+    if moms != 0 {
+        ut.push(verifikat::Rad {
+            konto: konto(INGÅENDE_MOMS),
+            debet: Belopp::från_öre(moms),
+            kredit: Belopp::NOLL,
+            text: None,
+        });
+    }
+    if total != 0 {
+        ut.push(verifikat::Rad {
+            konto: konto(LEVERANTÖRSSKULDER),
+            debet: Belopp::NOLL,
+            kredit: Belopp::från_öre(total),
+            text: None,
+        });
+    }
+    ut
+}
+
+/// En rad som går att spara i ett utkast: det som är ifyllt går att lagra.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Utkastrad {
+    pub konto: Option<Kontonummer>,
+    pub netto: Option<Belopp>,
+    pub momssats: u8,
+    /// `None`: räknas ur nettot.
+    pub moms: Option<Belopp>,
+}
+
+/// Ett utkast som går att spara.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SparbartUtkast {
+    pub fakturanummer: String,
+    pub fakturadatum: Option<Date>,
+    pub förfallodag: Option<Date>,
+    pub referens: String,
+    pub total: Option<Belopp>,
+    pub originalvaluta: String,
+    pub rader: Vec<Utkastrad>,
+}
+
+fn spärr(fält: Fält, kod: &'static str, text: impl ToString) -> Spärr {
+    Spärr {
+        fält,
+        kod,
+        text: text.to_string(),
+        åtgärd: None,
+    }
+}
+
+fn tolka_datum(
+    text: &str,
+    fält: Fält,
+    ogiltigt: &'static str,
+    spärrar: &mut Vec<Spärr>,
+) -> Option<Date> {
+    text.trim()
+        .parse::<Date>()
+        .map_err(|_| spärrar.push(spärr(fält, ogiltigt, "Ange ett datum som ÅÅÅÅ-MM-DD.")))
+        .ok()
+}
+
+fn tolka_belopp(
+    text: &str,
+    fält: Fält,
+    ogiltigt: &'static str,
+    spärrar: &mut Vec<Spärr>,
+) -> Option<Belopp> {
+    Belopp::tolka(text.trim())
+        .ok_or_else(|| {
+            spärrar.push(spärr(
+                fält,
+                ogiltigt,
+                "Ange ett belopp i kronor med högst två decimaler.",
+            ))
+        })
+        .ok()
+}
+
+fn tolka_sats(text: &str, i: usize, spärrar: &mut Vec<Spärr>) -> Option<u8> {
+    let text = text.trim().trim_end_matches('%').trim();
+    let sats = if text.is_empty() {
+        Some(25)
+    } else {
+        text.parse::<u8>().ok().filter(|s| MOMSSATSER.contains(s))
+    };
+    if sats.is_none() {
+        spärrar.push(spärr(
+            Fält::Momssats(i),
+            "momssats_ogiltig",
+            "Välj 25, 12, 6 eller 0 %.",
+        ));
+    }
+    sats
+}
+
+impl NyLeverantörsfaktura {
+    /// Leverantörens standardkonto: den valda leverantörens, eller den nya leverantörens om det
+    /// går att tolka.
+    pub fn standardkonto(&self, f: &Förutsättningar) -> Option<Kontonummer> {
+        if self.leverantör.trim() == NY {
+            return self.ny_leverantör.standardkonto.trim().parse().ok();
+        }
+        f.leverantörer
+            .iter()
+            .find(|l| l.id == self.leverantör.trim())
+            .and_then(|l| l.standardkonto)
+    }
+
+    /// Prövar spärrarna. Spärrarna kommer i fältens ordning.
+    pub fn kontrollera(&self, f: &Förutsättningar) -> Result<Registrerbar, Vec<Spärr>> {
+        let mut spärrar = Vec::new();
+        let leverantör = self.leverantör.trim().to_string();
+        let ny_leverantör = if leverantör == NY {
+            match self.ny_leverantör.kontrollera(&f.konton) {
+                Ok(l) => Some(l),
+                Err(fel) => {
+                    spärrar.extend(fel.into_iter().map(|fel| {
+                        spärr(Fält::NyLeverantör(fel.fält), "ny_leverantor", fel.text)
+                    }));
+                    None
+                }
+            }
+        } else {
+            if !f.leverantörer.iter().any(|l| l.id == leverantör) {
+                spärrar.push(spärr(
+                    Fält::Leverantör,
+                    "leverantor_saknas",
+                    "Välj leverantör, eller lägg upp en ny.",
+                ));
+            }
+            None
+        };
+
+        let fakturanummer = self.fakturanummer.trim().to_string();
+        if fakturanummer.is_empty() {
+            spärrar.push(spärr(
+                Fält::Fakturanummer,
+                "fakturanummer_saknas",
+                "Fakturanummer saknas.",
+            ));
+        } else if let Some(annan) = self.dubblett(f) {
+            spärrar.push(Spärr {
+                åtgärd: Some(Åtgärd::Fakturanummer(self.med_suffix(f))),
+                ..spärr(
+                    Fält::Fakturanummer,
+                    "dubblett",
+                    format!(
+                        "{} har redan faktura {} (fakturadatum {}). Om leverantören har \
+                         återanvänt numret, lägg till ett suffix.",
+                        self.leverantörens_namn(f),
+                        annan.fakturanummer,
+                        annan.fakturadatum
+                    ),
+                )
+            });
+        }
+
+        let fakturadatum = if self.fakturadatum.trim().is_empty() {
+            spärrar.push(spärr(
+                Fält::Fakturadatum,
+                "fakturadatum_saknas",
+                "Fakturadatum saknas.",
+            ));
+            None
+        } else {
+            tolka_datum(
+                &self.fakturadatum,
+                Fält::Fakturadatum,
+                "fakturadatum_ogiltigt",
+                &mut spärrar,
+            )
+        };
+        let årsval = fakturadatum.and_then(|d| {
+            let mut fel = Vec::new();
+            let år = verifikat::välj_år(d, &f.räkenskapsår, &mut fel);
+            spärrar.extend(
+                fel.into_iter()
+                    .map(|s| spärr(Fält::Fakturadatum, s.kod, s.text)),
+            );
+            år
+        });
+        let förfallodag = if self.förfallodag.trim().is_empty() {
+            spärrar.push(spärr(
+                Fält::Förfallodag,
+                "forfallodag_saknas",
+                "Förfallodag saknas.",
+            ));
+            None
+        } else {
+            tolka_datum(
+                &self.förfallodag,
+                Fält::Förfallodag,
+                "forfallodag_ogiltig",
+                &mut spärrar,
+            )
+        };
+        if let (Some(fd), Some(ff)) = (fakturadatum, förfallodag)
+            && ff < fd
+        {
+            spärrar.push(spärr(
+                Fält::Förfallodag,
+                "forfallodag_fore_fakturadatum",
+                "Förfallodagen är före fakturadatumet.",
+            ));
+        }
+
+        let total = if self.totalbelopp.trim().is_empty() {
+            spärrar.push(spärr(
+                Fält::Totalbelopp,
+                "total_saknas",
+                "Totalbelopp saknas.",
+            ));
+            None
+        } else {
+            tolka_belopp(
+                &self.totalbelopp,
+                Fält::Totalbelopp,
+                "total_ogiltig",
+                &mut spärrar,
+            )
+        };
+
+        let standardkonto = self.standardkonto(f);
+        let ifyllda: Vec<(usize, &NyRad)> = self
+            .rader
+            .iter()
+            .enumerate()
+            .filter(|(_, r)| !r.tom())
+            .collect();
+        if ifyllda.is_empty() {
+            spärrar.push(spärr(
+                Fält::Rader,
+                "rader_saknas",
+                "Lägg till minst en rad med konto och netto.",
+            ));
+        }
+        let mut rader = Vec::new();
+        let mut radspärrar = Vec::new();
+        for (i, r) in &ifyllda {
+            let konto = kontrollera_konto(*i, &r.konto, standardkonto, &f.konton, &mut radspärrar);
+            let netto = if r.netto.trim().is_empty() {
+                radspärrar.push(spärr(Fält::Netto(*i), "netto_saknas", "Ange nettot."));
+                None
+            } else {
+                tolka_belopp(&r.netto, Fält::Netto(*i), "netto_ogiltigt", &mut radspärrar)
+            };
+            let sats = tolka_sats(&r.momssats, *i, &mut radspärrar);
+            let moms_ = match (r.moms.trim(), netto, sats) {
+                ("", Some(n), Some(s)) => Some(moms(n, s)),
+                ("", _, _) => None,
+                (text, _, _) => tolka_belopp(text, Fält::Moms(*i), "moms_ogiltig", &mut radspärrar),
+            };
+            if let (Some(konto), Some(netto), Some(momssats), Some(moms)) =
+                (konto, netto, sats, moms_)
+            {
+                rader.push(Rad {
+                    konto,
+                    netto,
+                    momssats,
+                    moms,
+                });
+            }
+        }
+        spärrar.extend(radspärrar);
+        if let Some(total) = total
+            && !ifyllda.is_empty()
+            && rader.len() == ifyllda.len()
+        {
+            let summa: i64 = rader.iter().map(|r| r.netto.öre() + r.moms.öre()).sum();
+            if summa != total.öre() {
+                let differens = Belopp::från_öre((summa - total.öre()).abs());
+                spärrar.push(spärr(
+                    Fält::Rader,
+                    "summerar_inte",
+                    format!(
+                        "Raderna med moms blir {} kr, totalen är {total} kr. Differens {differens}.",
+                        Belopp::från_öre(summa)
+                    ),
+                ));
+            }
+        }
+
+        let momsregistrerat = fakturadatum.is_none_or(|d| f.momsregistrerat(d));
+        let behövs = [
+            Some(LEVERANTÖRSSKULDER),
+            (momsregistrerat && rader.iter().any(|r| r.moms != Belopp::NOLL))
+                .then_some(INGÅENDE_MOMS),
+        ];
+        for nr in behövs.into_iter().flatten() {
+            let konto = Kontonummer::new(nr).expect("ett kontonummer i klass 1–8");
+            if !f.konton.iter().any(|(k, aktiv)| *k == konto && *aktiv) {
+                spärrar.push(Spärr {
+                    åtgärd: Some(Åtgärd::Aktivera(konto)),
+                    ..spärr(
+                        Fält::Kontering,
+                        "konto_inaktivt",
+                        format!(
+                            "Konto {konto} är inaktivt eller saknas. Registreringen bokför på det."
+                        ),
+                    )
+                });
+            }
+        }
+
+        match (fakturadatum, förfallodag, total, årsval) {
+            (Some(fakturadatum), Some(förfallodag), Some(total), Some(räkenskapsår))
+                if spärrar.is_empty() =>
+            {
+                Ok(Registrerbar {
+                    leverantör,
+                    ny_leverantör,
+                    fakturanummer,
+                    fakturadatum,
+                    förfallodag,
+                    referens: self.referens.trim().to_string(),
+                    total,
+                    originalvaluta: self.originalvaluta.trim().to_string(),
+                    rader,
+                    momsregistrerat,
+                    räkenskapsår,
+                })
+            }
+            _ => Err(spärrar),
+        }
+    }
+
+    /// Varningarna, som inte spärrar: en annan registrerad faktura från samma leverantör med
+    /// samma belopp och fakturadatum men ett annat nummer.
+    pub fn varningar(&self, f: &Förutsättningar) -> Vec<Varning> {
+        let (Ok(datum), Some(total)) = (
+            self.fakturadatum.trim().parse::<Date>(),
+            Belopp::tolka(self.totalbelopp.trim()),
+        ) else {
+            return Vec::new();
+        };
+        let nummer = self.fakturanummer.trim();
+        f.registrerade
+            .iter()
+            .filter(|r| {
+                r.leverantör == self.leverantör.trim()
+                    && r.fakturadatum == datum
+                    && r.total == total
+                    && !r.fakturanummer.eq_ignore_ascii_case(nummer)
+            })
+            .map(|r| Varning {
+                kod: "trolig_dubblett",
+                text: format!(
+                    "{} har en faktura med samma belopp och datum men nummer {}. Är det samma \
+                     faktura?",
+                    self.leverantörens_namn(f),
+                    r.fakturanummer
+                ),
+            })
+            .collect()
+    }
+
+    /// Konteringen så långt den går att räkna, för rutan "Bokförs som" medan användaren skriver.
+    /// Rader som inte går att tolka hoppas över.
+    pub fn förhandsvisning(&self, f: &Förutsättningar) -> Vec<verifikat::Rad> {
+        let standardkonto = self.standardkonto(f);
+        let rader: Vec<Rad> = self
+            .rader
+            .iter()
+            .filter(|r| !r.tom())
+            .filter_map(|r| {
+                let konto = match r.konto.trim() {
+                    "" => standardkonto?,
+                    text => text.parse().ok()?,
+                };
+                let netto = Belopp::tolka(r.netto.trim())?;
+                let sats = tolka_sats(&r.momssats, 0, &mut Vec::new())?;
+                let moms_ = match r.moms.trim() {
+                    "" => moms(netto, sats),
+                    text => Belopp::tolka(text)?,
+                };
+                Some(Rad {
+                    konto,
+                    netto,
+                    momssats: sats,
+                    moms: moms_,
+                })
+            })
+            .collect();
+        let momsregistrerat = self
+            .fakturadatum
+            .trim()
+            .parse::<Date>()
+            .map_or(true, |d| f.momsregistrerat(d));
+        kontering(&rader, momsregistrerat)
+    }
+
+    /// Prövar det som måste gälla för att utkastet ska kunna sparas: datum som är datum, belopp
+    /// som är belopp, kontonummer som är kontonummer och momssatser som finns. Allt annat får
+    /// saknas. Spärrarna har samma koder som vid registrering.
+    pub fn som_utkast(&self) -> Result<SparbartUtkast, Vec<Spärr>> {
+        let mut spärrar = Vec::new();
+        let datum = |text: &str, fält, kod, spärrar: &mut Vec<Spärr>| match text.trim() {
+            "" => None,
+            text => tolka_datum(text, fält, kod, spärrar),
+        };
+        let fakturadatum = datum(
+            &self.fakturadatum,
+            Fält::Fakturadatum,
+            "fakturadatum_ogiltigt",
+            &mut spärrar,
+        );
+        let förfallodag = datum(
+            &self.förfallodag,
+            Fält::Förfallodag,
+            "forfallodag_ogiltig",
+            &mut spärrar,
+        );
+        let belopp = |text: &str, fält, kod, spärrar: &mut Vec<Spärr>| match text.trim() {
+            "" => None,
+            text => tolka_belopp(text, fält, kod, spärrar),
+        };
+        let total = belopp(
+            &self.totalbelopp,
+            Fält::Totalbelopp,
+            "total_ogiltig",
+            &mut spärrar,
+        );
+        let mut rader = Vec::new();
+        for (i, r) in self.rader.iter().enumerate().filter(|(_, r)| !r.tom()) {
+            let konto = match r.konto.trim() {
+                "" => None,
+                text => {
+                    let konto = text.parse::<Kontonummer>().ok();
+                    if konto.is_none() {
+                        spärrar.push(spärr(
+                            Fält::Konto(i),
+                            "konto_okant",
+                            format!("Konto {text} finns inte i kontoplanen."),
+                        ));
+                    }
+                    konto
+                }
+            };
+            let netto = belopp(&r.netto, Fält::Netto(i), "netto_ogiltigt", &mut spärrar);
+            let momssats = tolka_sats(&r.momssats, i, &mut spärrar).unwrap_or(25);
+            let moms = belopp(&r.moms, Fält::Moms(i), "moms_ogiltig", &mut spärrar);
+            rader.push(Utkastrad {
+                konto,
+                netto,
+                momssats,
+                moms,
+            });
+        }
+        if !spärrar.is_empty() {
+            return Err(spärrar);
+        }
+        Ok(SparbartUtkast {
+            fakturanummer: self.fakturanummer.trim().to_string(),
+            fakturadatum,
+            förfallodag,
+            referens: self.referens.trim().to_string(),
+            total,
+            originalvaluta: self.originalvaluta.trim().to_string(),
+            rader,
+        })
+    }
+
+    fn leverantörens_namn(&self, f: &Förutsättningar) -> String {
+        if self.leverantör.trim() == NY {
+            return self.ny_leverantör.namn.trim().to_string();
+        }
+        f.leverantörer
+            .iter()
+            .find(|l| l.id == self.leverantör.trim())
+            .map_or_else(|| "Leverantören".to_string(), |l| l.namn.clone())
+    }
+
+    fn tagna(&self, f: &Förutsättningar) -> Vec<String> {
+        f.registrerade
+            .iter()
+            .filter(|r| r.leverantör == self.leverantör.trim())
+            .map(|r| r.fakturanummer.to_lowercase())
+            .collect()
+    }
+
+    fn dubblett<'a>(&self, f: &'a Förutsättningar) -> Option<&'a Registrerad> {
+        let nummer = self.fakturanummer.trim();
+        f.registrerade.iter().find(|r| {
+            r.leverantör == self.leverantör.trim() && r.fakturanummer.eq_ignore_ascii_case(nummer)
+        })
+    }
+
+    /// Fakturanumret med det första lediga suffixet: `-2`, `-3` …
+    fn med_suffix(&self, f: &Förutsättningar) -> String {
+        let tagna = self.tagna(f);
+        let nummer = self.fakturanummer.trim();
+        (2..)
+            .map(|n| format!("{nummer}-{n}"))
+            .find(|n| !tagna.contains(&n.to_lowercase()))
+            .expect("ett ledigt suffix")
+    }
+}
+
+fn kontrollera_konto(
+    i: usize,
+    text: &str,
+    standardkonto: Option<Kontonummer>,
+    konton: &[(Kontonummer, bool)],
+    spärrar: &mut Vec<Spärr>,
+) -> Option<Kontonummer> {
+    let text = text.trim();
+    let konto = if text.is_empty() {
+        match standardkonto {
+            Some(k) => k,
+            None => {
+                spärrar.push(spärr(Fält::Konto(i), "konto_saknas", "Välj ett konto."));
+                return None;
+            }
+        }
+    } else {
+        match text.parse::<Kontonummer>() {
+            Ok(k) => k,
+            Err(_) => {
+                spärrar.push(spärr(
+                    Fält::Konto(i),
+                    "konto_okant",
+                    format!("Konto {text} finns inte i kontoplanen."),
+                ));
+                return None;
+            }
+        }
+    };
+    match konton.iter().find(|(k, _)| *k == konto) {
+        Some((_, true)) => Some(konto),
+        Some((_, false)) => {
+            spärrar.push(Spärr {
+                åtgärd: Some(Åtgärd::Aktivera(konto)),
+                ..spärr(
+                    Fält::Konto(i),
+                    "konto_inaktivt",
+                    format!("Konto {konto} är inaktivt. Aktivera det för att bokföra på det."),
+                )
+            });
+            None
+        }
+        None => {
+            spärrar.push(spärr(
+                Fält::Konto(i),
+                "konto_okant",
+                format!("Konto {konto} finns inte i kontoplanen."),
+            ));
+            None
+        }
+    }
+}
