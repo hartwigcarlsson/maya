@@ -18,7 +18,30 @@ pub async fn exportera_sie4_förvanskad(
     år: jiff::civil::Date,
     förvanska: impl FnOnce(&mut maya_sie::Sie4),
 ) -> Result<sie4::Sie4Export, sie4::Sie4Fel> {
-    sie4::exportera_med(db, klocka, aktör, företag, år, förvanska).await
+    sie4::exportera_med(db, klocka, aktör, företag, år, |_| {}, förvanska).await
+}
+
+/// SIE4-exporten med en läsning som tappar årets sista verifikat, som en bugg i frågan som
+/// filen byggs av, för att visa att avstämningen läser databasen för sig.
+pub async fn exportera_sie4_med_felaktig_läsning(
+    db: &Databas,
+    klocka: &Klocka,
+    aktör: &Aktör,
+    företag: FöretagsId,
+    år: jiff::civil::Date,
+) -> Result<sie4::Sie4Export, sie4::Sie4Fel> {
+    sie4::exportera_med(
+        db,
+        klocka,
+        aktör,
+        företag,
+        år,
+        |verifikat| {
+            verifikat.pop();
+        },
+        |_| {},
+    )
+    .await
 }
 
 /// En ny användare i webben, utan passkey och utan åtkomst till något företag. Inbjudningar
