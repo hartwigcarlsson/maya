@@ -3,8 +3,8 @@
 //!
 //! Filen hämtas med `GET /foretag/<id>/sie4?ar=<start>`. `core` läser tillbaka och stämmer av
 //! filen innan den lämnas ut; stoppas exporten skickas användaren tillbaka hit med `fel=sie4`.
-//! Årslistan kommer från middleware vid serverrenderingen, så länkarna hit har
-//! `rel="external"`.
+//! Årslistan läses med `sidodata::sida`. Länken till filen har `rel="external"`: den är ingen
+//! sida i appen.
 
 use leptos::prelude::*;
 use leptos_router::hooks::{use_params_map, use_query_map};
@@ -12,42 +12,38 @@ use serde::{Deserialize, Serialize};
 
 use crate::app::{LoggaIn, Läge};
 use crate::foretag::{Företagsval, IngenÅtkomst};
+use crate::sidodata::sida;
 
 /// Koden i `fel=` när exporten stoppades vid återläsningen.
 pub const SIE4_STOPPAD: &str = "sie4";
 
-/// Det som sidan visar. Middleware hämtar det ur `core` och lägger det på begäran, och det
-/// följer med till webbläsaren vid hydreringen.
+/// Det som sidan visar.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Rapportdata {
     /// Räkenskapsåren i ordning, som start och slut `ÅÅÅÅ-MM-DD`.
     pub år: Vec<(String, String)>,
 }
 
-fn data() -> Rapportdata {
-    SharedValue::new(|| {
-        #[cfg(feature = "ssr")]
-        if let Some(parts) = use_context::<axum::http::request::Parts>()
-            && let Some(data) = parts.extensions.get::<Rapportdata>()
-        {
-            return data.clone();
-        }
-        Rapportdata::default()
-    })
-    .into_inner()
+/// Datan för `/foretag/<id>/rapporter`.
+#[server(prefix = "/api", endpoint = "rapportdata", input = server_fn::codec::GetUrl)]
+pub async fn hämta_rapportdata(adress: String) -> Result<Rapportdata, ServerFnError> {
+    match crate::sidodata::Sidbegäran::för(&adress)? {
+        Some(begäran) => server::rapportdata(&begäran).await,
+        None => Ok(Rapportdata::default()),
+    }
 }
 
 #[cfg(feature = "ssr")]
 pub(crate) mod server {
     use std::sync::Arc;
 
-    use axum::extract::{Path, Query, Request, State};
+    use axum::extract::{Path, Query, State};
     use axum::http::{StatusCode, header};
-    use axum::middleware::Next;
     use axum::response::{IntoResponse, Redirect, Response};
     use axum::routing::get;
     use axum::{Extension, Router};
     use jiff::civil::Date;
+    use leptos::prelude::ServerFnError;
     use maya_core::atkomst::ÅtkomstFel;
     use maya_core::foretag::{self, FöretagsId};
     use maya_core::inloggning::Inloggad;
@@ -56,6 +52,7 @@ pub(crate) mod server {
     use serde::Deserialize;
 
     use super::{Rapportdata, SIE4_STOPPAD};
+    use crate::sidodata::{self, Sidbegäran};
 
     #[derive(Clone)]
     pub(crate) struct RapportState {
@@ -69,38 +66,29 @@ pub(crate) mod server {
             .with_state(Arc::new(state))
     }
 
-    /// Hämtar räkenskapsåren för `/foretag/<id>/rapporter`. Körs efter
-    /// `inloggning::identifiera`.
-    pub(crate) async fn lägg_på_rapportdata(
-        State(state): State<RapportState>,
-        mut req: Request,
-        next: Next,
-    ) -> Response {
-        let Some(inloggad) = req.extensions().get::<Inloggad>().cloned() else {
-            return next.run(req).await;
-        };
-        let delar: Vec<&str> = req.uri().path().trim_matches('/').split('/').collect();
+    /// Hämtar räkenskapsåren för `/foretag/<id>/rapporter`. Utan åtkomst blir datan tom;
+    /// sidan visar det ur företagsvalet.
+    pub(crate) async fn rapportdata(b: &Sidbegäran) -> Result<Rapportdata, ServerFnError> {
+        let delar = b.delar();
         let ["foretag", id, "rapporter"] = delar.as_slice() else {
-            return next.run(req).await;
+            return Ok(Rapportdata::default());
         };
         let Ok(företag) = id.parse::<FöretagsId>() else {
-            return next.run(req).await;
+            return Ok(Rapportdata::default());
         };
-        match foretag::företaget(&state.db, &inloggad.aktör, företag).await {
-            Ok(f) => {
-                req.extensions_mut().insert(Rapportdata {
-                    år: f
-                        .räkenskapsår
-                        .iter()
-                        .map(|å| (å.start.to_string(), å.slut.to_string()))
-                        .collect(),
-                });
+        match foretag::företaget(&b.db, &b.inloggad.aktör, företag).await {
+            Ok(f) => Ok(Rapportdata {
+                år: f
+                    .räkenskapsår
+                    .iter()
+                    .map(|å| (å.start.to_string(), å.slut.to_string()))
+                    .collect(),
+            }),
+            Err(ÅtkomstFel::IngenÅtkomst | ÅtkomstFel::KanalenFårInte) => {
+                Ok(Rapportdata::default())
             }
-            // Sidan visar att användaren saknar åtkomst, ur företagsvalet.
-            Err(ÅtkomstFel::IngenÅtkomst | ÅtkomstFel::KanalenFårInte) => {}
-            Err(e) => return serverfel(e),
+            Err(e) => Err(sidodata::serverfel(e)),
         }
-        next.run(req).await
     }
 
     #[derive(Deserialize)]
@@ -185,6 +173,10 @@ pub(crate) mod server {
 /// Rapporter, med SIE4-exporten per räkenskapsår.
 #[component]
 pub fn Rapporter() -> impl IntoView {
+    sida(hämta_rapportdata, rapporter)
+}
+
+fn rapporter(data: Rapportdata) -> AnyView {
     if !matches!(use_context::<Läge>(), Some(Läge::Inloggad { .. })) {
         return view! { <LoggaIn /> }.into_any();
     }
@@ -195,7 +187,7 @@ pub fn Rapporter() -> impl IntoView {
     };
     let stoppad = use_query_map().with_untracked(|q| q.get("fel").as_deref() == Some(SIE4_STOPPAD));
     let bas = företaget.href();
-    let år = data()
+    let år = data
         .år
         .into_iter()
         .map(|(start, slut)| {

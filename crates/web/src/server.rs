@@ -84,9 +84,11 @@ pub fn router(config: Arc<Config>, db: Databas) -> Router {
         klocka: inloggning.klocka.clone(),
     };
     let kontext = {
+        let config = config.clone();
         let db = db.clone();
         let klocka = inloggning.klocka.clone();
         move || {
+            provide_context(config.clone());
             provide_context(db.clone());
             provide_context(klocka.clone());
         }
@@ -98,7 +100,6 @@ pub fn router(config: Arc<Config>, db: Databas) -> Router {
     let åtkomst = ÅtkomstState {
         db: db.clone(),
         klocka: inloggning.klocka.clone(),
-        publik_url: config.public_url.as_str().trim_end_matches('/').to_string(),
     };
     let rapporter = RapportState {
         db: db.clone(),
@@ -113,14 +114,6 @@ pub fn router(config: Arc<Config>, db: Databas) -> Router {
         })
         .fallback(assets::serve_site)
         .with_state(leptos_options)
-        .layer(middleware::from_fn_with_state(
-            rapporter.clone(),
-            rapporter::lägg_på_rapportdata,
-        ))
-        .layer(middleware::from_fn_with_state(
-            åtkomst.clone(),
-            atkomst::lägg_på_åtkomst,
-        ))
         .layer(middleware::from_fn_with_state(
             företag.clone(),
             foretag::lägg_på_företagsval,

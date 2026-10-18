@@ -12,6 +12,7 @@ use serde::{Deserialize, Serialize};
 use crate::app::{LoggaIn, Läge};
 use crate::foretag::{Företagsval, IngenÅtkomst};
 use crate::installningar::Inställningsmeny;
+use crate::sidodata::sida;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MedlemVy {
@@ -30,8 +31,7 @@ pub struct InbjudanVy {
     pub giltig_till: String,
 }
 
-/// Det som sidan visar. Middleware hämtar det ur `core` och lägger det på begäran, och det
-/// följer med till webbläsaren vid hydreringen.
+/// Det som sidan visar.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Åtkomstdata {
     /// Mayas publika URL utan avslutande snedstreck, för inbjudningslänken.
@@ -43,27 +43,25 @@ pub struct Åtkomstdata {
     pub kandidater: Vec<MedlemVy>,
 }
 
-fn data() -> Option<Åtkomstdata> {
-    SharedValue::new(|| {
-        #[cfg(feature = "ssr")]
-        if let Some(parts) = use_context::<axum::http::request::Parts>() {
-            return parts.extensions.get::<Åtkomstdata>().cloned();
-        }
-        None
-    })
-    .into_inner()
+/// Datan för `/foretag/<id>/installningar/atkomst`, eller `None` utan åtkomst.
+#[server(prefix = "/api", endpoint = "atkomstdata", input = server_fn::codec::GetUrl)]
+pub async fn hämta_åtkomstdata(adress: String) -> Result<Option<Åtkomstdata>, ServerFnError> {
+    match crate::sidodata::Sidbegäran::för(&adress)? {
+        Some(begäran) => server::åtkomstdata(&begäran).await,
+        None => Ok(None),
+    }
 }
 
 #[cfg(feature = "ssr")]
 pub(crate) mod server {
     use std::sync::Arc;
 
-    use axum::extract::{Path, Request, State};
+    use axum::extract::{Path, State};
     use axum::http::{StatusCode, header};
-    use axum::middleware::Next;
     use axum::response::{IntoResponse, Redirect, Response};
     use axum::routing::post;
     use axum::{Extension, Form, Router};
+    use leptos::prelude::ServerFnError;
     use maya_core::aktor::AnvändarId;
     use maya_core::atkomst::{self, DelningsFel, Inbjudan, Medlem, ÅtkomstFel};
     use maya_core::foretag::FöretagsId;
@@ -72,13 +70,12 @@ pub(crate) mod server {
     use serde::Deserialize;
 
     use super::{InbjudanVy, MedlemVy, Åtkomstdata};
+    use crate::sidodata::{self, Sidbegäran};
 
     #[derive(Clone)]
     pub(crate) struct ÅtkomstState {
         pub db: Databas,
         pub klocka: Klocka,
-        /// Mayas publika URL utan avslutande snedstreck.
-        pub publik_url: String,
     }
 
     pub(crate) fn routes(state: ÅtkomstState) -> Router {
@@ -89,24 +86,20 @@ pub(crate) mod server {
             .with_state(Arc::new(state))
     }
 
-    /// Hämtar det som `/foretag/<id>/installningar/atkomst` visar. Körs efter
-    /// `inloggning::identifiera`.
-    pub(crate) async fn lägg_på_åtkomst(
-        State(state): State<ÅtkomstState>,
-        mut req: Request,
-        next: Next,
-    ) -> Response {
-        let Some(inloggad) = req.extensions().get::<Inloggad>().cloned() else {
-            return next.run(req).await;
-        };
-        let delar: Vec<&str> = req.uri().path().trim_matches('/').split('/').collect();
+    /// Hämtar det som `/foretag/<id>/installningar/atkomst` visar. Utan åtkomst blir den
+    /// `None`; sidan visar det ur företagsvalet.
+    pub(crate) async fn åtkomstdata(
+        b: &Sidbegäran,
+    ) -> Result<Option<Åtkomstdata>, ServerFnError> {
+        let delar = b.delar();
         let ["foretag", id, "installningar", "atkomst"] = delar.as_slice() else {
-            return next.run(req).await;
+            return Ok(None);
         };
         let Ok(företag) = id.parse::<FöretagsId>() else {
-            return next.run(req).await;
+            return Ok(None);
         };
-        match atkomst::åtkomst(&state.db, &state.klocka, &inloggad.aktör, företag).await {
+        let inloggad = &b.inloggad;
+        match atkomst::åtkomst(&b.db, &b.klocka, &inloggad.aktör, företag).await {
             Ok(lista) => {
                 let vy = |m: Medlem| MedlemVy {
                     id: m.id.to_string(),
@@ -115,9 +108,14 @@ pub(crate) mod server {
                     visningsnamn: m.visningsnamn,
                     avaktiverad: m.avaktiverad,
                 };
-                req.extensions_mut().insert(Åtkomstdata {
-                    publik_url: state.publik_url.clone(),
-                    färsk: inloggad.har_färsk_passkey(&state.klocka),
+                Ok(Some(Åtkomstdata {
+                    publik_url: b
+                        .config
+                        .public_url
+                        .as_str()
+                        .trim_end_matches('/')
+                        .to_string(),
+                    färsk: inloggad.har_färsk_passkey(&b.klocka),
                     användare: lista.användare.into_iter().map(vy).collect(),
                     inbjudningar: lista
                         .inbjudningar
@@ -129,13 +127,11 @@ pub(crate) mod server {
                         })
                         .collect(),
                     kandidater: lista.kandidater.into_iter().map(vy).collect(),
-                });
+                }))
             }
-            // Sidan visar att användaren saknar åtkomst, ur företagsvalet.
-            Err(ÅtkomstFel::IngenÅtkomst | ÅtkomstFel::KanalenFårInte) => {}
-            Err(e) => return serverfel(e),
+            Err(ÅtkomstFel::IngenÅtkomst | ÅtkomstFel::KanalenFårInte) => Ok(None),
+            Err(e) => Err(sidodata::serverfel(e)),
         }
-        next.run(req).await
     }
 
     /// En tidpunkt i Stockholm, till minuten.
@@ -286,12 +282,16 @@ fn meddelande(kod: &str) -> &'static str {
 /// Inställningar → Åtkomst.
 #[component]
 pub fn ÅtkomstSida() -> impl IntoView {
+    sida(hämta_åtkomstdata, åtkomstsida)
+}
+
+fn åtkomstsida(data: Option<Åtkomstdata>) -> AnyView {
     if !matches!(use_context::<Läge>(), Some(Läge::Inloggad { .. })) {
         return view! { <LoggaIn /> }.into_any();
     }
     let id = use_params_map().with_untracked(|p| p.get("id").unwrap_or_default());
     let val = use_context::<Företagsval>().unwrap_or_default();
-    let (Some(f), Some(data)) = (val.0.into_iter().find(|f| f.id == id), data()) else {
+    let (Some(f), Some(data)) = (val.0.into_iter().find(|f| f.id == id), data) else {
         return view! { <IngenÅtkomst /> }.into_any();
     };
     let bas = f.href();

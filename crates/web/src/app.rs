@@ -142,7 +142,7 @@ fn Innehåll() -> impl IntoView {
                     view=NyttVerifikatSida
                     ssr=SsrMode::Async
                 />
-                <Route path=path!("foretag/:id/rapporter") view=Rapporter />
+                <Route path=path!("foretag/:id/rapporter") view=Rapporter ssr=SsrMode::Async />
                 <Route path=path!("foretag/:id/sok") view=SökSida ssr=SsrMode::Async />
                 <Route
                     path=path!("foretag/:id/installningar")
@@ -159,7 +159,11 @@ fn Innehåll() -> impl IntoView {
                     view=KontoplanSida
                     ssr=SsrMode::Async
                 />
-                <Route path=path!("foretag/:id/installningar/atkomst") view=ÅtkomstSida />
+                <Route
+                    path=path!("foretag/:id/installningar/atkomst")
+                    view=ÅtkomstSida
+                    ssr=SsrMode::Async
+                />
             </Routes>
         }
         .into_any()

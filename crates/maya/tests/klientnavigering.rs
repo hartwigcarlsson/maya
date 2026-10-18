@@ -1,5 +1,6 @@
 //! Klientnavigering: efter hydreringen navigerar routern på klienten mellan sidorna via
 //! menylänkarna, utan omladdning, och varje sida visar sina data (inte en tom eller gammal sida).
+//! En ny sida med data får ett klick och en kontroll av sin data här.
 //!
 //! Kräver Chrome eller Chromium (sökvägen kan anges i `CHROME`) och ett `cargo leptos build`,
 //! så att `target/site/pkg/maya.wasm` finns. Utan WASM:en hoppar testet över sig självt.
@@ -121,6 +122,8 @@ fn menylankarna_navigerar_pa_klienten_och_sidorna_visar_sina_data() {
     klicka(&tab, "a.kugghjul");
     klicka(&tab, "a[href$='/installningar/ingaende-balans']");
     vänta_på_text(&tab, "Aktiekapital");
+    klicka(&tab, "a[href$='/installningar/atkomst']");
+    vänta_på_text(&tab, "(du)");
 
     klicka(&tab, "a[href='/passkeys']");
     vänta_på_text(&tab, "Virtuell nyckel");
@@ -134,6 +137,7 @@ fn menylankarna_navigerar_pa_klienten_och_sidorna_visar_sina_data() {
     klicka(&tab, "nav.flikar a[href$='/verifikat']");
     vänta_på_text(&tab, "Kaffe till kontoret");
     klicka(&tab, "nav.flikar a[href$='/rapporter']");
+    vänta_på_text(&tab, "2026-01-01 – 2026-12-31");
     klicka(&tab, "nav.flikar a[href$='/verifikat']");
     vänta_på_text(&tab, "Kaffe till kontoret");
 

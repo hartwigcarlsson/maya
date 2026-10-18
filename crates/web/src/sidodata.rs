@@ -86,13 +86,18 @@ pub(crate) use server::{Sidbegäran, serverfel};
 
 #[cfg(feature = "ssr")]
 mod server {
+    use std::sync::Arc;
+
     use axum::http::request::Parts;
     use leptos::prelude::*;
+    use maya_core::config::Config;
     use maya_core::inloggning::Inloggad;
     use maya_core::{Databas, Klocka};
 
-    /// Det en sidas server function behöver: databasen, klockan, den inloggade och adressen.
+    /// Det en sidas server function behöver: konfigurationen, databasen, klockan, den inloggade
+    /// och adressen. `server.rs` lägger konfigurationen, databasen och klockan i kontexten.
     pub(crate) struct Sidbegäran {
+        pub config: Arc<Config>,
         pub db: Databas,
         pub klocka: Klocka,
         pub inloggad: Inloggad,
@@ -110,6 +115,7 @@ mod server {
             };
             let (sökväg, fråga) = adress.split_once('?').unwrap_or((adress, ""));
             Ok(Some(Sidbegäran {
+                config: use_context().ok_or_else(|| serverfel("konfigurationen saknas"))?,
                 db: use_context().ok_or_else(|| serverfel("databasen saknas"))?,
                 klocka: use_context().ok_or_else(|| serverfel("klockan saknas"))?,
                 inloggad,
