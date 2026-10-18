@@ -15,7 +15,7 @@ use std::path::Path;
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
-use headless_chrome::protocol::cdp::{Page, WebAuthn};
+use headless_chrome::protocol::cdp::{Browser as Webbläsaren, Page, WebAuthn};
 use headless_chrome::{Browser, LaunchOptions, Tab};
 
 const MAYA: &str = env!("CARGO_BIN_EXE_maya");
@@ -57,6 +57,16 @@ fn forsta_anvandaren_via_cli_lanken_och_inloggning_med_passkey() {
     )
     .expect("röktestet kräver Chrome eller Chromium; ange sökvägen i CHROME");
     let tab = browser.new_tab().unwrap();
+    // Nedladdningar hamnar i testets katalog, inte i ~/Downloads.
+    let nedladdningar = dir.path().join("nedladdningar");
+    std::fs::create_dir(&nedladdningar).unwrap();
+    tab.call_method(Webbläsaren::SetDownloadBehavior {
+        behavior: Webbläsaren::SetDownloadBehaviorBehaviorOption::Allow,
+        browser_context_id: None,
+        download_path: Some(nedladdningar.display().to_string()),
+        events_enabled: None,
+    })
+    .unwrap();
     tab.call_method(Page::AddScriptToEvaluateOnNewDocument {
         source: SAMLA_FEL.to_string(),
         world_name: None,
@@ -240,6 +250,17 @@ fn forsta_anvandaren_via_cli_lanken_och_inloggning_med_passkey() {
         tab.get_url(),
         kontoplan,
         "Exportera laddar ned, sidan står kvar"
+    );
+    let pdf = nedladdningar.join("kontoplan.pdf");
+    for _ in 0..50 {
+        if pdf.exists() {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    assert!(
+        pdf.exists(),
+        "Exportera sparar kontoplan.pdf i testets katalog"
     );
     inga_sidfel(&tab);
 
