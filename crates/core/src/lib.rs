@@ -2,12 +2,18 @@
 //! som anropar användningsfallen här och aldrig kör sqlx själva.
 
 pub mod aktor;
+pub mod atkomst;
+pub mod behandlingshistorik;
 pub mod config;
 mod databas;
+pub mod foretag;
 pub mod inloggning;
 pub mod installation;
 pub mod installationslogg;
 mod klocka;
+pub mod kontoplan;
+#[cfg(feature = "test-support")]
+pub mod testhjalp;
 
 #[cfg(feature = "test-support")]
 pub use databas::TillfälligDatabas;
