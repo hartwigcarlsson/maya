@@ -98,6 +98,32 @@ async fn aterstallning_ger_en_engangslank_som_galler_i_24_timmar() {
 }
 
 #[tokio::test]
+async fn aterstallning_upphaver_de_gamla_passkeyerna_och_sessionerna() {
+    let db = Databas::tillfällig().await;
+    let session = anna(&db).await;
+
+    inloggning::återställ_användare(&db, &nu(), &Aktör::cli(), "anna@example.se")
+        .await
+        .unwrap();
+
+    // Den som har en tappad passkey eller en gammal session kommer inte längre in.
+    assert!(
+        inloggning::session(&db, &nu(), &session)
+            .await
+            .unwrap()
+            .is_none()
+    );
+    let grund = inloggning::inloggning_för(&db, "anna@example.se")
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(grund.passkeys.is_empty());
+    let post = installationslogg::läs(&db).await.unwrap().pop().unwrap();
+    assert_eq!(post.beskrivning["borttagna_passkeys"], 1);
+    assert_eq!(post.beskrivning["avslutade_sessioner"], 1);
+}
+
+#[tokio::test]
 async fn en_okand_anvandare_kan_inte_aterstallas() {
     let db = Databas::tillfällig().await;
     anna(&db).await;

@@ -317,7 +317,8 @@ async fn ny_länk(
 }
 
 /// Ger en användare som har tappat alla sina passkeys en återställningslänk, där hen
-/// registrerar en ny. Bara CLI:t (ADR 0005). Händelsen skrivs i installationsloggen.
+/// registrerar en ny. Hens gamla passkeys och sessioner upphör. Bara CLI:t (ADR 0005).
+/// Händelsen skrivs i installationsloggen.
 pub async fn återställ_användare(
     db: &Databas,
     klocka: &Klocka,
@@ -329,6 +330,18 @@ pub async fn återställ_användare(
         return Err(InloggningsFel::Avaktiverad);
     }
     let nu = klocka.nu();
+    // Användaren har tappat sina passkeys: de och hens sessioner upphör, så att den som hittar
+    // en tappad enhet inte kommer in.
+    let passkeys = sqlx::query("DELETE FROM passkey WHERE anvandare_id = ?")
+        .bind(id.0)
+        .execute(&mut *tx)
+        .await?
+        .rows_affected();
+    let sessioner = sqlx::query("DELETE FROM session WHERE anvandare_id = ?")
+        .bind(id.0)
+        .execute(&mut *tx)
+        .await?
+        .rows_affected();
     let länk = ny_länk(&mut tx, nu, id, Syfte::Återställning).await?;
     installationslogg::skriv(
         &mut tx,
@@ -339,6 +352,8 @@ pub async fn återställ_användare(
         serde_json::json!({
             "epost": epost,
             "återställningslänk_giltig_till": länk.giltig_till.to_string(),
+            "borttagna_passkeys": passkeys,
+            "avslutade_sessioner": sessioner,
         }),
     )
     .await?;
