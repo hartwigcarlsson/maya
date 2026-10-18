@@ -7,6 +7,12 @@
 set -uo pipefail
 
 cd "$(dirname "$0")" || exit 0
+# As a hook, check the session's own folder: $CLAUDE_PROJECT_DIR is the main checkout even
+# when the session runs in a worktree. The hook input on stdin carries that folder as cwd.
+if [ -z "${1:-}" ] && [ ! -t 0 ]; then
+  cwd=$(jq -r '.cwd // empty' 2>/dev/null || true)
+  [ -n "$cwd" ] && [ -d "$cwd" ] && cd "$cwd"
+fi
 # The hook's own timeout in .claude/settings.json bounds a slow fetch.
 GIT_TERMINAL_PROMPT=0 git fetch -q origin main 2>/dev/null || exit 0
 branch=$(git symbolic-ref --short -q HEAD) || exit 0
