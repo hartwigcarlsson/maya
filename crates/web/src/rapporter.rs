@@ -442,10 +442,14 @@ fn Verktygsrad(d: Rapportvy, sida: String) -> impl IntoView {
                 </button>
             </form>
             {visning}
-            <span class="diskret">"Jämför"</span>
-            {jämförelse}
-            <span class="diskret">"Nivå"</span>
-            {nivå}
+            <span class="verktygsgrupp">
+                <span class="diskret">"Jämför"</span>
+                {jämförelse}
+            </span>
+            <span class="verktygsgrupp">
+                <span class="diskret">"Nivå"</span>
+                {nivå}
+            </span>
         </div>
     }
 }
