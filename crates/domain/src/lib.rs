@@ -4,6 +4,7 @@
 pub mod belopp;
 pub mod epost;
 pub mod foretag;
+pub mod ingaende_balans;
 pub mod kontoplan;
 pub mod orgnr;
 pub mod rakenskapsar;

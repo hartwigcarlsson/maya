@@ -569,6 +569,7 @@ pub fn Inställningar() -> impl IntoView {
     match val.0.into_iter().find(|f| f.id == id) {
         Some(f) => {
             let kontoplan = format!("{}/installningar/kontoplan", f.href());
+            let ingående_balans = format!("{}/installningar/ingaende-balans", f.href());
             view! {
                 <section class="sida">
                     <p class="diskret">{f.namn} " · " {f.orgnr}</p>
@@ -577,6 +578,11 @@ pub fn Inställningar() -> impl IntoView {
                         <li>
                             <a rel="external" href=kontoplan>
                                 "Kontoplan"
+                            </a>
+                        </li>
+                        <li>
+                            <a rel="external" href=ingående_balans>
+                                "Ingående balans"
                             </a>
                         </li>
                     </ul>
