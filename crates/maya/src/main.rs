@@ -85,10 +85,11 @@ async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
     let listener = tokio::net::TcpListener::bind(config.listen)
         .await
         .map_err(|e| format!("kan inte lyssna på {}: {e}", config.listen))?;
+    // Den verkliga adressen: med port 0 väljer operativsystemet porten.
+    let adress = listener.local_addr()?;
     tracing::info!(
-        "Maya {} lyssnar på {}, publik adress {}",
+        "Maya {} lyssnar på {adress}, publik adress {}",
         env!("CARGO_PKG_VERSION"),
-        config.listen,
         config.public_url
     );
     axum::serve(
