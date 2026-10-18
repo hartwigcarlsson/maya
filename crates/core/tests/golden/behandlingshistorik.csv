@@ -1,5 +1,6 @@
 ﻿Tidpunkt;Aktör;Kanal;Typ;Objekt;Belopp;Beskrivning
 2026-01-10 09:00:00;anna@example.se;webb;företag skapat;556036-0793;;Exempel AB upplagt: räkenskapsår 2026-01-01 – 2026-12-31, fakturametoden, momsperiod kvartal, kontoplan BAS 2026
+2026-01-10 09:00:00;anna@example.se;webb;åtkomst given;anna@example.se;;Åtkomst till företaget för anna@example.se
 2026-03-02 10:15:00;anna@example.se;webb;företag ändrat;556036-0793;;namn: ”Exempel AB” → ”Exempel Handel AB”
 2026-03-02 10:15:00;anna@example.se;webb;räkenskapsår ändrat;2026-01-01;;Slutet ändrat från 2026-12-31 till 2027-06-30
 2026-03-02 10:15:00;anna@example.se;webb;bokföringsmetod bytt;2027-07-01;;Från fakturametoden till kontantmetoden fr.o.m. 2027-07-01

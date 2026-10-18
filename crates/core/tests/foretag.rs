@@ -203,7 +203,7 @@ async fn bara_webben_lägger_upp_företag() {
 }
 
 #[tokio::test]
-async fn behandlingshistoriken_får_posten_företag_skapat_med_aktör_och_tid() {
+async fn behandlingshistoriken_får_företag_skapat_och_skaparens_åtkomst_med_aktör_och_tid() {
     let db = Databas::tillfällig().await;
     let anna = testhjalp::användare(&db, "anna@example.se").await;
     let id = foretag::lägg_upp(&db, &klocka(), &anna, &formulär("556036-0793"))
@@ -212,7 +212,12 @@ async fn behandlingshistoriken_får_posten_företag_skapat_med_aktör_och_tid() 
 
     let historik = behandlingshistorik::läs(&db, &anna, id).await.unwrap();
 
-    assert_eq!(historik.len(), 1);
+    assert_eq!(historik.len(), 2);
+    let åtkomst = &historik[1];
+    assert_eq!(åtkomst.typ, "åtkomst given");
+    assert_eq!(åtkomst.aktör, anna);
+    assert_eq!(åtkomst.objekt, "anna@example.se");
+    assert_eq!(åtkomst.text(), "Åtkomst till företaget för anna@example.se");
     let post = &historik[0];
     assert_eq!(post.tid, NU.parse::<Timestamp>().unwrap());
     assert_eq!(post.aktör, anna);

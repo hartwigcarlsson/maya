@@ -510,7 +510,8 @@ async fn alla_åtkomsthändelser_loggas_med_aktör_och_tid() {
         .unwrap();
     let åtkomst: Vec<_> = poster
         .iter()
-        .filter(|p| p.typ != "företag skapat")
+        // Uppläggningen: "företag skapat" och Annas egen åtkomst.
+        .skip(2)
         .map(|p| (p.typ.as_str(), p.objekt.as_str(), p.aktör, p.tid))
         .collect();
     assert_eq!(

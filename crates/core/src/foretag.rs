@@ -171,6 +171,18 @@ pub async fn lägg_upp(
             }),
         )
         .await?;
+    // Skaparen får åtkomst som vem som helst, och det står i historiken.
+    let epost: String = sqlx::query_scalar("SELECT epost FROM anvandare WHERE id = ?")
+        .bind(användare.0)
+        .fetch_one(ärende.conn())
+        .await?;
+    ärende
+        .logga(
+            Händelse::ÅtkomstGiven,
+            &epost,
+            serde_json::json!({ "användare": användare.0, "epost": epost }),
+        )
+        .await?;
     ärende.slutför().await?;
     Ok(id)
 }

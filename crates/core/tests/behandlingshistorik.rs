@@ -46,7 +46,7 @@ async fn behandlingshistoriken_går_inte_att_ändra_eller_radera() {
     assert!(radera.unwrap_err().contains("går inte att radera"));
     let db = Databas::öppna(&path).await.unwrap();
     let historik = behandlingshistorik::läs(&db, &anna, id).await.unwrap();
-    assert_eq!(historik.len(), 1);
+    assert_eq!(historik.len(), 2);
     assert_eq!(historik[0].objekt, "556036-0793");
 }
 
@@ -438,7 +438,7 @@ async fn filter_på_typ_aktör_och_tid_ger_rätt_urval() {
     let historik = behandlingshistorik::historik(&db, &anna, id, &Urval::default())
         .await
         .unwrap();
-    assert_eq!(historik.poster.len(), 32);
+    assert_eq!(historik.poster.len(), 33);
     let namn: Vec<&str> = historik.aktörer.iter().map(|(_, n)| n.as_str()).collect();
     assert_eq!(namn, ["anna@example.se", "bo@example.se", "cli", "Maya"]);
     assert_eq!(
@@ -474,7 +474,7 @@ async fn filter_på_typ_aktör_och_tid_ger_rätt_urval() {
         aktör: Some(Aktörsval::Användare(anna.användare.unwrap())),
         ..Urval::default()
     };
-    assert_eq!(typer(&db, &anna, id, anna_urval).await.len(), 24);
+    assert_eq!(typer(&db, &anna, id, anna_urval).await.len(), 25);
     let bo = Urval {
         aktör: Some(historik.aktörer[1].0),
         ..Urval::default()
@@ -492,7 +492,7 @@ async fn filter_på_typ_aktör_och_tid_ger_rätt_urval() {
     };
     assert_eq!(
         typer(&db, &anna, id, tid(None, Some(date(2026, 3, 1)))).await,
-        ["företag skapat"]
+        ["företag skapat", "åtkomst given"]
     );
     assert_eq!(
         typer(

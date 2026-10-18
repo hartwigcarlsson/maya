@@ -252,10 +252,15 @@ async fn ett_verifikat_i_året_efter_det_senaste_skapar_året_och_det_loggas() {
     let typer: Vec<_> = historik.iter().map(|p| p.typ.as_str()).collect();
     assert_eq!(
         typer,
-        ["företag skapat", "räkenskapsår skapat", "verifikat bokfört"]
+        [
+            "företag skapat",
+            "åtkomst given",
+            "räkenskapsår skapat",
+            "verifikat bokfört"
+        ]
     );
-    assert_eq!(historik[1].beskrivning["start"], "2027-01-01");
-    assert_eq!(historik[1].beskrivning["slut"], "2027-12-31");
+    assert_eq!(historik[2].beskrivning["start"], "2027-01-01");
+    assert_eq!(historik[2].beskrivning["slut"], "2027-12-31");
 }
 
 #[tokio::test]
