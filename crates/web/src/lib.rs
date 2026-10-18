@@ -3,6 +3,7 @@
 
 pub mod app;
 pub mod foretag;
+pub mod kontoplan;
 
 #[cfg(feature = "ssr")]
 mod assets;
