@@ -95,6 +95,8 @@ pub enum Handling {
     ÄndraFöretag,
     /// Radera ett företag utan räkenskapsinformation.
     RaderaFöretag,
+    /// Spara, ändra och radera ett utkast. MCP läggs till i etapp 6.
+    HanteraUtkast,
 }
 
 /// Kanalpolicyn: om `kanal` får utföra `handling`.
@@ -106,6 +108,7 @@ pub fn tillåter(kanal: Kanal, handling: Handling) -> bool {
         | Handling::ÄndraKontoplan
         | Handling::Bokföra
         | Handling::ÄndraFöretag
-        | Handling::RaderaFöretag => kanal == Kanal::Webb,
+        | Handling::RaderaFöretag
+        | Handling::HanteraUtkast => kanal == Kanal::Webb,
     }
 }

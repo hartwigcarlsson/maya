@@ -25,6 +25,7 @@ pub enum Händelse {
     BokföringsmetodBytt,
     MomsperiodBytt,
     VerifikatBokfört,
+    UtkastRaderat,
 }
 
 impl Händelse {
@@ -42,6 +43,7 @@ impl Händelse {
             Händelse::BokföringsmetodBytt => "bokföringsmetod bytt",
             Händelse::MomsperiodBytt => "momsperiod bytt",
             Händelse::VerifikatBokfört => "verifikat bokfört",
+            Händelse::UtkastRaderat => "utkast raderat",
         }
     }
 }

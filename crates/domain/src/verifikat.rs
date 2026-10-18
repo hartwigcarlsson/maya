@@ -352,3 +352,97 @@ fn kontrollera_belopp(
         }
     }
 }
+
+/// En rad i ett utkast. Konto och belopp får saknas.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Utkastrad {
+    pub konto: Option<Kontonummer>,
+    pub debet: Belopp,
+    pub kredit: Belopp,
+    pub text: Option<String>,
+}
+
+/// Ett utkast som går att spara: det som är ifyllt går att lagra, men behöver inte vara
+/// balanserat eller komplett.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SparbartUtkast {
+    pub datum: Option<Date>,
+    pub beskrivning: String,
+    /// Raderna i formulärets ordning, utan helt tomma rader.
+    pub rader: Vec<Utkastrad>,
+    /// Räkenskapsåret som datumet avgör; `None` utan datum.
+    pub räkenskapsår: Option<Årsval>,
+}
+
+impl NyttVerifikat {
+    /// Prövar det som måste gälla för att ett utkast ska kunna sparas: ett datum som är ett
+    /// datum och ligger i ett räkenskapsår som finns eller kan skapas, kontonummer som är
+    /// kontonummer och belopp som är belopp. Ett utkast får vara obalanserat, sakna
+    /// beskrivning, rader, konton och belopp, och använda inaktiva konton. Spärrarna har samma
+    /// koder som vid bokföring.
+    pub fn som_utkast(
+        &self,
+        förutsättningar: &Förutsättningar,
+    ) -> Result<SparbartUtkast, Vec<Spärr>> {
+        let mut spärrar = Vec::new();
+        let datum = if self.datum.trim().is_empty() {
+            None
+        } else {
+            self.kontrollera_datum(&mut spärrar)
+        };
+        let räkenskapsår =
+            datum.and_then(|d| välj_år(d, &förutsättningar.räkenskapsår, &mut spärrar));
+        let mut rader = Vec::new();
+        for (i, rad) in self.rader.iter().enumerate().filter(|(_, r)| !r.tom()) {
+            let text = rad.konto.trim();
+            let konto = if text.is_empty() {
+                None
+            } else {
+                let konto = text.parse::<u16>().ok().and_then(Kontonummer::new);
+                if konto.is_none() {
+                    spärrar.push(Spärr::ny(
+                        Fält::Konto(i),
+                        "konto_okant",
+                        format!("Konto {text} finns inte i kontoplanen."),
+                    ));
+                }
+                konto
+            };
+            let mut ogiltigt = false;
+            let mut belopp = |text: &str| {
+                let text = text.trim();
+                if text.is_empty() {
+                    return Belopp::NOLL;
+                }
+                Belopp::tolka(text).unwrap_or_else(|| {
+                    ogiltigt = true;
+                    Belopp::NOLL
+                })
+            };
+            let (debet, kredit) = (belopp(&rad.debet), belopp(&rad.kredit));
+            if ogiltigt {
+                spärrar.push(Spärr::ny(
+                    Fält::Belopp(i),
+                    "belopp_ogiltigt",
+                    "Ange ett belopp i kronor med högst två decimaler.",
+                ));
+            }
+            let text = rad.text.trim();
+            rader.push(Utkastrad {
+                konto,
+                debet,
+                kredit,
+                text: (!text.is_empty()).then(|| text.to_string()),
+            });
+        }
+        if !spärrar.is_empty() {
+            return Err(spärrar);
+        }
+        Ok(SparbartUtkast {
+            datum,
+            beskrivning: self.beskrivning.trim().to_string(),
+            rader,
+            räkenskapsår,
+        })
+    }
+}
