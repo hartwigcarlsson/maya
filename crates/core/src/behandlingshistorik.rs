@@ -30,6 +30,11 @@ pub enum Händelse {
     UnderlagUppladdat,
     UnderlagBorttaget,
     VerifikatKompletterat,
+    ÅtkomstGiven,
+    ÅtkomstTagen,
+    InbjudanSkapad,
+    InbjudanAnvänd,
+    Sie4Exporterad,
 }
 
 impl Händelse {
@@ -52,6 +57,11 @@ impl Händelse {
             Händelse::UnderlagUppladdat => "underlag uppladdat",
             Händelse::UnderlagBorttaget => "underlag borttaget",
             Händelse::VerifikatKompletterat => "verifikat kompletterat",
+            Händelse::ÅtkomstGiven => "åtkomst given",
+            Händelse::ÅtkomstTagen => "åtkomst tagen",
+            Händelse::InbjudanSkapad => "inbjudan skapad",
+            Händelse::InbjudanAnvänd => "inbjudan använd",
+            Händelse::Sie4Exporterad => "SIE4 exporterad",
         }
     }
 }
