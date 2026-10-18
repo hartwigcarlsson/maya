@@ -20,6 +20,7 @@ clap = { version = "4", features = ["derive"] }
 console_error_panic_hook = "0.1"
 dotenvy = "0.15"
 getrandom = "0.3"
+headless_chrome = "1.0.22"
 hex = "0.4"
 http-body-util = "0.1"
 ipnet = "2"

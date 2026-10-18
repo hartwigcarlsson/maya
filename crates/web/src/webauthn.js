@@ -79,6 +79,8 @@
   };
 
   const flöden = { registrera, "logga-in": loggaIn };
+  // Röktestet väntar på det här innan det klickar.
+  document.documentElement.dataset.passkeyShim = "klar";
 
   document.addEventListener("submit", async (händelse) => {
     const form = händelse.target;
