@@ -88,7 +88,7 @@ pub(crate) mod server {
     }
 
     /// `inline`, så att Skriv ut visar PDF:en; Exportera-länkens `download` sparar den.
-    fn svar(pdf: Pdf) -> Response {
+    pub(crate) fn svar(pdf: Pdf) -> Response {
         (
             [
                 (header::CONTENT_TYPE, "application/pdf".to_string()),

@@ -24,6 +24,7 @@ use crate::inloggning::{self, InloggningsState};
 use crate::installningar::server::{self as installningar, InställningsState};
 use crate::konto::server as konto;
 use crate::kontoplan::server::{self as kontoplan, KontoplansState};
+use crate::rapporter::server::{self as rapporter, RapportState};
 use crate::sok::server as sok;
 use crate::utskrift::server::{self as utskrift, UtskriftsState};
 use crate::verifikat::server::{self as verifikat, VerifikatState};
@@ -88,6 +89,10 @@ pub fn router(config: Arc<Config>, db: Databas) -> Router {
         db: db.clone(),
         klocka: inloggning.klocka.clone(),
     };
+    let rapport = RapportState {
+        db: db.clone(),
+        klocka: inloggning.klocka.clone(),
+    };
     let state = AppState { config, db };
 
     let pages = Router::new()
@@ -104,6 +109,10 @@ pub fn router(config: Arc<Config>, db: Databas) -> Router {
         .layer(middleware::from_fn_with_state(
             kontoplan.clone(),
             kontoplan::lägg_på_kontoplan,
+        ))
+        .layer(middleware::from_fn_with_state(
+            rapport.clone(),
+            rapporter::lägg_på_rapport,
         ))
         .layer(middleware::from_fn_with_state(
             verifikat.clone(),
@@ -186,6 +195,12 @@ pub fn router(config: Arc<Config>, db: Databas) -> Router {
         )
         .merge(
             utskrift::routes(utskrift).layer(middleware::from_fn_with_state(
+                inloggning.clone(),
+                inloggning::identifiera,
+            )),
+        )
+        .merge(
+            rapporter::routes(rapport).layer(middleware::from_fn_with_state(
                 inloggning.clone(),
                 inloggning::identifiera,
             )),
