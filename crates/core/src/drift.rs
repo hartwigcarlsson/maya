@@ -298,7 +298,7 @@ pub struct Installation {
     /// Larm skickas: både SMTP och larmadressen är angivna.
     pub larm: bool,
     pub driftvarningar: Vec<Driftvarning>,
-    /// Den installationsövergripande loggen, nyast först.
+    /// Den installationsövergripande loggen som aktören får se, nyast först.
     pub logg: Vec<installationslogg::Loggpost>,
 }
 
@@ -322,7 +322,7 @@ pub async fn installation(
         larm: config.smtp.is_some() && config.drift_epost.is_some(),
         driftvarningar: driftvarningar(db, klocka, config).await?,
         logg: {
-            let mut logg = installationslogg::läs(db).await?;
+            let mut logg = installationslogg::läs_för(db, aktör).await?;
             logg.reverse();
             logg
         },

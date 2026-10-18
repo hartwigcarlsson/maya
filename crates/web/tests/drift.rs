@@ -134,6 +134,10 @@ async fn sidan_installation_visar_installationsloggen_nyast_först() {
     maya_core::foretag::radera(&db, &klocka, &anna, andra)
         .await
         .unwrap();
+    maya_core::inloggning::återställ_användare(&db, &klocka, &Aktör::cli(), "anna@example.se")
+        .await
+        .unwrap();
+    // Bo delar inget företag med Anna, så hon ser inte att han avaktiverades.
     testhjalp::användare(&db, "bo@example.se").await;
     maya_core::inloggning::avaktivera_användare(&db, &klocka, &Aktör::cli(), "bo@example.se")
         .await
@@ -144,8 +148,9 @@ async fn sidan_installation_visar_installationsloggen_nyast_först() {
 
     assert!(sida.contains("Installationens logg"), "{sida}");
     let raderat = sida.find("företag raderat").expect(&sida);
-    let avaktiverad = sida.find("användare avaktiverad").expect(&sida);
-    assert!(avaktiverad < raderat, "nyast först: {sida}");
+    let återställd = sida.find("användare återställd").expect(&sida);
+    assert!(återställd < raderat, "nyast först: {sida}");
+    assert!(!sida.contains("bo@example.se"), "{sida}");
     assert!(sida.contains("556677-8899"), "{sida}");
     assert!(sida.contains("Provbolaget AB"), "{sida}");
 }
