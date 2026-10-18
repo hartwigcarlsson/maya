@@ -456,7 +456,6 @@ pub async fn ta_åtkomst(
 /// En giltig inbjudan: oanvänd, inte för gammal, och e-postadressen har inget konto än.
 pub(crate) struct GiltigInbjudan {
     pub registrant: Registrant,
-    företag: FöretagsId,
     hash: Vec<u8>,
 }
 
@@ -466,15 +465,15 @@ pub(crate) async fn giltig_inbjudan(
     token: &str,
 ) -> Result<GiltigInbjudan, InloggningsFel> {
     let hash = hash(token);
-    let rad: Option<(i64, String, Vec<u8>, String)> = sqlx::query_as(
-        "SELECT foretag_id, epost, handle, giltig_till FROM inbjudan
+    let rad: Option<(String, Vec<u8>, String)> = sqlx::query_as(
+        "SELECT epost, handle, giltig_till FROM inbjudan
          WHERE hash = ? AND anvand IS NULL
            AND NOT EXISTS (SELECT 1 FROM anvandare u WHERE u.epost = inbjudan.epost)",
     )
     .bind(&hash)
     .fetch_optional(conn)
     .await?;
-    let Some((företag, epost, handle, giltig_till)) = rad else {
+    let Some((epost, handle, giltig_till)) = rad else {
         return Err(InloggningsFel::OgiltigLänk);
     };
     if nu >= tidpunkt(&giltig_till)? {
@@ -489,7 +488,6 @@ pub(crate) async fn giltig_inbjudan(
             visningsnamn: epost.clone(),
             epost,
         },
-        företag: FöretagsId(företag),
         hash,
     })
 }
