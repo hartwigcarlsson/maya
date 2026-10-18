@@ -2,9 +2,8 @@
 //! verifikatformuläret och dokumentet använder (underlaget bredvid, variant C i
 //! `prototype/32-verifikat`).
 //!
-//! Sidans data läggs på av middleware och följer med vid hydreringen, så länkarna hit har
-//! `rel="external"`. Filen hämtas från `/foretag/<id>/underlag/<u>/fil`; PDF och bilder visas i
-//! sidan, andra format laddas ned.
+//! Sidan läser sin data med `sidodata::sida`. Filen hämtas från
+//! `/foretag/<id>/underlag/<u>/fil`; PDF och bilder visas i sidan, andra format laddas ned.
 
 use leptos::prelude::*;
 use leptos_router::hooks::use_query_map;
@@ -12,6 +11,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::app::LoggaIn;
 use crate::foretag::IngenÅtkomst;
+use crate::sidodata::sida;
 use crate::verifikat::{företagets_bas, inloggad};
 
 /// Ett underlag som sidorna visar det.
@@ -42,17 +42,13 @@ pub struct Underlagsdata {
     pub valt: Option<UnderlagVy>,
 }
 
-fn underlagsdata() -> Underlagsdata {
-    SharedValue::new(|| {
-        #[cfg(feature = "ssr")]
-        if let Some(parts) = use_context::<axum::http::request::Parts>()
-            && let Some(data) = parts.extensions.get::<Underlagsdata>()
-        {
-            return data.clone();
-        }
-        Underlagsdata::default()
-    })
-    .into_inner()
+/// Datan för `/foretag/<id>/underlag`.
+#[server(prefix = "/api", endpoint = "underlagsdata", input = server_fn::codec::GetUrl)]
+pub async fn hämta_underlagsdata(adress: String) -> Result<Underlagsdata, ServerFnError> {
+    match crate::sidodata::Sidbegäran::för(&adress)? {
+        Some(begäran) => server::underlagsdata(&begäran).await,
+        None => Ok(Underlagsdata::default()),
+    }
 }
 
 /// Felkoderna i adressen och deras texter.
@@ -74,10 +70,10 @@ pub(crate) mod server {
     use axum::body::Bytes;
     use axum::extract::{DefaultBodyLimit, FromRequest, Multipart, Path, Request, State};
     use axum::http::{HeaderValue, StatusCode, header};
-    use axum::middleware::Next;
     use axum::response::{IntoResponse, Redirect, Response};
     use axum::routing::{get, post};
     use axum::{Extension, Form, Router};
+    use leptos::prelude::ServerFnError;
     use maya_core::atkomst::ÅtkomstFel;
     use maya_core::foretag::FöretagsId;
     use maya_core::inloggning::Inloggad;
@@ -88,6 +84,7 @@ pub(crate) mod server {
     use maya_domain::underlag::{STÖRSTA_STORLEK, Visning, storlek, visning};
 
     use super::{UnderlagVy, Underlagsdata};
+    use crate::sidodata::{self, Sidbegäran};
     use crate::verifikat::server::tid;
 
     #[derive(Clone)]
@@ -210,49 +207,26 @@ pub(crate) mod server {
         Ok(formulär)
     }
 
-    /// Hämtar det som sidan Underlag visar, för `/foretag/<id>/underlag`. Körs efter
-    /// `inloggning::identifiera`.
-    pub(crate) async fn lägg_på_underlagsdata(
-        State(state): State<UnderlagState>,
-        mut req: Request,
-        next: Next,
-    ) -> Response {
-        let Some(inloggad) = req.extensions().get::<Inloggad>().cloned() else {
-            return next.run(req).await;
+    /// Hämtar det som sidan Underlag visar, för `/foretag/<id>/underlag`. Utan åtkomst blir
+    /// datan tom; sidan visar det ur företagsvalet.
+    pub(crate) async fn underlagsdata(b: &Sidbegäran) -> Result<Underlagsdata, ServerFnError> {
+        let delar = b.delar();
+        let ["foretag", id, "underlag"] = delar.as_slice() else {
+            return Ok(Underlagsdata::default());
         };
-        let delar: Vec<&str> = req.uri().path().trim_matches('/').split('/').collect();
-        let företag = match delar.as_slice() {
-            ["foretag", id, "underlag"] => id.parse::<FöretagsId>().ok(),
-            _ => None,
+        let Ok(företag) = id.parse::<FöretagsId>() else {
+            return Ok(Underlagsdata::default());
         };
-        let Some(företag) = företag else {
-            return next.run(req).await;
-        };
-        let query: Vec<(String, String)> = req
-            .uri()
-            .query()
-            .map(|q| {
-                url::form_urlencoded::parse(q.as_bytes())
-                    .into_owned()
-                    .collect()
-            })
-            .unwrap_or_default();
-        let fråga = |namn: &str| {
-            query
-                .iter()
-                .find(|(k, _)| k == namn)
-                .map(|(_, v)| v.clone())
-        };
-        let urval = if fråga("visa").as_deref() == Some("alla") {
+        let urval = if b.värde("visa").as_deref() == Some("alla") {
             Urval::Alla
         } else {
             Urval::Okopplade
         };
-        let aktör = &inloggad.aktör;
+        let aktör = &b.inloggad.aktör;
         let resultat = async {
-            let lista = underlag::lista(&state.db, aktör, företag, urval).await?;
-            let valt = match fråga("u").and_then(|u| u.parse::<UnderlagId>().ok()) {
-                Some(u) => underlag::underlaget(&state.db, aktör, företag, u).await?,
+            let lista = underlag::lista(&b.db, aktör, företag, urval).await?;
+            let valt = match b.värde("u").and_then(|u| u.parse::<UnderlagId>().ok()) {
+                Some(u) => underlag::underlaget(&b.db, aktör, företag, u).await?,
                 None => None,
             };
             Ok::<_, ÅtkomstFel>(Underlagsdata {
@@ -262,13 +236,12 @@ pub(crate) mod server {
         }
         .await;
         match resultat {
-            Ok(data) => {
-                req.extensions_mut().insert(data);
+            Ok(data) => Ok(data),
+            Err(ÅtkomstFel::IngenÅtkomst | ÅtkomstFel::KanalenFårInte) => {
+                Ok(Underlagsdata::default())
             }
-            Err(ÅtkomstFel::IngenÅtkomst | ÅtkomstFel::KanalenFårInte) => {}
-            Err(e) => return serverfel(e),
+            Err(e) => Err(sidodata::serverfel(e)),
         }
-        next.run(req).await
     }
 
     fn visningens_namn(mime: &str) -> String {
@@ -575,13 +548,16 @@ pub fn Förhandsvisning(bas: String, u: UnderlagVy) -> impl IntoView {
 /// Sidan Underlag: ladda upp, de okopplade underlagen och det valda underlaget.
 #[component]
 pub fn UnderlagSida() -> impl IntoView {
+    sida(hämta_underlagsdata, underlagssida)
+}
+
+fn underlagssida(data: Underlagsdata) -> AnyView {
     if !inloggad() {
         return view! { <LoggaIn /> }.into_any();
     }
     let Some(bas) = företagets_bas() else {
         return view! { <IngenÅtkomst /> }.into_any();
     };
-    let data = underlagsdata();
     let fråga = |namn: &str| use_query_map().with_untracked(|q| q.get(namn));
     let alla = fråga("visa").as_deref() == Some("alla");
     let notis = if fråga("borttaget").is_some() {
@@ -599,7 +575,7 @@ pub fn UnderlagSida() -> impl IntoView {
         .into_iter()
         .map(|(q, namn, aktuellt)| {
             view! {
-                <a rel="external" href=format!("{bas}/underlag{q}") aria-current=aktuellt.then_some("page")>
+                <a href=format!("{bas}/underlag{q}") aria-current=aktuellt.then_some("page")>
                     {namn}
                 </a>
             }
@@ -614,7 +590,7 @@ pub fn UnderlagSida() -> impl IntoView {
             let aktuellt = (Some(&u.id) == valt_id.as_ref()).then_some("page");
             view! {
                 <li>
-                    <a rel="external" href=format!("{bas}/underlag?u={}{visa}", u.id) aria-current=aktuellt>
+                    <a href=format!("{bas}/underlag?u={}{visa}", u.id) aria-current=aktuellt>
                         <span class="verifikatlista-topp">
                             <span>
                                 <Gem />
@@ -706,7 +682,7 @@ fn ValtUnderlag(bas: String, u: UnderlagVy, ta_bort: bool, dubblett: bool) -> im
                 let namn = nummer.clone().unwrap_or_else(|| "Utkast".into());
                 view! {
                     <dd>
-                        <a rel="external" href=format!("{bas}/verifikat?v={id}")>
+                        <a href=format!("{bas}/verifikat?v={id}")>
                             {namn}
                         </a>
                     </dd>
@@ -731,7 +707,7 @@ fn ValtUnderlag(bas: String, u: UnderlagVy, ta_bort: bool, dubblett: bool) -> im
                     "Borttagningen loggas. Utkast som underlaget är kopplat till behåller sina rader."
                 </p>
                 <form method="post" action=format!("{bas}/underlag/{}/ta-bort", u.id)>
-                    <a rel="external" class="knapp" href=format!("{bas}/underlag?u={}", u.id)>
+                    <a class="knapp" href=format!("{bas}/underlag?u={}", u.id)>
                         "Avbryt"
                     </a>
                     " "
@@ -746,7 +722,6 @@ fn ValtUnderlag(bas: String, u: UnderlagVy, ta_bort: bool, dubblett: bool) -> im
         view! {
             <p>
                 <a
-                    rel="external"
                     class="knapp knapp-fara-diskret"
                     href=format!("{bas}/underlag?u={}&ta_bort=1", u.id)
                 >

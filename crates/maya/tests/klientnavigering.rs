@@ -101,6 +101,22 @@ fn menylankarna_navigerar_pa_klienten_och_sidorna_visar_sina_data() {
         "ar=2026-01-01&konto_0=1930&debet_0=1+000&kredit_0=\
          &konto_1=2081&debet_1=&kredit_1=1000",
     );
+    let uppladdat = tab
+        .evaluate(
+            &format!(
+                "(() => {{ const f = new FormData(); \
+                 f.append('fil', new Blob(['kvitto'], {{type: 'text/plain'}}), 'kvitto.txt'); \
+                 return fetch('/foretag/{id}/underlag', {{method: 'POST', body: f}}) \
+                 .then(r => r.ok ? r.url : Promise.reject(r.status + ' ' + r.url)); }})()"
+            ),
+            true,
+        )
+        .unwrap()
+        .value;
+    assert!(
+        format!("{uppladdat:?}").contains("uppladdat=1"),
+        "{uppladdat:?}"
+    );
 
     // En enda sidladdning; resten är klick på länkar som routern tar på klienten.
     tab.navigate_to(&format!("{bas}/foretag/{id}")).unwrap();
@@ -138,6 +154,14 @@ fn menylankarna_navigerar_pa_klienten_och_sidorna_visar_sina_data() {
     vänta_på_text(&tab, "Kaffe till kontoret");
     klicka(&tab, "nav.flikar a[href$='/rapporter']");
     vänta_på_text(&tab, "2026-01-01 – 2026-12-31");
+    // Underlag nås via sökningen, som navigerar i routern.
+    klicka(&tab, ".sokfalt input");
+    tab.wait_for_element(".palett input[name='q']")
+        .unwrap()
+        .type_into("underlag")
+        .unwrap();
+    klicka(&tab, ".palett a[href$='/underlag']");
+    vänta_på_text(&tab, "kvitto.txt");
     klicka(&tab, "nav.flikar a[href$='/verifikat']");
     vänta_på_text(&tab, "Kaffe till kontoret");
 

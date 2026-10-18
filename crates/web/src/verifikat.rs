@@ -1122,7 +1122,7 @@ fn DokumentetsUnderlag(
             view! {
                 <div class=klass>
                     <Gem />
-                    <a rel="external" href=format!("{bas}/underlag?u={}&visa=alla", u.id)>
+                    <a href=format!("{bas}/underlag?u={}&visa=alla", u.id)>
                         {u.filnamn}
                     </a>
                     <span class="diskret">{när}</span>
