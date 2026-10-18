@@ -2877,7 +2877,7 @@ checksum = "47e1ffaa40ddd1f3ed91f717a33c8c0ee23fff369e3aa8772b9605cc1d22f4c3"
 
 [[package]]
 name = "maya"
-version = "0.1.0-dev"
+version = "0.1.0"
 dependencies = [
  "axum",
  "clap",
@@ -2895,7 +2895,7 @@ dependencies = [
 
 [[package]]
 name = "maya-auth"
-version = "0.1.0-dev"
+version = "0.1.0"
 dependencies = [
  "jiff",
  "maya-core",
@@ -2906,7 +2906,7 @@ dependencies = [
 
 [[package]]
 name = "maya-core"
-version = "0.1.0-dev"
+version = "0.1.0"
 dependencies = [
  "axum",
  "getrandom 0.3.4",
@@ -2933,7 +2933,7 @@ dependencies = [
 
 [[package]]
 name = "maya-domain"
-version = "0.1.0-dev"
+version = "0.1.0"
 dependencies = [
  "calamine",
  "jiff",
@@ -2942,7 +2942,7 @@ dependencies = [
 
 [[package]]
 name = "maya-pdf"
-version = "0.1.0-dev"
+version = "0.1.0"
 dependencies = [
  "hayro-cmap",
  "hayro-interpret",
@@ -2960,7 +2960,7 @@ dependencies = [
 
 [[package]]
 name = "maya-sie"
-version = "0.1.0-dev"
+version = "0.1.0"
 dependencies = [
  "crc32fast",
  "jiff",
@@ -2969,7 +2969,7 @@ dependencies = [
 
 [[package]]
 name = "maya-web"
-version = "0.1.0-dev"
+version = "0.1.0"
 dependencies = [
  "axum",
  "console_error_panic_hook",

@@ -3,7 +3,10 @@
 //! En ny sida med data får ett klick och en kontroll av sin data här.
 //!
 //! Kräver Chrome eller Chromium (sökvägen kan anges i `CHROME`) och ett `cargo leptos build`,
-//! så att `target/site/pkg/maya.wasm` finns. Utan WASM:en hoppar testet över sig självt.
+//! så att `target/site/pkg/maya.wasm` finns. Utan WASM:en hoppar testet över sig självt,
+//! utom i CI.
+
+mod stod;
 
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
@@ -26,12 +29,7 @@ addEventListener('unhandledrejection',h=>window.__fel.push(String(h.reason)));";
 
 #[test]
 fn menylankarna_navigerar_pa_klienten_och_sidorna_visar_sina_data() {
-    let wasm = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/site/pkg/maya.wasm");
-    if !wasm.exists() {
-        eprintln!(
-            "hoppar över: {} saknas, kör `cargo leptos build`",
-            wasm.display()
-        );
+    if !stod::sajten_finns() {
         return;
     }
     let dir = tempfile::tempdir().unwrap();
