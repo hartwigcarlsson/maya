@@ -173,6 +173,8 @@ async fn sidor_och_handlingar_nås_från_sökningen() {
         (exempel.clone(), "Att göra"),
         (format!("{exempel}/verifikat"), "Verifikat"),
         (format!("{exempel}/rapporter"), "Rapporter"),
+        (format!("{exempel}/rapporter/grundbok"), "Grundbok"),
+        (format!("{exempel}/rapporter/huvudbok"), "Huvudbok"),
         (format!("{exempel}/installningar"), "Inställningar"),
         (format!("{exempel}/installningar/kontoplan"), "Kontoplan"),
         (format!("{exempel}/underlag"), "Ladda upp underlag"),

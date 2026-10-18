@@ -872,7 +872,7 @@ pub(crate) async fn namn(
     Ok(namn.unwrap_or_else(|| kanalens_namn(aktör.kanal)))
 }
 
-fn kanalens_namn(kanal: Kanal) -> String {
+pub(crate) fn kanalens_namn(kanal: Kanal) -> String {
     match kanal {
         Kanal::Maya => "Maya".into(),
         Kanal::Cli => "CLI".into(),

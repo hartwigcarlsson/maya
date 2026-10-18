@@ -4,6 +4,7 @@
 pub mod aktor;
 pub mod atkomst;
 pub mod behandlingshistorik;
+pub mod bokforing;
 pub mod config;
 mod databas;
 pub mod export;

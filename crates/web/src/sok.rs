@@ -81,6 +81,20 @@ pub fn mål(fråga: &str, valt: &FöretagVy, alla: &[FöretagVy]) -> Vec<Träff>
         ),
         (
             "Gå till",
+            "Grundbok".into(),
+            "rapporter bokföring registreringsordning",
+            String::new(),
+            format!("{bas}/rapporter/grundbok"),
+        ),
+        (
+            "Gå till",
+            "Huvudbok".into(),
+            "rapporter bokföring konton saldo",
+            String::new(),
+            format!("{bas}/rapporter/huvudbok"),
+        ),
+        (
+            "Gå till",
             "Inställningar".into(),
             "företaget",
             String::new(),

@@ -11,6 +11,7 @@ use leptos_router::hooks::{use_params_map, use_query_map};
 use serde::{Deserialize, Serialize};
 
 use crate::app::{LoggaIn, Läge};
+use crate::bokforing::BokföringPåRapporter;
 use crate::foretag::{Företagsval, IngenÅtkomst};
 
 /// Koden i `fel=` när exporten stoppades vid återläsningen.
@@ -213,6 +214,7 @@ pub fn Rapporter() -> impl IntoView {
             <p class="diskret">{företaget.namn} " · " {företaget.orgnr}</p>
             <h1>"Rapporter"</h1>
             <p class="tom">"Rapporterna kommer snart."</p>
+            <BokföringPåRapporter bas=bas.clone() />
             <h2>"SIE4"</h2>
             <p>
                 "En SIE 4E-fil per räkenskapsår, för revisorn eller ett annat program. Maya läser "

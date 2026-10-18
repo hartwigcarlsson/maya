@@ -7,6 +7,7 @@
 pub mod app;
 pub mod atkomst;
 pub mod behandlingshistorik;
+pub mod bokforing;
 pub mod foretag;
 pub mod ingaende_balans;
 pub mod installningar;

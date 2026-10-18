@@ -197,7 +197,7 @@ pub async fn behandlingshistorik(
     skriv(db, klocka, aktör, filnamn, &dokument).await
 }
 
-async fn skriv(
+pub(crate) async fn skriv(
     db: &Databas,
     klocka: &Klocka,
     aktör: &Aktör,

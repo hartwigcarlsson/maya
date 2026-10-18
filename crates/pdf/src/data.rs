@@ -5,6 +5,7 @@ use maya_domain::belopp::Belopp;
 use maya_domain::kontoplan::{ink2, klassnamn, om_numret};
 use serde_json::{Value, json};
 
+use crate::bokforing::{self, Grundbok, Huvudbok};
 use crate::{Behandlingshistorik, Kontoplan, Sidfot, Signatur, Verifikat};
 
 /// Ett dokument som Maya kan skriva som PDF. Varje variant har en egen mall.
@@ -15,6 +16,8 @@ pub enum Dokument {
     Verifikat(Verifikat),
     Kontoplan(Kontoplan),
     Behandlingshistorik(Behandlingshistorik),
+    Grundbok(Grundbok),
+    Huvudbok(Huvudbok),
 }
 
 impl Dokument {
@@ -24,6 +27,8 @@ impl Dokument {
             Dokument::Verifikat(_) => "verifikat.typ",
             Dokument::Kontoplan(_) => "kontoplan.typ",
             Dokument::Behandlingshistorik(_) => "behandlingshistorik.typ",
+            Dokument::Grundbok(_) => "grundbok.typ",
+            Dokument::Huvudbok(_) => "huvudbok.typ",
         }
     }
 
@@ -33,6 +38,8 @@ impl Dokument {
             Dokument::Verifikat(v) => verifikat(v),
             Dokument::Kontoplan(k) => kontoplan(k),
             Dokument::Behandlingshistorik(b) => behandlingshistorik(b),
+            Dokument::Grundbok(g) => bokforing::grundbok(g),
+            Dokument::Huvudbok(h) => bokforing::huvudbok(h),
         };
         json!({
             "sidfot": {
@@ -47,7 +54,7 @@ impl Dokument {
 }
 
 /// Tid i Stockholm, till minuten.
-fn tid(t: Timestamp) -> String {
+pub(crate) fn tid(t: Timestamp) -> String {
     t.to_zoned(maya_domain::tid::stockholm())
         .strftime("%Y-%m-%d %H:%M")
         .to_string()
@@ -61,7 +68,7 @@ fn sekund(t: Timestamp) -> String {
 }
 
 /// Tomt för noll, som i dokumentvyn.
-fn belopp(b: Belopp) -> String {
+pub(crate) fn belopp(b: Belopp) -> String {
     if b == Belopp::NOLL {
         String::new()
     } else {
