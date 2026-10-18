@@ -290,6 +290,14 @@ fn samlingsplanen(f: &Företag, bokförda: &[verifikat::Verifikatrad], bas: &str
         ),
         tabell(&["Räkenskapsår", "Serie", "Bokförda", "Perioder"], rader),
         stycke(
+            "Det första räkenskapsårets slut kan ändras under Inställningar → Företag, med samma \
+             regler som när företaget lades upp (Å1). Maya vägrar ändringen när ett senare \
+             räkenskapsår redan finns, när ett verifikat är daterat efter det nya slutet, och \
+             när ett byte av bokföringsmetod eller momsperiod gäller från efter årets start: \
+             ändringen skulle annars flytta bokförda verifikat eller byten mellan år. Ändringen \
+             loggas som \"räkenskapsår ändrat\".",
+        ),
+        stycke(
             "Sammanställningarna räknas vid varje läsning ur de bokförda verifikaten, aldrig \
              ur utkast:",
         ),
@@ -383,7 +391,10 @@ fn verifieringskedjan(
                 ),
                 Text::markdown(
                     "**Grundbok och huvudbok**: räknas ur de bokförda verifikaten i \
-                     registreringsordning, per period respektive per konto (L4).",
+                     registreringsordning, per period respektive per konto (L4). Huvudbokens \
+                     CSV har för varje konto en rad *Ingående balans* först (*Ingående balans \
+                     (preliminär)* när den är preliminär) och en rad *Utgående balans* sist, \
+                     med saldot i kolumnen Saldo, så att filen går att stämma av för sig.",
                 ),
                 Text::markdown(
                     "**Rapporter och SIE4**: resultat- och balansräkningen räknas ur samma \
