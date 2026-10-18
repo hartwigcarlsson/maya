@@ -11,6 +11,7 @@ pub mod behandlingshistorik;
 pub mod bokforing;
 pub mod foretag;
 pub mod ingaende_balans;
+pub mod installation;
 pub mod installningar;
 pub mod konto;
 pub mod kontoplan;

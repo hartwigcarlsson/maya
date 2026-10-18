@@ -1930,6 +1930,54 @@ kbd {
   color: var(--muted-foreground);
 }
 
+/* Driftvarningar överst i Att göra och på sidan Installation: bara när något är fel. */
+.driftvarningar {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.driftvarningar:empty {
+  display: none;
+}
+
+.driftvarning {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 9px 12px;
+  border: 1px solid var(--destructive);
+  border-left-width: 3px;
+  border-radius: var(--radius);
+  background: var(--card);
+}
+
+.driftvarning > div {
+  flex: 1;
+  min-width: 0;
+}
+
+.driftvarning p {
+  margin: 2px 0 0;
+  color: var(--muted-foreground);
+  overflow-wrap: anywhere;
+}
+
+.badge-drift {
+  background: color-mix(in oklch, var(--destructive) 12%, transparent);
+  color: var(--destructive);
+}
+
+.installation h2 {
+  font-size: 14px;
+  font-weight: 600;
+  margin: 1.25rem 0 0.25rem;
+}
+
+.installation .fakta dd {
+  overflow-wrap: anywhere;
+}
+
 .acard {
   margin-bottom: 6px;
   border: 1px solid var(--border);

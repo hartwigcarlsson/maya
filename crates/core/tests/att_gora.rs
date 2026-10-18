@@ -115,7 +115,9 @@ async fn nyckeltalen_räknas_bara_ur_bokförda_verifikat_till_och_med_i_dag() {
     .await
     .unwrap();
 
-    let a = att_gora::att_göra(&db, &i_dag(), &anna, id).await.unwrap();
+    let a = att_gora::att_göra(&db, &i_dag(), &testhjalp::config(), &anna, id)
+        .await
+        .unwrap();
 
     assert_eq!(a.idag, date(2026, 10, 14));
     assert_eq!(a.nyckeltal.företagskontot.öre(), 2_050_000);
@@ -135,9 +137,15 @@ async fn nyckeltalen_räknas_bara_ur_bokförda_verifikat_till_och_med_i_dag() {
         &[(1930, 30_000, 0), (3001, 0, 30_000)],
     )
     .await;
-    let a = att_gora::att_göra(&db, &klocka("2027-02-01T08:00:00Z"), &anna, id)
-        .await
-        .unwrap();
+    let a = att_gora::att_göra(
+        &db,
+        &klocka("2027-02-01T08:00:00Z"),
+        &testhjalp::config(),
+        &anna,
+        id,
+    )
+    .await
+    .unwrap();
     assert_eq!(a.nyckeltal.företagskontot.öre(), 2_130_000);
     assert_eq!(a.nyckeltal.resultat_i_år.öre(), 30_000);
 }
@@ -147,6 +155,7 @@ async fn utkasten_och_de_okopplade_underlagen_är_saker_att_göra() {
     let db = Databas::tillfällig().await;
     let (anna, id) = testhjalp::företag(&db).await;
     let k = i_dag();
+    testhjalp::backup(&db, &k).await;
     let kassa = verifikat::spara_utkast(
         &db,
         &k,
@@ -199,7 +208,9 @@ async fn utkasten_och_de_okopplade_underlagen_är_saker_att_göra() {
     .await
     .unwrap();
 
-    let a = att_gora::att_göra(&db, &k, &anna, id).await.unwrap();
+    let a = att_gora::att_göra(&db, &k, &testhjalp::config(), &anna, id)
+        .await
+        .unwrap();
 
     let mut utkast = Vec::new();
     let mut underlagen = Vec::new();
@@ -207,6 +218,7 @@ async fn utkasten_och_de_okopplade_underlagen_är_saker_att_göra() {
         match sak {
             Sak::Utkast(u) => utkast.push(u),
             Sak::Underlag(u) => underlagen.push(u.id),
+            Sak::Driftvarning(v) => panic!("ingen driftvarning väntad: {v:?}"),
         }
     }
     assert_eq!(underlagen, vec![okopplat.id]);
@@ -241,12 +253,23 @@ async fn utkasten_och_de_okopplade_underlagen_är_saker_att_göra() {
     )
     .await
     .unwrap();
-    let antal = att_gora::antal(&db, &anna).await.unwrap();
+    let antal = att_gora::antal(&db, &k, &testhjalp::config(), &anna)
+        .await
+        .unwrap();
     assert_eq!(antal.get(&id), Some(&3));
     assert_eq!(antal.get(&annat), Some(&0));
 
     // Den som saknar åtkomst ser inget.
     let bertil = testhjalp::användare(&db, "bertil@example.se").await;
-    assert!(att_gora::att_göra(&db, &k, &bertil, id).await.is_err());
-    assert!(att_gora::antal(&db, &bertil).await.unwrap().is_empty());
+    assert!(
+        att_gora::att_göra(&db, &k, &testhjalp::config(), &bertil, id)
+            .await
+            .is_err()
+    );
+    assert!(
+        att_gora::antal(&db, &k, &testhjalp::config(), &bertil)
+            .await
+            .unwrap()
+            .is_empty()
+    );
 }

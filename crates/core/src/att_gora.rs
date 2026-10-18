@@ -1,6 +1,6 @@
 //! Att göra, företagets startsida: dagens datum, nyckeltalen ur bokföringen och sakerna att
-//! göra. I etapp 1 är sakerna verifikatutkast och okopplade underlag; varje ny sort (t.ex.
-//! driftvarningar) läggs till som en variant i [`Sak`] och räknas i [`antal`].
+//! göra. I etapp 1 är sakerna driftvarningar, verifikatutkast och okopplade underlag; varje ny
+//! sort läggs till som en variant i [`Sak`] och räknas i [`antal`].
 //!
 //! Fristerna (T1) räknas i `maya_domain::att_gora`. De varnar men spärrar inte, och Maya bokför
 //! aldrig automatiskt.
@@ -17,6 +17,8 @@ use sqlx::SqliteConnection;
 
 use crate::aktor::{Aktör, Handling};
 use crate::atkomst::{self, ÅtkomstFel};
+use crate::config::Config;
+use crate::drift::{self, Driftvarning};
 use crate::foretag::{self, FöretagsId};
 use crate::inloggning::tidpunkt;
 use crate::saldo;
@@ -35,7 +37,7 @@ pub struct AttGöra {
     /// Dagens datum i Stockholm.
     pub idag: Date,
     pub nyckeltal: Nyckeltal,
-    /// Utkasten i id-ordning och de okopplade underlagen äldst först.
+    /// Driftvarningarna, utkasten i id-ordning och de okopplade underlagen äldst först.
     pub saker: Vec<Sak>,
 }
 
@@ -54,6 +56,8 @@ pub struct Nyckeltal {
 /// En sak att göra.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Sak {
+    /// Något som är fel i driften. Samma i alla företag, och visas överst.
+    Driftvarning(Driftvarning),
     Utkast(Utkastsak),
     /// Ett underlag utan koppling till något verifikat: "Vad är det här?".
     Underlag(Underlag),
@@ -87,10 +91,11 @@ impl Utkastsak {
     }
 }
 
-/// Att göra för företaget i dag.
+/// Att göra för företaget i dag. Driftvarningarna räknas ur `config` och backupens körningar.
 pub async fn att_göra(
     db: &Databas,
     klocka: &Klocka,
+    config: &Config,
     aktör: &Aktör,
     företag: FöretagsId,
 ) -> Result<AttGöra, ÅtkomstFel> {
@@ -98,12 +103,14 @@ pub async fn att_göra(
     let mut tx = db.pool().begin().await?;
     atkomst::kräv(&mut tx, aktör, företag, Handling::LäsaFöretag).await?;
     let nyckeltal = nyckeltal(&mut tx, företag, idag).await?;
-    let mut saker: Vec<Sak> = utkast(&mut tx, företag)
+    let utkast = utkast(&mut tx, företag).await?;
+    tx.commit().await?;
+    let mut saker: Vec<Sak> = drift::driftvarningar(db, klocka, config)
         .await?
         .into_iter()
-        .map(Sak::Utkast)
+        .map(Sak::Driftvarning)
         .collect();
-    tx.commit().await?;
+    saker.extend(utkast.into_iter().map(Sak::Utkast));
     let okopplade = underlag::lista(db, aktör, företag, underlag::Urval::Okopplade).await?;
     saker.extend(okopplade.into_iter().map(Sak::Underlag));
     Ok(AttGöra {
@@ -117,13 +124,17 @@ pub async fn att_göra(
 /// toppmenyn och företagsväljaren.
 pub async fn antal(
     db: &Databas,
+    klocka: &Klocka,
+    config: &Config,
     aktör: &Aktör,
 ) -> Result<BTreeMap<FöretagsId, usize>, DatabasFel> {
     let företagen = foretag::mina_företag(db, aktör).await?;
-    let mut antal: BTreeMap<FöretagsId, usize> = företagen.iter().map(|f| (f.id, 0)).collect();
-    if antal.is_empty() {
-        return Ok(antal);
+    if företagen.is_empty() {
+        return Ok(BTreeMap::new());
     }
+    let varningar = drift::driftvarningar(db, klocka, config).await?.len();
+    let mut antal: BTreeMap<FöretagsId, usize> =
+        företagen.iter().map(|f| (f.id, varningar)).collect();
     let rader: Vec<(i64, i64)> = sqlx::query_as(
         "SELECT foretag_id, count(*) FROM verifikat WHERE bokford IS NULL GROUP BY foretag_id
          UNION ALL

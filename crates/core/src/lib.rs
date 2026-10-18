@@ -9,6 +9,7 @@ pub mod behandlingshistorik;
 pub mod bokforing;
 pub mod config;
 mod databas;
+pub mod drift;
 pub mod export;
 pub mod foretag;
 pub mod inloggning;

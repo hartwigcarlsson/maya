@@ -29,6 +29,8 @@ pub struct AttGöradata {
     pub försenade: usize,
     pub inom_sju_dagar: usize,
     pub utan_datum: usize,
+    /// Det som är fel i driften, överst. Tomt när allt fungerar.
+    pub driftvarningar: Vec<DriftvarningVy>,
     pub nyckeltal: Vec<NyckeltalVy>,
     pub tidslinje: Vec<DagVy>,
     pub utkast: Vec<PeriodVy>,
@@ -37,6 +39,13 @@ pub struct AttGöradata {
     pub öppet: Option<(String, Öppet)>,
     pub notis: Option<String>,
     pub fel: Option<String>,
+}
+
+/// En driftvarning: samma i alla företag.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DriftvarningVy {
+    pub rubrik: String,
+    pub text: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -128,6 +137,7 @@ pub(crate) mod server {
     use leptos::prelude::ServerFnError;
     use maya_core::atkomst::ÅtkomstFel;
     use maya_core::att_gora::{self, Sak, Utkastsak};
+    use maya_core::config::Config;
     use maya_core::foretag::FöretagsId;
     use maya_core::inloggning::Inloggad;
     use maya_core::underlag::{self, Underlag, UnderlagFel, UnderlagId};
@@ -141,12 +151,13 @@ pub(crate) mod server {
     use maya_domain::verifikat::NyttVerifikat;
     use serde::Deserialize;
 
-    use super::{AttGöradata, DagVy, KortVy, NyckeltalVy, PeriodVy, Sort, Öppet};
+    use super::{AttGöradata, DagVy, DriftvarningVy, KortVy, NyckeltalVy, PeriodVy, Sort, Öppet};
     use crate::sidodata::{self, Sidbegäran};
     use crate::underlag::server::vy;
 
     #[derive(Clone)]
     pub(crate) struct AttGöraState {
+        pub config: Arc<Config>,
         pub db: Databas,
         pub klocka: Klocka,
     }
@@ -176,6 +187,7 @@ pub(crate) mod server {
             .into_owned()
             .collect();
         let state = AttGöraState {
+            config: b.config.clone(),
             db: b.db.clone(),
             klocka: b.klocka.clone(),
         };
@@ -201,12 +213,17 @@ pub(crate) mod server {
                 .map(|(_, v)| v.as_str())
         };
         let (db, aktör) = (&state.db, &inloggad.aktör);
-        let a = att_gora::att_göra(db, &state.klocka, aktör, företag).await?;
+        let a = att_gora::att_göra(db, &state.klocka, &state.config, aktör, företag).await?;
         let idag = a.idag;
+        let mut driftvarningar = Vec::new();
         let mut utkast = Vec::new();
         let mut underlagen = Vec::new();
         for sak in a.saker {
             match sak {
+                Sak::Driftvarning(v) => driftvarningar.push(DriftvarningVy {
+                    rubrik: v.rubrik().into(),
+                    text: v.text(),
+                }),
                 Sak::Utkast(u) => utkast.push(u),
                 Sak::Underlag(u) => underlagen.push(u),
             }
@@ -363,6 +380,7 @@ pub(crate) mod server {
             försenade,
             inom_sju_dagar,
             utan_datum,
+            driftvarningar,
             nyckeltal: nyckeltal(&a.nyckeltal),
             tidslinje,
             utkast: perioder,
@@ -615,6 +633,11 @@ fn att_göra(data: AttGöradata) -> AnyView {
             .unwrap_or_default()
     };
     let mut sammanfattning = Vec::new();
+    match data.driftvarningar.len() {
+        0 => {}
+        1 => sammanfattning.push("1 driftvarning".to_string()),
+        n => sammanfattning.push(format!("{n} driftvarningar")),
+    }
     if data.försenade > 0 {
         sammanfattning.push(format!("{} försenade", data.försenade));
     }
@@ -724,6 +747,15 @@ fn att_göra(data: AttGöradata) -> AnyView {
             }
         })
         .collect_view();
+    let driftvarningar = (!data.driftvarningar.is_empty()).then(|| {
+        let varningar = data
+            .driftvarningar
+            .iter()
+            .cloned()
+            .map(|v| view! { <Driftvarning v=v /> })
+            .collect_view();
+        view! { <div class="driftvarningar">{varningar}</div> }
+    });
     let notis = data
         .notis
         .clone()
@@ -742,6 +774,7 @@ fn att_göra(data: AttGöradata) -> AnyView {
                 <h1>{data.dag.clone()}</h1>
                 <p class="diskret">{sammanfattning}</p>
             </div>
+            {driftvarningar}
             <div class="nyck">{nyckeltal}</div>
             <div class=if sida_öppen { "ag-grid sida-oppen" } else { "ag-grid" }>
                 <div class="ag-tidslinje">{tidslinje}</div>
@@ -758,6 +791,23 @@ fn att_göra(data: AttGöradata) -> AnyView {
         </section>
     }
     .into_any()
+}
+
+/// En driftvarning, med en länk till sidan Installation.
+#[component]
+fn Driftvarning(v: DriftvarningVy) -> impl IntoView {
+    view! {
+        <div class="driftvarning" role="alert">
+            <span class="badge badge-drift">"drift"</span>
+            <div>
+                <b>{v.rubrik}</b>
+                <p>{v.text}</p>
+            </div>
+            <a class="knapp knapp-diskret" href="/installation">
+                "Installation"
+            </a>
+        </div>
+    }
 }
 
 /// Ett kort i agendan. Rubriken fäller ut och ihop kortet.

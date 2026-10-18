@@ -120,13 +120,18 @@ pub enum Handling {
     TaBackup,
     /// Verifiera en backup: Maya självt efter varje backup och driften med `maya backup verify`.
     VerifieraBackup,
+    /// Läsa sidan Installation: alla användare, och driften i CLI:t.
+    LäsaInstallation,
+    /// Skicka larm till driften. Bara Maya självt.
+    SkickaLarm,
 }
 
 /// Kanalpolicyn: om `kanal` får utföra `handling`.
 pub fn tillåter(kanal: Kanal, handling: Handling) -> bool {
     match handling {
         Handling::HanteraAnvändare => kanal == Kanal::Cli,
-        Handling::TaBackup => kanal == Kanal::Maya,
+        Handling::TaBackup | Handling::SkickaLarm => kanal == Kanal::Maya,
+        Handling::LäsaInstallation => matches!(kanal, Kanal::Webb | Kanal::Cli),
         Handling::VerifieraBackup => matches!(kanal, Kanal::Maya | Kanal::Cli),
         Handling::LäggaUppFöretag
         | Handling::LäsaFöretag

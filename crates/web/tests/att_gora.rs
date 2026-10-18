@@ -24,8 +24,16 @@ const GRÄNS: &str = "----mayagrans";
 
 fn app(db: &TillfälligDatabas) -> Router {
     let config = Config::from_env(
-        [("MAYA_PUBLIC_URL", ORIGIN), ("MAYA_BACKUP_DIR", "/backup")]
-            .map(|(k, v)| (k.to_string(), v.to_string())),
+        [
+            ("MAYA_PUBLIC_URL", ORIGIN),
+            // Ett mål och en arkivplan utan driftvarningar; de prövas i `drift.rs`.
+            ("MAYA_BACKUP_S3_ENDPOINT", "https://s3.example.se"),
+            ("MAYA_BACKUP_S3_BUCKET", "maya"),
+            ("MAYA_BACKUP_S3_ACCESS_KEY_ID", "maya-backup"),
+            ("MAYA_BACKUP_S3_SECRET_ACCESS_KEY", "hemlig"),
+            ("MAYA_ARKIVPLAN_PLATS", "Stockholm, Sverige"),
+        ]
+        .map(|(k, v)| (k.to_string(), v.to_string())),
     )
     .unwrap();
     maya_web::router(Arc::new(config), (**db).clone())
