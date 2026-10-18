@@ -1,4 +1,7 @@
 {
+  "env": {
+    "GH_REPO": "hartwigcarlsson/maya"
+  },
   "hooks": {
     "SessionStart": [
       {
