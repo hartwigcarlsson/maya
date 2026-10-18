@@ -871,7 +871,17 @@ pub(crate) mod server {
                 .find(|(k, _)| k == nyckel)
                 .map(|(_, v)| v.as_str())
         };
-        let urval = Urval::tolka(par.iter().map(|(k, v)| (k.as_str(), v.as_str())));
+        // Knappen "Visa klass och INK2-rad" skickar dialogen med GET, och urvalet följer då med
+        // i `tillbaka` som när dialogen skickas med POST.
+        let urval = match hämta("tillbaka") {
+            Some(tillbaka) => {
+                let par: Vec<(String, String)> = url::form_urlencoded::parse(tillbaka.as_bytes())
+                    .into_owned()
+                    .collect();
+                Urval::tolka(par.iter().map(|(k, v)| (k.as_str(), v.as_str())))
+            }
+            None => Urval::tolka(par.iter().map(|(k, v)| (k.as_str(), v.as_str()))),
+        };
         let rader: Vec<Kontorad> = konton.iter().map(rad).collect();
         let (klasser, antal, dolda_inaktiva) = ordna(&rader, &urval);
         let konto = |nr: Option<&str>| {

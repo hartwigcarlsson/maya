@@ -459,6 +459,10 @@ kbd {
   font-variant-numeric: tabular-nums;
 }
 
+.kontotabell td:nth-child(2) {
+  width: 45%;
+}
+
 .kontotabell .namn {
   display: flex;
   align-items: center;
