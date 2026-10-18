@@ -26,6 +26,7 @@ use crate::ingaende_balans::server::{self as ingaende_balans, IngåendeBalansSta
 use crate::inloggning::{self, InloggningsState};
 use crate::installningar::server::{self as installningar, InställningsState};
 use crate::kontoplan::server::{self as kontoplan, KontoplansState};
+use crate::kunder::server::{self as kunder, KundState};
 use crate::rapporter::server::{self as rapporter, RapportState};
 use crate::underlag::server::{self as underlag, UnderlagState};
 use crate::utskrift::server::{self as utskrift, UtskriftsState};
@@ -121,6 +122,11 @@ pub fn router(config: Arc<Config>, db: Databas) -> Router {
         publik_url: config.public_url.as_str().trim_end_matches('/').to_string(),
     };
     let rapporter = RapportState {
+        db: db.clone(),
+        klocka: inloggning.klocka.clone(),
+    };
+    // #133 Kundregister
+    let kundregistret = KundState {
         db: db.clone(),
         klocka: inloggning.klocka.clone(),
     };
@@ -246,6 +252,18 @@ pub fn router(config: Arc<Config>, db: Databas) -> Router {
                 inloggning.clone(),
                 inloggning::identifiera,
             )),
+        )
+        // #133 Kundregister
+        .merge(
+            kunder::routes(kundregistret)
+                .layer(middleware::from_fn_with_state(
+                    inloggning.clone(),
+                    inloggning::identifiera,
+                ))
+                .layer(middleware::from_fn_with_state(
+                    inloggning.clone(),
+                    inloggning::kräv_eget_origin,
+                )),
         )
         .merge(
             inloggning::routes(inloggning.clone())

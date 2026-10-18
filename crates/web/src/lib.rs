@@ -15,6 +15,7 @@ pub mod installation;
 pub mod installningar;
 pub mod konto;
 pub mod kontoplan;
+pub mod kunder;
 pub mod rapporter;
 pub mod sidodata;
 pub mod sok;
