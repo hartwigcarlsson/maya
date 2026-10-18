@@ -642,12 +642,7 @@ pub(crate) async fn filnamn(
     ))
 }
 
-/// Tid i Stockholm till sekunden.
-fn tid(t: Timestamp) -> String {
-    t.to_zoned(maya_domain::tid::stockholm())
-        .strftime("%Y-%m-%d %H:%M:%S")
-        .to_string()
-}
+use maya_domain::tid::sekund as tid;
 
 /// Kronor med decimalkomma och utan tusentalsavgränsare; tomt för noll.
 fn belopp(b: Belopp) -> String {

@@ -1,6 +1,5 @@
 //! Dokumenten som JSON för mallarna. Allt som mallen visar formateras här.
 
-use jiff::Timestamp;
 use maya_domain::belopp::{Belopp, Saldo};
 use maya_domain::kontoplan::{ink2, klassnamn, om_numret};
 use maya_domain::rapport::Radslag;
@@ -60,19 +59,9 @@ impl Dokument {
     }
 }
 
-/// Tid i Stockholm, till minuten.
-pub(crate) fn tid(t: Timestamp) -> String {
-    t.to_zoned(maya_domain::tid::stockholm())
-        .strftime("%Y-%m-%d %H:%M")
-        .to_string()
-}
+pub(crate) use maya_domain::tid::minut as tid;
 
-/// Tid i Stockholm, till sekunden, som i behandlingshistoriken.
-fn sekund(t: Timestamp) -> String {
-    t.to_zoned(maya_domain::tid::stockholm())
-        .strftime("%Y-%m-%d %H:%M:%S")
-        .to_string()
-}
+use maya_domain::tid::sekund;
 
 /// Tomt för noll, som i dokumentvyn.
 pub(crate) fn belopp(b: Belopp) -> String {

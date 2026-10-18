@@ -76,12 +76,7 @@ impl Driftvarning {
     }
 }
 
-/// En tidpunkt i Stockholm, till minuten.
-fn tid(t: Timestamp) -> String {
-    t.to_zoned(maya_domain::tid::stockholm())
-        .strftime("%Y-%m-%d %H:%M")
-        .to_string()
-}
+use maya_domain::tid::minut as tid;
 
 /// Driftvarningarna just nu, i en fast ordning.
 pub async fn driftvarningar(

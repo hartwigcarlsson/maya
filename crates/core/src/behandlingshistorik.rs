@@ -456,11 +456,9 @@ impl Post {
             ),
             "inbjudan skapad" => {
                 let giltig = f("giltig_till");
-                let giltig = giltig.parse::<Timestamp>().map_or(giltig, |t| {
-                    t.to_zoned(maya_domain::tid::stockholm())
-                        .strftime("%Y-%m-%d %H:%M")
-                        .to_string()
-                });
+                let giltig = giltig
+                    .parse::<Timestamp>()
+                    .map_or(giltig, maya_domain::tid::minut);
                 format!("Inbjudan till {}, giltig till {giltig}", f("epost"))
             }
             "inbjudan använd" => format!("{} registrerade sig med inbjudan", f("epost")),
@@ -469,11 +467,9 @@ impl Post {
             }
             "återställning gjord" => {
                 let backup_tid = f("backup_tid");
-                let backup_tid = backup_tid.parse::<Timestamp>().map_or(backup_tid, |t| {
-                    t.to_zoned(maya_domain::tid::stockholm())
-                        .strftime("%Y-%m-%d %H:%M")
-                        .to_string()
-                });
+                let backup_tid = backup_tid
+                    .parse::<Timestamp>()
+                    .map_or(backup_tid, maya_domain::tid::minut);
                 format!(
                     "Hela installationen återställd från backupen {backup_tid}. Det som \
                      registrerades efter den måste registreras om"

@@ -482,11 +482,7 @@ pub(crate) mod server {
         }
     }
 
-    pub(crate) fn tid(t: jiff::Timestamp) -> String {
-        t.to_zoned(maya_domain::tid::stockholm())
-            .strftime("%Y-%m-%d %H:%M")
-            .to_string()
-    }
+    pub(crate) use maya_domain::tid::minut as tid;
 
     fn signatur(s: &Signatur) -> (String, String, String) {
         (tid(s.tid), s.namn.clone(), s.aktör.kanal.namn().to_string())

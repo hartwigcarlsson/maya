@@ -7,7 +7,6 @@
 //!
 //! Länkarna är sökvägar i webben, så att revisorn når varje del som beskrivs.
 
-use jiff::Timestamp;
 use jiff::civil::Date;
 use maya_domain::backup::{DAGLIGA, MÅNATLIGA};
 use maya_domain::kontoplan::{bas, ink2, klassnamn, om_numret};
@@ -112,12 +111,7 @@ fn rad<const N: usize>(celler: [String; N]) -> Tabellrad {
     Tabellrad::Rad(celler.into_iter().map(Text::from).collect())
 }
 
-/// En tidpunkt i Stockholm, till minuten.
-fn tid(t: Timestamp) -> String {
-    t.to_zoned(maya_domain::tid::stockholm())
-        .strftime("%Y-%m-%d %H:%M")
-        .to_string()
-}
+use maya_domain::tid::minut as tid;
 
 fn kontoplanen(konton: &[kontoplan::Konto], bas_version: &str, bas: &str) -> Avsnitt {
     let aktiva = konton.iter().filter(|k| k.aktiv).count();

@@ -56,11 +56,7 @@ async fn verify(config: &Config, db: &Databas, namn: Option<&str>) -> crate::use
         )
     })?;
 
-    let tid = verifiering
-        .backup
-        .tid
-        .to_zoned(maya_domain::tid::stockholm())
-        .strftime("%Y-%m-%d %H:%M");
+    let tid = maya_domain::tid::minut(verifiering.backup.tid);
     println!(
         "Backupen {} från {tid} i {}:",
         verifiering.backup.namn,
@@ -97,9 +93,7 @@ pub async fn nattligt_jobb(config: &Config, db: Databas) {
         let nästa = maya_domain::backup::nästa_körning(Timestamp::now(), config.backup_time);
         tracing::info!(
             "nästa backup {} till {}",
-            nästa
-                .to_zoned(maya_domain::tid::stockholm())
-                .strftime("%Y-%m-%d %H:%M"),
+            maya_domain::tid::minut(nästa),
             mål.beskrivning()
         );
         vänta_till(nästa).await;

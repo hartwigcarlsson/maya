@@ -131,7 +131,6 @@ pub(crate) mod server {
     use axum::http::{StatusCode, header};
     use axum::response::{IntoResponse, Redirect, Response};
     use axum::routing::get;
-    use jiff::Timestamp;
     use jiff::civil::Date;
     use leptos::prelude::ServerFnError;
     use maya_core::atkomst::ÅtkomstFel;
@@ -441,11 +440,7 @@ pub(crate) mod server {
         }
     }
 
-    fn tid(t: Timestamp) -> String {
-        t.to_zoned(maya_domain::tid::stockholm())
-            .strftime("%Y-%m-%d %H:%M")
-            .to_string()
-    }
+    use maya_domain::tid::minut as tid;
 
     /// GET `/foretag/<id>/rapporter/{grundbok|huvudbok}/{pdf|csv}?<urvalet>`. PDF:en är
     /// `inline` så att Skriv ut visar den; CSV:n laddas ned.

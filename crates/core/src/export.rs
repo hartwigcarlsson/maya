@@ -63,12 +63,7 @@ pub async fn behandlingshistorik(
     })
 }
 
-/// Tid i Stockholm, till sekunden: `2026-03-14 10:05:12`.
-pub(crate) fn tidpunkt(t: jiff::Timestamp) -> String {
-    t.to_zoned(maya_domain::tid::stockholm())
-        .strftime("%Y-%m-%d %H:%M:%S")
-        .to_string()
-}
+pub(crate) use maya_domain::tid::sekund as tidpunkt;
 
 /// Ett belopp som ett kalkylprogram läser som tal, t.ex. `-1234,50`.
 pub(crate) fn belopp(saldo: Saldo) -> String {

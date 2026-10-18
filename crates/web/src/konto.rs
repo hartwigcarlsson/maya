@@ -116,12 +116,7 @@ mod server {
             .collect())
     }
 
-    /// En tidpunkt i Stockholm, till minuten.
-    fn tid(t: jiff::Timestamp) -> String {
-        t.to_zoned(maya_domain::tid::stockholm())
-            .strftime("%Y-%m-%d %H:%M")
-            .to_string()
-    }
+    use maya_domain::tid::minut as tid;
 }
 
 fn inloggad() -> bool {

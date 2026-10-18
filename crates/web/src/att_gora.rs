@@ -416,11 +416,7 @@ pub(crate) mod server {
     }
 
     fn återställning(v: &Återställningsvarning) -> ÅterställningVy {
-        let tid = |t: jiff::Timestamp| {
-            t.to_zoned(maya_domain::tid::stockholm())
-                .strftime("%Y-%m-%d %H:%M")
-                .to_string()
-        };
+        let tid = |t: jiff::Timestamp| maya_domain::tid::minut(t);
         let backup = tid(v.backup_tid);
         ÅterställningVy {
             id: v.id.to_string(),

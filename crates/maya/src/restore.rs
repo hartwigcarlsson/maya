@@ -5,7 +5,6 @@
 use std::io::BufRead;
 use std::process::ExitCode;
 
-use jiff::Timestamp;
 use maya_core::Klocka;
 use maya_core::aktor::Aktör;
 use maya_core::aterstallning;
@@ -31,11 +30,7 @@ pub fn run(namn: Option<String>) -> ExitCode {
     }
 }
 
-fn stockholm(tid: Timestamp) -> String {
-    tid.to_zoned(maya_domain::tid::stockholm())
-        .strftime("%Y-%m-%d %H:%M")
-        .to_string()
-}
+use maya_domain::tid::minut as stockholm;
 
 async fn restore(config: &Config, namn: Option<&str>) -> crate::user::Resultat {
     let mål = Backupmål::från(&config.backup);
