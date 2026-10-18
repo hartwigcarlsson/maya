@@ -52,10 +52,10 @@ Uppskjutna till en senare etapp, med ett öppet issue:
 - **S6**: systemdokumentationen är versionerad med en ändringslogg per release, men arkiveras inte. Det frysta exemplaret i årsarkivet kommer i etapp 5 ([#96](https://github.com/hartwigcarlsson/maya/issues/96)).
 - **A1**: inget bokfört raderas, men det finns ingen sjuårsregel. Ett företag utan bokförda verifikat, underlag och ingående balans kan raderas, med sin kontoplan och behandlingshistorik; schemat nekar radering av ett företag med räkenskapsinformation. Årsarkiven som aldrig rensas kommer i etapp 5 ([#96](https://github.com/hartwigcarlsson/maya/issues/96)).
 
-Inte uppfyllda, utan issue:
+Inte uppfyllda, med ett öppet issue som avgör hur:
 
-- **L2 och T1**: Att göra varnar för kontantfristen och 50 dagar, men inget låses eller bokförs när fristen har gått ut. Att låsningen sker i tid hänger på användaren.
-- **A6**: att data och backup förvaras i Sverige är bara dokumenterat (`docs/drift.md`, arkivplanen). Inget kontrollerar var ett S3-mål ligger.
-- **A7**: uppfyllt bara för att Maya inte krypterar något. Nyckeln till ett krypterat backupmål är fritext i arkivplanen, och ingen kontroll görs av att den finns.
+- **L2 och T1**: Att göra varnar för kontantfristen och 50 dagar, men inget låses eller bokförs när fristen har gått ut. Att låsningen sker i tid hänger på användaren. L2 och T1 i [#129](https://github.com/hartwigcarlsson/maya/issues/129).
+- **A6**: att data och backup förvaras i Sverige är bara dokumenterat (`docs/drift.md`, arkivplanen). Inget kontrollerar var ett S3-mål ligger. A6 i [#130](https://github.com/hartwigcarlsson/maya/issues/130).
+- **A7**: uppfyllt bara för att Maya inte krypterar något. Nyckeln till ett krypterat backupmål är fritext i arkivplanen, och ingen kontroll görs av att den finns. A7 i [#131](https://github.com/hartwigcarlsson/maya/issues/131).
 
 Testluckor: överföringsavsnittet (S5) testas bara för att det finns, och den nattliga schemaläggningen (A5) testas bara i beräkningen av nästa körning.
