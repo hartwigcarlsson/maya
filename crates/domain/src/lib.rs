@@ -8,6 +8,7 @@ pub mod ingaende_balans;
 pub mod kontoplan;
 pub mod orgnr;
 pub mod rakenskapsar;
+pub mod rattelse;
 pub mod sok;
 pub mod tid;
 pub mod underlag;
