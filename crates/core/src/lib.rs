@@ -3,6 +3,7 @@
 
 pub mod aktor;
 pub mod atkomst;
+pub mod att_gora;
 pub mod behandlingshistorik;
 pub mod config;
 mod databas;

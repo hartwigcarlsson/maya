@@ -158,11 +158,21 @@ pub(crate) async fn saldobalanser(
     conn: &mut SqliteConnection,
     företag: FöretagsId,
 ) -> Result<Vec<Saldobalans>, DatabasFel> {
+    saldobalanser_till(conn, företag, None).await
+}
+
+/// Som [`saldobalanser`], men med bara de verifikat som är daterade till och med `till`, t.ex.
+/// saldot per i dag.
+pub(crate) async fn saldobalanser_till(
+    conn: &mut SqliteConnection,
+    företag: FöretagsId,
+    till: Option<Date>,
+) -> Result<Vec<Saldobalans>, DatabasFel> {
     let åren = räkenskapsåren(conn, företag).await?;
     let Some(första) = åren.first() else {
         return Ok(Vec::new());
     };
-    let förändringar = förändringar(conn, företag).await?;
+    let förändringar = förändringar(conn, företag, till).await?;
     let tom = BTreeMap::new();
     let förändring = |id: i64| förändringar.get(&id).unwrap_or(&tom);
     let mut ingående = inskriven(conn, första.id).await?;
@@ -324,18 +334,20 @@ async fn inskriven(
         .collect()
 }
 
-/// Summan av de bokförda raderna per räkenskapsår och konto.
+/// Summan av de bokförda raderna per räkenskapsår och konto, daterade till och med `till`.
 async fn förändringar(
     conn: &mut SqliteConnection,
     företag: FöretagsId,
+    till: Option<Date>,
 ) -> Result<BTreeMap<i64, BTreeMap<Kontonummer, Saldo>>, DatabasFel> {
     let rader: Vec<(i64, i64, i64)> = sqlx::query_as(
         "SELECT v.rakenskapsar_id, r.konto, sum(r.debet - r.kredit)
          FROM verifikatrad r JOIN verifikat v ON v.id = r.verifikat_id
-         WHERE v.foretag_id = ? AND v.bokford IS NOT NULL
+         WHERE v.foretag_id = ?1 AND v.bokford IS NOT NULL AND (?2 IS NULL OR v.datum <= ?2)
          GROUP BY v.rakenskapsar_id, r.konto",
     )
     .bind(företag.0)
+    .bind(till.map(|d| d.to_string()))
     .fetch_all(conn)
     .await?;
     let mut per_år: BTreeMap<i64, BTreeMap<Kontonummer, Saldo>> = BTreeMap::new();
