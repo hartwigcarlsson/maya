@@ -65,6 +65,7 @@ pub fn feltext(kod: &str) -> Option<&'static str> {
 
 #[cfg(feature = "ssr")]
 pub(crate) mod server {
+    use crate::svar::{ingen_åtkomst, serverfel};
     use std::sync::Arc;
 
     use axum::body::Bytes;
@@ -465,25 +466,6 @@ pub(crate) mod server {
             StatusCode::NOT_FOUND,
             [(header::CONTENT_TYPE, "text/plain; charset=utf-8")],
             "Underlaget finns inte.\n",
-        )
-            .into_response()
-    }
-
-    fn ingen_åtkomst() -> Response {
-        (
-            StatusCode::FORBIDDEN,
-            [(header::CONTENT_TYPE, "text/plain; charset=utf-8")],
-            "Du har inte åtkomst till företaget.\n",
-        )
-            .into_response()
-    }
-
-    fn serverfel(e: impl std::fmt::Display) -> Response {
-        tracing::error!("underlag: {e}");
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            [(header::CONTENT_TYPE, "text/plain; charset=utf-8")],
-            "Något gick fel i Maya; försök igen.\n",
         )
             .into_response()
     }

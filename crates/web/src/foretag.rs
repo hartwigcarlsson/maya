@@ -53,10 +53,11 @@ pub(crate) fn företagsval() -> Företagsval {
 
 #[cfg(feature = "ssr")]
 pub(crate) mod server {
+    use crate::svar::serverfel;
     use std::sync::Arc;
 
     use axum::extract::{Request, State};
-    use axum::http::{StatusCode, header};
+
     use axum::middleware::Next;
     use axum::response::{IntoResponse, Redirect, Response};
     use axum::routing::post;
@@ -191,16 +192,6 @@ pub(crate) mod server {
             query.append_pair("fel", fel);
         }
         Redirect::to(&format!("/foretag/nytt?{}", query.finish())).into_response()
-    }
-
-    fn serverfel(e: impl std::fmt::Display) -> Response {
-        tracing::error!("företaget: {e}");
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            [(header::CONTENT_TYPE, "text/plain; charset=utf-8")],
-            "Något gick fel i Maya; försök igen.\n",
-        )
-            .into_response()
     }
 }
 

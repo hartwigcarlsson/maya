@@ -29,6 +29,8 @@ mod assets;
 mod inloggning;
 #[cfg(feature = "ssr")]
 mod server;
+#[cfg(feature = "ssr")]
+mod svar;
 
 #[cfg(feature = "ssr")]
 pub use assets::serve_embedded;

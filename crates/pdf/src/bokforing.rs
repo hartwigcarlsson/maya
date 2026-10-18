@@ -7,7 +7,7 @@ use maya_domain::kontoplan::Kontonummer;
 use maya_domain::rakenskapsar::periodnamn;
 use serde_json::{Value, json};
 
-use crate::data::{belopp, tid};
+use crate::data::tid;
 use crate::{Företag, Rad};
 
 /// Räkenskapsåret och perioderna som en grundbok eller huvudbok gäller.
@@ -109,8 +109,8 @@ pub(crate) fn grundbok(g: &Grundbok) -> Value {
                     "konto": r.konto.map(|k| k.to_string()).unwrap_or_default(),
                     "kontonamn": r.kontonamn,
                     "text": r.text.clone().unwrap_or_default(),
-                    "debet": belopp(r.debet),
-                    "kredit": belopp(r.kredit),
+                    "debet": r.debet.eller_tomt(),
+                    "kredit": r.kredit.eller_tomt(),
                 })).collect::<Vec<_>>(),
             })).collect::<Vec<_>>(),
         })).collect::<Vec<_>>(),
@@ -135,8 +135,8 @@ pub(crate) fn huvudbok(h: &Huvudbok) -> Value {
                 "nummer": t.nummer,
                 "datum": t.datum.to_string(),
                 "text": t.text,
-                "debet": belopp(t.debet),
-                "kredit": belopp(t.kredit),
+                "debet": t.debet.eller_tomt(),
+                "kredit": t.kredit.eller_tomt(),
                 "saldo": t.saldo.to_string(),
             })).collect::<Vec<_>>(),
         })).collect::<Vec<_>>(),

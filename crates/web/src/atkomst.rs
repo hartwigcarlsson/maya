@@ -53,10 +53,11 @@ pub async fn hämta_åtkomstdata(adress: String) -> Result<Option<Åtkomstdata>,
 
 #[cfg(feature = "ssr")]
 pub(crate) mod server {
+    use crate::svar::{ingen_åtkomst, serverfel};
     use std::sync::Arc;
 
     use axum::extract::{Path, State};
-    use axum::http::{StatusCode, header};
+    use axum::http::header;
     use axum::response::{IntoResponse, Redirect, Response};
     use axum::routing::post;
     use axum::{Extension, Form, Router};
@@ -286,25 +287,6 @@ pub(crate) mod server {
             Ok(()) => sidan(företag, "meddelande=atkomst_tagen"),
             Err(e) => fel(företag, e),
         }
-    }
-
-    fn ingen_åtkomst() -> Response {
-        (
-            StatusCode::FORBIDDEN,
-            [(header::CONTENT_TYPE, "text/plain; charset=utf-8")],
-            "Du har inte åtkomst till företaget.\n",
-        )
-            .into_response()
-    }
-
-    fn serverfel(e: impl std::fmt::Display) -> Response {
-        tracing::error!("åtkomst: {e}");
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            [(header::CONTENT_TYPE, "text/plain; charset=utf-8")],
-            "Något gick fel i Maya; försök igen.\n",
-        )
-            .into_response()
     }
 }
 

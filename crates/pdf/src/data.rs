@@ -63,15 +63,6 @@ pub(crate) use maya_domain::tid::minut as tid;
 
 use maya_domain::tid::sekund;
 
-/// Tomt för noll, som i dokumentvyn.
-pub(crate) fn belopp(b: Belopp) -> String {
-    if b == Belopp::NOLL {
-        String::new()
-    } else {
-        b.to_string()
-    }
-}
-
 fn signatur(s: &Signatur) -> Value {
     json!({ "tid": tid(s.tid), "namn": s.namn, "kanal": s.kanal })
 }
@@ -104,8 +95,8 @@ fn verifikat(v: &Verifikat) -> Value {
             "konto": r.konto.map(|k| k.to_string()).unwrap_or_default(),
             "kontonamn": r.kontonamn,
             "text": r.text.clone().unwrap_or_default(),
-            "debet": belopp(r.debet),
-            "kredit": belopp(r.kredit),
+            "debet": r.debet.eller_tomt(),
+            "kredit": r.kredit.eller_tomt(),
         })).collect::<Vec<_>>(),
         "debet": summa(|r| r.debet).to_string(),
         "kredit": summa(|r| r.kredit).to_string(),

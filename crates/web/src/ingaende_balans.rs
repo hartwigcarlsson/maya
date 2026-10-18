@@ -51,10 +51,11 @@ pub async fn hämta_ingående_balans(adress: String) -> Result<IngåendeBalansda
 
 #[cfg(feature = "ssr")]
 pub(crate) mod server {
+    use crate::svar::{ingen_åtkomst, serverfel};
     use std::sync::Arc;
 
     use axum::extract::{Path, State};
-    use axum::http::{StatusCode, header};
+
     use axum::response::{IntoResponse, Redirect, Response};
     use axum::routing::post;
     use axum::{Extension, Form, Router};
@@ -228,34 +229,10 @@ pub(crate) mod server {
         }
         Redirect::to(&format!("{sida}?{}", query.finish())).into_response()
     }
-
-    fn ingen_åtkomst() -> Response {
-        (
-            StatusCode::FORBIDDEN,
-            [(header::CONTENT_TYPE, "text/plain; charset=utf-8")],
-            "Du har inte åtkomst till företaget.\n",
-        )
-            .into_response()
-    }
-
-    fn serverfel(e: impl std::fmt::Display) -> Response {
-        tracing::error!("ingående balans: {e}");
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            [(header::CONTENT_TYPE, "text/plain; charset=utf-8")],
-            "Något gick fel i Maya; försök igen.\n",
-        )
-            .into_response()
-    }
 }
 
 fn saldo_i(saldo: i64, sida: fn(Saldo) -> Belopp) -> String {
-    let b = sida(Saldo::från_öre(saldo));
-    if b == Belopp::NOLL {
-        String::new()
-    } else {
-        b.to_string()
-    }
+    sida(Saldo::från_öre(saldo)).eller_tomt()
 }
 
 /// Inställningar → Ingående balans.
