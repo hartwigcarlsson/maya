@@ -224,10 +224,21 @@ pub fn Toppmeny() -> impl IntoView {
                     <Antal n=valt.att_göra />
                 </a>
                 <a href=format!("{bas}/verifikat")>"Verifikat"</a>
+                // #145 Leverantörsfakturor (Kundfakturor kommer före, #135)
+                <a href=format!("{bas}/leverantorsfakturor")>"Leverantörsfakturor"</a>
                 <a href=format!("{bas}/rapporter")>
                     "Rapporter"
                 </a>
             </nav>
+            <details class="ny-meny">
+                <summary class="knapp knapp-diskret">"Ny"</summary>
+                <ul>
+                    // #145
+                    <li>
+                        <a href=format!("{bas}/leverantorsfakturor/ny")>"Leverantörsfaktura"</a>
+                    </li>
+                </ul>
+            </details>
             <Sökfält valt=valt.clone() alla=val.0.clone() />
             <a
                 class="knapp knapp-diskret kugghjul"

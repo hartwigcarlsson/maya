@@ -28,6 +28,7 @@ use crate::inloggning::{self, InloggningsState};
 use crate::installningar::server::{self as installningar, InställningsState};
 use crate::kontoplan::server::{self as kontoplan, KontoplansState};
 use crate::leverantorer::server::{self as leverantorer, LeverantörsState};
+use crate::leverantorsfakturor::server::{self as leverantorsfakturor, LeverantörsfakturaState};
 use crate::rapporter::server::{self as rapporter, RapportState};
 use crate::underlag::server::{self as underlag, UnderlagState};
 use crate::utskrift::server::{self as utskrift, UtskriftsState};
@@ -133,6 +134,11 @@ pub fn router(config: Arc<Config>, db: Databas) -> Router {
     };
     // #144 leverantörsregistret
     let leverantörer = LeverantörsState {
+        db: db.clone(),
+        klocka: inloggning.klocka.clone(),
+    };
+    // #145 leverantörsfakturor
+    let leverantörsfakturor = LeverantörsfakturaState {
         db: db.clone(),
         klocka: inloggning.klocka.clone(),
     };
@@ -274,6 +280,18 @@ pub fn router(config: Arc<Config>, db: Databas) -> Router {
         // #144 leverantörsregistret
         .merge(
             leverantorer::routes(leverantörer)
+                .layer(middleware::from_fn_with_state(
+                    inloggning.clone(),
+                    inloggning::identifiera,
+                ))
+                .layer(middleware::from_fn_with_state(
+                    inloggning.clone(),
+                    inloggning::kräv_eget_origin,
+                )),
+        )
+        // #145 leverantörsfakturor
+        .merge(
+            leverantorsfakturor::routes(leverantörsfakturor)
                 .layer(middleware::from_fn_with_state(
                     inloggning.clone(),
                     inloggning::identifiera,

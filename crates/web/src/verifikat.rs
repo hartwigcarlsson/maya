@@ -81,6 +81,8 @@ pub struct DokumentVy {
     pub inte_rättbart: Option<String>,
     /// Det som Rätta… behöver, när verifikatet kan rättas.
     pub rättelse: Option<RättelseVy>,
+    /// Fakturan som verifikatet bokfördes från: sidans adress (utan företagets bas) och text.
+    pub flöde: Option<(String, String)>,
 }
 
 /// En länk till ett annat verifikat, med vem som bokförde det och när.
@@ -385,6 +387,11 @@ pub(crate) mod server {
                 kopia_av: v.kopia_av.as_ref().map(länk),
                 inte_rättbart,
                 rättelse,
+                flöde: v.flöde.as_ref().map(|f| match f.flöde {
+                    verifikat::Flöde::Leverantörsfaktura => {
+                        (format!("/leverantorsfakturor?f={}", f.id), f.text.clone())
+                    }
+                }),
                 id: v.id.to_string(),
                 pdf: (
                     format!("/foretag/{företag}/verifikat/{}/pdf", v.id),
@@ -430,7 +437,7 @@ pub(crate) mod server {
         };
         let okopplade = alla_underlag
             .iter()
-            .filter(|u| u.kopplingar.is_empty())
+            .filter(|u| u.okopplat())
             .map(vy)
             .collect();
         let utkast = dokument.as_ref().is_some_and(|d| d.nummer.is_none());
@@ -1374,6 +1381,14 @@ fn Dokument(bas: String, d: DokumentVy, okopplade: Vec<UnderlagVy>) -> impl Into
         .inte_rättbart
         .clone()
         .map(|text| view! { <p class="notis">{text}</p> });
+    let flöde = d.flöde.clone().map(|(href, text)| {
+        view! {
+            <dt>"Bokfört från"</dt>
+            <dd>
+                <a href=format!("{bas}{href}")>{text}</a>
+            </dd>
+        }
+    });
     let öppen = use_query_map().with_untracked(|q| q.get("ratta").is_some());
     let rätta = match d.rättelse.clone() {
         Some(r) if öppen => {
@@ -1420,6 +1435,7 @@ fn Dokument(bas: String, d: DokumentVy, okopplade: Vec<UnderlagVy>) -> impl Into
                 {rättad}
                 {rättar}
                 {ersätter}
+                {flöde}
             </dl>
             <table class="rader">
                 <thead>

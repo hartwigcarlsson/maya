@@ -119,7 +119,7 @@ pub enum Öppet {
         okopplade: Vec<UnderlagVy>,
     },
     Underlag {
-        underlag: UnderlagVy,
+        underlag: Box<UnderlagVy>,
         /// Bokförda verifikat att komplettera: id och text.
         verifikat: Vec<(String, String)>,
         /// Frågan om underlaget ska tas bort visas.
@@ -181,6 +181,11 @@ pub(crate) mod server {
     pub(crate) fn routes(state: AttGöraState) -> Router {
         Router::new()
             .route("/foretag/{id}/att-gora/underlag/{u}/kvitto", post(kvitto))
+            // #145 Vad är det här? → Leverantörsfaktura
+            .route(
+                "/foretag/{id}/att-gora/underlag/{u}/leverantorsfaktura",
+                post(leverantörsfaktura),
+            )
             .route(
                 "/foretag/{id}/att-gora/underlag/{u}/komplettera",
                 post(komplettera),
@@ -504,7 +509,7 @@ pub(crate) mod server {
             })
             .collect();
         Ok(Some(Öppet::Underlag {
-            underlag: vy(u),
+            underlag: Box::new(vy(u)),
             verifikat,
             ta_bort,
         }))
@@ -561,6 +566,42 @@ pub(crate) mod server {
             Err(VerifikatFel::Åtkomst(ÅtkomstFel::IngenÅtkomst | ÅtkomstFel::KanalenFårInte)) => {
                 ingen_åtkomst()
             }
+            Err(e) => serverfel(e),
+        }
+    }
+
+    /// Leverantörsfaktura: ett utkast med underlaget som original, öppnat i fliken
+    /// Leverantörsfakturor med originalet till vänster.
+    async fn leverantörsfaktura(
+        State(state): State<Arc<AttGöraState>>,
+        Path((id, u)): Underlagsväg,
+        inloggad: Option<Extension<Inloggad>>,
+    ) -> Response {
+        let Some(Extension(inloggad)) = inloggad else {
+            return Redirect::to("/").into_response();
+        };
+        let Some((företag, u)) = tolka(&id, &u) else {
+            return ingen_åtkomst();
+        };
+        match maya_core::leverantorsfaktura::skapa_utkast(
+            &state.db,
+            &state.klocka,
+            &inloggad.aktör,
+            företag,
+            u,
+        )
+        .await
+        {
+            Ok(f) => Redirect::to(&format!(
+                "/foretag/{företag}/leverantorsfakturor?f={f}&skapat=1"
+            ))
+            .into_response(),
+            Err(maya_core::leverantorsfaktura::FakturaFel::InteOkopplat) => {
+                Redirect::to(&format!("/foretag/{företag}?fel=okant_underlag")).into_response()
+            }
+            Err(maya_core::leverantorsfaktura::FakturaFel::Åtkomst(
+                ÅtkomstFel::IngenÅtkomst | ÅtkomstFel::KanalenFårInte,
+            )) => ingen_åtkomst(),
             Err(e) => serverfel(e),
         }
     }
@@ -917,7 +958,7 @@ fn Kort(bas: String, k: KortVy, öppet: Option<Öppet>) -> impl IntoView {
                 underlag,
                 verifikat,
                 ta_bort,
-            } => view! { <VadÄrDetHär bas=bas.clone() u=underlag verifikat=verifikat ta_bort=ta_bort /> }
+            } => view! { <VadÄrDetHär bas=bas.clone() u=*underlag verifikat=verifikat ta_bort=ta_bort /> }
                 .into_any(),
         };
         view! { <div class="ab">{innehåll}</div> }
@@ -1013,6 +1054,14 @@ fn VadÄrDetHär(
                         "Kvitto"
                     </button>
                     <span class="diskret">" Ett nytt verifikatutkast med underlaget."</span>
+                </form>
+                <form method="post" action=format!("{väg}/leverantorsfaktura")>
+                    <button class="knapp" type="submit">
+                        "Leverantörsfaktura"
+                    </button>
+                    <span class="diskret">
+                        " Något som ska betalas. Ett utkast med underlaget som original."
+                    </span>
                 </form>
                 {komplettering}
                 {borttagning}

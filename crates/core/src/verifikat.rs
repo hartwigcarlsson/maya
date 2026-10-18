@@ -296,6 +296,34 @@ pub(crate) async fn läs_förutsättningar(
     })
 }
 
+/// Nästa nummer i V-serien för varje räkenskapsår, för förhandsvisningen "Bokförs som V9" i
+/// fakturaflödena. Numret tilldelas först vid bokföringen och kan hinna tas av någon annan.
+pub async fn nästa_nummer(
+    db: &Databas,
+    aktör: &Aktör,
+    företag: FöretagsId,
+) -> Result<Vec<(Räkenskapsår, Verifikationsnummer)>, ÅtkomstFel> {
+    let mut tx = db.pool().begin().await?;
+    atkomst::kräv(&mut tx, aktör, företag, Handling::LäsaFöretag).await?;
+    let rader: Vec<(String, String, i64)> = sqlx::query_as(
+        "SELECT r.start, r.slut,
+                coalesce((SELECT max(nummer) FROM verifikat v WHERE v.rakenskapsar_id = r.id), 0) + 1
+         FROM rakenskapsar r WHERE r.foretag_id = ? ORDER BY r.start",
+    )
+    .bind(företag.0)
+    .fetch_all(&mut *tx)
+    .await?;
+    Ok(rader
+        .into_iter()
+        .map(|(start, slut, nästa)| {
+            Ok((
+                Räkenskapsår::befintligt(datum(&start)?, datum(&slut)?),
+                verifikationsnummer(nästa)?,
+            ))
+        })
+        .collect::<Result<_, DatabasFel>>()?)
+}
+
 /// Registrerar och bokför ett verifikat i ett steg: prövar spärrarna, skapar räkenskapsåret
 /// om datumet ligger i året direkt efter det senaste, tilldelar nästa nummer i årets V-serie
 /// och loggar bokföringen med aktör och tid (H1), i en transaktion.
