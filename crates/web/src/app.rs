@@ -8,13 +8,13 @@ use leptos_router::hooks::use_params_map;
 use leptos_router::{SsrMode, path};
 use serde::{Deserialize, Serialize};
 
-use crate::foretag::{
-    AttGöra, Företagslista, NyttFöretagSida, Rapporter, Toppmeny, företagsval
-};
+use crate::atkomst::ÅtkomstSida;
+use crate::foretag::{AttGöra, Företagslista, NyttFöretagSida, Toppmeny, företagsval};
 use crate::ingaende_balans::IngåendeBalansSida;
 use crate::installningar::FöretagsInställningar;
 use crate::konto::{Passkeys, Sessioner};
 use crate::kontoplan::KontoplanSida;
+use crate::rapporter::Rapporter;
 use crate::sidodata::per_adress;
 use crate::sok::SökSida;
 use crate::verifikat::{NyttVerifikatSida, VerifikatSida};
@@ -159,6 +159,7 @@ fn Innehåll() -> impl IntoView {
                     view=KontoplanSida
                     ssr=SsrMode::Async
                 />
+                <Route path=path!("foretag/:id/installningar/atkomst") view=ÅtkomstSida />
             </Routes>
         }
         .into_any()
@@ -205,8 +206,8 @@ pub(crate) fn LoggaIn() -> impl IntoView {
     }
 }
 
-/// Sidan som registrerings- och återställningslänkarna från CLI:t leder till. Efteråt ber
-/// Maya användaren lägga till en passkey till.
+/// Sidan som registrerings- och återställningslänkarna från CLI:t och inbjudningslänkarna
+/// leder till. Efteråt ber Maya användaren lägga till en passkey till.
 #[component]
 fn Registrera() -> impl IntoView {
     per_adress(registrera)

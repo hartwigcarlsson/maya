@@ -7,6 +7,14 @@ use std::fmt;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct AnvändarId(pub(crate) i64);
 
+/// Vem som helst kan skriva ett id; `core` avgör vad aktören får se och göra med det.
+impl std::str::FromStr for AnvändarId {
+    type Err = std::num::ParseIntError;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        s.parse().map(AnvändarId)
+    }
+}
+
 impl fmt::Display for AnvändarId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.0.fmt(f)
@@ -99,6 +107,11 @@ pub enum Handling {
     HanteraUtkast,
     /// Skriva in eller ändra den ingående balansen.
     ÄndraIngåendeBalans,
+    /// Bjuda in till ett företag och ge och ta åtkomst. Bara webben, med färsk passkey.
+    HanteraÅtkomst,
+    /// Exportera ett räkenskapsår som SIE4. Bara webben, ingen export via MCP eller CLI (beslut
+    /// i #67).
+    ExporteraSie4,
 }
 
 /// Kanalpolicyn: om `kanal` får utföra `handling`.
@@ -112,6 +125,8 @@ pub fn tillåter(kanal: Kanal, handling: Handling) -> bool {
         | Handling::ÄndraFöretag
         | Handling::RaderaFöretag
         | Handling::HanteraUtkast
-        | Handling::ÄndraIngåendeBalans => kanal == Kanal::Webb,
+        | Handling::ÄndraIngåendeBalans
+        | Handling::HanteraÅtkomst
+        | Handling::ExporteraSie4 => kanal == Kanal::Webb,
     }
 }

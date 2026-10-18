@@ -18,11 +18,13 @@ use maya_core::{Databas, Klocka};
 
 use crate::app::{App, shell};
 use crate::assets;
+use crate::atkomst::server::{self as atkomst, ÅtkomstState};
 use crate::foretag::server::{self as foretag, FöretagsState};
 use crate::ingaende_balans::server::{self as ingaende_balans, IngåendeBalansState};
 use crate::inloggning::{self, InloggningsState};
 use crate::installningar::server::{self as installningar, InställningsState};
 use crate::kontoplan::server::{self as kontoplan, KontoplansState};
+use crate::rapporter::server::{self as rapporter, RapportState};
 use crate::utskrift::server::{self as utskrift, UtskriftsState};
 use crate::verifikat::server::{self as verifikat, VerifikatState};
 
@@ -93,6 +95,15 @@ pub fn router(config: Arc<Config>, db: Databas) -> Router {
         db: db.clone(),
         klocka: inloggning.klocka.clone(),
     };
+    let åtkomst = ÅtkomstState {
+        db: db.clone(),
+        klocka: inloggning.klocka.clone(),
+        publik_url: config.public_url.as_str().trim_end_matches('/').to_string(),
+    };
+    let rapporter = RapportState {
+        db: db.clone(),
+        klocka: inloggning.klocka.clone(),
+    };
     let state = AppState { config, db };
 
     let pages = Router::new()
@@ -102,6 +113,14 @@ pub fn router(config: Arc<Config>, db: Databas) -> Router {
         })
         .fallback(assets::serve_site)
         .with_state(leptos_options)
+        .layer(middleware::from_fn_with_state(
+            rapporter.clone(),
+            rapporter::lägg_på_rapportdata,
+        ))
+        .layer(middleware::from_fn_with_state(
+            åtkomst.clone(),
+            atkomst::lägg_på_åtkomst,
+        ))
         .layer(middleware::from_fn_with_state(
             företag.clone(),
             foretag::lägg_på_företagsval,
@@ -164,6 +183,23 @@ pub fn router(config: Arc<Config>, db: Databas) -> Router {
                     inloggning.clone(),
                     inloggning::kräv_eget_origin,
                 )),
+        )
+        .merge(
+            atkomst::routes(åtkomst)
+                .layer(middleware::from_fn_with_state(
+                    inloggning.clone(),
+                    inloggning::identifiera,
+                ))
+                .layer(middleware::from_fn_with_state(
+                    inloggning.clone(),
+                    inloggning::kräv_eget_origin,
+                )),
+        )
+        .merge(
+            rapporter::routes(rapporter).layer(middleware::from_fn_with_state(
+                inloggning.clone(),
+                inloggning::identifiera,
+            )),
         )
         .merge(
             utskrift::routes(utskrift).layer(middleware::from_fn_with_state(

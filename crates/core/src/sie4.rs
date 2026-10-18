@@ -1,0 +1,447 @@
+//! SIE4-exporten: en 4E-fil per räkenskapsår, för revisorn eller ett annat system.
+//!
+//! Filen innehåller huvudet, `#RAR 0` och `-1` när föregående år finns i Maya, `#KONTO` och
+//! `#SRU` (ur INK2-tabellen) för konton med saldo eller transaktioner något av åren, `#IB`,
+//! `#UB` och `#RES` för år 0 och -1 (den preliminära ingående balansen där den gäller) och de
+//! bokförda verifikaten i serien V, med `regdatum` = bokföringsdagen och `sign` = visningsnamnet.
+//! Utkast, `#PSALDO`, `#RTRANS`/`#BTRANS` och dimensioner skrivs inte.
+//!
+//! **Återläsning (A4)**: filen är en överföring. Innan den lämnas ut läser `maya-sie` tillbaka
+//! den (med `#KSUMMA`), och antalet verifikat, debet och kredit per konto och IB/UB/RES stäms av
+//! mot databasen, läst för sig. Varje avvikelse ger ett fel och ingen fil. En godkänd export
+//! loggas i behandlingshistoriken med filens SHA-256, i samma transaktion som läsningen.
+
+use std::collections::BTreeMap;
+
+use jiff::civil::Date;
+use maya_domain::kontoplan::{Kontonummer, bas, ink2};
+use maya_domain::orgnr::Organisationsnummer;
+use maya_domain::tid;
+use maya_sie as sie;
+use sha2::{Digest, Sha256};
+use sqlx::SqliteConnection;
+
+use crate::aktor::{Aktör, Handling};
+use crate::atkomst::{Ärende, ÅtkomstFel};
+use crate::behandlingshistorik::Händelse;
+use crate::foretag::{FöretagsId, datum};
+use crate::saldo::{Saldobalans, saldobalanser};
+use crate::{Databas, DatabasFel, Klocka};
+
+/// Programmet i `#PROGRAM`.
+const PROGRAM: &str = "Maya";
+/// Verifikatserien. Maya har en serie per räkenskapsår.
+const SERIE: &str = "V";
+
+/// En godkänd export.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Sie4Export {
+    /// `SIE4_<orgnr>_<år>.se`, där året är räkenskapsårets startår.
+    pub filnamn: String,
+    /// Filen i CP437.
+    pub innehåll: Vec<u8>,
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum Sie4Fel {
+    #[error("företaget har inget räkenskapsår som börjar det datumet")]
+    OkäntRäkenskapsår,
+    /// Den skrivna filen gick inte att läsa tillbaka.
+    #[error("SIE4-filen kunde inte läsas tillbaka: {0}")]
+    Återläsning(#[from] sie::LäsFel),
+    /// Den tillbakalästa filen stämmer inte med databasen. Varje rad är en avvikelse.
+    #[error("SIE4-filen stämmer inte med bokföringen: {}", .0.join("; "))]
+    Avvikelse(Vec<String>),
+    #[error(transparent)]
+    Åtkomst(#[from] ÅtkomstFel),
+}
+
+impl From<sqlx::Error> for Sie4Fel {
+    fn from(e: sqlx::Error) -> Self {
+        Sie4Fel::Åtkomst(e.into())
+    }
+}
+
+impl From<DatabasFel> for Sie4Fel {
+    fn from(e: DatabasFel) -> Self {
+        Sie4Fel::Åtkomst(e.into())
+    }
+}
+
+/// Exporterar räkenskapsåret som börjar `år` som en SIE 4E-fil, efter återläsning och
+/// avstämning, och loggar exporten.
+pub async fn exportera(
+    db: &Databas,
+    klocka: &Klocka,
+    aktör: &Aktör,
+    företag: FöretagsId,
+    år: Date,
+) -> Result<Sie4Export, Sie4Fel> {
+    exportera_med(db, klocka, aktör, företag, år, |_| {}).await
+}
+
+/// [`exportera`], med `förvanska` mellan uppbyggnaden och skrivningen, så att tester kan visa att
+/// avstämningen stoppar en fil som inte stämmer.
+pub(crate) async fn exportera_med(
+    db: &Databas,
+    klocka: &Klocka,
+    aktör: &Aktör,
+    företag: FöretagsId,
+    år: Date,
+    förvanska: impl FnOnce(&mut sie::Sie4),
+) -> Result<Sie4Export, Sie4Fel> {
+    let mut ärende = Ärende::börja(db, klocka, aktör, företag, Handling::ExporteraSie4).await?;
+    let saldobalanser = saldobalanser(ärende.conn(), företag).await?;
+    let i = saldobalanser
+        .iter()
+        .position(|sb| sb.år.start() == år)
+        .ok_or(Sie4Fel::OkäntRäkenskapsår)?;
+    let åren: Vec<(i32, &Saldobalans)> = [Some((0, &saldobalanser[i]))]
+        .into_iter()
+        .chain([i.checked_sub(1).map(|f| (-1, &saldobalanser[f]))])
+        .flatten()
+        .collect();
+
+    let uppgifter = företaget(ärende.conn(), företag).await?;
+    let verifikat = verifikaten(ärende.conn(), företag, år).await?;
+    let namn = kontonamn(ärende.conn(), företag).await?;
+    let mut fil = bygg(
+        klocka,
+        aktör,
+        &mut ärende,
+        &uppgifter,
+        &åren,
+        &verifikat,
+        &namn,
+    )
+    .await?;
+    förvanska(&mut fil);
+    let innehåll = sie::skriv(&fil);
+
+    let läst = sie::läs(&innehåll)?;
+    let avvikelser = stäm_av(&läst, &åren, &verifikat);
+    if !avvikelser.is_empty() {
+        return Err(Sie4Fel::Avvikelse(avvikelser));
+    }
+
+    let (start, slut) = (år.to_string(), saldobalanser[i].år.slut().to_string());
+    let filnamn = format!("SIE4_{}_{}.se", uppgifter.orgnr.siffror(), år.year());
+    ärende
+        .logga(
+            Händelse::Sie4Exporterad,
+            &format!("{start} – {slut}"),
+            serde_json::json!({
+                "räkenskapsår": { "start": start, "slut": slut },
+                "filnamn": filnamn,
+                "antal_verifikat": verifikat.len(),
+                "byte": innehåll.len(),
+                "sha256": hex::encode(Sha256::digest(&innehåll)),
+            }),
+        )
+        .await?;
+    ärende.slutför().await?;
+    Ok(Sie4Export { filnamn, innehåll })
+}
+
+struct Uppgifter {
+    orgnr: Organisationsnummer,
+    namn: String,
+}
+
+/// Ett bokfört verifikat som det står i databasen.
+struct Bokfört {
+    nummer: u32,
+    datum: Date,
+    beskrivning: String,
+    bokfört: Date,
+    signatur: Option<String>,
+    /// (konto, debet, kredit, text) i öre.
+    rader: Vec<(Kontonummer, i64, i64, Option<String>)>,
+}
+
+async fn bygg(
+    klocka: &Klocka,
+    aktör: &Aktör,
+    ärende: &mut Ärende,
+    uppgifter: &Uppgifter,
+    åren: &[(i32, &Saldobalans)],
+    verifikat: &[Bokfört],
+    namn: &BTreeMap<Kontonummer, String>,
+) -> Result<sie::Sie4, DatabasFel> {
+    let exporterad_av = match aktör.användare {
+        Some(a) => {
+            sqlx::query_scalar("SELECT visningsnamn FROM anvandare WHERE id = ?")
+                .bind(a.0)
+                .fetch_optional(ärende.conn())
+                .await?
+        }
+        None => None,
+    };
+    let år0 = åren[0].1;
+
+    // Konton med saldo något av åren eller rader i exportåret, med SRU-koden efter tecknet på
+    // exportårets utgående saldo ("Om netto +" i INK2-tabellen = debet).
+    let mut konton: BTreeMap<Kontonummer, i64> = BTreeMap::new();
+    for (_, sb) in åren {
+        for k in &sb.konton {
+            konton.entry(k.konto).or_default();
+        }
+    }
+    for k in &år0.konton {
+        konton.insert(k.konto, k.utgående.öre());
+    }
+    for v in verifikat {
+        for (konto, ..) in &v.rader {
+            konton.entry(*konto).or_default();
+        }
+    }
+
+    let saldoposter = |välj: fn(&crate::saldo::Kontosaldo) -> i64, balans: bool| {
+        åren
+            .iter()
+            .flat_map(|(årsnr, sb)| {
+                sb.konton
+                    .iter()
+                    .filter(move |k| k.konto.typ().balanskonto() == balans && välj(k) != 0)
+                    .map(move |k| sie::Saldopost {
+                        årsnr: *årsnr,
+                        konto: u32::from(k.konto.get()),
+                        öre: välj(k),
+                    })
+            })
+            .collect()
+    };
+
+    Ok(sie::Sie4 {
+        program: PROGRAM.into(),
+        version: env!("CARGO_PKG_VERSION").into(),
+        genererad: klocka.idag(),
+        genererad_av: exporterad_av,
+        orgnr: Some(uppgifter.orgnr.to_string()),
+        företagsform: Some("AB".into()),
+        företagsnamn: uppgifter.namn.clone(),
+        kontoplanstyp: Some(bas::VERSION.replace(' ', "")),
+        räkenskapsår: åren
+            .iter()
+            .map(|(årsnr, sb)| sie::Räkenskapsår {
+                årsnr: *årsnr,
+                start: sb.år.start(),
+                slut: sb.år.slut(),
+            })
+            .collect(),
+        konton: konton
+            .iter()
+            .map(|(&konto, &utgående)| sie::Konto {
+                nummer: u32::from(konto.get()),
+                namn: namn.get(&konto).cloned().unwrap_or_default(),
+                sru: ink2::koppling(konto).map(|k| u32::from(k.fält(utgående >= 0).kod())),
+            })
+            .collect(),
+        ingående: saldoposter(|k| k.ingående.öre(), true),
+        utgående: saldoposter(|k| k.utgående.öre(), true),
+        resultat: saldoposter(|k| k.utgående.öre(), false),
+        verifikat: verifikat
+            .iter()
+            .map(|v| sie::Verifikation {
+                serie: SERIE.into(),
+                nummer: v.nummer,
+                datum: v.datum,
+                text: v.beskrivning.clone(),
+                regdatum: Some(v.bokfört),
+                sign: v.signatur.clone(),
+                transaktioner: v
+                    .rader
+                    .iter()
+                    .map(|(konto, debet, kredit, text)| sie::Transaktion {
+                        konto: u32::from(konto.get()),
+                        öre: debet - kredit,
+                        text: text.clone(),
+                    })
+                    .collect(),
+            })
+            .collect(),
+    })
+}
+
+/// Avvikelserna mellan den tillbakalästa filen och databasen: antal verifikat i serien V,
+/// debet och kredit per konto i exportåret, och IB/UB/RES per år och konto.
+fn stäm_av(fil: &sie::Sie4, åren: &[(i32, &Saldobalans)], verifikat: &[Bokfört]) -> Vec<String> {
+    let mut avvikelser = Vec::new();
+    let i_serien = fil.verifikat.iter().filter(|v| v.serie == SERIE).count();
+    if i_serien != fil.verifikat.len() || i_serien != verifikat.len() {
+        avvikelser.push(format!(
+            "filen har {} verifikat ({i_serien} i serien {SERIE}), bokföringen {}",
+            fil.verifikat.len(),
+            verifikat.len()
+        ));
+    }
+
+    let mut i_filen: BTreeMap<u32, (i64, i64)> = BTreeMap::new();
+    for t in fil.verifikat.iter().flat_map(|v| &v.transaktioner) {
+        let (debet, kredit) = i_filen.entry(t.konto).or_default();
+        if t.öre >= 0 {
+            *debet += t.öre;
+        } else {
+            *kredit -= t.öre;
+        }
+    }
+    let mut i_db: BTreeMap<u32, (i64, i64)> = BTreeMap::new();
+    for (konto, debet, kredit, _) in verifikat.iter().flat_map(|v| &v.rader) {
+        let summa = i_db.entry(u32::from(konto.get())).or_default();
+        summa.0 += debet;
+        summa.1 += kredit;
+    }
+    for konto in i_filen
+        .keys()
+        .chain(i_db.keys())
+        .collect::<std::collections::BTreeSet<_>>()
+    {
+        let (f, d) = (
+            i_filen.get(konto).copied().unwrap_or_default(),
+            i_db.get(konto).copied().unwrap_or_default(),
+        );
+        if f != d {
+            avvikelser.push(format!(
+                "konto {konto}: filen har debet {} och kredit {}, bokföringen {} och {}",
+                f.0, f.1, d.0, d.1
+            ));
+        }
+    }
+
+    for (etikett, poster, välj, balans) in [
+        (
+            "#IB",
+            &fil.ingående,
+            (|k| k.ingående.öre()) as fn(&crate::saldo::Kontosaldo) -> i64,
+            true,
+        ),
+        ("#UB", &fil.utgående, |k| k.utgående.öre(), true),
+        ("#RES", &fil.resultat, |k| k.utgående.öre(), false),
+    ] {
+        let mut i_filen: BTreeMap<(i32, u32), i64> = BTreeMap::new();
+        for p in poster {
+            *i_filen.entry((p.årsnr, p.konto)).or_default() += p.öre;
+        }
+        i_filen.retain(|_, öre| *öre != 0);
+        let i_db: BTreeMap<(i32, u32), i64> = åren
+            .iter()
+            .flat_map(|(årsnr, sb)| {
+                sb.konton
+                    .iter()
+                    .filter(move |k| k.konto.typ().balanskonto() == balans && välj(k) != 0)
+                    .map(move |k| ((*årsnr, u32::from(k.konto.get())), välj(k)))
+            })
+            .collect();
+        for nyckel in i_filen
+            .keys()
+            .chain(i_db.keys())
+            .collect::<std::collections::BTreeSet<_>>()
+        {
+            let (f, d) = (i_filen.get(nyckel), i_db.get(nyckel));
+            if f != d {
+                avvikelser.push(format!(
+                    "{etikett} {} {}: filen har {}, bokföringen {}",
+                    nyckel.0,
+                    nyckel.1,
+                    f.copied().unwrap_or_default(),
+                    d.copied().unwrap_or_default()
+                ));
+            }
+        }
+    }
+    avvikelser
+}
+
+async fn företaget(
+    conn: &mut SqliteConnection,
+    företag: FöretagsId,
+) -> Result<Uppgifter, DatabasFel> {
+    let (orgnr, namn): (String, String) =
+        sqlx::query_as("SELECT orgnr, namn FROM foretag WHERE id = ?")
+            .bind(företag.0)
+            .fetch_one(conn)
+            .await?;
+    Ok(Uppgifter {
+        orgnr: Organisationsnummer::tolka(&orgnr)
+            .map_err(|_| DatabasFel::Korrupt(format!("ett organisationsnummer: {orgnr}")))?,
+        namn,
+    })
+}
+
+async fn kontonamn(
+    conn: &mut SqliteConnection,
+    företag: FöretagsId,
+) -> Result<BTreeMap<Kontonummer, String>, DatabasFel> {
+    let rader: Vec<(i64, String)> =
+        sqlx::query_as("SELECT nummer, namn FROM konto WHERE foretag_id = ?")
+            .bind(företag.0)
+            .fetch_all(conn)
+            .await?;
+    rader
+        .into_iter()
+        .map(|(nr, namn)| Ok((kontonummer(nr)?, namn)))
+        .collect()
+}
+
+/// De bokförda verifikaten i räkenskapsåret som börjar `år`, i nummerordning.
+async fn verifikaten(
+    conn: &mut SqliteConnection,
+    företag: FöretagsId,
+    år: Date,
+) -> Result<Vec<Bokfört>, DatabasFel> {
+    type Rad = (i64, i64, String, String, String, Option<String>);
+    let rader: Vec<Rad> = sqlx::query_as(
+        "SELECT v.id, v.nummer, v.datum, v.beskrivning, v.bokford, u.visningsnamn
+         FROM verifikat v
+         JOIN rakenskapsar r ON r.id = v.rakenskapsar_id
+         LEFT JOIN anvandare u ON u.id = v.bokford_av
+         WHERE v.foretag_id = ? AND r.start = ? AND v.bokford IS NOT NULL
+         ORDER BY v.nummer",
+    )
+    .bind(företag.0)
+    .bind(år.to_string())
+    .fetch_all(&mut *conn)
+    .await?;
+    type Radrad = (i64, i64, i64, i64, Option<String>);
+    let alla_rader: Vec<Radrad> = sqlx::query_as(
+        "SELECT r.verifikat_id, r.konto, r.debet, r.kredit, r.text
+         FROM verifikatrad r
+         JOIN verifikat v ON v.id = r.verifikat_id
+         JOIN rakenskapsar å ON å.id = v.rakenskapsar_id
+         WHERE v.foretag_id = ? AND å.start = ? AND v.bokford IS NOT NULL
+         ORDER BY r.verifikat_id, r.radnr",
+    )
+    .bind(företag.0)
+    .bind(år.to_string())
+    .fetch_all(&mut *conn)
+    .await?;
+    let mut per_verifikat: BTreeMap<i64, Vec<_>> = BTreeMap::new();
+    for (id, konto, debet, kredit, text) in alla_rader {
+        per_verifikat
+            .entry(id)
+            .or_default()
+            .push((kontonummer(konto)?, debet, kredit, text));
+    }
+    let korrupt = |vad: &str| DatabasFel::Korrupt(format!("verifikat.{vad}"));
+    rader
+        .into_iter()
+        .map(|(id, nummer, datum_, beskrivning, bokford, signatur)| {
+            let bokford: jiff::Timestamp = bokford.parse().map_err(|_| korrupt("bokford"))?;
+            Ok(Bokfört {
+                nummer: u32::try_from(nummer).map_err(|_| korrupt("nummer"))?,
+                datum: datum(&datum_)?,
+                beskrivning,
+                bokfört: tid::datum(bokford),
+                signatur,
+                rader: per_verifikat.remove(&id).unwrap_or_default(),
+            })
+        })
+        .collect()
+}
+
+fn kontonummer(nummer: i64) -> Result<Kontonummer, DatabasFel> {
+    u16::try_from(nummer)
+        .ok()
+        .and_then(Kontonummer::new)
+        .ok_or_else(|| DatabasFel::Korrupt(format!("ett kontonummer: {nummer}")))
+}
