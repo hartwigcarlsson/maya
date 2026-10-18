@@ -554,8 +554,3 @@ pub fn AttGöra() -> impl IntoView {
 pub fn Rapporter() -> impl IntoView {
     view! { <Företagssida rubrik="Rapporter" tom="Rapporterna kommer snart." /> }
 }
-
-#[component]
-pub fn Inställningar() -> impl IntoView {
-    view! { <Företagssida rubrik="Inställningar" tom="Inställningarna kommer snart." /> }
-}

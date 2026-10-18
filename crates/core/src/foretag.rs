@@ -569,13 +569,7 @@ pub async fn radera(
     let mut ärende = Ärende::börja(db, klocka, aktör, id, Handling::RaderaFöretag).await?;
     let nu = ärende.nu;
     let conn = ärende.conn();
-    let har: bool = sqlx::query_scalar(
-        "SELECT EXISTS (SELECT 1 FROM verifikat WHERE foretag_id = ? AND bokford IS NOT NULL)",
-    )
-    .bind(id.0)
-    .fetch_one(&mut *conn)
-    .await?;
-    if har {
+    if har_räkenskapsinformation_i(&mut *conn, id).await? {
         return Err(FöretagsFel::HarRäkenskapsinformation);
     }
     let (orgnr, uppgifter) = läs_uppgifter(&mut *conn, id).await?;
@@ -611,6 +605,30 @@ pub async fn radera(
     .await?;
     ärende.slutför().await?;
     Ok(())
+}
+
+/// Om företaget har räkenskapsinformation (bokförda verifikat; underlag och fakturor när de
+/// finns), så att det inte kan raderas.
+pub async fn har_räkenskapsinformation(
+    db: &Databas,
+    aktör: &Aktör,
+    id: FöretagsId,
+) -> Result<bool, ÅtkomstFel> {
+    let mut tx = db.pool().begin().await?;
+    atkomst::kräv(&mut tx, aktör, id, Handling::LäsaFöretag).await?;
+    Ok(har_räkenskapsinformation_i(&mut tx, id).await?)
+}
+
+async fn har_räkenskapsinformation_i(
+    conn: &mut SqliteConnection,
+    id: FöretagsId,
+) -> Result<bool, sqlx::Error> {
+    sqlx::query_scalar(
+        "SELECT EXISTS (SELECT 1 FROM verifikat WHERE foretag_id = ? AND bokford IS NOT NULL)",
+    )
+    .bind(id.0)
+    .fetch_one(conn)
+    .await
 }
 
 /// Det ett byte prövas mot, för företaget som aktören redan har åtkomst till.

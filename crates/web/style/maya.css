@@ -533,3 +533,110 @@ main {
   opacity: 0.6;
   cursor: not-allowed;
 }
+
+/* Inställningar: menyn till vänster är gemensam för inställningssidorna. */
+
+.installningar {
+  display: grid;
+  grid-template-columns: 11rem 1fr;
+  gap: 1.5rem;
+  align-items: start;
+}
+
+.installningsmeny {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.installningsmeny a {
+  padding: 4px 8px;
+  border-radius: var(--radius);
+  color: var(--foreground);
+  text-decoration: none;
+}
+
+.installningsmeny a:hover,
+.installningsmeny a[aria-current="page"] {
+  background: var(--accent);
+}
+
+.installningar-innehall {
+  display: flex;
+  flex-direction: column;
+  gap: 2rem;
+  min-width: 0;
+}
+
+.installningar-innehall h2 {
+  font-size: 15px;
+  font-weight: 600;
+  margin: 0;
+}
+
+.installningar-innehall .formular {
+  max-width: 24rem;
+}
+
+.installningar-innehall .kryss {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.installningar-innehall .kryss input {
+  height: auto;
+}
+
+.installningstabell {
+  border-collapse: collapse;
+  width: 100%;
+}
+
+.installningstabell th,
+.installningstabell td {
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+}
+
+.installningstabell th {
+  color: var(--muted-foreground);
+  font-weight: 500;
+}
+
+.notis {
+  margin: 0;
+  padding: 6px 10px;
+  border-radius: var(--radius);
+  background: var(--muted);
+}
+
+.radering {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--border);
+}
+
+.radering p {
+  margin: 0;
+}
+
+.formular .knapp-fara {
+  background: var(--destructive);
+  border-color: var(--destructive);
+  color: var(--primary-foreground);
+}
+
+@media (max-width: 640px) {
+  .installningar {
+    grid-template-columns: 1fr;
+  }
+
+  .installningsmeny {
+    flex-direction: row;
+    flex-wrap: wrap;
+  }
+}

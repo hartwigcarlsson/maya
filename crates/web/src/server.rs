@@ -20,6 +20,7 @@ use crate::app::{App, shell};
 use crate::assets;
 use crate::foretag::server::{self as foretag, FöretagsState};
 use crate::inloggning::{self, InloggningsState};
+use crate::installningar::server::{self as installningar, InställningsState};
 use crate::verifikat::server::{self as verifikat, VerifikatState};
 
 #[derive(Clone)]
@@ -58,6 +59,10 @@ pub fn router(config: Arc<Config>, db: Databas) -> Router {
         db: db.clone(),
         klocka: inloggning.klocka.clone(),
     };
+    let inställningar = InställningsState {
+        db: db.clone(),
+        klocka: inloggning.klocka.clone(),
+    };
     let state = AppState { config, db };
 
     let pages = Router::new()
@@ -70,6 +75,10 @@ pub fn router(config: Arc<Config>, db: Databas) -> Router {
         .layer(middleware::from_fn_with_state(
             verifikat.clone(),
             verifikat::lägg_på_verifikatdata,
+        ))
+        .layer(middleware::from_fn_with_state(
+            inställningar.clone(),
+            installningar::lägg_på_inställningar,
         ))
         .layer(middleware::from_fn_with_state(
             företag.clone(),
@@ -92,6 +101,17 @@ pub fn router(config: Arc<Config>, db: Databas) -> Router {
         )
         .merge(
             verifikat::routes(verifikat)
+                .layer(middleware::from_fn_with_state(
+                    inloggning.clone(),
+                    inloggning::identifiera,
+                ))
+                .layer(middleware::from_fn_with_state(
+                    inloggning.clone(),
+                    inloggning::kräv_eget_origin,
+                )),
+        )
+        .merge(
+            installningar::routes(inställningar)
                 .layer(middleware::from_fn_with_state(
                     inloggning.clone(),
                     inloggning::identifiera,
