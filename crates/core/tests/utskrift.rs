@@ -2,6 +2,7 @@
 //! aktören. Mallarnas utseende prövas i `maya-pdf`; här syns att rätt data kommer med.
 
 use maya_core::atkomst::ÅtkomstFel;
+use maya_core::behandlingshistorik::Urval;
 use maya_core::utskrift::{self, UtskriftFel};
 use maya_core::{Databas, Klocka, kontoplan, testhjalp};
 use maya_domain::kontoplan::Kontonummer;
@@ -137,4 +138,50 @@ async fn bara_den_med_åtkomst_kan_skriva_ut() {
         utskrift::kontoplan(&db, &klocka(), &bertil, företag).await,
         Err(UtskriftFel::Åtkomst(ÅtkomstFel::IngenÅtkomst))
     ));
+}
+
+#[tokio::test]
+async fn behandlingshistoriken_skrivs_ut_med_urvalet() {
+    let db = Databas::tillfällig().await;
+    let (anna, företag) = testhjalp::företag(&db).await;
+    let nr = Kontonummer::new(1930).unwrap();
+    kontoplan::byt_namn(&db, &klocka(), &anna, företag, nr, "Bankkonto SEB")
+        .await
+        .unwrap();
+    testhjalp::bokför(
+        &db,
+        &anna,
+        företag,
+        "2026-03-14",
+        &[(1930, 1_250_000, 0), (3001, 0, 1_250_000)],
+    )
+    .await;
+    let urval = Urval {
+        typ: Some("konto namnbytt".into()),
+        från: Some(jiff::civil::date(2026, 10, 1)),
+        ..Urval::default()
+    };
+
+    let pdf = utskrift::behandlingshistorik(&db, &klocka(), &anna, företag, &urval)
+        .await
+        .unwrap();
+
+    assert_eq!(pdf.filnamn, "behandlingshistorik_5560360793_20261018.pdf");
+    är_pdfa_2b(&pdf.innehåll);
+    let text = sidor(&pdf.innehåll).concat();
+    for väntat in [
+        "Behandlingshistorik",
+        "Exempel AB",
+        "Urval: typ konto namnbytt · från 2026-10-01",
+        "2026-10-18 14:34:00",
+        "anna@example.se (webb)",
+        "konto namnbytt",
+        "1930",
+        "Namn ändrat från ”Företagskonto” till ”Bankkonto SEB”",
+        "1 post",
+        "Utskrivet 2026-10-18 14:34 av anna@example.se",
+    ] {
+        assert!(innehåller(&text, väntat), "{väntat}: {text}");
+    }
+    assert!(!innehåller(&text, "verifikat bokfört"), "{text}");
 }

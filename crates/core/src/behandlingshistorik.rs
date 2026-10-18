@@ -154,6 +154,30 @@ pub enum Aktörsval {
     Kanal(Kanal),
 }
 
+/// Nyckeln i en adress: `anvandare-<id>`, eller kanalens namn (`maya`, `cli`, `webb`).
+impl std::fmt::Display for Aktörsval {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Aktörsval::Användare(a) => write!(f, "anvandare-{a}"),
+            Aktörsval::Kanal(k) => f.write_str(k.namn()),
+        }
+    }
+}
+
+impl std::str::FromStr for Aktörsval {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, ()> {
+        match s.strip_prefix("anvandare-") {
+            Some(id) => id
+                .parse()
+                .map(|id| Aktörsval::Användare(AnvändarId(id)))
+                .map_err(|_| ()),
+            None => Kanal::från_namn(s).map(Aktörsval::Kanal).ok_or(()),
+        }
+    }
+}
+
 /// Ett urval ur behandlingshistoriken och det som går att välja i den.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Historik {
@@ -194,6 +218,33 @@ pub async fn historik(
 }
 
 impl Urval {
+    /// Urvalet som text, t.ex. `typ konto namnbytt · från 2026-10-01`. `aktörer` ger namnet på
+    /// den valda aktören (se [`Historik::aktörer`]).
+    pub fn beskriv(&self, aktörer: &[(Aktörsval, String)]) -> String {
+        let mut delar = Vec::new();
+        if let Some(typ) = &self.typ {
+            delar.push(format!("typ {typ}"));
+        }
+        if let Some(val) = self.aktör {
+            let namn = aktörer
+                .iter()
+                .find(|(a, _)| *a == val)
+                .map_or_else(|| val.to_string(), |(_, n)| n.clone());
+            delar.push(format!("aktör {namn}"));
+        }
+        if let Some(från) = self.från {
+            delar.push(format!("från {från}"));
+        }
+        if let Some(till) = self.till {
+            delar.push(format!("till {till}"));
+        }
+        if delar.is_empty() {
+            "alla poster".into()
+        } else {
+            delar.join(" · ")
+        }
+    }
+
     /// Om posten är med i urvalet.
     pub fn tar_med(&self, post: &Post) -> bool {
         let dag = maya_domain::tid::datum(post.tid);
