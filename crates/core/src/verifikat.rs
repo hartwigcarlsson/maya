@@ -497,7 +497,9 @@ pub async fn lista(
 }
 
 /// Namnet som visas för en aktör.
-async fn namn(conn: &mut SqliteConnection, aktör: &Aktör) -> Result<String, DatabasFel> {
+pub(crate) async fn namn(
+    conn: &mut SqliteConnection, aktör: &Aktör
+) -> Result<String, DatabasFel> {
     let namn: Option<String> = match aktör.användare {
         Some(a) => {
             sqlx::query_scalar("SELECT visningsnamn FROM anvandare WHERE id = ?")

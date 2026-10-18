@@ -16,6 +16,8 @@
 //! `mall.typ`, och en gren i `Dokument::mall`/`Dokument::data`.
 
 mod data;
+#[cfg(feature = "test-support")]
+pub mod testhjalp;
 mod varld;
 
 use jiff::Timestamp;

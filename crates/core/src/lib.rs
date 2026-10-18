@@ -14,6 +14,7 @@ mod klocka;
 pub mod kontoplan;
 #[cfg(feature = "test-support")]
 pub mod testhjalp;
+pub mod utskrift;
 pub mod verifikat;
 
 #[cfg(feature = "test-support")]

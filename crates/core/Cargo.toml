@@ -12,6 +12,7 @@ test-support = ["dep:tempfile"]
 
 [dependencies]
 maya-domain.workspace = true
+maya-pdf.workspace = true
 getrandom.workspace = true
 hex.workspace = true
 ipnet.workspace = true
@@ -25,6 +26,7 @@ tracing.workspace = true
 url.workspace = true
 
 [dev-dependencies]
+maya-pdf = { workspace = true, features = ["test-support"] }
 maya-core = { path = ".", features = ["test-support"] }
 tempfile.workspace = true
 tokio.workspace = true

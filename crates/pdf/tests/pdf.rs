@@ -1,15 +1,9 @@
 //! PDF:erna läses tillbaka: PDF/A-2b-märkningen, inbäddade typsnitt och texten per sida.
 
-use hayro_interpret::font::Glyph;
-use hayro_interpret::{
-    BlendMode, ClipPath, Context, Device, GlyphDrawMode, Image, InterpreterCache,
-    InterpreterSettings, Paint, PathDrawMode, SoftMask, interpret_page,
-};
-use hayro_syntax::Pdf;
 use jiff::Timestamp;
-use kurbo::{Affine, BezPath, Rect};
 use maya_domain::belopp::Belopp;
 use maya_domain::kontoplan::Kontonummer;
+use maya_pdf::testhjalp::{innehåller, sidor, är_pdfa_2b};
 use maya_pdf::{
     Dokument, Företag, Historikpost, Konto, Kontoplan, Rad, Sidfot, Signatur, Underlag, Verifikat,
     skriv,
@@ -39,82 +33,6 @@ fn kr(öre: i64) -> Belopp {
 
 fn tid(s: &str) -> Timestamp {
     s.parse().unwrap()
-}
-
-/// Texten på varje sida, utan blanksteg (glyferna har inga mellanrum).
-fn sidor(pdf: &[u8]) -> Vec<String> {
-    let pdf = Pdf::new(pdf.to_vec()).expect("PDF:en går att läsa");
-    let cache = InterpreterCache::new();
-    pdf.pages()
-        .iter()
-        .map(|sida| {
-            let mut context = Context::new(
-                Affine::IDENTITY,
-                Rect::new(0.0, 0.0, 1.0, 1.0),
-                &cache,
-                pdf.xref(),
-                InterpreterSettings::default(),
-            );
-            let mut text = Text(String::new());
-            interpret_page(sida, &mut context, &mut text);
-            text.0
-        })
-        .collect()
-}
-
-fn utan_blanksteg(s: &str) -> String {
-    s.chars().filter(|c| !c.is_whitespace()).collect()
-}
-
-fn innehåller(sida: &str, text: &str) -> bool {
-    sida.contains(&utan_blanksteg(text))
-}
-
-struct Text(String);
-
-impl Device<'_> for Text {
-    fn set_soft_mask(&mut self, _: Option<SoftMask<'_>>) {}
-    fn set_blend_mode(&mut self, _: BlendMode) {}
-    fn draw_path(&mut self, _: &BezPath, _: Affine, _: &Paint<'_>, _: &PathDrawMode) {}
-    fn push_clip_path(&mut self, _: &ClipPath) {}
-    fn push_transparency_group(&mut self, _: f32, _: Option<SoftMask<'_>>, _: BlendMode) {}
-    fn draw_glyph(
-        &mut self,
-        g: &Glyph<'_>,
-        _: Affine,
-        _: Affine,
-        _: &Paint<'_>,
-        _: &GlyphDrawMode,
-    ) {
-        match g.as_unicode() {
-            Some(hayro_cmap::BfString::Char(c)) if !c.is_whitespace() => self.0.push(c),
-            Some(hayro_cmap::BfString::String(s)) => self.0.push_str(&utan_blanksteg(&s)),
-            _ => {}
-        }
-    }
-    fn draw_image(&mut self, _: Image<'_, '_>, _: Affine) {}
-    fn pop_clip_path(&mut self) {}
-    fn pop_transparency_group(&mut self) {}
-}
-
-/// PDF/A-2b enligt XMP-metadatan och med alla typsnitt inbäddade. Typst vägrar själv att skriva
-/// en PDF som bryter mot standarden; här syns att standarden faktiskt valdes.
-fn är_pdfa_2b(pdf: &[u8]) {
-    let s = String::from_utf8_lossy(pdf);
-    assert!(s.starts_with("%PDF-1.7"), "PDF 1.7 som PDF/A-2 bygger på");
-    assert!(s.contains("<pdfaid:part>2</pdfaid:part>"), "PDF/A del 2");
-    assert!(
-        s.contains("<pdfaid:conformance>B</pdfaid:conformance>"),
-        "nivå B"
-    );
-    assert!(
-        s.contains("/OutputIntents"),
-        "PDF/A kräver en output intent"
-    );
-    assert!(
-        s.contains("/FontFile2") || s.contains("/FontFile3"),
-        "typsnitten är inbäddade"
-    );
 }
 
 fn kontoplan(antal: u16) -> Kontoplan {
