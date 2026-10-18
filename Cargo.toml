@@ -16,6 +16,7 @@ maya-auth = { path = "crates/auth" }
 maya-sie = { path = "crates/sie" }
 
 axum = "0.8"
+calamine = "0.36"
 clap = { version = "4", features = ["derive"] }
 console_error_panic_hook = "0.1"
 dotenvy = "0.15"

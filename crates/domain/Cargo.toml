@@ -9,5 +9,9 @@ publish.workspace = true
 [dependencies]
 jiff.workspace = true
 
+# BAS-filerna tolkas vid bygget (ADR 0006); ingen XLSX läses vid körning.
+[build-dependencies]
+calamine.workspace = true
+
 [lints]
 workspace = true

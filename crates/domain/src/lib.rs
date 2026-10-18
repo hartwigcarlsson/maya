@@ -2,4 +2,5 @@
 //! regler som servern (ADR 0003).
 
 pub mod epost;
+pub mod kontoplan;
 pub mod tid;
