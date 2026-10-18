@@ -224,6 +224,7 @@ main {
 }
 
 .flikar a {
+  white-space: nowrap;
   padding: 4px 8px;
   border-radius: var(--radius);
   text-decoration: none;
@@ -240,6 +241,7 @@ main {
 }
 
 .foretagsvaljare summary {
+  white-space: nowrap;
   display: inline-flex;
   align-items: center;
   list-style: none;
@@ -876,7 +878,9 @@ kbd {
   align-items: center;
   gap: 8px;
   height: var(--control-height);
-  min-width: 240px;
+  width: 240px;
+  min-width: 120px;
+  flex-shrink: 1;
   margin-left: auto;
   padding: 0 8px;
   border: 1px solid var(--input);
