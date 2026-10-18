@@ -75,7 +75,6 @@ pub(crate) struct Ärende {
 impl Ärende {
     /// Börjar en skrivande transaktion (`BEGIN IMMEDIATE`, så att SQLite serialiserar
     /// skrivningarna) och kontrollerar kanalpolicyn och åtkomsten.
-    #[allow(dead_code)] // Används av användningsfallen som ändrar ett befintligt företag.
     pub async fn börja(
         db: &Databas,
         klocka: &Klocka,
@@ -108,7 +107,6 @@ impl Ärende {
         }
     }
 
-    #[allow(dead_code)] // Används av användningsfallen som ändrar ett befintligt företag.
     pub fn conn(&mut self) -> &mut SqliteConnection {
         &mut self.tx
     }

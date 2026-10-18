@@ -159,13 +159,13 @@ pub async fn lägg_upp(
     Ok(id)
 }
 
-async fn lägg_till_räkenskapsår(
+pub(crate) async fn lägg_till_räkenskapsår(
     conn: &mut SqliteConnection,
     företag: FöretagsId,
     start: Date,
     slut: Date,
     perioder: &[Period],
-) -> Result<(), sqlx::Error> {
+) -> Result<i64, sqlx::Error> {
     let år: i64 = sqlx::query_scalar(
         "INSERT INTO rakenskapsar (foretag_id, start, slut) VALUES (?, ?, ?) RETURNING id",
     )
@@ -182,7 +182,7 @@ async fn lägg_till_räkenskapsår(
             .execute(&mut *conn)
             .await?;
     }
-    Ok(())
+    Ok(år)
 }
 
 /// Företagen som aktören har åtkomst till, i namnordning.
@@ -299,7 +299,7 @@ fn tolka_orgnr(siffror: &str) -> Result<Organisationsnummer, DatabasFel> {
     Organisationsnummer::tolka(siffror).map_err(|_| DatabasFel::Korrupt("foretag.orgnr".into()))
 }
 
-fn datum(text: &str) -> Result<Date, DatabasFel> {
+pub(crate) fn datum(text: &str) -> Result<Date, DatabasFel> {
     text.parse()
         .map_err(|_| DatabasFel::Korrupt(format!("ett datum: {text}")))
 }
