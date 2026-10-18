@@ -23,6 +23,9 @@ pub enum Händelse {
     VerifikatBokfört,
     UtkastRaderat,
     IngåendeBalansÄndrad,
+    UnderlagUppladdat,
+    UnderlagBorttaget,
+    VerifikatKompletterat,
 }
 
 impl Händelse {
@@ -38,6 +41,9 @@ impl Händelse {
             Händelse::VerifikatBokfört => "verifikat bokfört",
             Händelse::UtkastRaderat => "utkast raderat",
             Händelse::IngåendeBalansÄndrad => "ingående balans ändrad",
+            Händelse::UnderlagUppladdat => "underlag uppladdat",
+            Händelse::UnderlagBorttaget => "underlag borttaget",
+            Händelse::VerifikatKompletterat => "verifikat kompletterat",
         }
     }
 }

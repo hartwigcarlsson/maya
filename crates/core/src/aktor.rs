@@ -95,6 +95,10 @@ pub enum Handling {
     HanteraUtkast,
     /// Skriva in eller ändra den ingående balansen.
     ÄndraIngåendeBalans,
+    /// Ladda upp ett underlag och ta bort ett som aldrig har hört till ett bokfört verifikat.
+    HanteraUnderlag,
+    /// Komplettera ett bokfört verifikat med ett underlag (VF6).
+    Komplettera,
 }
 
 /// Kanalpolicyn: om `kanal` får utföra `handling`.
@@ -106,6 +110,8 @@ pub fn tillåter(kanal: Kanal, handling: Handling) -> bool {
         | Handling::ÄndraKontoplan
         | Handling::Bokföra
         | Handling::HanteraUtkast
-        | Handling::ÄndraIngåendeBalans => kanal == Kanal::Webb,
+        | Handling::ÄndraIngåendeBalans
+        | Handling::HanteraUnderlag
+        | Handling::Komplettera => kanal == Kanal::Webb,
     }
 }
