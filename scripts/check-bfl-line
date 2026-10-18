@@ -42,7 +42,9 @@ fi
 
 # mentions <text> <id>: the id stands as a whole word in the text.
 mentions() {
-  printf '%s\n' "$1" | grep -Eq "(^|[^A-Za-z0-9])$2([^0-9]|$)"
+  # A here-string, not a pipe: grep -q exits at the first match, and under pipefail
+  # the writer's broken pipe would turn a found id into a failure.
+  grep -Eq "(^|[^A-Za-z0-9])$2([^0-9]|$)" <<<"$1"
 }
 
 # open_issue <n>: sets $issue to the issue's body and comments, or fails if it is not open.
