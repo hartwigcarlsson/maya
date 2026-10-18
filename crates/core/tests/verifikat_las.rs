@@ -120,3 +120,31 @@ async fn schemat_avvisar_att_bokföra_obalanserat_eller_med_en_lucka_i_serien() 
     .await;
     assert!(direkt.unwrap_err().contains("skapas som utkast"));
 }
+
+#[tokio::test]
+async fn schemat_avvisar_att_bokföra_ett_utkast_med_en_rad_utan_konto() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = databas_med_bokfört_verifikat(&dir).await;
+    kör_sql(
+        &path,
+        "INSERT INTO verifikat (id, foretag_id, rakenskapsar_id, datum, beskrivning, kalla,
+             skapad, skapad_kanal)
+         VALUES (2, 1, 1, '2026-03-15', 'Utkast', 'manuell', '2026-03-15T00:00:00Z', 'webb');
+         INSERT INTO verifikatrad (verifikat_id, radnr, konto, debet, kredit)
+         VALUES (2, 1, 1930, 100, 0), (2, 2, NULL, 0, 100);",
+    )
+    .await
+    .unwrap();
+
+    let utan_konto = kör_sql(
+        &path,
+        "UPDATE verifikat SET nummer = 2, bokford = '2026-03-15T00:00:00Z',
+             bokford_kanal = 'webb' WHERE id = 2",
+    )
+    .await;
+
+    assert!(
+        utan_konto.as_ref().unwrap_err().contains("konto"),
+        "{utan_konto:?}"
+    );
+}

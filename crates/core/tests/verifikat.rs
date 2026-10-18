@@ -79,7 +79,7 @@ async fn ett_bokfört_verifikat_får_v1_och_visas_med_rader_och_vem_som_bokförd
         .iter()
         .map(|r| {
             (
-                r.konto.get(),
+                r.konto.unwrap().get(),
                 r.debet.öre(),
                 r.kredit.öre(),
                 r.text.as_deref(),

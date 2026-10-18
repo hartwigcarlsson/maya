@@ -88,14 +88,17 @@ pub enum Handling {
     LäsaFöretag,
     /// Bokföra ett verifikat. MCP läggs till i etapp 6.
     Bokföra,
+    /// Spara, ändra och radera ett utkast. MCP läggs till i etapp 6.
+    HanteraUtkast,
 }
 
 /// Kanalpolicyn: om `kanal` får utföra `handling`.
 pub fn tillåter(kanal: Kanal, handling: Handling) -> bool {
     match handling {
         Handling::HanteraAnvändare => kanal == Kanal::Cli,
-        Handling::LäggaUppFöretag | Handling::LäsaFöretag | Handling::Bokföra => {
-            kanal == Kanal::Webb
-        }
+        Handling::LäggaUppFöretag
+        | Handling::LäsaFöretag
+        | Handling::Bokföra
+        | Handling::HanteraUtkast => kanal == Kanal::Webb,
     }
 }

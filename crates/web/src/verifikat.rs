@@ -275,8 +275,8 @@ pub(crate) mod server {
                     .rader
                     .iter()
                     .map(|r| RadVy {
-                        konto: r.konto.to_string(),
-                        kontonamn: kontonamn(r.konto.get()),
+                        konto: r.konto.map(|k| k.to_string()).unwrap_or_default(),
+                        kontonamn: r.konto.map(|k| kontonamn(k.get())).unwrap_or_default(),
                         debet: belopp(r.debet),
                         kredit: belopp(r.kredit),
                         text: r.text.clone().unwrap_or_default(),
