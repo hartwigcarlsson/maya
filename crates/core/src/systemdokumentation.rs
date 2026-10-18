@@ -613,7 +613,7 @@ fn arkivplanen(f: &Företag, config: &Config) -> Avsnitt {
         (a, None) => format!("{}, inga larm (MAYA_DRIFT_EPOST saknas)", fritext(a)),
     };
     let databas = config.data_dir.join("maya.db");
-    let mut block = vec![
+    let block = vec![
         stycke(
             "Arkivplanen genereras ur konfigurationen och företagets data. Hela installationens \
              räkenskapsinformation ligger i en databas: verifikaten, underlagen som \
@@ -642,21 +642,20 @@ fn arkivplanen(f: &Företag, config: &Config) -> Avsnitt {
                 "i webben, som PDF/A-2b och CSV och som SIE4, se Utskrift".into(),
             ),
         ]),
+        Block::Underrubrik("Förvaring i Sverige".into()),
+        stycke(
+            "Maya förutsätter att databasen och alla backuper förvaras i Sverige (BFL 7:2). Den \
+             som driftar servern ansvarar för det: att servern och backupmålet, även en kopia \
+             som flyttas offsite, finns i Sverige. Förvaring i ett annat land stöds inte i Maya \
+             0.1.",
+        ),
         Block::Underrubrik("Driftens fritext".into()),
         stycke("Det Maya inte kan veta, ordagrant ur konfigurationen:"),
         fakta(vec![
-            ("Plats och land", fritext(&config.arkivplan.plats)),
             ("Offsite", fritext(&config.arkivplan.offsite)),
             ("Krypteringsnyckel", fritext(&config.arkivplan.nyckel)),
             ("Ansvarig för driften", ansvarig),
         ]),
-    ];
-    if config.arkivplan.plats.is_none() {
-        block.push(Block::Varning(
-            crate::drift::Driftvarning::ArkivplanUtanLand.text().into(),
-        ));
-    }
-    block.extend([
         Block::Underrubrik("Sparandetid".into()),
         stycke(
             "Räkenskapsinformationen bevaras till och med 31 december det sjunde året efter \
@@ -676,7 +675,7 @@ fn arkivplanen(f: &Företag, config: &Config) -> Avsnitt {
                 })
                 .collect(),
         ),
-    ]);
+    ];
     avsnitt(
         "arkivplan",
         "Arkivplan",

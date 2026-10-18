@@ -23,7 +23,6 @@ fn block(b: &Block) -> Value {
     match b {
         Block::Underrubrik(t) => json!({ "typ": "underrubrik", "text": t }),
         Block::Stycke(t) => json!({ "typ": "stycke", "text": text(t) }),
-        Block::Varning(t) => json!({ "typ": "varning", "text": text(t) }),
         Block::Lista(punkter) => {
             json!({ "typ": "lista", "punkter": punkter.iter().map(text).collect::<Vec<_>>() })
         }

@@ -229,13 +229,6 @@ fn blocket(b: Block) -> AnyView {
             view! { <dl class="fakta">{rader}</dl> }.into_any()
         }
         Block::Tabell(t) => tabellen(t),
-        Block::Varning(t) => view! {
-            <div class="driftvarning" role="alert">
-                <span class="badge badge-drift">"varning"</span>
-                <p class="varning">{texten(t)}</p>
-            </div>
-        }
-        .into_any(),
         Block::Länk { text, href } => {
             // PDF:er är filer, inte sidor i appen.
             let extern_fil = href.ends_with("/pdf").then_some("external");

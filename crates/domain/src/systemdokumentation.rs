@@ -49,8 +49,6 @@ pub enum Block {
     /// Rubrik och värde, t.ex. "Version" och "0.1.0".
     Fakta(Vec<(String, Text)>),
     Tabell(Tabell),
-    /// Något som saknas eller är fel, t.ex. en arkivplan utan land.
-    Varning(Text),
     /// En sida eller fil i Maya; `href` är en sökväg på servern.
     Länk {
         text: String,

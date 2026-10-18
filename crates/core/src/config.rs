@@ -60,8 +60,6 @@ pub struct Smtp {
 /// Arkivplanens fritext: det Maya inte kan veta själv.
 #[derive(Debug, Clone, Default)]
 pub struct Arkivplan {
-    /// `MAYA_ARKIVPLAN_PLATS`: fysisk plats och land.
-    pub plats: Option<String>,
     /// `MAYA_ARKIVPLAN_OFFSITE`: hur kopian flyttas offsite.
     pub offsite: Option<String>,
     /// `MAYA_ARKIVPLAN_NYCKEL`: var en eventuell krypteringsnyckel förvaras.
@@ -146,7 +144,6 @@ impl Config {
         let smtp = env.smtp();
         let drift_epost = env.get("MAYA_DRIFT_EPOST");
         let arkivplan = Arkivplan {
-            plats: env.get("MAYA_ARKIVPLAN_PLATS"),
             offsite: env.get("MAYA_ARKIVPLAN_OFFSITE"),
             nyckel: env.get("MAYA_ARKIVPLAN_NYCKEL"),
             ansvarig: env.get("MAYA_ARKIVPLAN_ANSVARIG"),
@@ -434,7 +431,6 @@ impl fmt::Display for Config {
             }
         }
         line(f, "MAYA_DRIFT_EPOST", optional(&self.drift_epost))?;
-        line(f, "MAYA_ARKIVPLAN_PLATS", optional(&self.arkivplan.plats))?;
         line(
             f,
             "MAYA_ARKIVPLAN_OFFSITE",

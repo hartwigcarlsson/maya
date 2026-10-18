@@ -36,7 +36,7 @@ Status: **ja** = uppfyllt i etappens omfattning, **delvis** = se avvikelserna ne
 | A3 | delvis, som specen säger | `core::databas` migrerar med kontrollsummor och backup före | `core/tests/migrering.rs::migreringarna_körs_mot_en_databas_med_data_och_kontrollsummorna_är_desamma_efter` |
 | A4 | ja | Migrering, SIE4 (läses tillbaka), backup och restore stäms av med kontrollsummor | `core/tests/migrering.rs::en_migrering_som_ändrar_bokförda_data_rullas_tillbaka_och_maya_startar_inte`; `core/tests/sie4.rs::en_avvikelse_vid_återläsningen_ger_ett_fel_och_ingen_fil` |
 | A5 | ja | Nattlig backup med verifiering (`maya/src/backup.rs`, `core::backup`); varning om samma disk | `core/tests/backup.rs::backupen_skriver_databasen_och_ett_manifest_med_kontrollsummorna`; `core/tests/drift.rs::ett_backupmål_på_samma_enhet_som_databasen_ger_en_varning` |
-| A6 | delvis | `docs/drift.md`; arkivplanens plats (`MAYA_ARKIVPLAN_PLATS`) med driftvarning när den saknas | `core/tests/drift.rs::en_arkivplan_utan_land_ger_en_varning` |
+| A6 | ja, förutsatt lagring i Sverige | Systemdokumentationens arkivplan, avsnittet Förvaring i Sverige: Maya förutsätter att databasen och alla backuper förvaras i Sverige och att den som driftar servern ansvarar för det; annan förvaring stöds inte i 0.1. Samma sak i `docs/drift.md` | `core/tests/systemdokumentation.rs::arkivplanen_förutsätter_att_databasen_och_backuperna_förvaras_i_sverige` |
 | A7 | ja, genom att Maya inte krypterar | Arkivplanen; `MAYA_ARKIVPLAN_NYCKEL` för ett krypterat backupmål | `core/tests/systemdokumentation.rs::arkivplanen_tar_med_driftens_fritext_ordagrant` |
 | Å1 | ja | `domain::rakenskapsar::Räkenskapsår::{första, nästa}` | `domain/tests/rakenskapsar.rs::{det_första_året_är_högst_18_månader, det_första_året_är_minst_en_månad}` |
 | Å2 | ja | M `…151400_ingaende_balans.sql`; `core::ingaende_balans` (första året) | `core/tests/ingaende_balans.rs::första_årets_ingående_balans_skrivs_in_och_läses_tillbaka` |
@@ -55,7 +55,6 @@ Uppskjutna till en senare etapp, med ett öppet issue:
 Inte uppfyllda, med ett öppet issue som avgör hur:
 
 - **L2 och T1**: Att göra varnar för kontantfristen och 50 dagar, men inget låses eller bokförs när fristen har gått ut. Att låsningen sker i tid hänger på användaren. L2 och T1 i [#129](https://github.com/hartwigcarlsson/maya/issues/129).
-- **A6**: att data och backup förvaras i Sverige är bara dokumenterat (`docs/drift.md`, arkivplanen). Inget kontrollerar var ett S3-mål ligger. A6 i [#130](https://github.com/hartwigcarlsson/maya/issues/130).
 - **A7**: uppfyllt bara för att Maya inte krypterar något. Nyckeln till ett krypterat backupmål är fritext i arkivplanen, och ingen kontroll görs av att den finns. A7 i [#131](https://github.com/hartwigcarlsson/maya/issues/131).
 
 Testluckor: överföringsavsnittet (S5) testas bara för att det finns, och den nattliga schemaläggningen (A5) testas bara i beräkningen av nästa körning.

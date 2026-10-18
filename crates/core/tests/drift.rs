@@ -15,7 +15,7 @@ fn klocka(tid: &str) -> Klocka {
     Klocka::fast(tid.parse().unwrap())
 }
 
-/// En konfiguration där inget är fel: S3-mål (aldrig samma enhet) och arkivplan med land.
+/// En konfiguration där inget är fel: S3-mål (aldrig samma enhet).
 fn hel_konfiguration(extra: &[(&str, &str)]) -> Config {
     // En variabel i `extra` ersätter standardvärdet; ett tomt värde räknas som saknat.
     let env: std::collections::HashMap<String, String> = [
@@ -24,7 +24,6 @@ fn hel_konfiguration(extra: &[(&str, &str)]) -> Config {
         ("MAYA_BACKUP_S3_BUCKET", "maya"),
         ("MAYA_BACKUP_S3_ACCESS_KEY_ID", "maya-backup"),
         ("MAYA_BACKUP_S3_SECRET_ACCESS_KEY", "hemlig"),
-        ("MAYA_ARKIVPLAN_PLATS", "Serverhall i Stockholm, Sverige"),
     ]
     .iter()
     .chain(extra)
@@ -182,29 +181,11 @@ async fn ett_backupmål_på_samma_enhet_som_databasen_ger_en_varning() {
 }
 
 #[tokio::test]
-async fn en_arkivplan_utan_land_ger_en_varning() {
-    let db = Databas::tillfällig().await;
-    let (anna, företag) = testhjalp::företag(&db).await;
-    let (mål, arbete) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
-    ta_backup(&db, "2026-10-18T01:00:00Z", mål.path(), arbete.path()).await;
-    let k = klocka("2026-10-18T08:00:00Z");
-
-    let utan_land = hel_konfiguration(&[("MAYA_ARKIVPLAN_PLATS", "")]);
-    assert_eq!(
-        driftvarningar(&db, &k, &utan_land, &anna, företag).await,
-        vec![Driftvarning::ArkivplanUtanLand]
-    );
-    assert_eq!(
-        driftvarningar(&db, &k, &hel_konfiguration(&[]), &anna, företag).await,
-        vec![]
-    );
-}
-
-#[tokio::test]
 async fn driftvarningarna_syns_överst_i_varje_företag_och_räknas() {
     let db = Databas::tillfällig().await;
     let (anna, företag) = testhjalp::företag(&db).await;
-    let utan_land = hel_konfiguration(&[("MAYA_ARKIVPLAN_PLATS", "")]);
+    // Ingen backup har lyckats: en driftvarning.
+    let config = hel_konfiguration(&[]);
     let k = klocka("2026-10-18T08:00:00Z");
     testhjalp::bokför(
         &db,
@@ -225,15 +206,14 @@ async fn driftvarningarna_syns_överst_i_varje_företag_och_räknas() {
     .await
     .unwrap();
 
-    let saker = att_gora::att_göra(&db, &k, &utan_land, &anna, företag)
+    let saker = att_gora::att_göra(&db, &k, &config, &anna, företag)
         .await
         .unwrap()
         .saker;
     assert!(matches!(saker[0], Sak::Driftvarning(_)), "{saker:?}");
-    assert!(matches!(saker[1], Sak::Driftvarning(_)), "{saker:?}");
-    assert!(matches!(saker[2], Sak::Utkast(_)), "{saker:?}");
+    assert!(matches!(saker[1], Sak::Utkast(_)), "{saker:?}");
 
-    let antal = att_gora::antal(&db, &k, &utan_land, &anna).await.unwrap();
-    // Backupen saknas och arkivplanen saknar land, plus utkastet.
-    assert_eq!(antal[&företag], 3);
+    let antal = att_gora::antal(&db, &k, &config, &anna).await.unwrap();
+    // Backupen saknas, plus utkastet.
+    assert_eq!(antal[&företag], 2);
 }

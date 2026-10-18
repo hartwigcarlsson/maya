@@ -35,7 +35,7 @@ fn text(a: &Avsnitt) -> String {
     for b in &a.block {
         match b {
             Block::Underrubrik(t) => ut.push(t.clone()),
-            Block::Stycke(t) | Block::Varning(t) => ut.push(t.ren()),
+            Block::Stycke(t) => ut.push(t.ren()),
             Block::Lista(punkter) => ut.extend(punkter.iter().map(Text::ren)),
             Block::Fakta(rader) => {
                 ut.extend(rader.iter().map(|(r, v)| format!("{r}: {}", v.ren())))
@@ -51,16 +51,6 @@ fn text(a: &Avsnitt) -> String {
         }
     }
     ut.join("\n")
-}
-
-fn varningar(a: &Avsnitt) -> Vec<String> {
-    a.block
-        .iter()
-        .filter_map(|b| match b {
-            Block::Varning(t) => Some(t.ren()),
-            _ => None,
-        })
-        .collect()
 }
 
 #[tokio::test]
@@ -213,7 +203,6 @@ async fn arkivplanen_tar_med_driftens_fritext_ordagrant() {
     let db = Databas::tillfällig().await;
     let (anna, företag) = testhjalp::företag(&db).await;
     let config = config(&[
-        ("MAYA_ARKIVPLAN_PLATS", "Hyllan i Uppsala, Sverige"),
         (
             "MAYA_ARKIVPLAN_OFFSITE",
             "USB-disk till bankfacket varje månad",
@@ -230,7 +219,6 @@ async fn arkivplanen_tar_med_driftens_fritext_ordagrant() {
     let a = avsnitt(&dok, "arkivplan");
     let t = text(a);
     for väntat in [
-        "Plats och land: Hyllan i Uppsala, Sverige",
         "Offsite: USB-disk till bankfacket varje månad",
         "Krypteringsnyckel: Ingen kryptering",
         "Ansvarig för driften: Anna Andersson, larm till drift@example.se",
@@ -242,11 +230,11 @@ async fn arkivplanen_tar_med_driftens_fritext_ordagrant() {
     ] {
         assert!(t.contains(väntat), "saknar {väntat:?}:\n{t}");
     }
-    assert!(varningar(a).is_empty(), "{:?}", varningar(a));
+    assert!(!t.contains("Plats och land"), "{t}");
 }
 
 #[tokio::test]
-async fn arkivplanen_varnar_när_landet_saknas() {
+async fn arkivplanen_förutsätter_att_databasen_och_backuperna_förvaras_i_sverige() {
     let db = Databas::tillfällig().await;
     let (anna, företag) = testhjalp::företag(&db).await;
 
@@ -255,10 +243,15 @@ async fn arkivplanen_varnar_när_landet_saknas() {
         .unwrap();
 
     let a = avsnitt(&dok, "arkivplan");
-    assert!(text(a).contains("Plats och land: ej angivet"));
-    let v = varningar(a);
-    assert_eq!(v.len(), 1, "{v:?}");
-    assert!(v[0].contains("MAYA_ARKIVPLAN_PLATS"), "{v:?}");
+    assert!(a.krav.iter().any(|k| k == "A6"), "{:?}", a.krav);
+    let t = text(a);
+    for väntat in [
+        "Maya förutsätter att databasen och alla backuper förvaras i Sverige (BFL 7:2)",
+        "Den som driftar servern ansvarar för det",
+        "Förvaring i ett annat land stöds inte i Maya 0.1",
+    ] {
+        assert!(t.contains(väntat), "saknar {väntat:?}:\n{t}");
+    }
 }
 
 #[tokio::test]
