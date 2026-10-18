@@ -29,6 +29,7 @@ pub enum Händelse {
     BokföringsmetodBytt,
     MomsperiodBytt,
     VerifikatBokfört,
+    VerifikatRättat,
     UtkastRaderat,
     IngåendeBalansÄndrad,
     UnderlagUppladdat,
@@ -44,7 +45,7 @@ pub enum Händelse {
 impl Händelse {
     /// Alla typer som har en kodväg. En ny typ läggs till här också, så att testet som kör
     /// varje typ genom `core` måste få en kodväg för den.
-    pub const ALLA: [Händelse; 22] = [
+    pub const ALLA: [Händelse; 23] = [
         Händelse::FöretagSkapat,
         Händelse::FöretagÄndrat,
         Händelse::KontoSkapat,
@@ -57,6 +58,7 @@ impl Händelse {
         Händelse::BokföringsmetodBytt,
         Händelse::MomsperiodBytt,
         Händelse::VerifikatBokfört,
+        Händelse::VerifikatRättat,
         Händelse::UtkastRaderat,
         Händelse::IngåendeBalansÄndrad,
         Händelse::UnderlagUppladdat,
@@ -83,6 +85,7 @@ impl Händelse {
             Händelse::BokföringsmetodBytt => "bokföringsmetod bytt",
             Händelse::MomsperiodBytt => "momsperiod bytt",
             Händelse::VerifikatBokfört => "verifikat bokfört",
+            Händelse::VerifikatRättat => "verifikat rättat",
             Händelse::UtkastRaderat => "utkast raderat",
             Händelse::IngåendeBalansÄndrad => "ingående balans ändrad",
             Händelse::UnderlagUppladdat => "underlag uppladdat",
@@ -413,6 +416,20 @@ impl Post {
                 f("mime"),
                 s(&b["storlek"])
             ),
+            "verifikat rättat" => {
+                let mut text = format!(
+                    "Rättat av {} daterad {}",
+                    s(&b["rättelse"]["nummer"]),
+                    f("datum")
+                );
+                if !f("orsak").is_empty() {
+                    text.push_str(&format!(", orsak ”{}”", f("orsak")));
+                }
+                if !b["kopia"].is_null() {
+                    text.push_str(", registreras om som utkast");
+                }
+                text
+            }
             "verifikat kompletterat" => {
                 format!("Kompletterat med underlaget ”{}”", f("filnamn"))
             }

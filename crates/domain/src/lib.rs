@@ -11,6 +11,7 @@ pub mod kontourval;
 pub mod orgnr;
 pub mod rakenskapsar;
 pub mod rapport;
+pub mod rattelse;
 pub mod sok;
 pub mod tid;
 pub mod underlag;

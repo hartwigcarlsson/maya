@@ -1116,6 +1116,55 @@ kbd {
   color: var(--muted-foreground);
 }
 
+/* Ett rättat verifikat (R2). */
+.badge-rattad {
+  background: color-mix(in oklch, var(--destructive) 12%, transparent);
+  color: var(--destructive);
+}
+
+/* Rätta… i dokumentet (variant C). */
+.rattelse {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding: 14px;
+  border: 1px solid var(--ring);
+  border-radius: var(--radius);
+  background: var(--card);
+}
+
+.rattelse h3,
+.rattelse p {
+  margin: 0;
+}
+
+.rattelse-rubrik {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.rattelse-formular {
+  display: grid;
+  grid-template-columns: minmax(0, 160px) minmax(0, 1fr);
+  gap: 0.75rem;
+}
+
+.rattelse-formular label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.rattelse-formular > :not(label) {
+  grid-column: 1 / -1;
+}
+
+.rattelse-fel:empty {
+  display: none;
+}
+
 .notis {
   max-width: 860px;
   margin: 0 0 0.75rem;

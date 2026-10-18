@@ -15,8 +15,11 @@ use jiff::civil::Date;
 use maya_domain::belopp::Belopp;
 use maya_domain::kontoplan::Kontonummer;
 use maya_domain::rakenskapsar::{Period, Räkenskapsår};
+use maya_domain::rattelse::{Original, Rättelsespärr};
 use maya_domain::sok::{Fråga, Sökbart};
-use maya_domain::verifikat::{Förutsättningar, NyttVerifikat, Spärr, Årsval};
+use maya_domain::verifikat::{
+    BokförbartVerifikat, Förutsättningar, NyttVerifikat, Spärr, Årsval
+};
 use sqlx::SqliteConnection;
 
 use crate::aktor::{Aktör, AnvändarId, Handling, Kanal};
@@ -71,6 +74,12 @@ pub enum VerifikatFel {
     /// Ett underlag som ska kopplas finns inte i företaget.
     #[error("underlaget finns inte")]
     OkäntUnderlag,
+    /// Inget bokfört verifikat med det id:t i företaget.
+    #[error("verifikatet finns inte")]
+    IngetVerifikat,
+    /// Verifikatet kan inte rättas: det är redan rättat eller är en rättelse.
+    #[error("{0}")]
+    InteRättbart(Rättelsespärr),
     #[error(transparent)]
     Åtkomst(#[from] ÅtkomstFel),
 }
@@ -112,12 +121,36 @@ pub struct Rad {
     pub text: Option<String>,
 }
 
+/// Var ett verifikat kommer ifrån.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Källa {
+    Manuell,
+    /// En rättelse av ett annat verifikat (R1).
+    Rättelse,
+}
+
+/// En länk till ett annat verifikat i företaget, med vem som bokförde det och när.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Länk {
+    pub id: VerifikatId,
+    /// `None` för ett utkast.
+    pub nummer: Option<Verifikationsnummer>,
+    pub bokförd: Option<Signatur>,
+}
+
 /// Ett verifikat med rader och historik.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Verifikat {
     pub id: VerifikatId,
     /// `None` för ett utkast.
     pub nummer: Option<Verifikationsnummer>,
+    pub källa: Källa,
+    /// Verifikatet som det här rättar, för en rättelse.
+    pub rättar: Option<Länk>,
+    /// Rättelsen av det här verifikatet, om det är rättat (R2).
+    pub rättad_av: Option<Länk>,
+    /// Verifikatet som det här är en kopia av, för ett utkast från "registrera om".
+    pub kopia_av: Option<Länk>,
     pub datum: Option<Date>,
     pub beskrivning: String,
     pub räkenskapsår: Option<Räkenskapsår>,
@@ -132,6 +165,35 @@ pub struct Verifikat {
     pub underlag: Vec<VerifikatetsUnderlag>,
     /// Posterna i behandlingshistoriken som rör verifikatet, i ordning.
     pub historik: Vec<Historikpost>,
+}
+
+impl Verifikat {
+    /// Verifikatet som original till en rättelse, med det som avgör om det kan rättas. `None`
+    /// för ett utkast.
+    pub fn som_original(&self) -> Option<Original> {
+        let nummer = |l: &Option<Länk>| {
+            l.as_ref()
+                .map(|l| l.nummer.map(|n| n.to_string()).unwrap_or_default())
+        };
+        Some(Original {
+            nummer: self.nummer?.to_string(),
+            datum: self.datum?,
+            rader: self
+                .rader
+                .iter()
+                .map(|r| {
+                    Some(maya_domain::verifikat::Rad {
+                        konto: r.konto?,
+                        debet: r.debet,
+                        kredit: r.kredit,
+                        text: r.text.clone(),
+                    })
+                })
+                .collect::<Option<_>>()?,
+            rättad_av: nummer(&self.rättad_av),
+            rättar: nummer(&self.rättar),
+        })
+    }
 }
 
 /// En post i verifikatets historik, med namnet på den som gjorde det.
@@ -275,16 +337,7 @@ async fn bokför_i(
         .kontrollera(&förutsättningar)
         .map_err(VerifikatFel::Spärrat)?;
     let år_id = räkenskapsår_id(&mut ärende, v.räkenskapsår).await?;
-    let innehåll = Innehåll {
-        år_id: Some(år_id),
-        datum: Some(v.datum),
-        beskrivning: &v.beskrivning,
-        rader: v
-            .rader
-            .iter()
-            .map(|r| (Some(r.konto), r.debet, r.kredit, r.text.as_deref()))
-            .collect(),
-    };
+    let innehåll = Innehåll::bokförbart(år_id, &v);
     let id = match utkast {
         Some(id) => {
             skriv_om(&mut ärende, id, &innehåll).await?;
@@ -296,32 +349,166 @@ async fn bokför_i(
         koppla(&mut ärende, id, underlag).await?;
     }
     let nummer = tilldela_nummer(&mut ärende, id, år_id).await?;
-    let kopplade = underlag::verifikatets(ärende.conn(), id).await?;
+    logga_bokfört(&mut ärende, id, nummer, &v, None).await?;
+    ärende.slutför().await?;
+    Ok(Bokfört { id, nummer })
+}
 
+/// Loggar att verifikatet `id` bokfördes (H1), med underlagen (VF2) och, för en rättelse,
+/// verifikatet som det rättar.
+async fn logga_bokfört(
+    ärende: &mut Ärende,
+    id: VerifikatId,
+    nummer: Verifikationsnummer,
+    v: &BokförbartVerifikat,
+    rättar: Option<(VerifikatId, Verifikationsnummer)>,
+) -> Result<(), VerifikatFel> {
+    let kopplade = underlag::verifikatets(ärende.conn(), id).await?;
     let år = v.räkenskapsår.år();
+    let mut beskrivning = serde_json::json!({
+        "verifikat": id.0,
+        "nummer": nummer.to_string(),
+        "räkenskapsår": { "start": år.start().to_string(), "slut": år.slut().to_string() },
+        "datum": v.datum.to_string(),
+        "beskrivning": v.beskrivning,
+        "summa_öre": v.summa().öre(),
+        "rader": v.rader.iter().map(|r| serde_json::json!({
+            "konto": r.konto.get(),
+            "debet_öre": r.debet.öre(),
+            "kredit_öre": r.kredit.öre(),
+            "text": r.text,
+        })).collect::<Vec<_>>(),
+        "underlag": underlag::referenser(&kopplade),
+    });
+    if let Some((original, original_nummer)) = rättar {
+        beskrivning["rättar"] = serde_json::json!({
+            "verifikat": original.0,
+            "nummer": original_nummer.to_string(),
+        });
+    }
+    ärende
+        .logga(Händelse::VerifikatBokfört, &nummer.to_string(), beskrivning)
+        .await?;
+    Ok(())
+}
+
+/// Vad som händer efter rättelsen.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Rättelseval {
+    /// Bokför rättelsen och skapa i samma transaktion ett utkast med originalets rader och
+    /// underlag, märkt *kopia av* originalet.
+    RegistreraOm,
+    /// Bara bokför rättelsen.
+    BaraRättelse,
+}
+
+/// Resultatet av en rättelse.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Rättad {
+    pub rättelse: Bokfört,
+    /// Utkastet från "registrera om".
+    pub kopia: Option<VerifikatId>,
+}
+
+/// Rättar det bokförda verifikatet `original` med ett nytt verifikat som vänder varje rad (R1),
+/// daterat `datum` och med beskrivningen "Rättelse av V5[, <orsak>]". Originalet ändras inte
+/// (L1); rättelsen pekar på det, och originalet visar rättelsen när det läses (R2, VF7). Ett
+/// verifikat rättas högst en gång och en rättelse rättas inte. Med
+/// [`Rättelseval::RegistreraOm`] skapas i samma transaktion ett utkast med originalets datum,
+/// beskrivning, rader och underlag, märkt *kopia av* originalet.
+#[allow(clippy::too_many_arguments)]
+pub async fn rätta(
+    db: &Databas,
+    klocka: &Klocka,
+    aktör: &Aktör,
+    företag: FöretagsId,
+    original: VerifikatId,
+    datum: &str,
+    orsak: &str,
+    val: Rättelseval,
+) -> Result<Rättad, VerifikatFel> {
+    let mut ärende = Ärende::börja(db, klocka, aktör, företag, Handling::Bokföra).await?;
+    let o = läs_verifikat(ärende.conn(), företag, original)
+        .await?
+        .ok_or(VerifikatFel::IngetVerifikat)?;
+    let (Some(original_nummer), Some(som_original)) = (o.nummer, o.som_original()) else {
+        return Err(VerifikatFel::IngetVerifikat);
+    };
+    som_original
+        .kan_rättas()
+        .map_err(VerifikatFel::InteRättbart)?;
+    let förutsättningar = läs_förutsättningar(ärende.conn(), företag).await?;
+    let v = som_original
+        .rättelse(datum, orsak, &förutsättningar)
+        .map_err(VerifikatFel::Spärrat)?;
+
+    let år_id = räkenskapsår_id(&mut ärende, v.räkenskapsår).await?;
+    let innehåll = Innehåll {
+        källa: Källa::Rättelse,
+        rättar: Some(original),
+        ..Innehåll::bokförbart(år_id, &v)
+    };
+    let id = skapa(&mut ärende, &innehåll).await?;
+    let nummer = tilldela_nummer(&mut ärende, id, år_id).await?;
+    logga_bokfört(
+        &mut ärende,
+        id,
+        nummer,
+        &v,
+        Some((original, original_nummer)),
+    )
+    .await?;
+
+    let kopia = match val {
+        Rättelseval::BaraRättelse => None,
+        Rättelseval::RegistreraOm => {
+            let år_id: Option<i64> =
+                sqlx::query_scalar("SELECT rakenskapsar_id FROM verifikat WHERE id = ?")
+                    .bind(original.0)
+                    .fetch_one(ärende.conn())
+                    .await?;
+            let kopia = skapa(
+                &mut ärende,
+                &Innehåll {
+                    år_id,
+                    datum: o.datum,
+                    beskrivning: &o.beskrivning,
+                    rader: o
+                        .rader
+                        .iter()
+                        .map(|r| (r.konto, r.debet, r.kredit, r.text.as_deref()))
+                        .collect(),
+                    källa: Källa::Manuell,
+                    rättar: None,
+                    kopia_av: Some(original),
+                },
+            )
+            .await?;
+            let underlag: Vec<UnderlagId> = o.underlag.iter().map(|u| u.id).collect();
+            koppla(&mut ärende, kopia, &underlag).await?;
+            Some(kopia)
+        }
+    };
+
     ärende
         .logga(
-            Händelse::VerifikatBokfört,
-            &nummer.to_string(),
+            Händelse::VerifikatRättat,
+            &original_nummer.to_string(),
             serde_json::json!({
-                "verifikat": id.0,
-                "nummer": nummer.to_string(),
-                "räkenskapsår": { "start": år.start().to_string(), "slut": år.slut().to_string() },
+                "verifikat": original.0,
+                "nummer": original_nummer.to_string(),
+                "rättelse": { "verifikat": id.0, "nummer": nummer.to_string() },
                 "datum": v.datum.to_string(),
-                "beskrivning": v.beskrivning,
-                "summa_öre": v.summa().öre(),
-                "rader": v.rader.iter().map(|r| serde_json::json!({
-                    "konto": r.konto.get(),
-                    "debet_öre": r.debet.öre(),
-                    "kredit_öre": r.kredit.öre(),
-                    "text": r.text,
-                })).collect::<Vec<_>>(),
-                "underlag": underlag::referenser(&kopplade),
+                "orsak": orsak.trim(),
+                "kopia": kopia.map(|k| k.0),
             }),
         )
         .await?;
     ärende.slutför().await?;
-    Ok(Bokfört { id, nummer })
+    Ok(Rättad {
+        rättelse: Bokfört { id, nummer },
+        kopia,
+    })
 }
 
 /// Sparar formuläret som ett nytt utkast, eller som nytt innehåll i utkastet `utkast`. Ett
@@ -384,6 +571,9 @@ async fn spara_utkast_i(
             .iter()
             .map(|r| (r.konto, r.debet, r.kredit, r.text.as_deref()))
             .collect(),
+        källa: Källa::Manuell,
+        rättar: None,
+        kopia_av: None,
     };
     let id = match utkast {
         Some(id) => {
@@ -571,6 +761,29 @@ struct Innehåll<'a> {
     beskrivning: &'a str,
     /// Konto, debet, kredit och text.
     rader: Vec<(Option<Kontonummer>, Belopp, Belopp, Option<&'a str>)>,
+    /// Sätts när verifikatet skapas och ändras inte.
+    källa: Källa,
+    rättar: Option<VerifikatId>,
+    kopia_av: Option<VerifikatId>,
+}
+
+impl<'a> Innehåll<'a> {
+    /// Ett manuellt verifikat som klarar spärrarna, i räkenskapsåret `år_id`.
+    fn bokförbart(år_id: i64, v: &'a BokförbartVerifikat) -> Self {
+        Innehåll {
+            år_id: Some(år_id),
+            datum: Some(v.datum),
+            beskrivning: &v.beskrivning,
+            rader: v
+                .rader
+                .iter()
+                .map(|r| (Some(r.konto), r.debet, r.kredit, r.text.as_deref()))
+                .collect(),
+            källa: Källa::Manuell,
+            rättar: None,
+            kopia_av: None,
+        }
+    }
 }
 
 /// Skapar verifikatet som utkast med sina rader.
@@ -581,16 +794,22 @@ async fn skapa(
     let id: i64 = sqlx::query_scalar(
         "INSERT INTO verifikat
              (foretag_id, rakenskapsar_id, datum, beskrivning, kalla, skapad, skapad_kanal,
-              skapad_av)
-         VALUES (?, ?, ?, ?, 'manuell', ?, ?, ?) RETURNING id",
+              skapad_av, rattar, kopia_av)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id",
     )
     .bind(företag.0)
     .bind(innehåll.år_id)
     .bind(innehåll.datum.map(|d| d.to_string()))
     .bind(innehåll.beskrivning)
+    .bind(match innehåll.källa {
+        Källa::Manuell => "manuell",
+        Källa::Rättelse => "rattelse",
+    })
     .bind(nu.to_string())
     .bind(aktör.kanal.namn())
     .bind(aktör.användare.map(|a| a.0))
+    .bind(innehåll.rättar.map(|v| v.0))
+    .bind(innehåll.kopia_av.map(|v| v.0))
     .fetch_one(ärende.conn())
     .await?;
     skriv_rader(ärende, id, innehåll).await?;
@@ -689,6 +908,9 @@ struct VerifikatRad {
     bokford_kanal: Option<String>,
     bokford_av: Option<i64>,
     bokford_namn: Option<String>,
+    kalla: String,
+    rattar: Option<i64>,
+    kopia_av: Option<i64>,
 }
 
 /// Ett verifikat i företaget, eller `None` om det inte finns där.
@@ -700,10 +922,20 @@ pub async fn verifikatet(
 ) -> Result<Option<Verifikat>, ÅtkomstFel> {
     let mut tx = db.pool().begin().await?;
     atkomst::kräv(&mut tx, aktör, företag, Handling::LäsaFöretag).await?;
+    Ok(läs_verifikat(&mut tx, företag, id).await?)
+}
+
+/// Ett verifikat i företaget med rader, underlag, länkar och historik, eller `None`.
+async fn läs_verifikat(
+    tx: &mut SqliteConnection,
+    företag: FöretagsId,
+    id: VerifikatId,
+) -> Result<Option<Verifikat>, DatabasFel> {
     let Some(v): Option<VerifikatRad> = sqlx::query_as(
         "SELECT v.id, v.nummer, v.datum, v.beskrivning, r.start AS ar_start, r.slut AS ar_slut,
                 v.skapad, v.skapad_kanal, v.skapad_av, s.visningsnamn AS skapad_namn,
-                v.bokford, v.bokford_kanal, v.bokford_av, b.visningsnamn AS bokford_namn
+                v.bokford, v.bokford_kanal, v.bokford_av, b.visningsnamn AS bokford_namn,
+                v.kalla, v.rattar, v.kopia_av
          FROM verifikat v
          LEFT JOIN rakenskapsar r ON r.id = v.rakenskapsar_id
          LEFT JOIN anvandare s ON s.id = v.skapad_av
@@ -717,6 +949,18 @@ pub async fn verifikatet(
     else {
         return Ok(None);
     };
+    let källa = match v.kalla.as_str() {
+        "manuell" => Källa::Manuell,
+        "rattelse" => Källa::Rättelse,
+        _ => return Err(DatabasFel::Korrupt("verifikat.kalla".into())),
+    };
+    let rättad_av: Option<i64> = sqlx::query_scalar("SELECT id FROM verifikat WHERE rattar = ?")
+        .bind(id.0)
+        .fetch_optional(&mut *tx)
+        .await?;
+    let rättar = länk(tx, v.rattar).await?;
+    let rättad_av = länk(tx, rättad_av).await?;
+    let kopia_av = länk(tx, v.kopia_av).await?;
     let rader: Vec<(Option<i64>, i64, i64, Option<String>)> = sqlx::query_as(
         "SELECT konto, debet, kredit, text FROM verifikatrad WHERE verifikat_id = ? ORDER BY radnr",
     )
@@ -734,10 +978,10 @@ pub async fn verifikatet(
             })
         })
         .collect::<Result<Vec<_>, DatabasFel>>()?;
-    let underlag = underlag::verifikatets(&mut tx, id).await?;
+    let underlag = underlag::verifikatets(&mut *tx, id).await?;
     let mut historik = Vec::new();
-    for post in behandlingshistorik::läs_om_verifikat(&mut tx, företag, id.0).await? {
-        let namn = namn(&mut tx, &post.aktör).await?;
+    for post in behandlingshistorik::läs_om_verifikat(&mut *tx, företag, id.0).await? {
+        let namn = namn(&mut *tx, &post.aktör).await?;
         historik.push(Historikpost { post, namn });
     }
 
@@ -760,6 +1004,10 @@ pub async fn verifikatet(
     Ok(Some(Verifikat {
         id: VerifikatId(v.id),
         nummer: v.nummer.map(verifikationsnummer).transpose()?,
+        källa,
+        rättar,
+        rättad_av,
+        kopia_av,
         datum: datum_,
         beskrivning: v.beskrivning,
         räkenskapsår,
@@ -772,6 +1020,37 @@ pub async fn verifikatet(
         historik,
     }))
 }
+
+/// Länken till verifikatet `id`, med vem som bokförde det och när.
+async fn länk(conn: &mut SqliteConnection, id: Option<i64>) -> Result<Option<Länk>, DatabasFel> {
+    let Some(id) = id else {
+        return Ok(None);
+    };
+    let (nummer, bokford, kanal, av, namn): LänkRad = sqlx::query_as(
+        "SELECT v.nummer, v.bokford, v.bokford_kanal, v.bokford_av, b.visningsnamn
+         FROM verifikat v LEFT JOIN anvandare b ON b.id = v.bokford_av WHERE v.id = ?",
+    )
+    .bind(id)
+    .fetch_one(conn)
+    .await?;
+    let bokförd = match (bokford, kanal) {
+        (Some(tid), Some(kanal)) => Some(signatur(&tid, &kanal, av, namn)?),
+        _ => None,
+    };
+    Ok(Some(Länk {
+        id: VerifikatId(id),
+        nummer: nummer.map(verifikationsnummer).transpose()?,
+        bokförd,
+    }))
+}
+
+type LänkRad = (
+    Option<i64>,
+    Option<String>,
+    Option<String>,
+    Option<i64>,
+    Option<String>,
+);
 
 /// Företagets verifikat i urvalet: bokförda i nummerordning per räkenskapsår, nyast först, och
 /// utkast före dem.

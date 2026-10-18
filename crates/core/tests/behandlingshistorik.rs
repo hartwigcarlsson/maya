@@ -176,6 +176,18 @@ async fn alla_ändringar(db: &Databas, anna: &Aktör, id: FöretagsId, tid: &str
         .unwrap();
         bokförda.push(bokfört);
     }
+    verifikat::rätta(
+        db,
+        &k,
+        anna,
+        id,
+        bokförda[0].id,
+        "2026-03-20",
+        "fel belopp",
+        verifikat::Rättelseval::BaraRättelse,
+    )
+    .await
+    .unwrap();
     let kvitto = underlag::ladda_upp(db, &k, anna, id, "kvitto.pdf", "", b"%PDF-1.7 kvitto")
         .await
         .unwrap();
@@ -400,7 +412,7 @@ async fn filter_på_typ_aktör_och_tid_ger_rätt_urval() {
     let historik = behandlingshistorik::historik(&db, &anna, id, &Urval::default())
         .await
         .unwrap();
-    assert_eq!(historik.poster.len(), 25);
+    assert_eq!(historik.poster.len(), 27);
     let namn: Vec<&str> = historik.aktörer.iter().map(|(_, n)| n.as_str()).collect();
     assert_eq!(namn, ["anna@example.se", "bo@example.se", "Maya"]);
     assert_eq!(
@@ -427,7 +439,7 @@ async fn filter_på_typ_aktör_och_tid_ger_rätt_urval() {
         aktör: Some(Aktörsval::Användare(anna.användare.unwrap())),
         ..Urval::default()
     };
-    assert_eq!(typer(&db, &anna, id, anna_urval).await.len(), 22);
+    assert_eq!(typer(&db, &anna, id, anna_urval).await.len(), 24);
     let bo = Urval {
         aktör: Some(historik.aktörer[1].0),
         ..Urval::default()
@@ -456,7 +468,7 @@ async fn filter_på_typ_aktör_och_tid_ger_rätt_urval() {
         )
         .await
         .len(),
-        23
+        25
     );
     assert_eq!(
         typer(&db, &anna, id, tid(Some(date(2026, 4, 1)), None)).await,

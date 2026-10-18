@@ -9,9 +9,11 @@
 
 use leptos::prelude::*;
 use leptos_router::hooks::{use_params_map, use_query_map};
+use maya_domain::belopp::Belopp;
 use maya_domain::kontoplan::Kontonummer;
 use maya_domain::rakenskapsar::Räkenskapsår;
-use maya_domain::verifikat::{Fält, Förutsättningar, NyRad, NyttVerifikat, Spärr};
+use maya_domain::rattelse::{self, Original};
+use maya_domain::verifikat::{Fält, Förutsättningar, NyRad, NyttVerifikat, Rad, Spärr};
 use serde::{Deserialize, Serialize};
 
 use crate::app::{LoggaIn, Läge};
@@ -67,6 +69,86 @@ pub struct DokumentVy {
     pub underlag: Vec<UnderlagVy>,
     /// PDF:ens adress och filnamn, för Skriv ut och Exportera PDF.
     pub pdf: (String, String),
+    /// Verifikatet som det här rättar, för en rättelse.
+    pub rättar: Option<LänkVy>,
+    /// Rättelsen av det här verifikatet, om det är rättat.
+    pub rättad_av: Option<LänkVy>,
+    /// Verifikatet som ett utkast från "registrera om" är en kopia av.
+    pub kopia_av: Option<LänkVy>,
+    /// Varför ett bokfört verifikat inte kan rättas.
+    pub inte_rättbart: Option<String>,
+    /// Det som Rätta… behöver, när verifikatet kan rättas.
+    pub rättelse: Option<RättelseVy>,
+}
+
+/// En länk till ett annat verifikat, med vem som bokförde det och när.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LänkVy {
+    pub id: String,
+    /// `V5`, eller tomt för ett utkast.
+    pub nummer: String,
+    /// Tid, namn och kanal.
+    pub bokförd: Option<(String, String, String)>,
+}
+
+/// Det som rättelsen i dokumentet prövas mot, i webbläsaren och på servern med samma regler
+/// (`maya_domain::rattelse`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RättelseVy {
+    /// Originalets nummer och datum.
+    pub nummer: String,
+    pub datum: String,
+    /// Dagens datum, eller originalets om det är senare.
+    pub förvalt: String,
+    /// Originalets rader: konto, debet och kredit i öre, och text.
+    pub rader: Vec<(u16, i64, i64, Option<String>)>,
+    /// Räkenskapsårens start och slut.
+    pub räkenskapsår: Vec<(String, String)>,
+    /// Radernas konton och om de är aktiva.
+    pub konton: Vec<(u16, bool)>,
+}
+
+impl RättelseVy {
+    fn original(&self) -> Option<Original> {
+        Some(Original {
+            nummer: self.nummer.clone(),
+            datum: self.datum.parse().ok()?,
+            rader: self
+                .rader
+                .iter()
+                .map(|(konto, debet, kredit, text)| {
+                    Some(Rad {
+                        konto: Kontonummer::new(*konto)?,
+                        debet: Belopp::från_öre(*debet),
+                        kredit: Belopp::från_öre(*kredit),
+                        text: text.clone(),
+                    })
+                })
+                .collect::<Option<_>>()?,
+            rättad_av: None,
+            rättar: None,
+        })
+    }
+
+    fn förutsättningar(&self) -> Förutsättningar {
+        Förutsättningar {
+            konton: self
+                .konton
+                .iter()
+                .filter_map(|(nr, aktiv)| Some((Kontonummer::new(*nr)?, *aktiv)))
+                .collect(),
+            räkenskapsår: self
+                .räkenskapsår
+                .iter()
+                .filter_map(|(start, slut)| {
+                    Some(Räkenskapsår::befintligt(
+                        start.parse().ok()?,
+                        slut.parse().ok()?,
+                    ))
+                })
+                .collect(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -145,13 +227,16 @@ pub(crate) mod server {
     use maya_core::foretag::FöretagsId;
     use maya_core::inloggning::Inloggad;
     use maya_core::underlag::{self, UnderlagFel, UnderlagId};
-    use maya_core::verifikat::{self, Signatur, Urval, VerifikatFel, VerifikatId};
+    use maya_core::verifikat::{
+        self, Länk, Rättelseval, Signatur, Urval, VerifikatFel, VerifikatId,
+    };
     use maya_core::{Databas, Klocka, kontoplan};
     use maya_domain::belopp::Belopp;
     use maya_domain::verifikat::{NyRad, NyttVerifikat};
 
     use super::{
-        DokumentVy, FormulärData, HistorikVy, KontoVy, ListVy, RadVy, Verifikatdata, periodnamn,
+        DokumentVy, FormulärData, HistorikVy, KontoVy, ListVy, LänkVy, RadVy, RättelseVy,
+        Verifikatdata, periodnamn,
     };
     use crate::sidodata::{self, Sidbegäran};
     use crate::underlag::server::{
@@ -169,6 +254,7 @@ pub(crate) mod server {
             .route("/foretag/{id}/verifikat", post(skicka))
             .route("/foretag/{id}/verifikat/{utkast}/radera", post(radera))
             .route("/foretag/{id}/verifikat/{v}/komplettera", post(komplettera))
+            .route("/foretag/{id}/verifikat/{v}/ratta", post(rätta))
             .layer(DefaultBodyLimit::max(STÖRSTA_BEGÄRAN))
             .with_state(Arc::new(state))
     }
@@ -194,6 +280,7 @@ pub(crate) mod server {
         let tillbakaskickade = b.värde("datum").map(|_| b.värden("underlag"));
         match hämta(
             &b.db,
+            b.klocka.idag(),
             &b.inloggad,
             företag,
             urval,
@@ -211,8 +298,10 @@ pub(crate) mod server {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn hämta(
         db: &Databas,
+        idag: jiff::civil::Date,
         inloggad: &Inloggad,
         företag: FöretagsId,
         urval: Urval,
@@ -247,7 +336,44 @@ pub(crate) mod server {
             let summa = |f: fn(&verifikat::Rad) -> Belopp| {
                 Belopp::från_öre(v.rader.iter().map(|r| f(r).öre()).sum()).to_string()
             };
+            let original = v.som_original();
+            let inte_rättbart = original
+                .as_ref()
+                .and_then(|o| o.kan_rättas().err())
+                .map(|spärr| spärr.to_string());
+            let rättelse = match original.filter(|o| o.kan_rättas().is_ok()) {
+                Some(o) => {
+                    let förutsättningar = verifikat::förutsättningar(db, aktör, företag).await?;
+                    Some(RättelseVy {
+                        nummer: o.nummer.clone(),
+                        datum: o.datum.to_string(),
+                        förvalt: idag.max(o.datum).to_string(),
+                        rader: o
+                            .rader
+                            .iter()
+                            .map(|r| (r.konto.get(), r.debet.öre(), r.kredit.öre(), r.text.clone()))
+                            .collect(),
+                        räkenskapsår: förutsättningar
+                            .räkenskapsår
+                            .iter()
+                            .map(|å| (å.start().to_string(), å.slut().to_string()))
+                            .collect(),
+                        konton: förutsättningar
+                            .konton
+                            .iter()
+                            .filter(|(k, _)| o.rader.iter().any(|r| r.konto == *k))
+                            .map(|(k, aktiv)| (k.get(), *aktiv))
+                            .collect(),
+                    })
+                }
+                None => None,
+            };
             dokument = Some(DokumentVy {
+                rättar: v.rättar.as_ref().map(länk),
+                rättad_av: v.rättad_av.as_ref().map(länk),
+                kopia_av: v.kopia_av.as_ref().map(länk),
+                inte_rättbart,
+                rättelse,
                 id: v.id.to_string(),
                 pdf: (
                     format!("/foretag/{företag}/verifikat/{}/pdf", v.id),
@@ -355,6 +481,14 @@ pub(crate) mod server {
 
     fn signatur(s: &Signatur) -> (String, String, String) {
         (tid(s.tid), s.namn.clone(), s.aktör.kanal.namn().to_string())
+    }
+
+    fn länk(l: &Länk) -> LänkVy {
+        LänkVy {
+            id: l.id.to_string(),
+            nummer: l.nummer.map(|n| n.to_string()).unwrap_or_default(),
+            bokförd: l.bokförd.as_ref().map(signatur),
+        }
     }
 
     /// Formuläret, med raderna som `konto_<i>`, `debet_<i>`, `kredit_<i>` och `text_<i>`.
@@ -596,6 +730,80 @@ pub(crate) mod server {
         }
     }
 
+    /// Rätta ett bokfört verifikat: `datum`, `orsak` och `handling=registrera_om` (Bokför
+    /// rättelse och registrera om) eller `handling=bokfor` (Bara bokför rättelse). Med en spärr
+    /// går det tillbaka till dokumentet med rättelsen öppen och det användaren skrev; sidan
+    /// prövar det igen och visar spärren.
+    async fn rätta(
+        State(state): State<Arc<VerifikatState>>,
+        Path((id, v)): Path<(String, String)>,
+        inloggad: Option<Extension<Inloggad>>,
+        req: Request,
+    ) -> Response {
+        let Some(Extension(inloggad)) = inloggad else {
+            return Redirect::to("/").into_response();
+        };
+        let Ok(företag) = id.parse::<FöretagsId>() else {
+            return ingen_åtkomst();
+        };
+        let Ok(original) = v.parse::<VerifikatId>() else {
+            return inget_verifikat();
+        };
+        let skickat = match läs_formulär(req).await {
+            Ok(f) => f,
+            Err(r) => return *r,
+        };
+        let datum = skickat.värde("datum").unwrap_or_default().to_string();
+        let orsak = skickat.värde("orsak").unwrap_or_default().to_string();
+        let val = match skickat.värde("handling") {
+            Some("registrera_om") => Rättelseval::RegistreraOm,
+            _ => Rättelseval::BaraRättelse,
+        };
+        let resultat = verifikat::rätta(
+            &state.db,
+            &state.klocka,
+            &inloggad.aktör,
+            företag,
+            original,
+            &datum,
+            &orsak,
+            val,
+        )
+        .await;
+        let sida = format!("/foretag/{företag}/verifikat");
+        match resultat {
+            Ok(rättad) => {
+                let nummer = rättad.rättelse.nummer;
+                let plats = match rättad.kopia {
+                    Some(kopia) => format!("{sida}?v={kopia}&rattad={nummer}"),
+                    None => format!("{sida}?v={}&rattad={nummer}", rättad.rättelse.id),
+                };
+                Redirect::to(&plats).into_response()
+            }
+            Err(VerifikatFel::Spärrat(spärrar)) => {
+                let mut query = url::form_urlencoded::Serializer::new(String::new());
+                query
+                    .append_pair("v", &original.to_string())
+                    .append_pair("ratta", "1")
+                    .append_pair("datum", &datum)
+                    .append_pair("orsak", &orsak);
+                if let Some(s) = spärrar.first() {
+                    query.append_pair("fel", s.kod);
+                }
+                Redirect::to(&format!("{sida}?{}", query.finish())).into_response()
+            }
+            // Dokumentet visar varför verifikatet inte kan rättas.
+            Err(VerifikatFel::InteRättbart(_)) => {
+                Redirect::to(&format!("{sida}?v={original}")).into_response()
+            }
+            Err(VerifikatFel::IngetVerifikat) => inget_verifikat(),
+            Err(VerifikatFel::Åtkomst(ÅtkomstFel::IngenÅtkomst | ÅtkomstFel::KanalenFårInte)) => {
+                ingen_åtkomst()
+            }
+            Err(e) => serverfel(e),
+        }
+    }
+
     /// Radera utkast, efter att sidan har frågat och visat en sammanfattning.
     async fn radera(
         State(state): State<Arc<VerifikatState>>,
@@ -677,6 +885,15 @@ pub(crate) mod server {
             .into_response()
     }
 
+    fn inget_verifikat() -> Response {
+        (
+            StatusCode::NOT_FOUND,
+            [(header::CONTENT_TYPE, "text/plain; charset=utf-8")],
+            "Verifikatet finns inte, eller är inte bokfört.\n",
+        )
+            .into_response()
+    }
+
     fn ingen_åtkomst() -> Response {
         (
             StatusCode::FORBIDDEN,
@@ -723,13 +940,13 @@ fn verifikatsida(data: Verifikatdata) -> AnyView {
     };
     let fråga = |namn: &str| use_query_map().with_untracked(|q| q.get(namn).is_some());
     let notis = if fråga("raderat") {
-        Some("Utkastet raderades och raderingen loggades. Dess underlag är okopplade.")
+        Some("Utkastet raderades och raderingen loggades. Dess underlag är okopplade.".into())
     } else if fråga("sparat") {
-        Some("Utkastet sparades.")
+        Some("Utkastet sparades.".to_string())
     } else if fråga("kompletterat") {
-        Some("Verifikatet kompletterades. Kompletteringen loggades och kan inte tas bort.")
+        Some("Verifikatet kompletterades. Kompletteringen loggades och kan inte tas bort.".into())
     } else {
-        None
+        rättad_notis(&data)
     }
     .map(|text| view! { <p class="notis" role="status">{text}</p> });
     // Formulärets fel visas i formuläret; dokumentets här.
@@ -768,6 +985,158 @@ fn verifikatsida(data: Verifikatdata) -> AnyView {
     }
     .into_any();
     view! { <Delad bas=bas data=data detalj=detalj /> }.into_any()
+}
+
+/// Notisen efter en rättelse (`rattad=V7`), med utkastet från "registrera om" om det öppnades.
+fn rättad_notis(data: &Verifikatdata) -> Option<String> {
+    let nummer = use_query_map().with_untracked(|q| q.get("rattad"))?;
+    let siffror = nummer.strip_prefix('V')?;
+    if siffror.is_empty() || !siffror.chars().all(|c| c.is_ascii_digit()) {
+        return None;
+    }
+    let kopia_av = data
+        .dokument
+        .as_ref()
+        .filter(|d| d.nummer.is_none())
+        .and_then(|d| d.kopia_av.as_ref());
+    Some(match kopia_av {
+        Some(original) => format!(
+            "Rättelsen bokfördes som {nummer}. Här är ett utkast med {}s rader att rätta och \
+             bokföra.",
+            original.nummer
+        ),
+        None => format!("Rättelsen bokfördes som {nummer}."),
+    })
+}
+
+/// En länk till ett annat verifikat i listan, med full sidladdning (sidans data kommer från
+/// middleware).
+fn verifikatlänk(bas: &str, l: &LänkVy) -> impl IntoView + use<> {
+    view! {
+        <a href=format!("{bas}/verifikat?v={}", l.id)>
+            {l.nummer.clone()}
+        </a>
+    }
+}
+
+/// Rätta… i dokumentet (variant C): de vända raderna, datum och en valfri orsak, och valen Bokför
+/// rättelse och registrera om och Bara bokför rättelse. Spärrarna prövas med
+/// `maya_domain::rattelse` här och i `core`.
+#[component]
+fn Rättelsepanel(bas: String, id: String, r: RättelseVy) -> impl IntoView {
+    let fråga = |namn: &str| use_query_map().with_untracked(|q| q.get(namn));
+    let datum = RwSignal::new(fråga("datum").unwrap_or_else(|| r.förvalt.clone()));
+    let orsak = RwSignal::new(fråga("orsak").unwrap_or_default());
+    let original = r.original();
+    let förutsättningar = r.förutsättningar();
+    let spärrar = {
+        let original = original.clone();
+        Memo::new(move |_| match &original {
+            Some(o) => datum.with(|d| {
+                o.rättelse(d, "", &förutsättningar)
+                    .err()
+                    .unwrap_or_default()
+            }),
+            None => Vec::new(),
+        })
+    };
+    let nummer = r.nummer.clone();
+    let beskrivning = move || orsak.with(|o| rattelse::beskrivning(&nummer, o));
+    let vända = original
+        .as_ref()
+        .map(|o| rattelse::vänd(&o.rader))
+        .unwrap_or_default();
+    let belopp = |b: Belopp| {
+        if b == Belopp::NOLL {
+            String::new()
+        } else {
+            b.to_string()
+        }
+    };
+    let rader = vända
+        .into_iter()
+        .map(|rad| {
+            view! {
+                <tr>
+                    <td>{rad.konto.to_string()}</td>
+                    <td>{rad.text.unwrap_or_default()}</td>
+                    <td class="belopp">{belopp(rad.debet)}</td>
+                    <td class="belopp">{belopp(rad.kredit)}</td>
+                </tr>
+            }
+        })
+        .collect_view();
+    let fel = move || {
+        spärrar.with(|s| {
+            s.iter()
+                .map(|s| {
+                    view! {
+                        <p class="fel" role="alert" data-kod=s.kod>
+                            {s.text.clone()}
+                        </p>
+                    }
+                })
+                .collect_view()
+        })
+    };
+    let spärrat = move || !spärrar.with(Vec::is_empty);
+    view! {
+        <section class="rattelse" aria-labelledby="rattelse-rubrik">
+            <div class="rattelse-rubrik">
+                <h3 id="rattelse-rubrik">"Rättelse av " {r.nummer.clone()}</h3>
+                <a class="knapp knapp-diskret" href=format!("{bas}/verifikat?v={id}")>
+                    "Avbryt"
+                </a>
+            </div>
+            <p class="diskret">
+                "Rättelsen bokförs som ett nytt verifikat som vänder alla rader i "
+                {r.nummer.clone()} ". " {r.nummer.clone()} " visar sedan att det är rättat."
+            </p>
+            <table class="rader">
+                <thead>
+                    <tr>
+                        <th>"Konto"</th>
+                        <th>"Text"</th>
+                        <th class="belopp">"Debet"</th>
+                        <th class="belopp">"Kredit"</th>
+                    </tr>
+                </thead>
+                <tbody>{rader}</tbody>
+            </table>
+            <form method="post" action=format!("{bas}/verifikat/{id}/ratta") class="rattelse-formular">
+                <label>
+                    "Verifikatdatum"
+                    <input
+                        name="datum"
+                        type="date"
+                        min=r.datum.clone()
+                        value=datum.get_untracked()
+                        on:input=move |ev| datum.set(event_target_value(&ev))
+                    />
+                </label>
+                <label>
+                    <span>"Orsak " <span class="diskret">"(valfri)"</span></span>
+                    <input
+                        name="orsak"
+                        type="text"
+                        placeholder="t.ex. fel konto"
+                        value=orsak.get_untracked()
+                        on:input=move |ev| orsak.set(event_target_value(&ev))
+                    />
+                </label>
+                <div class="rattelse-fel">{fel}</div>
+                <p class="diskret">"Beskrivning: " {beskrivning}</p>
+                <div class="knappar">
+                    <button class="knapp knapp-primar" type="submit" name="handling" value="registrera_om" disabled=spärrat>
+                        "Bokför rättelse och registrera om"
+                    </button>
+                    <button class="knapp" type="submit" name="handling" value="bokfor" disabled=spärrat>
+                        "Bara bokför rättelse"
+                    </button>
+                </div>
+            </form>
+        </section>
+    }
 }
 
 /// Radera utkast frågar först och visar en sammanfattning av utkastet.
@@ -981,6 +1350,51 @@ fn Dokument(bas: String, d: DokumentVy, okopplade: Vec<UnderlagVy>) -> impl Into
         }
     });
     let (_, skapad_namn, skapad_kanal) = d.skapad.clone();
+    let rättad_badge = d.rättad_av.as_ref().map(|l| {
+        view! { <span class="badge badge-rattad">"Rättad av " {l.nummer.clone()}</span> }
+    });
+    let rättad = d.rättad_av.as_ref().map(|l| {
+        let vem = l
+            .bokförd
+            .clone()
+            .map(|(tid, namn, _)| format!(" · {tid} av {namn}"))
+            .unwrap_or_default();
+        view! {
+            <dt>"Rättad"</dt>
+            <dd>"av " {verifikatlänk(&bas, l)} <span class="diskret">{vem}</span></dd>
+        }
+    });
+    let rättar = d.rättar.as_ref().map(|l| {
+        view! {
+            <dt>"Rättar"</dt>
+            <dd>{verifikatlänk(&bas, l)}</dd>
+        }
+    });
+    let ersätter = d.kopia_av.as_ref().map(|l| {
+        view! {
+            <dt>"Ersätter"</dt>
+            <dd>{verifikatlänk(&bas, l)} <span class="diskret">" (kopia av dess rader)"</span></dd>
+        }
+    });
+    let inte_rättbart = d
+        .inte_rättbart
+        .clone()
+        .map(|text| view! { <p class="notis">{text}</p> });
+    let öppen = use_query_map().with_untracked(|q| q.get("ratta").is_some());
+    let rätta = match d.rättelse.clone() {
+        Some(r) if öppen => {
+            view! { <Rättelsepanel bas=bas.clone() id=d.id.clone() r=r /> }.into_any()
+        }
+        Some(_) => view! {
+            <p>
+                <a class="knapp" href=format!("{bas}/verifikat?v={}&ratta=1", d.id)>
+                    "Rätta…"
+                </a>
+            </p>
+        }
+        .into_any(),
+        None => ().into_any(),
+    };
     let underlag = view! {
         <DokumentetsUnderlag bas=bas id=d.id.clone() underlag=d.underlag.clone() okopplade=okopplade />
     };
@@ -996,15 +1410,22 @@ fn Dokument(bas: String, d: DokumentVy, okopplade: Vec<UnderlagVy>) -> impl Into
                 <p>
                     <span class="markering">{status}</span>
                     " "
+                    {rättad_badge}
+                    " "
                     <span class="belopp">{d.summa.clone()} " kr"</span>
                 </p>
             </header>
+            {inte_rättbart}
+            {rätta}
             <dl class="metadata">
                 <dt>"Verifikatdatum"</dt>
                 <dd>{d.datum.clone()} <span class="diskret">" · period " {d.period.clone()}</span></dd>
                 {bokförd}
                 <dt>"Skapat"</dt>
                 <dd>"av " {skapad_namn} " via " {skapad_kanal}</dd>
+                {rättad}
+                {rättar}
+                {ersätter}
             </dl>
             <table class="rader">
                 <thead>
@@ -1511,12 +1932,16 @@ fn Formulär(
             } else {
                 d.beskrivning.clone()
             };
+            let kopia_av = d.kopia_av.as_ref().map(|l| {
+                view! { <span class="diskret">" · kopia av " {verifikatlänk(&bas, l)}</span> }
+            });
             view! {
                 <h2>{namn}</h2>
                 <p>
                     <UtkastBadge />
                     " "
                     <span class="diskret">"Skapat av " {d.skapad.1.clone()} " · " {d.skapad.0.clone()}</span>
+                    {kopia_av}
                 </p>
             }
             .into_any()
