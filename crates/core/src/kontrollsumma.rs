@@ -198,9 +198,13 @@ pub async fn granska_fil(path: &Path) -> Result<Granskning, DatabasFel> {
         );
     }
 
-    let lagrade: Vec<(i64, String)> = sqlx::query_as("SELECT id, sha256 FROM underlag ORDER BY id")
-        .fetch_all(&mut conn)
-        .await?;
+    let lagrade: Vec<(i64, String)> = if finns_tabell(&mut conn, "underlagskoppling").await? {
+        sqlx::query_as("SELECT id, sha256 FROM underlag ORDER BY id")
+            .fetch_all(&mut conn)
+            .await?
+    } else {
+        Vec::new()
+    };
     let kontrollsummor = räkna_i(&mut conn).await?;
     for ((id, lagrad), räknad) in lagrade.iter().zip(&kontrollsummor.underlag) {
         if *lagrad != räknad.sha256 {
@@ -222,6 +226,17 @@ pub(crate) async fn räkna_i(conn: &mut SqliteConnection) -> Result<Kontrollsumm
         text.parse::<Date>()
             .map_err(|_| DatabasFel::Korrupt(format!("räkenskapsårets start {text}")))
     };
+    // En databas med ett äldre schema (före en migrering) kan sakna tabellerna; det som inte
+    // finns har inga summor.
+    if !finns_tabell(conn, "verifikatrad").await? {
+        return Ok(Kontrollsummor {
+            verifikat: Vec::new(),
+            konton: Vec::new(),
+            bokförda_rader: hex::encode(Sha256::digest(b"")),
+            underlag: Vec::new(),
+        });
+    }
+    let har_underlag = finns_tabell(conn, "underlagskoppling").await?;
 
     let rader: Vec<(String, String, i64)> = sqlx::query_as(
         "SELECT f.orgnr, r.start, count(*)
@@ -268,14 +283,19 @@ pub(crate) async fn räkna_i(conn: &mut SqliteConnection) -> Result<Kontrollsumm
         })
         .collect::<Result<_, DatabasFel>>()?;
 
-    let bokförda_rader = hash_över_bokförda_rader(conn).await?;
+    let bokförda_rader = hash_över_bokförda_rader(conn, har_underlag).await?;
 
     let mut underlag = Vec::new();
-    let ider: Vec<(i64, String)> = sqlx::query_as(
-        "SELECT u.id, f.orgnr FROM underlag u JOIN foretag f ON f.id = u.foretag_id ORDER BY u.id",
-    )
-    .fetch_all(&mut *conn)
-    .await?;
+    let ider: Vec<(i64, String)> = if har_underlag {
+        sqlx::query_as(
+            "SELECT u.id, f.orgnr FROM underlag u JOIN foretag f ON f.id = u.foretag_id
+             ORDER BY u.id",
+        )
+        .fetch_all(&mut *conn)
+        .await?
+    } else {
+        Vec::new()
+    };
     // Ett underlag i taget: innehållet kan vara 25 MB.
     for (id, orgnr) in ider {
         let innehåll: Vec<u8> = sqlx::query_scalar("SELECT innehall FROM underlag WHERE id = ?")
@@ -297,9 +317,21 @@ pub(crate) async fn räkna_i(conn: &mut SqliteConnection) -> Result<Kontrollsumm
     })
 }
 
+async fn finns_tabell(conn: &mut SqliteConnection, namn: &str) -> Result<bool, DatabasFel> {
+    Ok(sqlx::query_scalar(
+        "SELECT EXISTS (SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?)",
+    )
+    .bind(namn)
+    .fetch_one(&mut *conn)
+    .await?)
+}
+
 /// SHA-256 över en rad JSON per bokfört verifikat, verifikatrad och underlagskoppling. JSON gör
 /// fälten entydiga oavsett vad texterna innehåller.
-async fn hash_över_bokförda_rader(conn: &mut SqliteConnection) -> Result<String, DatabasFel> {
+async fn hash_över_bokförda_rader(
+    conn: &mut SqliteConnection,
+    har_underlag: bool,
+) -> Result<String, DatabasFel> {
     let mut hash = Sha256::new();
     let mut rad = |värde: serde_json::Value| {
         hash.update(värde.to_string());
@@ -352,6 +384,9 @@ async fn hash_över_bokförda_rader(conn: &mut SqliteConnection) -> Result<Strin
             rad(serde_json::json!([
                 "rad", radnr, konto, debet, kredit, text
             ]));
+        }
+        if !har_underlag {
+            continue;
         }
         let kopplingar: Vec<(String, String, i64)> = sqlx::query_as(
             "SELECT u.sha256, k.kopplad, k.komplettering
