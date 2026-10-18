@@ -19,6 +19,7 @@ pub mod installationslogg;
 mod klocka;
 pub mod kontoplan;
 pub mod kontrollsumma;
+pub mod kund;
 pub mod rapport;
 pub mod saldo;
 pub mod sie4;

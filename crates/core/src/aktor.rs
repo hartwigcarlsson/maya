@@ -128,6 +128,8 @@ pub enum Handling {
     LäsaInstallation,
     /// Skicka larm till driften. Bara Maya självt.
     SkickaLarm,
+    /// Skapa, ändra, arkivera och radera en kund i kundregistret. Bara webben (#133).
+    HanteraKunder,
 }
 
 /// Kanalpolicyn: om `kanal` får utföra `handling`.
@@ -149,6 +151,7 @@ pub fn tillåter(kanal: Kanal, handling: Handling) -> bool {
         | Handling::Komplettera
         | Handling::HanteraÅtkomst
         | Handling::ExporteraSie4
-        | Handling::KvitteraÅterställning => kanal == Kanal::Webb,
+        | Handling::KvitteraÅterställning
+        | Handling::HanteraKunder => kanal == Kanal::Webb,
     }
 }

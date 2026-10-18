@@ -6,6 +6,7 @@ use jiff::Timestamp;
 use jiff::civil::Date;
 use maya_domain::belopp::Saldo;
 use maya_domain::foretag::{Bokföringsmetod, Momsperiod};
+use maya_domain::kund::OmvändSkattskyldighet;
 use serde_json::Value;
 use sqlx::SqliteConnection;
 
@@ -75,6 +76,11 @@ händelser! {
     MigreringKörd => "migrering körd",
     MigreringMisslyckad => "migrering misslyckad",
     ProgramversionBytt => "programversion bytt",
+    // #133 Kundregister
+    KundSkapad => "kund skapad",
+    KundÄndrad => "kund ändrad",
+    KundArkiverad => "kund arkiverad",
+    KundRaderad => "kund raderad",
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -479,6 +485,42 @@ impl Post {
                     v => s(v),
                 };
                 format!("Från {från} till {}", f("till"))
+            }
+            // #133 Kundregister
+            Händelse::KundSkapad => {
+                let mut delar: Vec<String> = ["namn", "identitet", "epost"]
+                    .into_iter()
+                    .map(f)
+                    .filter(|d| !d.is_empty())
+                    .collect();
+                delar.push(format!("{} dagar", s(&b["betalningsvillkor"])));
+                if let Some(o) = OmvändSkattskyldighet::från_kod(&f("omvänd_skattskyldighet"))
+                    .filter(|o| *o != OmvändSkattskyldighet::Ingen)
+                {
+                    delar.push(format!("omvänd skattskyldighet: {}", o.namn()));
+                }
+                delar.join(", ")
+            }
+            Händelse::KundÄndrad => b["ändringar"]
+                .as_object()
+                .map(|fält| {
+                    fält
+                        .iter()
+                        .map(|(namn, v)| {
+                            format!("{namn}: ”{}” → ”{}”", s(&v["från"]), s(&v["till"]))
+                        })
+                        .collect::<Vec<_>>()
+                        .join("; ")
+                })
+                .unwrap_or_default(),
+            Händelse::KundArkiverad => "Arkiverad; visas inte längre i väljarna".into(),
+            Händelse::KundRaderad => {
+                let namn = [f("namn"), f("identitet")]
+                    .into_iter()
+                    .filter(|d| !d.is_empty())
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                format!("{namn} raderad ur kundregistret")
             }
         }
     }
