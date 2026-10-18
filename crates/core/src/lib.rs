@@ -3,6 +3,7 @@
 
 pub mod config;
 mod databas;
+pub mod installation;
 mod klocka;
 
 #[cfg(feature = "test-support")]

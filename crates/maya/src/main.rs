@@ -7,6 +7,7 @@ use std::sync::Arc;
 use clap::{Parser, Subcommand};
 use maya_core::Databas;
 use maya_core::config::Config;
+use maya_core::installation::{self, RelyingParty};
 
 mod healthcheck;
 
@@ -70,6 +71,7 @@ async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
     std::fs::create_dir_all(&config.data_dir)
         .map_err(|e| format!("kan inte skapa {}: {e}", config.data_dir.display()))?;
     let db = Databas::öppna(&config.database_path()).await?;
+    installation::kontrollera_rp(&db, &RelyingParty::från_publik_url(&config.public_url)).await?;
     let config = Arc::new(config);
     let app = maya_web::router(config.clone(), db);
 
