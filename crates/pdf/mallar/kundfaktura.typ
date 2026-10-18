@@ -109,7 +109,8 @@
   [Summa exklusive moms], [#f.netto],
   ..f.momsrader.map(m => ([#m.text], [#m.moms])).flatten(),
   grid.hline(stroke: 0.5pt),
-  text(size: 12pt, weight: "bold")[Att betala], text(size: 12pt, weight: "bold")[#f.total kr],
+  pad(top: 0.3em, text(size: 12pt, weight: "bold")[Att betala]),
+  pad(top: 0.3em, text(size: 12pt, weight: "bold")[#f.total kr]),
 ))
 
 #v(1.5em)

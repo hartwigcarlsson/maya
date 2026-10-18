@@ -129,6 +129,9 @@ impl RättelseVy {
                 .collect::<Option<_>>()?,
             rättad_av: None,
             rättar: None,
+            // Bara ett verifikat som kan rättas har en RättelseVy, och det kommer inte från
+            // ett flöde.
+            flöde: None,
         })
     }
 

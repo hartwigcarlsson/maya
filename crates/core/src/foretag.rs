@@ -254,7 +254,7 @@ pub async fn företaget(
     Ok(läs_företag(&mut tx, id).await?)
 }
 
-async fn läs_företag(
+pub(crate) async fn läs_företag(
     conn: &mut SqliteConnection,
     id: FöretagsId,
 ) -> Result<Företag, DatabasFel> {
@@ -622,6 +622,12 @@ pub async fn radera(
         "DELETE FROM fakturauppgifter WHERE foretag_id = ?1",
         // #144 leverantörsregistret
         "DELETE FROM leverantor WHERE foretag_id = ?1",
+        // #135 Kundfakturor: bara utkast, eftersom en utfärdad faktura är
+        // räkenskapsinformation.
+        "DELETE FROM kundfakturarad
+         WHERE faktura_id IN (SELECT id FROM kundfaktura WHERE foretag_id = ?1)",
+        "DELETE FROM kundfaktura WHERE foretag_id = ?1",
+        "DELETE FROM fakturaserie WHERE foretag_id = ?1",
         // #133 Kundregister: kunder utan fakturor.
         "DELETE FROM kund WHERE foretag_id = ?1",
         "DELETE FROM foretag WHERE id = ?1",
@@ -667,7 +673,8 @@ async fn har_räkenskapsinformation_i(
              OR EXISTS (SELECT 1 FROM underlag WHERE foretag_id = ?1)
              OR EXISTS (SELECT 1 FROM ingaende_balans b
                         JOIN rakenskapsar r ON r.id = b.rakenskapsar_id
-                        WHERE r.foretag_id = ?1)",
+                        WHERE r.foretag_id = ?1)
+             OR EXISTS (SELECT 1 FROM kundfaktura WHERE foretag_id = ?1 AND status <> 'utkast')",
     )
     .bind(id.0)
     .fetch_one(conn)

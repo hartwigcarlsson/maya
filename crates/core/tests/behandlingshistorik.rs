@@ -7,8 +7,8 @@ use maya_core::behandlingshistorik::{Aktörsval, Händelse, Urval};
 use maya_core::foretag::{self, FöretagsId};
 use maya_core::inloggning::{self, NyPasskey};
 use maya_core::{
-    Databas, Klocka, behandlingshistorik, export, fakturauppgifter, kontoplan, kund, leverantor,
-    saldo, sie4, testhjalp, underlag, verifikat,
+    Databas, Klocka, behandlingshistorik, export, fakturauppgifter, kontoplan, kund, kundfaktura,
+    leverantor, saldo, sie4, testhjalp, underlag, verifikat,
 };
 use maya_domain::fakturauppgifter::Fakturauppgifter;
 use maya_domain::foretag::{Byte, NyttFöretag, Uppgifter};
@@ -346,6 +346,72 @@ async fn fakturaändringar(db: &Databas, anna: &Aktör, id: FöretagsId, tid: &s
     .unwrap();
     kund::arkivera(db, &k, anna, id, kund_ab).await.unwrap();
     kund::radera(db, &k, anna, id, kund_ab).await.unwrap();
+    // #135 Kundfakturor
+    foretag::ändra_uppgifter(
+        db,
+        &k,
+        anna,
+        id,
+        &Uppgifter {
+            namn: "Exempel AB".into(),
+            gatuadress: "Exempelgatan 1".into(),
+            postnummer: "12345".into(),
+            postort: "Exempelstad".into(),
+            säte: "Stockholm".into(),
+            momsregnr: "SE556036079301".into(),
+            f_skatt: true,
+            ..Uppgifter::default()
+        },
+    )
+    .await
+    .unwrap();
+    let köpare = kund::skapa(
+        db,
+        &k,
+        anna,
+        id,
+        &NyKund {
+            namn: "Köpare AB".into(),
+            adress: "Storgatan 1\n111 22 Stockholm".into(),
+            ..NyKund::default()
+        },
+    )
+    .await
+    .unwrap();
+    let faktura = maya_domain::kundfaktura::NyKundfaktura {
+        kund: köpare.to_string(),
+        fakturadatum: "2026-03-01".into(),
+        startnummer: "100".into(),
+        rader: vec![maya_domain::kundfaktura::NyFakturarad {
+            beskrivning: "Konsulttimmar".into(),
+            antal: "2".into(),
+            à_pris: "950".into(),
+            ..Default::default()
+        }],
+        ..Default::default()
+    };
+    let utkast = kundfaktura::spara_utkast(db, &k, anna, id, None, &faktura)
+        .await
+        .unwrap();
+    kundfaktura::utfärda(db, &k, anna, id, utkast)
+        .await
+        .unwrap();
+    let utkast = kundfaktura::spara_utkast(
+        db,
+        &k,
+        anna,
+        id,
+        None,
+        &maya_domain::kundfaktura::NyKundfaktura {
+            startnummer: String::new(),
+            ..faktura
+        },
+    )
+    .await
+    .unwrap();
+    kundfaktura::radera_utkast(db, &k, anna, id, utkast)
+        .await
+        .unwrap();
 }
 
 #[tokio::test]

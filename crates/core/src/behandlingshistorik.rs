@@ -90,6 +90,10 @@ händelser! {
     KundÄndrad => "kund ändrad",
     KundArkiverad => "kund arkiverad",
     KundRaderad => "kund raderad",
+    // #135 Kundfakturor
+    KundfakturaUtfärdad => "kundfaktura utfärdad",
+    FakturautkastRaderat => "fakturautkast raderat",
+    StartnummerÄndrat => "startnummer ändrat",
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -598,6 +602,37 @@ impl Post {
                     .collect::<Vec<_>>()
                     .join(", ");
                 format!("{namn} raderad ur kundregistret")
+            }
+            // #135 Kundfakturor
+            Händelse::KundfakturaUtfärdad => format!(
+                "Faktura {} till ”{}” daterad {}, förfaller {}, {} kr, bokförd som {}",
+                f("nummer"),
+                s(&b["kund"]["namn"]),
+                f("fakturadatum"),
+                f("förfallodag"),
+                kronor(&b["summa_öre"]),
+                s(&b["verifikat"]["nummer"])
+            ),
+            Händelse::FakturautkastRaderat => {
+                // Gemensam för kund- och leverantörsfakturor (#145).
+                let mut text = format!("Utkast till {}", f("sort"));
+                for (namn, etikett) in [
+                    ("fakturanummer", "nummer"),
+                    ("kundnamn", "till"),
+                    ("leverantörsnamn", "från"),
+                ] {
+                    if !f(namn).is_empty() {
+                        text.push_str(&format!(", {etikett} ”{}”", f(namn)));
+                    }
+                }
+                if !f("fakturadatum").is_empty() {
+                    text.push_str(&format!(", daterat {}", f("fakturadatum")));
+                }
+                text.push_str(&format!(", {} rader", s(&b["antal_rader"])));
+                text
+            }
+            Händelse::StartnummerÄndrat => {
+                format!("Första fakturanummer: {} → {}", f("från"), f("till"))
             }
         }
     }

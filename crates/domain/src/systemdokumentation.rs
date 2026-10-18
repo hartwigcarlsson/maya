@@ -201,6 +201,10 @@ const RÄTTELSESPÄRRAR: &[(&str, &str)] = &[
         "fore_originalet",
         "Rättelsens datum är tidigast originalets datum.",
     ),
+    (
+        "fran_flode",
+        "Ett verifikat från ett av Mayas flöden (en faktura) rättas i fakturan.",
+    ),
 ];
 
 fn kodtabell(koder: &[(&str, &str)]) -> Block {

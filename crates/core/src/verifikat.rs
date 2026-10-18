@@ -138,6 +138,22 @@ pub struct Länk {
     pub bokförd: Option<Signatur>,
 }
 
+/// Flödet som ett verifikat bokfördes från.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Flöde {
+    Kundfaktura,
+}
+
+/// Länken från ett verifikat till fakturan som det bokfördes från (story 73).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Flödeslänk {
+    pub sort: Flöde,
+    /// Fakturans id i sin tabell.
+    pub id: i64,
+    /// Fakturan i text, t.ex. "kundfaktura 1007 till Kund AB".
+    pub text: String,
+}
+
 /// Ett verifikat med rader och historik.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Verifikat {
@@ -165,6 +181,8 @@ pub struct Verifikat {
     pub underlag: Vec<VerifikatetsUnderlag>,
     /// Posterna i behandlingshistoriken som rör verifikatet, i ordning.
     pub historik: Vec<Historikpost>,
+    /// Fakturan som verifikatet bokfördes från, om det kommer från ett av Mayas flöden.
+    pub flöde: Option<Flödeslänk>,
 }
 
 impl Verifikat {
@@ -192,6 +210,7 @@ impl Verifikat {
                 .collect::<Option<_>>()?,
             rättad_av: nummer(&self.rättad_av),
             rättar: nummer(&self.rättar),
+            flöde: self.flöde.as_ref().map(|f| f.text.clone()),
         })
     }
 }
@@ -324,9 +343,61 @@ pub async fn bokför_utkast(
     bokför_i(ärende, Some(utkast), formulär, None).await
 }
 
-/// Bokför i ärendet. `underlag` är `None` när kopplingarna ska lämnas som de är.
+/// Bokför i ärendet och sparar. `underlag` är `None` när kopplingarna ska lämnas som de är.
 async fn bokför_i(
     mut ärende: Ärende,
+    utkast: Option<VerifikatId>,
+    formulär: &NyttVerifikat,
+    underlag: Option<&[UnderlagId]>,
+) -> Result<Bokfört, VerifikatFel> {
+    let bokfört = bokför_utan_att_spara(&mut ärende, utkast, formulär, underlag).await?;
+    ärende.slutför().await?;
+    Ok(bokfört)
+}
+
+/// Bokför ett nytt verifikat ur formuläret i ärendet, med exakt underlagen i `underlag`
+/// kopplade, utan att spara: samma spärrar, år, nummer och loggning som [`bokför`]. Flödena
+/// (fakturor, betalningar) bokför sitt verifikat så, i samma transaktion som sin egen
+/// händelse, och sparar ärendet själva. Verifikatets källa är `manuell`.
+pub(crate) async fn bokför_i_ärende(
+    ärende: &mut Ärende,
+    formulär: &NyttVerifikat,
+    underlag: &[UnderlagId],
+) -> Result<Bokfört, VerifikatFel> {
+    bokför_utan_att_spara(ärende, None, formulär, Some(underlag)).await
+}
+
+/// Formuläret för ett verifikat med kontrollerade rader, t.ex. ett flödes kontering, så att
+/// det går genom samma spärrar som ett verifikat som skrivs för hand.
+pub(crate) fn formulär_av(
+    datum: Date,
+    beskrivning: &str,
+    rader: &[maya_domain::verifikat::Rad],
+) -> NyttVerifikat {
+    let belopp = |b: Belopp| {
+        if b == Belopp::NOLL {
+            String::new()
+        } else {
+            b.to_string()
+        }
+    };
+    NyttVerifikat {
+        datum: datum.to_string(),
+        beskrivning: beskrivning.to_string(),
+        rader: rader
+            .iter()
+            .map(|r| maya_domain::verifikat::NyRad {
+                konto: r.konto.to_string(),
+                debet: belopp(r.debet),
+                kredit: belopp(r.kredit),
+                text: r.text.clone().unwrap_or_default(),
+            })
+            .collect(),
+    }
+}
+
+async fn bokför_utan_att_spara(
+    ärende: &mut Ärende,
     utkast: Option<VerifikatId>,
     formulär: &NyttVerifikat,
     underlag: Option<&[UnderlagId]>,
@@ -336,21 +407,20 @@ async fn bokför_i(
     let v = formulär
         .kontrollera(&förutsättningar)
         .map_err(VerifikatFel::Spärrat)?;
-    let år_id = räkenskapsår_id(&mut ärende, v.räkenskapsår).await?;
+    let år_id = räkenskapsår_id(ärende, v.räkenskapsår).await?;
     let innehåll = Innehåll::bokförbart(år_id, &v);
     let id = match utkast {
         Some(id) => {
-            skriv_om(&mut ärende, id, &innehåll).await?;
+            skriv_om(ärende, id, &innehåll).await?;
             id
         }
-        None => skapa(&mut ärende, &innehåll).await?,
+        None => skapa(ärende, &innehåll).await?,
     };
     if let Some(underlag) = underlag {
-        koppla(&mut ärende, id, underlag).await?;
+        koppla(ärende, id, underlag).await?;
     }
-    let nummer = tilldela_nummer(&mut ärende, id, år_id).await?;
-    logga_bokfört(&mut ärende, id, nummer, &v, None).await?;
-    ärende.slutför().await?;
+    let nummer = tilldela_nummer(ärende, id, år_id).await?;
+    logga_bokfört(ärende, id, nummer, &v, None).await?;
     Ok(Bokfört { id, nummer })
 }
 
@@ -1018,11 +1088,29 @@ async fn läs_verifikat(
         bokförd,
         underlag,
         historik,
+        flöde: flödeslänk(tx, id).await?,
     }))
 }
 
+/// Fakturan som verifikatet bokfördes från. Varje flöde lägger till sin fråga här.
+async fn flödeslänk(
+    conn: &mut SqliteConnection,
+    id: VerifikatId,
+) -> Result<Option<Flödeslänk>, DatabasFel> {
+    Ok(crate::kundfaktura::fakturan_för_verifikat(conn, id)
+        .await?
+        .map(|(id, text)| Flödeslänk {
+            sort: Flöde::Kundfaktura,
+            id,
+            text,
+        }))
+}
+
 /// Länken till verifikatet `id`, med vem som bokförde det och när.
-async fn länk(conn: &mut SqliteConnection, id: Option<i64>) -> Result<Option<Länk>, DatabasFel> {
+pub(crate) async fn länk(
+    conn: &mut SqliteConnection,
+    id: Option<i64>,
+) -> Result<Option<Länk>, DatabasFel> {
     let Some(id) = id else {
         return Ok(None);
     };

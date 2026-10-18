@@ -476,6 +476,7 @@ impl NyKundfaktura {
                 "Lägg till minst en rad.",
             ));
         }
+        let antal_ifyllda = ifyllda.len();
         let mut rader = Vec::new();
         for (i, r) in ifyllda {
             rader.extend(kontrollera_rad(i, r, f, &mut spärrar));
@@ -484,7 +485,8 @@ impl NyKundfaktura {
         let netto: i64 = momsrader.iter().map(|m| m.underlag).sum();
         let moms: i64 = momsrader.iter().map(|m| m.moms).sum();
         let total = netto + moms;
-        if !rader.is_empty() && spärrar.is_empty() && total <= 0 {
+        // Summan prövas när varje ifylld rad klarar sina spärrar.
+        if !rader.is_empty() && rader.len() == antal_ifyllda && total <= 0 {
             spärrar.push(Spärr::ny(
                 Fält::Summa,
                 "summa_inte_positiv",

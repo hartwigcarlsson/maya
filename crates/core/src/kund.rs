@@ -116,9 +116,12 @@ impl From<DatabasFel> for KundFel {
 }
 
 /// Frågor som räknar en kunds fakturor, en per tabell med fakturor som hänvisar till kunden
-/// (`?1` är kundens id). Fakturorna kommer i senare tickets (#135, #143); var och en lägger
-/// till sin fråga här, så att en kund med fakturor inte kan raderas.
-const KUNDENS_FAKTUROR: &[&str] = &[];
+/// (`?1` är kundens id). Var och en av fakturornas tickets (#135, #143) lägger till sin fråga
+/// här, så att en kund med fakturor inte kan raderas.
+const KUNDENS_FAKTUROR: &[&str] = &[
+    // #135 Kundfakturor, också utkast: de hänvisar till kunden.
+    "SELECT count(*) FROM kundfaktura WHERE kund_id = ?1",
+];
 
 /// Lägger upp en kund i registret och loggar `kund skapad` med uppgifterna.
 pub async fn skapa(

@@ -21,6 +21,7 @@ mod klocka;
 pub mod kontoplan;
 pub mod kontrollsumma;
 pub mod kund;
+pub mod kundfaktura;
 pub mod leverantor;
 pub mod rapport;
 pub mod saldo;
