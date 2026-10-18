@@ -90,11 +90,11 @@ Proxyn ska skicka hela origin oförändrad (`Host` som klienten skickade), inte 
 
 ### Caddy (standard)
 
-`COMPOSE_PROFILES=caddy` i `.env`. Caddy skaffar certifikatet själv. Konfigurationen är `deploy/Caddyfile`.
+Caddy startar med `docker compose up -d` utan något i `.env`. Caddy skaffar certifikatet själv. Konfigurationen är `deploy/Caddyfile`.
 
 ### Traefik
 
-`COMPOSE_PROFILES=traefik` i `.env`. Traefik körs med file provider (`deploy/traefik-dynamic.yml`), alltså utan Docker-socket, och skaffar certifikatet med ACME via TLS-ALPN-01. Ange `MAYA_ACME_EPOST`.
+`COMPOSE_PROFILES=traefik` och `MAYA_CADDY_SCALE=0` i `.env` (Caddy startar annars också). Traefik körs med file provider (`deploy/traefik-dynamic.yml`), alltså utan Docker-socket, och skaffar certifikatet med ACME via TLS-ALPN-01. Ange `MAYA_ACME_EPOST`.
 
 ### En Traefik som redan finns
 
@@ -110,7 +110,7 @@ Med Funnel blir `MAYA_PUBLIC_URL` maskinens Funnel-namn, till exempel `https://m
 tailscale funnel --bg 8080
 ```
 
-Publicera då port 8080 på `127.0.0.1` (`ports: ["127.0.0.1:8080:8080"]` på tjänsten `maya`) och sätt `COMPOSE_PROFILES=` tomt, så att varken Caddy eller Traefik startar. Anslutningarna kommer då från nätverkets gateway, så sätt `MAYA_TRUSTED_PROXY=172.31.80.1`.
+Publicera då port 8080 på `127.0.0.1` (`ports: ["127.0.0.1:8080:8080"]` på tjänsten `maya`) och sätt `MAYA_CADDY_SCALE=0` utan `COMPOSE_PROFILES`, så att varken Caddy eller Traefik startar. Anslutningarna kommer då från nätverkets gateway, så sätt `MAYA_TRUSTED_PROXY=172.31.80.1`.
 
 ## Containern
 

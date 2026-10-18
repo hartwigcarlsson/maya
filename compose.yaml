@@ -1,7 +1,8 @@
 # Maya med Caddy framför. Konfigurationen ligger i .env (se .env.example).
 #
-#   docker compose up -d                      Caddy (standard, COMPOSE_PROFILES=caddy i .env)
-#   COMPOSE_PROFILES=traefik i .env           Traefik med file provider i stället för Caddy
+#   docker compose up -d                      Maya och Caddy (standard)
+#   COMPOSE_PROFILES=traefik och              Traefik med file provider i stället för Caddy
+#   MAYA_CADDY_SCALE=0 i .env
 #
 # Uppgradera genom att byta taggen nedan och köra `docker compose up -d`. Använd aldrig latest.
 # Se docs/drift.md.
@@ -28,7 +29,8 @@ services:
 
   caddy:
     image: caddy:2.10.2
-    profiles: [caddy]
+    # 0 när Traefik eller en annan proxy står framför Maya.
+    scale: ${MAYA_CADDY_SCALE:-1}
     restart: unless-stopped
     depends_on: [maya]
     ports:
