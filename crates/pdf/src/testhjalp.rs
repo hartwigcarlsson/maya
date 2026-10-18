@@ -13,6 +13,15 @@ use kurbo::{Affine, BezPath, Rect};
 /// Texten på varje sida, utan blanksteg: glyferna bär inga mellanrum, så jämför med
 /// [`innehåller`].
 pub fn sidor(pdf: &[u8]) -> Vec<String> {
+    läs(pdf).into_iter().map(|t| t.0).collect()
+}
+
+/// Antalet bilder som ritas på sidorna, t.ex. en logotyp.
+pub fn bilder(pdf: &[u8]) -> usize {
+    läs(pdf).iter().map(|t| t.1).sum()
+}
+
+fn läs(pdf: &[u8]) -> Vec<Text> {
     let pdf = Pdf::new(pdf.to_vec()).expect("PDF:en går att läsa");
     let cache = InterpreterCache::new();
     pdf.pages()
@@ -25,9 +34,9 @@ pub fn sidor(pdf: &[u8]) -> Vec<String> {
                 pdf.xref(),
                 InterpreterSettings::default(),
             );
-            let mut text = Text(String::new());
+            let mut text = Text(String::new(), 0);
             interpret_page(sida, &mut context, &mut text);
-            text.0
+            text
         })
         .collect()
 }
@@ -62,7 +71,8 @@ fn utan_blanksteg(s: &str) -> String {
     s.chars().filter(|c| !c.is_whitespace()).collect()
 }
 
-struct Text(String);
+/// Texten och antalet bilder på en sida.
+struct Text(String, usize);
 
 impl Device<'_> for Text {
     fn set_soft_mask(&mut self, _: Option<SoftMask<'_>>) {}
@@ -84,7 +94,9 @@ impl Device<'_> for Text {
             _ => {}
         }
     }
-    fn draw_image(&mut self, _: Image<'_, '_>, _: Affine) {}
+    fn draw_image(&mut self, _: Image<'_, '_>, _: Affine) {
+        self.1 += 1;
+    }
     fn pop_clip_path(&mut self) {}
     fn pop_transparency_group(&mut self) {}
 }
