@@ -1,16 +1,20 @@
-//! Utskrift som PDF/A-2b (A2): ett enskilt verifikat och kontoplanen. Skriv ut och exporten
+//! Utskrift som PDF/A-2b (A2): ett enskilt verifikat, kontoplanen och rapporterna. Skriv ut och exporten
 //! är samma PDF. Sidfoten får klockans tid och aktörens namn; resten fyller `maya-pdf` i.
 //!
 //! PDF:en skrivs om vid varje utskrift och sparas inte. Det som arkiveras är datat; en PDF som
 //! ska arkiveras som dokument sparas som fil av den som tar ut den (A3, #65).
 
+use jiff::civil::Date;
 use maya_domain::kontoplan::bas;
 use maya_domain::rakenskapsar::periodnamn;
 use maya_pdf::{Dokument, Sidfot};
 
-use crate::aktor::Aktör;
+use crate::aktor::{Aktör, Kanal};
 use crate::atkomst::ÅtkomstFel;
+use crate::behandlingshistorik;
 use crate::foretag::{self, FöretagsId};
+use crate::rapport::{self, Urval};
+use crate::saldo::SaldoFel;
 use crate::verifikat::{self, Signatur, VerifikatId, Verifikationsnummer};
 use crate::{Databas, DatabasFel, Klocka, kontoplan};
 
@@ -27,6 +31,8 @@ pub enum UtskriftFel {
     Åtkomst(#[from] ÅtkomstFel),
     #[error(transparent)]
     Pdf(#[from] maya_pdf::PdfFel),
+    #[error("företaget har inget räkenskapsår som börjar det datumet")]
+    OkäntRäkenskapsår,
 }
 
 impl From<DatabasFel> for UtskriftFel {
@@ -157,7 +163,75 @@ pub async fn kontoplan(
     skriv(db, klocka, aktör, "kontoplan.pdf".into(), &dokument).await
 }
 
-async fn skriv(
+/// Behandlingshistoriken i urvalet som PDF (A2), med urvalet överst.
+pub async fn behandlingshistorik(
+    db: &Databas,
+    klocka: &Klocka,
+    aktör: &Aktör,
+    företag: FöretagsId,
+    urval: &behandlingshistorik::Urval,
+) -> Result<Pdf, UtskriftFel> {
+    let historik = behandlingshistorik::historik(db, aktör, företag, urval).await?;
+    let f = foretag::företaget(db, aktör, företag).await?;
+    let filnamn = format!(
+        "behandlingshistorik_{}_{}.pdf",
+        f.orgnr.siffror(),
+        klocka.idag().strftime("%Y%m%d")
+    );
+    let dokument = Dokument::Behandlingshistorik(maya_pdf::Behandlingshistorik {
+        företag: maya_pdf::Företag {
+            namn: f.namn,
+            orgnr: f.orgnr.to_string(),
+        },
+        urval: urval.beskriv(&historik.aktörer),
+        poster: historik
+            .poster
+            .iter()
+            .map(|p| maya_pdf::Behandlingspost {
+                tid: p.tid,
+                aktör: match p.aktör.kanal {
+                    Kanal::Maya => p.aktörsnamn(),
+                    kanal => format!("{} ({})", p.aktörsnamn(), kanal.namn()),
+                },
+                typ: p.typ.clone(),
+                objekt: p.objekt.clone(),
+                beskrivning: p.text(),
+            })
+            .collect(),
+    });
+    skriv(db, klocka, aktör, filnamn, &dokument).await
+}
+
+/// Resultat- eller balansräkningen i urvalet som PDF, med nivån och kolumnerna som urvalet
+/// visar. Filnamnet är `<rapport>_<orgnr>_<år>_<ÅÅÅÅMM>.pdf`.
+pub async fn rapport(
+    db: &Databas,
+    klocka: &Klocka,
+    aktör: &Aktör,
+    företag: FöretagsId,
+    år: Date,
+    urval: &Urval,
+) -> Result<Pdf, UtskriftFel> {
+    let r = rapport::rapport(db, aktör, företag, år, urval)
+        .await
+        .map_err(|e| match e {
+            SaldoFel::Åtkomst(e) => UtskriftFel::Åtkomst(e),
+            SaldoFel::OkäntRäkenskapsår => UtskriftFel::OkäntRäkenskapsår,
+        })?;
+    let f = foretag::företaget(db, aktör, företag).await?;
+    let orgnr = f.orgnr.to_string();
+    let filnamn = format!("{}.pdf", r.filnamn(&orgnr));
+    let dokument = Dokument::Rapport(maya_pdf::Rapport {
+        företag: maya_pdf::Företag {
+            namn: f.namn,
+            orgnr,
+        },
+        rapport: r,
+    });
+    skriv(db, klocka, aktör, filnamn, &dokument).await
+}
+
+pub(crate) async fn skriv(
     db: &Databas,
     klocka: &Klocka,
     aktör: &Aktör,

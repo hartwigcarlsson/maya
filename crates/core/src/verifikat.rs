@@ -46,7 +46,7 @@ impl FromStr for VerifikatId {
 
 /// Ett verifikationsnummer i räkenskapsårets V-serie, skrivet V1, V2 …
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct Verifikationsnummer(u32);
+pub struct Verifikationsnummer(pub(crate) u32);
 
 impl Verifikationsnummer {
     pub fn get(self) -> u32 {
@@ -872,7 +872,7 @@ pub(crate) async fn namn(
     Ok(namn.unwrap_or_else(|| kanalens_namn(aktör.kanal)))
 }
 
-fn kanalens_namn(kanal: Kanal) -> String {
+pub(crate) fn kanalens_namn(kanal: Kanal) -> String {
     match kanal {
         Kanal::Maya => "Maya".into(),
         Kanal::Cli => "CLI".into(),
