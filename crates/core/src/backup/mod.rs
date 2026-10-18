@@ -141,6 +141,8 @@ pub struct Backupresultat {
     pub verifiering: Verifiering,
     /// Backuper som gallrades.
     pub gallrade: Vec<Backup>,
+    /// Varför gallringen avbröts, när den gjorde det. Backupen är ändå tagen och verifierad.
+    pub gallringsfel: Option<String>,
 }
 
 /// En sparad körning av backupen eller verifieringen.
@@ -194,11 +196,15 @@ pub async fn ta_backup(
 
     let verifiering =
         verifiera_utan_kontroll(db, klocka, aktör, mål, &backup, arbetskatalog).await?;
-    let gallrade = gallra(db, mål).await?;
+    let (gallrade, gallringsfel) = match gallra(db, mål).await {
+        Ok(gallrade) => (gallrade, None),
+        Err(e) => (Vec::new(), Some(e.to_string())),
+    };
     Ok(Backupresultat {
         backup,
         verifiering,
         gallrade,
+        gallringsfel,
     })
 }
 

@@ -108,7 +108,16 @@ pub async fn nattligt_jobb(config: &Config, db: Databas) {
 }
 
 async fn kör(db: &Databas, mål: &Backupmål, arbete: &Path) {
-    match backup::ta_backup(db, &Klocka::system(), &Aktör::maya(), mål, arbete).await {
+    let resultat = backup::ta_backup(db, &Klocka::system(), &Aktör::maya(), mål, arbete).await;
+    if let Ok(r) = &resultat
+        && let Some(fel) = &r.gallringsfel
+    {
+        tracing::error!(
+            "gallringen av äldre backuper efter {} misslyckades: {fel}",
+            r.backup.namn
+        );
+    }
+    match resultat {
         Ok(resultat) if resultat.verifiering.lyckades() => tracing::info!(
             "backupen {} är tagen och verifierad ({} gallrade)",
             resultat.backup.namn,

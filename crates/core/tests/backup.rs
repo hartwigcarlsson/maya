@@ -260,6 +260,25 @@ async fn gallringen_behåller_sju_dagliga_och_tolv_månatliga_i_målet() {
 }
 
 #[tokio::test]
+async fn en_gallring_som_misslyckas_gör_inte_backupen_misslyckad() {
+    let db = Databas::tillfällig().await;
+    let (mål_dir, arbete) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+    let mål = Backupmål::katalog(mål_dir.path());
+    // En rest utan manifest som inte går att ta bort: en katalog med en backups filnamn.
+    std::fs::create_dir(mål_dir.path().join("maya-20200101T000000Z.db")).unwrap();
+
+    let resultat = backup::ta_backup(&db, &klocka(NU), &Aktör::maya(), &mål, arbete.path())
+        .await
+        .unwrap();
+
+    assert!(resultat.verifiering.lyckades());
+    let fel = resultat.gallringsfel.expect("gallringen misslyckades");
+    assert!(fel.contains("maya-20200101T000000Z.db"), "{fel}");
+    let status = backup::status(&db).await.unwrap();
+    assert!(status.senaste_backup.unwrap().lyckades);
+}
+
+#[tokio::test]
 async fn gallringen_tränger_inte_undan_goda_backuper_med_misslyckade() {
     let db = Databas::tillfällig().await;
     let (mål_dir, arbete) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
