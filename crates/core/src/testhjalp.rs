@@ -125,3 +125,32 @@ pub async fn bokför(
         .await
         .expect("testverifikatet bokförs")
 }
+
+/// Loggar en start som `Databas::öppna` gör den när `till` startar efter `från` och har kört
+/// `migreringar` (version, namn) med backupen `backup` först, vid `klocka`s tid.
+pub async fn starta_om(
+    db: &Databas,
+    klocka: &Klocka,
+    från: &str,
+    till: &str,
+    migreringar: &[(i64, &str)],
+    backup: Option<&str>,
+) {
+    let mut tx = db.pool().begin().await.expect("transaktion");
+    sqlx::query("UPDATE programversion SET version = ?")
+        .bind(från)
+        .execute(&mut *tx)
+        .await
+        .expect("programversionen");
+    let körda = crate::databas::Migreringsresultat {
+        migreringar: migreringar
+            .iter()
+            .map(|(v, namn)| (*v, namn.to_string()))
+            .collect(),
+        backup: backup.map(str::to_string),
+    };
+    crate::databas::logga_start(&mut tx, klocka.nu(), till, Some(&körda))
+        .await
+        .expect("starten loggas");
+    tx.commit().await.expect("commit");
+}

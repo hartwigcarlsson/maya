@@ -27,5 +27,5 @@ pub mod verifikat;
 
 #[cfg(feature = "test-support")]
 pub use databas::TillfälligDatabas;
-pub use databas::{Databas, DatabasFel, SCHEMAEPOK};
+pub use databas::{Databas, DatabasFel, SCHEMAEPOK, schemaepok_för};
 pub use klocka::Klocka;

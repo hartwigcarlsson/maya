@@ -23,3 +23,5 @@
 2026-03-02 10:15:00;bo@example.se;webb;åtkomst given;bo@example.se;;Åtkomst till företaget för bo@example.se
 2026-03-02 10:15:00;anna@example.se;webb;åtkomst tagen;bo@example.se;;Åtkomsten till företaget borttagen för bo@example.se
 2026-03-02 10:15:00;anna@example.se;webb;SIE4 exporterad;2026-01-01 – 2027-06-30;;SIE4_5560360793_2026.se, 1 verifikat
+2026-03-02 10:15:00;Maya;maya;migrering körd;20270101000000;;1 migrering av Maya 0.5.0 (20270101000000 exempel): kontrollsummorna oförändrade, backup maya-20260301T090000Z
+2026-03-02 10:15:00;Maya;maya;programversion bytt;0.5.0;;Från 0.4.0 till 0.5.0

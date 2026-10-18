@@ -91,7 +91,11 @@ fn serve() -> ExitCode {
 async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
     std::fs::create_dir_all(&config.data_dir)
         .map_err(|e| format!("kan inte skapa {}: {e}", config.data_dir.display()))?;
-    let db = Databas::öppna(&config.database_path()).await?;
+    let db = Databas::öppna_med_backup(
+        &config.database_path(),
+        &maya_core::backup::Backupmål::från(&config.backup),
+    )
+    .await?;
     installation::kontrollera_rp(&db, &RelyingParty::från_publik_url(&config.public_url)).await?;
     let tillagda = kontoplan::lägg_till_inbyggd_bas(&db, &Klocka::system()).await?;
     if tillagda > 0 {
