@@ -140,6 +140,23 @@ impl Databas {
             .await
             .map_err(öppna_fel)?;
         let db = Databas { pool };
+        let resultat = db.förbered(path, binär, mål).await;
+        if resultat.is_err() {
+            // Inga anslutningar får leva kvar och checkpointa in i en fil som anroparen sedan
+            // lägger tillbaka (restore).
+            db.pool.close().await;
+        }
+        resultat.map(|()| db)
+    }
+
+    /// Kontrollerar epoken, migrerar och loggar starten.
+    async fn förbered(
+        &self,
+        path: &Path,
+        binär: Binär<'_>,
+        mål: Option<&Backupmål>,
+    ) -> Result<(), DatabasFel> {
+        let db = self;
         let epok = schemaepok_för(binär.version);
 
         // Epoken kontrolleras före migreringarna, så att en databas från en annan epok aldrig
@@ -154,7 +171,7 @@ impl Databas {
         let mut tx = db.pool.begin().await?;
         logga_start(&mut tx, tid, binär.version, körda.as_ref()).await?;
         tx.commit().await?;
-        Ok(db)
+        Ok(())
     }
 
     /// Kör de migreringar som inte är körda. En befintlig databas skyddas av en ögonblicksbild
