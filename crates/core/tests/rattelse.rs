@@ -418,6 +418,56 @@ async fn schemat_avvisar_en_andra_rättelse_en_rättelse_av_en_rättelse_och_än
 }
 
 #[tokio::test]
+async fn schemat_avvisar_registrera_om_utan_rättelse_och_en_andra_kopia() {
+    let db = Databas::tillfällig().await;
+    let (anna, id) = testhjalp::företag(&db).await;
+    testhjalp::bokför(
+        &db,
+        &anna,
+        id,
+        "2026-03-14",
+        &[(1930, 100, 0), (3001, 0, 100)],
+    )
+    .await;
+    let kopia_av_v1 =
+        "INSERT INTO verifikat (foretag_id, beskrivning, kalla, skapad, skapad_kanal, kopia_av)
+         SELECT foretag_id, 'x', 'manuell', skapad, skapad_kanal, id
+         FROM verifikat WHERE nummer = 1";
+
+    let utan_rättelse = testhjalp::kör_sql(&db, kopia_av_v1).await;
+    assert!(
+        utan_rättelse
+            .unwrap_err()
+            .to_string()
+            .contains("registreras om bara med en rättelse"),
+    );
+
+    let original = verifikat::lista(&db, &anna, id, Urval::Bokförda)
+        .await
+        .unwrap()[0]
+        .id;
+    verifikat::rätta(
+        &db,
+        &klocka(),
+        &anna,
+        id,
+        original,
+        "2026-10-18",
+        "",
+        Rättelseval::RegistreraOm,
+    )
+    .await
+    .unwrap();
+    let andra_kopian = testhjalp::kör_sql(&db, kopia_av_v1).await;
+    assert!(
+        andra_kopian
+            .unwrap_err()
+            .to_string()
+            .contains("registreras om bara med en rättelse"),
+    );
+}
+
+#[tokio::test]
 async fn ett_verifikat_rättas_också_när_ett_av_dess_konton_har_inaktiverats() {
     let db = Databas::tillfällig().await;
     let (anna, id) = testhjalp::företag(&db).await;
