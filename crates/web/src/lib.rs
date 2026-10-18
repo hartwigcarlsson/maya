@@ -9,6 +9,7 @@ pub mod foretag;
 pub mod installningar;
 pub mod konto;
 pub mod kontoplan;
+pub mod sok;
 pub mod verifikat;
 
 #[cfg(feature = "ssr")]

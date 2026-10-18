@@ -23,6 +23,7 @@ use crate::inloggning::{self, InloggningsState};
 use crate::installningar::server::{self as installningar, InställningsState};
 use crate::konto::server as konto;
 use crate::kontoplan::server::{self as kontoplan, KontoplansState};
+use crate::sok::server as sok;
 use crate::verifikat::server::{self as verifikat, VerifikatState};
 
 #[derive(Clone)]
@@ -69,15 +70,27 @@ pub fn router(config: Arc<Config>, db: Databas) -> Router {
         db: db.clone(),
         klocka: inloggning.klocka.clone(),
     };
+    let kontext = {
+        let db = db.clone();
+        let klocka = inloggning.klocka.clone();
+        move || {
+            provide_context(db.clone());
+            provide_context(klocka.clone());
+        }
+    };
     let state = AppState { config, db };
 
     let pages = Router::new()
-        .leptos_routes(&leptos_options, routes, {
+        .leptos_routes_with_context(&leptos_options, routes, kontext, {
             let options = leptos_options.clone();
             move || shell(options.clone())
         })
         .fallback(assets::serve_site)
         .with_state(leptos_options)
+        .layer(middleware::from_fn_with_state(
+            state.db.clone(),
+            sok::lägg_på_sökdata,
+        ))
         .layer(middleware::from_fn_with_state(
             kontoplan.clone(),
             kontoplan::lägg_på_kontoplan,

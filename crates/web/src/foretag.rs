@@ -9,6 +9,7 @@ use maya_domain::orgnr::Organisationsnummer;
 use serde::{Deserialize, Serialize};
 
 use crate::app::{LoggaIn, Läge};
+use crate::sok::Sökfält;
 
 /// Koden när organisationsnumret redan finns i installationen. Bara servern kan se det.
 pub const ORGNR_FINNS: &str = "orgnr_finns";
@@ -198,6 +199,7 @@ pub fn Toppmeny() -> impl IntoView {
                 <a href=format!("{bas}/verifikat")>"Verifikat"</a>
                 <a href=format!("{bas}/rapporter")>"Rapporter"</a>
             </nav>
+            <Sökfält valt=valt.clone() alla=val.0.clone() />
             <a
                 class="knapp knapp-diskret kugghjul"
                 rel="external"
