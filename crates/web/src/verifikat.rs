@@ -5,7 +5,6 @@
 //! samma spärrar när det bokför. Utan JavaScript skickas formuläret till servern, som skickar
 //! tillbaka hit med det användaren skrev; sidan prövar det igen och visar samma koder.
 
-use jiff::civil::Date;
 use leptos::prelude::*;
 use leptos_router::hooks::{use_params_map, use_query_map};
 use maya_domain::kontoplan::Kontonummer;
@@ -15,6 +14,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::app::{LoggaIn, Läge};
 use crate::foretag::{Företagsval, IngenÅtkomst};
+use crate::utskrift::Utskrift;
 
 /// Ett verifikat i listan.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -58,6 +58,8 @@ pub struct DokumentVy {
     pub debet: String,
     pub kredit: String,
     pub historik: Vec<HistorikVy>,
+    /// PDF:ens adress och filnamn, för Skriv ut och Exportera PDF.
+    pub pdf: (String, String),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -120,28 +122,7 @@ fn verifikatdata() -> Verifikatdata {
     .into_inner()
 }
 
-/// Månaden som perioden heter efter, t.ex. "mars 2026".
-pub fn periodnamn(datum: Date) -> String {
-    const MÅNADER: [&str; 12] = [
-        "januari",
-        "februari",
-        "mars",
-        "april",
-        "maj",
-        "juni",
-        "juli",
-        "augusti",
-        "september",
-        "oktober",
-        "november",
-        "december",
-    ];
-    format!(
-        "{} {}",
-        MÅNADER[usize::from(datum.month().unsigned_abs()) - 1],
-        datum.year()
-    )
-}
+pub use maya_domain::rakenskapsar::periodnamn;
 
 #[cfg(feature = "ssr")]
 pub(crate) mod server {
@@ -262,6 +243,10 @@ pub(crate) mod server {
                 Belopp::från_öre(v.rader.iter().map(|r| f(r).öre()).sum()).to_string()
             };
             dokument = Some(DokumentVy {
+                pdf: (
+                    format!("/foretag/{företag}/verifikat/{}/pdf", v.id),
+                    maya_core::utskrift::verifikatets_filnamn(v.nummer),
+                ),
                 nummer: v.nummer.map(|n| n.to_string()),
                 beskrivning: v.beskrivning.clone(),
                 summa: v.summa.to_string(),
@@ -573,8 +558,10 @@ fn Dokument(d: DokumentVy) -> impl IntoView {
         }
     });
     let (_, skapad_namn, skapad_kanal) = d.skapad.clone();
+    let (pdf, filnamn) = d.pdf.clone();
     view! {
         <article class="dokument">
+            <Utskrift href=pdf filnamn=filnamn />
             <header>
                 <p class="dokument-nummer">{d.nummer.clone().unwrap_or_default()}</p>
                 <h2>{d.beskrivning.clone()}</h2>
