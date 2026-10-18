@@ -156,6 +156,10 @@ main {
   margin: 0;
 }
 
+.toppmeny-hoger .knapp {
+  white-space: nowrap;
+}
+
 .anvandare {
   color: var(--muted-foreground);
 }
@@ -1943,6 +1947,7 @@ kbd {
 
 .driftvarning {
   display: flex;
+  flex-wrap: wrap;
   align-items: flex-start;
   gap: 10px;
   padding: 9px 12px;
@@ -1953,7 +1958,7 @@ kbd {
 }
 
 .driftvarning > div {
-  flex: 1;
+  flex: 1 1 14rem;
   min-width: 0;
 }
 

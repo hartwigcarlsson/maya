@@ -82,10 +82,11 @@ mod server {
                 fritext("Ansvarig för driften", &i.arkivplan.ansvarig),
                 fritext("Larmadress", &i.larmadress),
             ],
-            larm: match (&i.larmadress, i.larm) {
+            larm: match (&i.larmadress, b.config.smtp.is_some()) {
                 (Some(adress), true) => format!("med e-post till {adress}"),
                 (Some(_), false) => "av (MAYA_SMTP_HOST saknas)".into(),
-                (None, _) => "av (MAYA_DRIFT_EPOST saknas)".into(),
+                (None, true) => "av (MAYA_DRIFT_EPOST saknas)".into(),
+                (None, false) => "av (MAYA_SMTP_HOST och MAYA_DRIFT_EPOST saknas)".into(),
             },
             driftvarningar: i
                 .driftvarningar
