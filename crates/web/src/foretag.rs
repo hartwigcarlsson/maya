@@ -197,7 +197,9 @@ pub fn Toppmeny() -> impl IntoView {
             <nav class="flikar" aria-label="Huvudmeny">
                 <a href=bas.clone()>"Att göra"</a>
                 <a href=format!("{bas}/verifikat")>"Verifikat"</a>
-                <a href=format!("{bas}/rapporter")>"Rapporter"</a>
+                <a rel="external" href=format!("{bas}/rapporter")>
+                    "Rapporter"
+                </a>
             </nav>
             <Sökfält valt=valt.clone() alla=val.0.clone() />
             <a
@@ -551,9 +553,4 @@ pub(crate) fn IngenÅtkomst() -> impl IntoView {
 #[component]
 pub fn AttGöra() -> impl IntoView {
     view! { <Företagssida rubrik="Att göra" tom="Inget att göra ännu." /> }
-}
-
-#[component]
-pub fn Rapporter() -> impl IntoView {
-    view! { <Företagssida rubrik="Rapporter" tom="Rapporterna kommer snart." /> }
 }

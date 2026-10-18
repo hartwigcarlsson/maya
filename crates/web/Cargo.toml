@@ -58,6 +58,7 @@ url = { workspace = true, optional = true }
 [dev-dependencies]
 http-body-util.workspace = true
 maya-core = { workspace = true, features = ["test-support"] }
+maya-sie.workspace = true
 maya-pdf = { workspace = true, features = ["test-support"] }
 rust-embed.workspace = true
 serde_json.workspace = true

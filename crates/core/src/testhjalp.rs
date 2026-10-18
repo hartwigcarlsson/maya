@@ -5,7 +5,21 @@ use maya_domain::verifikat::{NyRad, NyttVerifikat};
 
 use crate::aktor::{Aktör, AnvändarId};
 use crate::foretag::{self, FöretagsId};
-use crate::{Databas, Klocka, verifikat};
+use crate::inloggning::{self, Inloggad, Token, hash};
+use crate::{Databas, Klocka, sie4, verifikat};
+
+/// SIE4-exporten med en skrivare som `förvanskar` filen innan den skrivs, för att visa att
+/// återläsningen stoppar den.
+pub async fn exportera_sie4_förvanskad(
+    db: &Databas,
+    klocka: &Klocka,
+    aktör: &Aktör,
+    företag: FöretagsId,
+    år: jiff::civil::Date,
+    förvanska: impl FnOnce(&mut maya_sie::Sie4),
+) -> Result<sie4::Sie4Export, sie4::Sie4Fel> {
+    sie4::exportera_med(db, klocka, aktör, företag, år, förvanska).await
+}
 
 /// En ny användare i webben, utan passkey och utan åtkomst till något företag. Inbjudningar
 /// kommer i ett senare ticket; tills dess är det här vägen till en andra användare i tester.
@@ -23,6 +37,32 @@ pub async fn användare(db: &Databas, epost: &str) -> Aktör {
     .await
     .expect("testanvändare");
     Aktör::webb(AnvändarId(id))
+}
+
+/// `aktör` inloggad i en ny session där passkeyn användes vid `klocka`s tid, som om hen just
+/// hade loggat in.
+pub async fn inloggad(db: &Databas, klocka: &Klocka, aktör: &Aktör) -> Inloggad {
+    let token = session(db, klocka, aktör).await;
+    inloggning::session(db, klocka, &token)
+        .await
+        .expect("sessionen läses")
+        .expect("sessionen gäller")
+}
+
+/// Som [`inloggad`], men ger sessionstoken till cookien.
+pub async fn session(db: &Databas, klocka: &Klocka, aktör: &Aktör) -> String {
+    let token = Token::ny();
+    sqlx::query(
+        "INSERT INTO session (hash, anvandare_id, skapad, senast_aktiv, passkey_anvand)
+         VALUES (?1, ?2, ?3, ?3, ?3)",
+    )
+    .bind(hash(token.hemlighet()))
+    .bind(aktör.användare.expect("en användare").0)
+    .bind(klocka.nu().to_string())
+    .execute(db.pool())
+    .await
+    .expect("testsession");
+    token.hemlighet().to_string()
 }
 
 /// Kör en SQL-sats direkt mot databasen, förbi `core`, för att visa att schemat avvisar den.
