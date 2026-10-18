@@ -222,6 +222,13 @@ async fn ta_till(
     mål: &Backupmål,
     fil: &Path,
 ) -> Result<(), BackupFel> {
+    let kontrollsummor = ögonblicksbild(db, fil).await?;
+    lägg_i_mål(mål, backup, fil, kontrollsummor).await
+}
+
+/// Tar en ögonblicksbild av databasen till `fil` med `VACUUM INTO` och granskar den. Ger
+/// kontrollsummorna ur ögonblicksbilden, så att de beskriver exakt det som sparas.
+async fn ögonblicksbild(db: &Databas, fil: &Path) -> Result<Kontrollsummor, BackupFel> {
     let _ = std::fs::remove_file(fil);
     let sökväg = fil.to_str().ok_or_else(|| {
         BackupFel::Ögonblicksbild(format!("{} är ingen UTF-8-sökväg", fil.display()))
@@ -231,12 +238,20 @@ async fn ta_till(
         .execute(db.pool())
         .await
         .map_err(|e| BackupFel::Ögonblicksbild(e.to_string()))?;
-
-    // Manifestets summor räknas ur ögonblicksbilden, så att de beskriver exakt det som sparas.
     let granskning = kontrollsumma::granska_fil(fil).await?;
     if !granskning.problem.is_empty() {
         return Err(BackupFel::Ögonblicksbild(granskning.problem.join("; ")));
     }
+    Ok(granskning.kontrollsummor)
+}
+
+/// Laddar upp ögonblicksbilden `fil` till `mål` som `backup`, med manifestet sist.
+async fn lägg_i_mål(
+    mål: &Backupmål,
+    backup: &Backup,
+    fil: &Path,
+    kontrollsummor: Kontrollsummor,
+) -> Result<(), BackupFel> {
     let (byte, sha256) = filhash(fil).await?;
     let manifest = Manifest {
         format: FORMAT,
@@ -248,12 +263,53 @@ async fn ta_till(
             byte,
             sha256: sha256.clone(),
         },
-        kontrollsummor: granskning.kontrollsummor,
+        kontrollsummor,
     };
     mål.ladda_upp(&backup.databasfil(), fil, &sha256).await?;
     let json = serde_json::to_vec_pretty(&manifest).expect("manifestet blir JSON");
     mål.lägg(&backup.manifestfil(), json).await?;
     Ok(())
+}
+
+/// Ögonblicksbilden före en schemamigrering: kvar i arbetskatalogen tills migreringen är
+/// kontrollerad, så att den kan läggas tillbaka.
+#[derive(Debug)]
+pub(crate) struct FöreMigrering {
+    pub fil: PathBuf,
+    /// Backupen i målet, när ett mål fanns.
+    pub backup: Option<Backup>,
+    pub kontrollsummor: Kontrollsummor,
+}
+
+/// Tar en ögonblicksbild före en schemamigrering till `arbetskatalog` och, med ett mål, en
+/// backup dit (A3). Körningen sparas inte i `backupkorning`: den tabellen kan saknas i det
+/// gamla schemat.
+pub(crate) async fn före_migrering(
+    db: &Databas,
+    tid: Timestamp,
+    mål: Option<&Backupmål>,
+    arbetskatalog: &Path,
+) -> Result<FöreMigrering, BackupFel> {
+    std::fs::create_dir_all(arbetskatalog)
+        .map_err(|e| BackupFel::Ögonblicksbild(format!("{}: {e}", arbetskatalog.display())))?;
+    let backup = Backup::ny(tid);
+    let fil = arbetskatalog.join(format!("fore-migrering-{}", backup.databasfil()));
+    let kontrollsummor = ögonblicksbild(db, &fil).await?;
+    let backup = match mål {
+        Some(mål) => {
+            if let Err(e) = lägg_i_mål(mål, &backup, &fil, kontrollsummor.clone()).await {
+                let _ = std::fs::remove_file(&fil);
+                return Err(e);
+            }
+            Some(backup)
+        }
+        None => None,
+    };
+    Ok(FöreMigrering {
+        fil,
+        backup,
+        kontrollsummor,
+    })
 }
 
 /// Verifierar backupen `namn` (eller den senaste) i `mål`: databasfilens SHA-256 mot

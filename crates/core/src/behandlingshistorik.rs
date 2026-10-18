@@ -41,12 +41,14 @@ pub enum Händelse {
     InbjudanAnvänd,
     Sie4Exporterad,
     ÅterställningGjord,
+    MigreringKörd,
+    ProgramversionBytt,
 }
 
 impl Händelse {
     /// Alla typer som har en kodväg. En ny typ läggs till här också, så att testet som kör
     /// varje typ genom `core` måste få en kodväg för den.
-    pub const ALLA: [Händelse; 24] = [
+    pub const ALLA: [Händelse; 26] = [
         Händelse::FöretagSkapat,
         Händelse::FöretagÄndrat,
         Händelse::KontoSkapat,
@@ -71,6 +73,8 @@ impl Händelse {
         Händelse::InbjudanAnvänd,
         Händelse::Sie4Exporterad,
         Händelse::ÅterställningGjord,
+        Händelse::MigreringKörd,
+        Händelse::ProgramversionBytt,
     ];
 
     pub fn namn(self) -> &'static str {
@@ -99,6 +103,8 @@ impl Händelse {
             Händelse::InbjudanAnvänd => "inbjudan använd",
             Händelse::Sie4Exporterad => "SIE4 exporterad",
             Händelse::ÅterställningGjord => "återställning gjord",
+            Händelse::MigreringKörd => "migrering körd",
+            Händelse::ProgramversionBytt => "programversion bytt",
         }
     }
 }
@@ -462,6 +468,37 @@ impl Post {
                     "Hela installationen återställd från backupen {backup_tid}. Det som \
                      registrerades efter den måste registreras om"
                 )
+            }
+            "migrering körd" => {
+                let migreringar: Vec<String> = b["migreringar"]
+                    .as_array()
+                    .map(|m| {
+                        m.iter()
+                            .map(|m| format!("{} {}", s(&m["version"]), s(&m["namn"])))
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                let antal = match migreringar.len() {
+                    1 => "1 migrering".to_string(),
+                    n => format!("{n} migreringar"),
+                };
+                let backup = match &b["backup"] {
+                    Value::Null => String::new(),
+                    v => format!(", backup {}", s(v)),
+                };
+                format!(
+                    "{antal} av Maya {} ({}): kontrollsummorna {}{backup}",
+                    f("programversion"),
+                    migreringar.join(", "),
+                    f("kontrollsummor"),
+                )
+            }
+            "programversion bytt" => {
+                let från = match &b["från"] {
+                    Value::Null => "okänd version".to_string(),
+                    v => s(v),
+                };
+                format!("Från {från} till {}", f("till"))
             }
             _ => fält_som_text(b),
         }

@@ -60,6 +60,10 @@ Kommandot visar backupens tidpunkt och kräver att du skriver `ja`. Backupen gra
 
 Byt taggen i `compose.yaml` och kör `docker compose up -d`. Maya uppdateras aldrig automatiskt, och taggen är alltid en exakt version, aldrig `latest`. Migreringarna körs i ordning vid start, så det går att hoppa över versioner. Maya vägrar starta mot en databas med nyare schema än binären; nedgradering görs bara med `maya restore`.
 
+Före en schemamigrering tar Maya en backup till backupmålet (en vanlig `maya-<tid>`-backup med manifest) och räknar kontrollsummorna. Efteråt räknas de igen. Om en migrering misslyckas eller summorna skiljer sig läggs databasen tillbaka som den var, felet och avvikelserna skrivs i loggen, och Maya startar inte: starta den tidigare taggen igen och rapportera felet. Varje körd migrering och varje byte av programversion loggas i varje företags behandlingshistorik.
+
+En Maya `1.x` vägrar starta mot en databas från `0.x` (schemaepoken): provdata från 0.x-tiden blir aldrig skarp bokföring.
+
 ## Konfiguration
 
 All konfiguration läses ur miljön och `.env`. Se `.env.example` för alla variabler.

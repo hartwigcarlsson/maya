@@ -248,6 +248,16 @@ async fn alla_ändringar(db: &Databas, anna: &Aktör, id: FöretagsId, tid: &str
         .unwrap();
     // Driften återställer installationen ur nattens backup.
     testhjalp::logga_återställning(db, &k, "2026-03-01T02:00:00Z".parse().unwrap()).await;
+    // En ny Maya-version startar och kör en migrering.
+    testhjalp::starta_om(
+        db,
+        &k,
+        "0.4.0",
+        "0.5.0",
+        &[(20270101000000, "exempel")],
+        Some("maya-20260301T090000Z"),
+    )
+    .await;
 }
 
 #[tokio::test]
@@ -266,9 +276,12 @@ async fn varje_typ_i_etapp_1_som_har_en_kodväg_ger_en_post() {
     let mut väntade: Vec<&str> = Händelse::ALLA.iter().map(|h| h.namn()).collect();
     väntade.sort();
     assert_eq!(typer, väntade);
-    // BAS-tillägget gör Maya självt; resten gör Anna i webben.
+    // BAS-tillägget, migreringen och versionsbytet gör Maya självt; resten gör Anna i webben.
     for post in &historik.poster {
-        let maya = post.typ == "BAS-tillägg";
+        let maya = matches!(
+            post.typ.as_str(),
+            "BAS-tillägg" | "migrering körd" | "programversion bytt"
+        );
         assert_eq!(post.aktör.kanal == Kanal::Maya, maya, "{post:?}");
     }
 }
@@ -343,7 +356,7 @@ async fn en_typ_utan_egen_text_visas_med_sina_fält() {
     testhjalp::kör_sql(
         &db,
         r#"INSERT INTO behandlingshistorik (foretag_id, tid, kanal, typ, objekt, beskrivning)
-           SELECT id, '2026-02-01T08:00:00Z', 'maya', 'programversion bytt', '0.2.0',
+           SELECT id, '2026-02-01T08:00:00Z', 'maya', 'årsarkiv skapat', '2025-01-01 – 2025-12-31',
                   '{"från":"0.1.0","till":"0.2.0","migreringar":{"antal":2}}'
            FROM foretag"#,
     )
@@ -354,7 +367,7 @@ async fn en_typ_utan_egen_text_visas_med_sina_fält() {
         .await
         .unwrap();
 
-    assert!(historik.typer.contains(&"programversion bytt".to_string()));
+    assert!(historik.typer.contains(&"årsarkiv skapat".to_string()));
     let post = historik.poster.last().unwrap();
     assert_eq!(post.aktörsnamn(), "Maya");
     assert_eq!(
@@ -414,7 +427,7 @@ async fn filter_på_typ_aktör_och_tid_ger_rätt_urval() {
     let historik = behandlingshistorik::historik(&db, &anna, id, &Urval::default())
         .await
         .unwrap();
-    assert_eq!(historik.poster.len(), 28);
+    assert_eq!(historik.poster.len(), 30);
     let namn: Vec<&str> = historik.aktörer.iter().map(|(_, n)| n.as_str()).collect();
     assert_eq!(namn, ["anna@example.se", "bo@example.se", "cli", "Maya"]);
     assert_eq!(
@@ -437,7 +450,10 @@ async fn filter_på_typ_aktör_och_tid_ger_rätt_urval() {
         aktör: Some(Aktörsval::Kanal(Kanal::Maya)),
         ..Urval::default()
     };
-    assert_eq!(typer(&db, &anna, id, maya).await, ["BAS-tillägg"]);
+    assert_eq!(
+        typer(&db, &anna, id, maya).await,
+        ["BAS-tillägg", "migrering körd", "programversion bytt"]
+    );
     let anna_urval = Urval {
         aktör: Some(Aktörsval::Användare(anna.användare.unwrap())),
         ..Urval::default()
@@ -471,7 +487,7 @@ async fn filter_på_typ_aktör_och_tid_ger_rätt_urval() {
         )
         .await
         .len(),
-        26
+        28
     );
     assert_eq!(
         typer(&db, &anna, id, tid(Some(date(2026, 4, 1)), None)).await,
