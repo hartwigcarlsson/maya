@@ -13,6 +13,8 @@
 2026-03-02 10:15:00;anna@example.se;webb;verifikat bokfört;V1;125,00;2026-03-14 ”Kontantförsäljning 2026-03-14”, 2 rader
 2026-03-02 10:15:00;anna@example.se;webb;räkenskapsår skapat;2027-07-01 – 2028-06-30;;Första verifikatet dateras i året
 2026-03-02 10:15:00;anna@example.se;webb;verifikat bokfört;V1;1234,50;2027-08-01 ”Kontantförsäljning 2027-08-01”, 2 rader
+2026-03-02 10:15:00;anna@example.se;webb;verifikat bokfört;V2;125,00;2026-03-20 ”Rättelse av V1, fel belopp”, 2 rader
+2026-03-02 10:15:00;anna@example.se;webb;verifikat rättat;V1;;Rättat av V2 daterad 2026-03-20, orsak ”fel belopp”
 2026-03-02 10:15:00;anna@example.se;webb;underlag uppladdat;kvitto.pdf;;”kvitto.pdf” uppladdat, application/pdf, 15 byte
 2026-03-02 10:15:00;anna@example.se;webb;verifikat kompletterat;V1;;Kompletterat med underlaget ”kvitto.pdf”
 2026-03-02 10:15:00;anna@example.se;webb;underlag uppladdat;fel.pdf;;”fel.pdf” uppladdat, application/pdf, 12 byte
@@ -22,4 +24,4 @@
 2026-03-02 10:15:00;bo@example.se;webb;inbjudan använd;bo@example.se;;bo@example.se registrerade sig med inbjudan
 2026-03-02 10:15:00;bo@example.se;webb;åtkomst given;bo@example.se;;Åtkomst till företaget för bo@example.se
 2026-03-02 10:15:00;anna@example.se;webb;åtkomst tagen;bo@example.se;;Åtkomsten till företaget borttagen för bo@example.se
-2026-03-02 10:15:00;anna@example.se;webb;SIE4 exporterad;2026-01-01 – 2027-06-30;;SIE4_5560360793_2026.se, 1 verifikat
+2026-03-02 10:15:00;anna@example.se;webb;SIE4 exporterad;2026-01-01 – 2027-06-30;;SIE4_5560360793_2026.se, 2 verifikat
