@@ -31,6 +31,7 @@ pub enum Händelse {
     ÅtkomstTagen,
     InbjudanSkapad,
     InbjudanAnvänd,
+    Sie4Exporterad,
 }
 
 impl Händelse {
@@ -54,6 +55,7 @@ impl Händelse {
             Händelse::ÅtkomstTagen => "åtkomst tagen",
             Händelse::InbjudanSkapad => "inbjudan skapad",
             Händelse::InbjudanAnvänd => "inbjudan använd",
+            Händelse::Sie4Exporterad => "SIE4 exporterad",
         }
     }
 }

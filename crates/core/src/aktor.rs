@@ -109,6 +109,9 @@ pub enum Handling {
     ÄndraIngåendeBalans,
     /// Bjuda in till ett företag och ge och ta åtkomst. Bara webben, med färsk passkey.
     HanteraÅtkomst,
+    /// Exportera ett räkenskapsår som SIE4. Bara webben, ingen export via MCP eller CLI (beslut
+    /// i #67).
+    ExporteraSie4,
 }
 
 /// Kanalpolicyn: om `kanal` får utföra `handling`.
@@ -123,6 +126,7 @@ pub fn tillåter(kanal: Kanal, handling: Handling) -> bool {
         | Handling::RaderaFöretag
         | Handling::HanteraUtkast
         | Handling::ÄndraIngåendeBalans
-        | Handling::HanteraÅtkomst => kanal == Kanal::Webb,
+        | Handling::HanteraÅtkomst
+        | Handling::ExporteraSie4 => kanal == Kanal::Webb,
     }
 }

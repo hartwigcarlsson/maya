@@ -9,13 +9,12 @@ use leptos_router::path;
 use serde::{Deserialize, Serialize};
 
 use crate::atkomst::ÅtkomstSida;
-use crate::foretag::{
-    AttGöra, Företagslista, NyttFöretagSida, Rapporter, Toppmeny, företagsval
-};
+use crate::foretag::{AttGöra, Företagslista, NyttFöretagSida, Toppmeny, företagsval};
 use crate::ingaende_balans::IngåendeBalansSida;
 use crate::installningar::FöretagsInställningar;
 use crate::konto::{Passkeys, Sessioner};
 use crate::kontoplan::KontoplanSida;
+use crate::rapporter::Rapporter;
 use crate::sok::SökSida;
 use crate::verifikat::{NyttVerifikatSida, VerifikatSida};
 
