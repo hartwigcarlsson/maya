@@ -12,7 +12,7 @@ use std::path::{Path, PathBuf};
 use calamine::{Data, Range, Reader, Xlsx, open_workbook};
 
 /// Kontoplanen som byggs in.
-const KONTOPLAN: &str = "data/bas/BAS_kontoplan_2026.xlsx";
+const KONTOPLAN: &str = "data/bas/BAS_kontoplan_2026_v2.xlsx";
 /// Den senaste fria utgåvan som markerar grundkontona med ■.
 const GRUNDKONTON: &str = "data/bas/Kontoplan-BAS-2025.xlsx";
 
