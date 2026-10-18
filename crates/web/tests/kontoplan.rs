@@ -303,6 +303,8 @@ async fn ett_namnbyte_på_plats_sparas_och_syns_i_historiken() {
         "Namn i BAS",
         "Företagskonto",
         "konto namnbytt",
+        // Samma text som i behandlingshistoriken.
+        "Namn ändrat från ”Företagskonto” till ”Bankkonto SEB”",
         "anna@example.se (webb)",
         "Maya",
         "2.26",

@@ -964,37 +964,20 @@ pub(crate) mod server {
         })
     }
 
+    /// En post i panelens historik, med samma text och aktör som i behandlingshistoriken.
     fn historikpost(post: Post) -> Historikpost {
-        let b = &post.beskrivning;
-        let fält = |namn: &str| b[namn].as_str().unwrap_or_default().to_string();
-        let text = match post.typ.as_str() {
-            "företag skapat" => format!(
-                "Kopierat från {} när företaget lades upp",
-                fält("kontoplan")
-            ),
-            "konto namnbytt" => format!(
-                "Namn ändrat från \"{}\" till \"{}\"",
-                fält("från"),
-                fält("till")
-            ),
-            "konto aktiverat" => "Aktiverat".into(),
-            "konto inaktiverat" => "Inaktiverat".into(),
-            "konto skapat" => format!("Skapat som eget konto med namnet \"{}\"", fält("namn")),
-            "BAS-tillägg" => format!("Tillagt som inaktivt från {}", fält("bas_version")),
-            annat => annat.to_string(),
-        };
         let maya = post.aktör.kanal == Kanal::Maya;
-        let aktör = match (&post.användarnamn, maya) {
-            (_, true) => "Maya".to_string(),
-            (Some(namn), _) => format!("{namn} ({})", post.aktör.kanal.namn()),
-            (None, _) => post.aktör.kanal.namn().to_string(),
+        let aktör = if maya || post.användarnamn.is_none() {
+            post.aktörsnamn()
+        } else {
+            format!("{} ({})", post.aktörsnamn(), post.aktör.kanal.namn())
         };
         Historikpost {
             datum: maya_domain::tid::datum(post.tid).to_string(),
             aktör,
             maya,
+            text: post.text(),
             typ: post.typ,
-            text,
         }
     }
 
