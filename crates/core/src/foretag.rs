@@ -586,6 +586,11 @@ pub async fn radera(
         return Err(FöretagsFel::HarRäkenskapsinformation);
     }
     let (orgnr, uppgifter) = läs_uppgifter(&mut *conn, id).await?;
+    let åtkomst: Vec<i64> =
+        sqlx::query_scalar("SELECT anvandare_id FROM atkomst WHERE foretag_id = ?")
+            .bind(id.0)
+            .fetch_all(&mut *conn)
+            .await?;
     // Företaget, kontoplanen och behandlingshistoriken går bara att radera med en markering i
     // `foretag_radering`, som schemat bara godtar för ett företag utan räkenskapsinformation.
     // Företagsraden tas bort före kontoplanen och historiken; främmande nycklar prövas vid
@@ -619,7 +624,7 @@ pub async fn radera(
     ] {
         sqlx::query(sql).bind(id.0).execute(&mut *conn).await?;
     }
-    installationslogg::skriv(
+    let logg_id = installationslogg::skriv(
         &mut *conn,
         nu,
         aktör,
@@ -628,6 +633,8 @@ pub async fn radera(
         serde_json::json!({ "orgnr": orgnr.to_string(), "namn": uppgifter.namn }),
     )
     .await?;
+    // Raderingen syns på sidan Installation för dem som hade åtkomst (story 36).
+    installationslogg::skriv_åtkomst(&mut *conn, logg_id, &åtkomst).await?;
     ärende.slutför().await?;
     Ok(())
 }

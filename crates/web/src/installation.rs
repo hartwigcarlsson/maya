@@ -227,7 +227,7 @@ fn installation(data: Installationsdata) -> AnyView {
             <dl class="fakta">{arkivplan}</dl>
             <h2>"Installationens logg"</h2>
             <p class="diskret">
-                "Det som gäller hela installationen: användare som driften skapar, återställer och avaktiverar, raderade företag, domänbyten, verifieringar och återställningar. Nyast först; loggen kan inte ändras."
+                "Det som gäller hela installationen: användare som driften skapar, återställer och avaktiverar, raderade företag, domänbyten, verifieringar och återställningar. Du ser bara poster om dig själv, om användare du delar ett företag med och om företag du har haft åtkomst till. Nyast först; loggen kan inte ändras."
             </p>
             {logg}
         </section>
