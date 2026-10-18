@@ -23,6 +23,8 @@ pub struct FöretagVy {
     pub namn: String,
     /// Antalet saker att göra i företaget.
     pub att_göra: usize,
+    /// Antalet utkast i företaget.
+    pub utkast: usize,
 }
 
 impl FöretagVy {
@@ -88,6 +90,7 @@ pub(crate) mod server {
             orgnr: rad.orgnr.to_string(),
             namn: rad.namn,
             att_göra: 0,
+            utkast: 0,
         }
     }
 
@@ -106,6 +109,10 @@ pub(crate) mod server {
                     Ok(antal) => antal,
                     Err(e) => return serverfel(e),
                 };
+            let utkast = match att_gora::antal_utkast(&state.db, &inloggad.aktör).await {
+                Ok(utkast) => utkast,
+                Err(e) => return serverfel(e),
+            };
             match foretag::mina_företag(&state.db, &inloggad.aktör).await {
                 Ok(rader) => {
                     let val = Företagsval(
@@ -115,6 +122,7 @@ pub(crate) mod server {
                                 let n = antal.get(&rad.id).copied().unwrap_or_default();
                                 FöretagVy {
                                     att_göra: n,
+                                    utkast: utkast.get(&rad.id).copied().unwrap_or_default(),
                                     ..vy(rad)
                                 }
                             })
@@ -259,6 +267,14 @@ fn Företagsväljare(valt: FöretagVy, alla: Vec<FöretagVy>) -> impl IntoView {
                                 <a href=href aria-current=aktuellt>
                                     {f.namn}
                                     <span class="diskret">{f.orgnr}</span>
+                                    {(f.utkast > 0)
+                                        .then(|| {
+                                            view! {
+                                                <span class="utkastantal">
+                                                    {format!("{} utkast", f.utkast)}
+                                                </span>
+                                            }
+                                        })}
                                     <Antal n=f.att_göra />
                                 </a>
                             </li>
