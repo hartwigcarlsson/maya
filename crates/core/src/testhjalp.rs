@@ -145,6 +145,45 @@ pub async fn logga_återställning(db: &Databas, klocka: &Klocka, backup_tid: ji
     .expect("återställningen loggas");
 }
 
+/// En konfiguration utan driftvarningar: S3-mål (aldrig samma enhet som databasen) och en
+/// arkivplan med land. Inget SMTP.
+pub fn config() -> crate::config::Config {
+    crate::config::Config::from_env(
+        [
+            ("MAYA_PUBLIC_URL", "https://bokforing.example.se"),
+            ("MAYA_BACKUP_S3_ENDPOINT", "https://s3.example.se"),
+            ("MAYA_BACKUP_S3_BUCKET", "maya"),
+            ("MAYA_BACKUP_S3_ACCESS_KEY_ID", "maya-backup"),
+            ("MAYA_BACKUP_S3_SECRET_ACCESS_KEY", "hemlig"),
+            ("MAYA_ARKIVPLAN_PLATS", "Serverhall i Stockholm, Sverige"),
+        ]
+        .map(|(k, v)| (k.to_string(), v.to_string())),
+    )
+    .expect("testkonfigurationen")
+}
+
+/// Tar en lyckad backup vid `klocka`s tid till en katalog som tas bort efteråt, så att
+/// backupens körning finns och ingen driftvarning om backupen visas.
+pub async fn backup(db: &Databas, klocka: &Klocka) {
+    let (mål, arbete) = (
+        tempfile::tempdir().expect("tempdir"),
+        tempfile::tempdir().expect("tempdir"),
+    );
+    let resultat = crate::backup::ta_backup(
+        db,
+        klocka,
+        &Aktör::maya(),
+        &crate::backup::Backupmål::katalog(mål.path()),
+        arbete.path(),
+    )
+    .await
+    .expect("testbackupen");
+    assert!(
+        resultat.verifiering.lyckades(),
+        "testbackupen verifierades inte"
+    );
+}
+
 /// Loggar en start som `Databas::öppna` gör den när `till` startar efter `från` och har kört
 /// `migreringar` (version, namn) med backupen `backup` först, vid `klocka`s tid.
 pub async fn starta_om(

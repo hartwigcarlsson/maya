@@ -124,13 +124,18 @@ pub enum Handling {
     Återställa,
     /// Kvittera varningen efter en återställning under Att göra.
     KvitteraÅterställning,
+    /// Läsa sidan Installation: alla användare, och driften i CLI:t.
+    LäsaInstallation,
+    /// Skicka larm till driften. Bara Maya självt.
+    SkickaLarm,
 }
 
 /// Kanalpolicyn: om `kanal` får utföra `handling`.
 pub fn tillåter(kanal: Kanal, handling: Handling) -> bool {
     match handling {
         Handling::HanteraAnvändare | Handling::Återställa => kanal == Kanal::Cli,
-        Handling::TaBackup => kanal == Kanal::Maya,
+        Handling::TaBackup | Handling::SkickaLarm => kanal == Kanal::Maya,
+        Handling::LäsaInstallation => matches!(kanal, Kanal::Webb | Kanal::Cli),
         Handling::VerifieraBackup => matches!(kanal, Kanal::Maya | Kanal::Cli),
         Handling::LäggaUppFöretag
         | Handling::LäsaFöretag

@@ -10,6 +10,7 @@ pub mod behandlingshistorik;
 pub mod bokforing;
 pub mod config;
 mod databas;
+pub mod drift;
 pub mod export;
 pub mod foretag;
 pub mod inloggning;
@@ -21,6 +22,7 @@ pub mod kontrollsumma;
 pub mod rapport;
 pub mod saldo;
 pub mod sie4;
+mod smtp;
 #[cfg(feature = "test-support")]
 pub mod testhjalp;
 pub mod underlag;

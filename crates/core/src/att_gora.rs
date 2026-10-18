@@ -1,7 +1,7 @@
 //! Att göra, företagets startsida: dagens datum, nyckeltalen ur bokföringen och sakerna att
-//! göra. I etapp 1 är sakerna varningen efter en återställning, verifikatutkast och okopplade
-//! underlag; varje ny sort (t.ex. driftvarningar) läggs till som en variant i [`Sak`] och räknas
-//! i [`antal`].
+//! göra. I etapp 1 är sakerna varningen efter en återställning, driftvarningar, verifikatutkast
+//! och okopplade underlag; varje ny sort läggs till som en variant i [`Sak`] och räknas i
+//! [`antal`].
 //!
 //! Fristerna (T1) räknas i `maya_domain::att_gora`. De varnar men spärrar inte, och Maya bokför
 //! aldrig automatiskt.
@@ -18,6 +18,8 @@ use sqlx::SqliteConnection;
 
 use crate::aktor::{self, Aktör, Handling};
 use crate::atkomst::{self, ÅtkomstFel};
+use crate::config::Config;
+use crate::drift::{self, Driftvarning};
 use crate::foretag::{self, FöretagsId};
 use crate::inloggning::tidpunkt;
 use crate::saldo;
@@ -36,8 +38,8 @@ pub struct AttGöra {
     /// Dagens datum i Stockholm.
     pub idag: Date,
     pub nyckeltal: Nyckeltal,
-    /// Återställningarna som användaren inte har kvitterat, sedan utkasten i id-ordning och de
-    /// okopplade underlagen äldst först.
+    /// Återställningarna som användaren inte har kvitterat, driftvarningarna, utkasten i
+    /// id-ordning och de okopplade underlagen äldst först.
     pub saker: Vec<Sak>,
 }
 
@@ -59,6 +61,8 @@ pub enum Sak {
     /// Installationen har återställts ur en backup: det som registrerades efter backupen måste
     /// registreras om. Visas överst för varje användare tills hen kvitterar.
     Återställning(Återställningsvarning),
+    /// Något som är fel i driften. Samma i alla företag, och visas överst.
+    Driftvarning(Driftvarning),
     Utkast(Utkastsak),
     /// Ett underlag utan koppling till något verifikat: "Vad är det här?".
     Underlag(Underlag),
@@ -120,10 +124,11 @@ impl Utkastsak {
     }
 }
 
-/// Att göra för företaget i dag.
+/// Att göra för företaget i dag. Driftvarningarna räknas ur `config` och backupens körningar.
 pub async fn att_göra(
     db: &Databas,
     klocka: &Klocka,
+    config: &Config,
     aktör: &Aktör,
     företag: FöretagsId,
 ) -> Result<AttGöra, ÅtkomstFel> {
@@ -136,8 +141,15 @@ pub async fn att_göra(
         .into_iter()
         .map(Sak::Återställning)
         .collect();
-    saker.extend(utkast(&mut tx, företag).await?.into_iter().map(Sak::Utkast));
+    let utkast = utkast(&mut tx, företag).await?;
     tx.commit().await?;
+    saker.extend(
+        drift::driftvarningar(db, klocka, config)
+            .await?
+            .into_iter()
+            .map(Sak::Driftvarning),
+    );
+    saker.extend(utkast.into_iter().map(Sak::Utkast));
     let okopplade = underlag::lista(db, aktör, företag, underlag::Urval::Okopplade).await?;
     saker.extend(okopplade.into_iter().map(Sak::Underlag));
     Ok(AttGöra {
@@ -151,13 +163,17 @@ pub async fn att_göra(
 /// toppmenyn och företagsväljaren.
 pub async fn antal(
     db: &Databas,
+    klocka: &Klocka,
+    config: &Config,
     aktör: &Aktör,
 ) -> Result<BTreeMap<FöretagsId, usize>, DatabasFel> {
     let företagen = foretag::mina_företag(db, aktör).await?;
-    let mut antal: BTreeMap<FöretagsId, usize> = företagen.iter().map(|f| (f.id, 0)).collect();
-    if antal.is_empty() {
-        return Ok(antal);
+    if företagen.is_empty() {
+        return Ok(BTreeMap::new());
     }
+    let varningar = drift::driftvarningar(db, klocka, config).await?.len();
+    let mut antal: BTreeMap<FöretagsId, usize> =
+        företagen.iter().map(|f| (f.id, varningar)).collect();
     let rader: Vec<(i64, i64)> = sqlx::query_as(
         "SELECT foretag_id, count(*) FROM verifikat WHERE bokford IS NULL GROUP BY foretag_id
          UNION ALL

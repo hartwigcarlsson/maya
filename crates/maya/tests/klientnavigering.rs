@@ -156,6 +156,8 @@ fn menylankarna_navigerar_pa_klienten_och_sidorna_visar_sina_data() {
     vänta_på_text(&tab, "Virtuell nyckel");
     klicka(&tab, "a[href='/sessioner']");
     vänta_på_text(&tab, "Den här sessionen");
+    klicka(&tab, "a[href='/installation']");
+    vänta_på_text(&tab, "Senaste verifiering");
 
     // Tillbaka till företaget: Att göra och sedan Verifikat igen, med listan som valt verifikat.
     tab.navigate_to(&format!("{bas}/foretag/{id}")).unwrap();

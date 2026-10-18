@@ -60,6 +60,7 @@ pub(crate) mod server {
     use axum::routing::post;
     use axum::{Extension, Form, Router};
     use maya_core::att_gora;
+    use maya_core::config::Config;
     use maya_core::foretag::{self, FöretagsFel};
     use maya_core::inloggning::Inloggad;
     use maya_core::{Databas, Klocka};
@@ -70,6 +71,7 @@ pub(crate) mod server {
 
     #[derive(Clone)]
     pub(crate) struct FöretagsState {
+        pub config: Arc<Config>,
         pub db: Databas,
         pub klocka: Klocka,
     }
@@ -97,10 +99,13 @@ pub(crate) mod server {
         next: Next,
     ) -> Response {
         if let Some(inloggad) = req.extensions().get::<Inloggad>() {
-            let antal = match att_gora::antal(&state.db, &inloggad.aktör).await {
-                Ok(antal) => antal,
-                Err(e) => return serverfel(e),
-            };
+            let antal =
+                match att_gora::antal(&state.db, &state.klocka, &state.config, &inloggad.aktör)
+                    .await
+                {
+                    Ok(antal) => antal,
+                    Err(e) => return serverfel(e),
+                };
             match foretag::mina_företag(&state.db, &inloggad.aktör).await {
                 Ok(rader) => {
                     let val = Företagsval(

@@ -193,9 +193,15 @@ async fn återställningen_loggas_i_varje_företag_och_i_installationsloggen() {
     assert_eq!(post.beskrivning["företag"], 1);
 
     // Och Anna ser varningen överst under Att göra.
-    let a = att_gora::att_göra(&db, &klocka(NU), &inst.anna, inst.företag)
-        .await
-        .unwrap();
+    let a = att_gora::att_göra(
+        &db,
+        &klocka(NU),
+        &testhjalp::config(),
+        &inst.anna,
+        inst.företag,
+    )
+    .await
+    .unwrap();
     assert!(
         matches!(&a.saker[0], Sak::Återställning(v) if v.backup_tid == BACKUPTID.parse().unwrap()),
         "{:?}",

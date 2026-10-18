@@ -114,6 +114,10 @@ async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
         let (config, db) = (config.clone(), db.clone());
         tokio::spawn(async move { backup::nattligt_jobb(&config, db).await })
     };
+    let larm = {
+        let (config, db) = (config.clone(), db.clone());
+        tokio::spawn(async move { backup::larmjobb(&config, db).await })
+    };
     let app = maya_web::router(config.clone(), db);
 
     let listener = tokio::net::TcpListener::bind(config.listen)
@@ -133,6 +137,7 @@ async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
     .with_graceful_shutdown(shutdown())
     .await?;
     jobb.abort();
+    larm.abort();
     tracing::info!("Maya har stannat");
     Ok(())
 }

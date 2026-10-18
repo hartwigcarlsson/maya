@@ -14,6 +14,7 @@ use crate::behandlingshistorik::BehandlingshistorikSida;
 use crate::bokforing::{GrundbokSida, HuvudbokSida};
 use crate::foretag::{Företagslista, NyttFöretagSida, Toppmeny, företagsval};
 use crate::ingaende_balans::IngåendeBalansSida;
+use crate::installation::InstallationSida;
 use crate::installningar::FöretagsInställningar;
 use crate::konto::{Passkeys, Sessioner};
 use crate::kontoplan::KontoplanSida;
@@ -97,6 +98,9 @@ pub fn App() -> impl IntoView {
             <a class="knapp knapp-diskret" href="/sessioner">
                 "Sessioner"
             </a>
+            <a class="knapp knapp-diskret" href="/installation">
+                "Installation"
+            </a>
             <form method="post" action="/auth/utloggning">
                 <button class="knapp knapp-diskret" type="submit">
                     "Logga ut"
@@ -138,6 +142,7 @@ fn Innehåll() -> impl IntoView {
                 <Route path=path!("registrera/:token") view=Registrera />
                 <Route path=path!("passkeys") view=Passkeys ssr=SsrMode::Async />
                 <Route path=path!("sessioner") view=Sessioner ssr=SsrMode::Async />
+                <Route path=path!("installation") view=InstallationSida ssr=SsrMode::Async />
                 <Route path=path!("foretag/nytt") view=NyttFöretagSida />
                 <Route path=path!("foretag/:id") view=AttGöra ssr=SsrMode::Async />
                 <Route path=path!("foretag/:id/verifikat") view=VerifikatSida ssr=SsrMode::Async />

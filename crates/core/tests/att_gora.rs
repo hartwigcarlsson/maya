@@ -115,7 +115,9 @@ async fn nyckeltalen_räknas_bara_ur_bokförda_verifikat_till_och_med_i_dag() {
     .await
     .unwrap();
 
-    let a = att_gora::att_göra(&db, &i_dag(), &anna, id).await.unwrap();
+    let a = att_gora::att_göra(&db, &i_dag(), &testhjalp::config(), &anna, id)
+        .await
+        .unwrap();
 
     assert_eq!(a.idag, date(2026, 10, 14));
     assert_eq!(a.nyckeltal.företagskontot.öre(), 2_050_000);
@@ -135,9 +137,15 @@ async fn nyckeltalen_räknas_bara_ur_bokförda_verifikat_till_och_med_i_dag() {
         &[(1930, 30_000, 0), (3001, 0, 30_000)],
     )
     .await;
-    let a = att_gora::att_göra(&db, &klocka("2027-02-01T08:00:00Z"), &anna, id)
-        .await
-        .unwrap();
+    let a = att_gora::att_göra(
+        &db,
+        &klocka("2027-02-01T08:00:00Z"),
+        &testhjalp::config(),
+        &anna,
+        id,
+    )
+    .await
+    .unwrap();
     assert_eq!(a.nyckeltal.företagskontot.öre(), 2_130_000);
     assert_eq!(a.nyckeltal.resultat_i_år.öre(), 30_000);
 }
@@ -147,6 +155,7 @@ async fn utkasten_och_de_okopplade_underlagen_är_saker_att_göra() {
     let db = Databas::tillfällig().await;
     let (anna, id) = testhjalp::företag(&db).await;
     let k = i_dag();
+    testhjalp::backup(&db, &k).await;
     let kassa = verifikat::spara_utkast(
         &db,
         &k,
@@ -199,7 +208,9 @@ async fn utkasten_och_de_okopplade_underlagen_är_saker_att_göra() {
     .await
     .unwrap();
 
-    let a = att_gora::att_göra(&db, &k, &anna, id).await.unwrap();
+    let a = att_gora::att_göra(&db, &k, &testhjalp::config(), &anna, id)
+        .await
+        .unwrap();
 
     let mut utkast = Vec::new();
     let mut underlagen = Vec::new();
@@ -208,6 +219,7 @@ async fn utkasten_och_de_okopplade_underlagen_är_saker_att_göra() {
             Sak::Utkast(u) => utkast.push(u),
             Sak::Underlag(u) => underlagen.push(u.id),
             Sak::Återställning(_) => panic!("ingen återställning är gjord"),
+            Sak::Driftvarning(v) => panic!("ingen driftvarning väntad: {v:?}"),
         }
     }
     assert_eq!(underlagen, vec![okopplat.id]);
@@ -242,14 +254,25 @@ async fn utkasten_och_de_okopplade_underlagen_är_saker_att_göra() {
     )
     .await
     .unwrap();
-    let antal = att_gora::antal(&db, &anna).await.unwrap();
+    let antal = att_gora::antal(&db, &k, &testhjalp::config(), &anna)
+        .await
+        .unwrap();
     assert_eq!(antal.get(&id), Some(&3));
     assert_eq!(antal.get(&annat), Some(&0));
 
     // Den som saknar åtkomst ser inget.
     let bertil = testhjalp::användare(&db, "bertil@example.se").await;
-    assert!(att_gora::att_göra(&db, &k, &bertil, id).await.is_err());
-    assert!(att_gora::antal(&db, &bertil).await.unwrap().is_empty());
+    assert!(
+        att_gora::att_göra(&db, &k, &testhjalp::config(), &bertil, id)
+            .await
+            .is_err()
+    );
+    assert!(
+        att_gora::antal(&db, &k, &testhjalp::config(), &bertil)
+            .await
+            .unwrap()
+            .is_empty()
+    );
 }
 
 /// Bo med ett eget företag.
@@ -278,6 +301,7 @@ async fn återställningsvarningen_visas_överst_för_varje_användare_tills_den
     let db = Databas::tillfällig().await;
     let (anna, företag) = testhjalp::företag(&db).await;
     let (bo, bos) = bo_med_företag(&db).await;
+    testhjalp::backup(&db, &i_dag()).await;
     let utkast = verifikat::spara_utkast(
         &db,
         &i_dag(),
@@ -291,7 +315,7 @@ async fn återställningsvarningen_visas_överst_för_varje_användare_tills_den
     let backup_tid: jiff::Timestamp = "2026-10-14T01:00:00Z".parse().unwrap();
     testhjalp::logga_återställning(&db, &i_dag(), backup_tid).await;
 
-    let a = att_gora::att_göra(&db, &i_dag(), &anna, företag)
+    let a = att_gora::att_göra(&db, &i_dag(), &testhjalp::config(), &anna, företag)
         .await
         .unwrap();
     let Sak::Återställning(varning) = &a.saker[0] else {
@@ -300,14 +324,24 @@ async fn återställningsvarningen_visas_överst_för_varje_användare_tills_den
     assert_eq!(varning.backup_tid, backup_tid);
     assert_eq!(varning.tid, i_dag().nu());
     assert!(matches!(&a.saker[1], Sak::Utkast(u) if u.id == utkast));
-    assert_eq!(att_gora::antal(&db, &anna).await.unwrap()[&företag], 2);
-    assert_eq!(att_gora::antal(&db, &bo).await.unwrap()[&bos], 1);
+    assert_eq!(
+        att_gora::antal(&db, &i_dag(), &testhjalp::config(), &anna)
+            .await
+            .unwrap()[&företag],
+        2
+    );
+    assert_eq!(
+        att_gora::antal(&db, &i_dag(), &testhjalp::config(), &bo)
+            .await
+            .unwrap()[&bos],
+        1
+    );
 
     att_gora::kvittera_återställning(&db, &i_dag(), &anna, varning.id)
         .await
         .unwrap();
 
-    let a = att_gora::att_göra(&db, &i_dag(), &anna, företag)
+    let a = att_gora::att_göra(&db, &i_dag(), &testhjalp::config(), &anna, företag)
         .await
         .unwrap();
     assert!(
@@ -315,9 +349,16 @@ async fn återställningsvarningen_visas_överst_för_varje_användare_tills_den
         "{:?}",
         a.saker
     );
-    assert_eq!(att_gora::antal(&db, &anna).await.unwrap()[&företag], 1);
+    assert_eq!(
+        att_gora::antal(&db, &i_dag(), &testhjalp::config(), &anna)
+            .await
+            .unwrap()[&företag],
+        1
+    );
     // Bo har inte kvitterat.
-    let b = att_gora::att_göra(&db, &i_dag(), &bo, bos).await.unwrap();
+    let b = att_gora::att_göra(&db, &i_dag(), &testhjalp::config(), &bo, bos)
+        .await
+        .unwrap();
     assert!(
         matches!(&b.saker[..], [Sak::Återställning(_)]),
         "{:?}",
@@ -334,7 +375,7 @@ async fn bara_en_användare_i_webben_kvitterar() {
     let db = Databas::tillfällig().await;
     let (anna, företag) = testhjalp::företag(&db).await;
     testhjalp::logga_återställning(&db, &i_dag(), "2026-10-14T01:00:00Z".parse().unwrap()).await;
-    let a = att_gora::att_göra(&db, &i_dag(), &anna, företag)
+    let a = att_gora::att_göra(&db, &i_dag(), &testhjalp::config(), &anna, företag)
         .await
         .unwrap();
     let Sak::Återställning(varning) = &a.saker[0] else {

@@ -67,6 +67,7 @@ pub fn router(config: Arc<Config>, db: Databas) -> Router {
         passkeys: Arc::new(passkeys),
     };
     let företag = FöretagsState {
+        config: config.clone(),
         db: db.clone(),
         klocka: inloggning.klocka.clone(),
     };
@@ -97,6 +98,7 @@ pub fn router(config: Arc<Config>, db: Databas) -> Router {
         }
     };
     let att_göra = AttGöraState {
+        config: config.clone(),
         db: db.clone(),
         klocka: inloggning.klocka.clone(),
     };
