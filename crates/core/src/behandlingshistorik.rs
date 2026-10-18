@@ -14,12 +14,22 @@ use crate::{Databas, DatabasFel};
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Händelse {
     FöretagSkapat,
+    KontoSkapat,
+    KontoNamnbytt,
+    KontoAktiverat,
+    KontoInaktiverat,
+    BasTillägg,
 }
 
 impl Händelse {
     pub fn namn(self) -> &'static str {
         match self {
             Händelse::FöretagSkapat => "företag skapat",
+            Händelse::KontoSkapat => "konto skapat",
+            Händelse::KontoNamnbytt => "konto namnbytt",
+            Händelse::KontoAktiverat => "konto aktiverat",
+            Händelse::KontoInaktiverat => "konto inaktiverat",
+            Händelse::BasTillägg => "BAS-tillägg",
         }
     }
 }
@@ -72,15 +82,46 @@ pub async fn läs(
 ) -> Result<Vec<Post>, ÅtkomstFel> {
     let mut tx = db.pool().begin().await?;
     atkomst::kräv(&mut tx, aktör, företag, Handling::LäsaFöretag).await?;
-    let rader: Vec<(String, String, Option<i64>, String, String, String)> = sqlx::query_as(
+    let rader = sqlx::query_as(
         "SELECT tid, kanal, anvandare_id, typ, objekt, beskrivning
          FROM behandlingshistorik WHERE foretag_id = ? ORDER BY id",
     )
     .bind(företag.0)
     .fetch_all(&mut *tx)
     .await?;
+    Ok(poster(rader)?)
+}
+
+/// Posterna som rör ett konto: när det kom till (företaget skapat med en kopia av BAS, eller ett
+/// BAS-tillägg) och varje ändring av det.
+pub(crate) async fn läs_konto(
+    conn: &mut SqliteConnection,
+    företag: FöretagsId,
+    nummer: u16,
+) -> Result<Vec<Post>, DatabasFel> {
+    let rader = sqlx::query_as(
+        "SELECT h.tid, h.kanal, h.anvandare_id, h.typ, h.objekt, h.beskrivning
+         FROM behandlingshistorik h
+         JOIN konto k ON k.foretag_id = h.foretag_id AND k.nummer = ?2
+         WHERE h.foretag_id = ?1
+           AND ((h.typ LIKE 'konto %' AND h.objekt = CAST(?2 AS TEXT))
+             OR (h.typ = 'BAS-tillägg'
+                 AND ?2 IN (SELECT value FROM json_each(h.beskrivning, '$.konton')))
+             OR (h.typ = 'företag skapat' AND k.ursprung = 'bas' AND k.bas_tillagg = 0))
+         ORDER BY h.id",
+    )
+    .bind(företag.0)
+    .bind(nummer)
+    .fetch_all(conn)
+    .await?;
+    poster(rader)
+}
+
+type Rad = (String, String, Option<i64>, String, String, String);
+
+fn poster(rader: Vec<Rad>) -> Result<Vec<Post>, DatabasFel> {
     let fel = |vad: &str| DatabasFel::Korrupt(format!("behandlingshistoriken: {vad}"));
-    let poster = rader
+    rader
         .into_iter()
         .map(|(tid, kanal, användare, typ, objekt, beskrivning)| {
             Ok(Post {
@@ -94,6 +135,5 @@ pub async fn läs(
                 beskrivning: serde_json::from_str(&beskrivning).map_err(|_| fel("beskrivning"))?,
             })
         })
-        .collect::<Result<_, DatabasFel>>()?;
-    Ok(poster)
+        .collect()
 }

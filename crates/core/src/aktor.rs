@@ -86,12 +86,17 @@ pub enum Handling {
     LäggaUppFöretag,
     /// Läsa ett företags uppgifter, kontoplan och behandlingshistorik.
     LäsaFöretag,
+    /// Skapa egna konton, byta namn på och aktivera och inaktivera konton. Bara webben, aldrig
+    /// AI (beslut i #82).
+    ÄndraKontoplan,
 }
 
 /// Kanalpolicyn: om `kanal` får utföra `handling`.
 pub fn tillåter(kanal: Kanal, handling: Handling) -> bool {
     match handling {
         Handling::HanteraAnvändare => kanal == Kanal::Cli,
-        Handling::LäggaUppFöretag | Handling::LäsaFöretag => kanal == Kanal::Webb,
+        Handling::LäggaUppFöretag | Handling::LäsaFöretag | Handling::ÄndraKontoplan => {
+            kanal == Kanal::Webb
+        }
     }
 }
