@@ -13,6 +13,7 @@ use serde::{Deserialize, Serialize};
 use crate::app::{LoggaIn, Läge};
 use crate::foretag::{FöretagVy, IngenÅtkomst};
 use crate::installningar::Inställningsmeny;
+use crate::utskrift::Utskrift;
 
 /// Fliken: aktiva (standard), alla eller inaktiva konton.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -333,6 +334,7 @@ pub fn KontoplanSida() -> impl IntoView {
                         " konton · rapportrader enligt " {sida.ink2_utgåva.clone()}
                         " · ändras bara i webben"
                     </p>
+                    <Utskrift href=format!("{href}/pdf") filnamn="kontoplan.pdf".to_string() />
                 </div>
                 <a
                     class="knapp"

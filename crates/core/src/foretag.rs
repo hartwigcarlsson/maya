@@ -582,9 +582,9 @@ pub async fn radera(
         "DELETE FROM verifikatrad
          WHERE verifikat_id IN (SELECT id FROM verifikat WHERE foretag_id = ?1)",
         "DELETE FROM verifikat WHERE foretag_id = ?1",
-        "DELETE FROM ingaende_balans
-         WHERE rakenskapsar_id IN (SELECT id FROM rakenskapsar WHERE foretag_id = ?1)",
         "DELETE FROM period
+         WHERE rakenskapsar_id IN (SELECT id FROM rakenskapsar WHERE foretag_id = ?1)",
+        "DELETE FROM ingaende_balans
          WHERE rakenskapsar_id IN (SELECT id FROM rakenskapsar WHERE foretag_id = ?1)",
         "DELETE FROM rakenskapsar WHERE foretag_id = ?1",
         "DELETE FROM bokforingsmetod WHERE foretag_id = ?1",

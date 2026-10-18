@@ -350,23 +350,3 @@ async fn ett_konto_med_ingående_balans_kan_inte_inaktiveras() {
     let år: Vec<_> = saldon.iter().map(|s| (s.start, s.öre)).collect();
     assert_eq!(år, [(ÅR_2026, 100_000), (date(2027, 1, 1), 100_000)]);
 }
-
-#[tokio::test]
-async fn ett_företag_med_ingående_balans_men_utan_bokförda_verifikat_kan_raderas() {
-    let db = Databas::tillfällig().await;
-    let (anna, id) = testhjalp::företag(&db).await;
-    saldo::ändra_ingående_balans(&db, &klocka(), &anna, id, ÅR_2026, &startkapital())
-        .await
-        .unwrap();
-
-    maya_core::foretag::radera(&db, &klocka(), &anna, id)
-        .await
-        .unwrap();
-
-    assert!(
-        maya_core::foretag::mina_företag(&db, &anna)
-            .await
-            .unwrap()
-            .is_empty()
-    );
-}

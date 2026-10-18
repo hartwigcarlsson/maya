@@ -766,6 +766,17 @@ kbd {
   font-weight: 500;
 }
 
+/* Skriv ut och Exportera PDF: samma PDF, olika länkar. */
+.utskrift {
+  font-size: 13px;
+  color: var(--muted-foreground);
+}
+
+.dokument > .utskrift {
+  align-self: flex-end;
+  margin-bottom: -0.75rem;
+}
+
 .markering {
   padding: 1px 6px;
   border: 1px solid var(--border);
