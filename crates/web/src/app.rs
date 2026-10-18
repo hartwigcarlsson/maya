@@ -12,6 +12,7 @@ use crate::foretag::{
     AttGöra, Företagslista, Inställningar, NyttFöretagSida, Rapporter, Toppmeny, företagsval,
 };
 use crate::ingaende_balans::IngåendeBalansSida;
+use crate::kontoplan::KontoplanSida;
 use crate::verifikat::{NyttVerifikatSida, VerifikatSida};
 
 /// Vad sidan ska visa, avgjort på servern ur sessionscookien.
@@ -44,6 +45,12 @@ fn läge() -> Läge {
 const TEMA_FÖRE_RITNING: &str = "try{const t=localStorage.getItem('maya-tema');\
 if(t==='light'||t==='dark')document.documentElement.dataset.theme=t}catch(e){}";
 
+/// `/` fokuserar sökfältet på en sida som har ett (kontoplanen), utom när man skriver i ett fält.
+const SNABBTANGENT_SÖK: &str = "document.addEventListener('keydown',function(e){\
+if(e.key!=='/'||e.ctrlKey||e.metaKey||e.altKey)return;var t=e.target;\
+if(t&&(t.isContentEditable||/^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName)))return;\
+var f=document.getElementById('kontosok');if(f){e.preventDefault();f.focus();f.select()}})";
+
 /// Dokumentet som servern renderar runt appen.
 pub fn shell(options: LeptosOptions) -> impl IntoView {
     view! {
@@ -55,6 +62,7 @@ pub fn shell(options: LeptosOptions) -> impl IntoView {
                 <meta name="color-scheme" content="light dark" />
                 <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
                 <script>{TEMA_FÖRE_RITNING}</script>
+                <script>{SNABBTANGENT_SÖK}</script>
                 <script src="/auth/webauthn.js" defer></script>
                 <HydrationScripts options />
                 <MetaTags />
@@ -124,6 +132,7 @@ fn Innehåll() -> impl IntoView {
                     path=path!("foretag/:id/installningar/ingaende-balans")
                     view=IngåendeBalansSida
                 />
+                <Route path=path!("foretag/:id/installningar/kontoplan") view=KontoplanSida />
             </Routes>
         }
         .into_any()

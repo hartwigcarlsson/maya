@@ -14,6 +14,11 @@ use crate::{Databas, DatabasFel};
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Händelse {
     FöretagSkapat,
+    KontoSkapat,
+    KontoNamnbytt,
+    KontoAktiverat,
+    KontoInaktiverat,
+    BasTillägg,
     RäkenskapsårSkapat,
     VerifikatBokfört,
     IngåendeBalansÄndrad,
@@ -23,6 +28,11 @@ impl Händelse {
     pub fn namn(self) -> &'static str {
         match self {
             Händelse::FöretagSkapat => "företag skapat",
+            Händelse::KontoSkapat => "konto skapat",
+            Händelse::KontoNamnbytt => "konto namnbytt",
+            Händelse::KontoAktiverat => "konto aktiverat",
+            Händelse::KontoInaktiverat => "konto inaktiverat",
+            Händelse::BasTillägg => "BAS-tillägg",
             Händelse::RäkenskapsårSkapat => "räkenskapsår skapat",
             Händelse::VerifikatBokfört => "verifikat bokfört",
             Händelse::IngåendeBalansÄndrad => "ingående balans ändrad",
@@ -34,6 +44,8 @@ impl Händelse {
 pub struct Post {
     pub tid: Timestamp,
     pub aktör: Aktör,
+    /// Användarens visningsnamn, när aktören är en användare.
+    pub användarnamn: Option<String>,
     /// Händelsens typ, t.ex. `företag skapat`.
     pub typ: String,
     /// Det händelsen rör, t.ex. ett organisationsnummer eller ett kontonummer.
@@ -79,13 +91,40 @@ pub async fn läs(
     let mut tx = db.pool().begin().await?;
     atkomst::kräv(&mut tx, aktör, företag, Handling::LäsaFöretag).await?;
     let rader = sqlx::query_as(
-        "SELECT tid, kanal, anvandare_id, typ, objekt, beskrivning
-         FROM behandlingshistorik WHERE foretag_id = ? ORDER BY id",
+        "SELECT h.tid, h.kanal, h.anvandare_id, u.visningsnamn, h.typ, h.objekt, h.beskrivning
+         FROM behandlingshistorik h LEFT JOIN anvandare u ON u.id = h.anvandare_id
+         WHERE h.foretag_id = ? ORDER BY h.id",
     )
     .bind(företag.0)
     .fetch_all(&mut *tx)
     .await?;
-    Ok(tolka(rader)?)
+    Ok(poster(rader)?)
+}
+
+/// Posterna som rör ett konto: när det kom till (företaget skapat med en kopia av BAS, eller ett
+/// BAS-tillägg) och varje ändring av det.
+pub(crate) async fn läs_konto(
+    conn: &mut SqliteConnection,
+    företag: FöretagsId,
+    nummer: u16,
+) -> Result<Vec<Post>, DatabasFel> {
+    let rader = sqlx::query_as(
+        "SELECT h.tid, h.kanal, h.anvandare_id, u.visningsnamn, h.typ, h.objekt, h.beskrivning
+         FROM behandlingshistorik h
+         LEFT JOIN anvandare u ON u.id = h.anvandare_id
+         JOIN konto k ON k.foretag_id = h.foretag_id AND k.nummer = ?2
+         WHERE h.foretag_id = ?1
+           AND ((h.typ LIKE 'konto %' AND h.objekt = CAST(?2 AS TEXT))
+             OR (h.typ = 'BAS-tillägg'
+                 AND ?2 IN (SELECT value FROM json_each(h.beskrivning, '$.konton')))
+             OR (h.typ = 'företag skapat' AND k.ursprung = 'bas' AND k.bas_tillagg = 0))
+         ORDER BY h.id",
+    )
+    .bind(företag.0)
+    .bind(nummer)
+    .fetch_all(conn)
+    .await?;
+    poster(rader)
 }
 
 /// Posterna som rör ett verifikat, i ordning: de vars beskrivning har `"verifikat": id`.
@@ -95,34 +134,46 @@ pub(crate) async fn läs_om_verifikat(
     verifikat: i64,
 ) -> Result<Vec<Post>, DatabasFel> {
     let rader = sqlx::query_as(
-        "SELECT tid, kanal, anvandare_id, typ, objekt, beskrivning
-         FROM behandlingshistorik
-         WHERE foretag_id = ? AND beskrivning ->> '$.verifikat' = ? ORDER BY id",
+        "SELECT h.tid, h.kanal, h.anvandare_id, u.visningsnamn, h.typ, h.objekt, h.beskrivning
+         FROM behandlingshistorik h LEFT JOIN anvandare u ON u.id = h.anvandare_id
+         WHERE h.foretag_id = ? AND h.beskrivning ->> '$.verifikat' = ? ORDER BY h.id",
     )
     .bind(företag.0)
     .bind(verifikat)
     .fetch_all(conn)
     .await?;
-    tolka(rader)
+    poster(rader)
 }
 
-type PostRad = (String, String, Option<i64>, String, String, String);
+type Rad = (
+    String,
+    String,
+    Option<i64>,
+    Option<String>,
+    String,
+    String,
+    String,
+);
 
-fn tolka(rader: Vec<PostRad>) -> Result<Vec<Post>, DatabasFel> {
+fn poster(rader: Vec<Rad>) -> Result<Vec<Post>, DatabasFel> {
     let fel = |vad: &str| DatabasFel::Korrupt(format!("behandlingshistoriken: {vad}"));
     rader
         .into_iter()
-        .map(|(tid, kanal, användare, typ, objekt, beskrivning)| {
-            Ok(Post {
-                tid: tid.parse().map_err(|_| fel("tid"))?,
-                aktör: Aktör {
-                    kanal: Kanal::från_namn(&kanal).ok_or_else(|| fel("kanal"))?,
-                    användare: användare.map(AnvändarId),
-                },
-                typ,
-                objekt,
-                beskrivning: serde_json::from_str(&beskrivning).map_err(|_| fel("beskrivning"))?,
-            })
-        })
+        .map(
+            |(tid, kanal, användare, användarnamn, typ, objekt, beskrivning)| {
+                Ok(Post {
+                    tid: tid.parse().map_err(|_| fel("tid"))?,
+                    aktör: Aktör {
+                        kanal: Kanal::från_namn(&kanal).ok_or_else(|| fel("kanal"))?,
+                        användare: användare.map(AnvändarId),
+                    },
+                    användarnamn,
+                    typ,
+                    objekt,
+                    beskrivning: serde_json::from_str(&beskrivning)
+                        .map_err(|_| fel("beskrivning"))?,
+                })
+            },
+        )
         .collect()
 }

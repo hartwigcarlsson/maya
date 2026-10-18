@@ -21,6 +21,7 @@ use crate::assets;
 use crate::foretag::server::{self as foretag, FöretagsState};
 use crate::ingaende_balans::server::{self as ingaende_balans, IngåendeBalansState};
 use crate::inloggning::{self, InloggningsState};
+use crate::kontoplan::server::{self as kontoplan, KontoplansState};
 use crate::verifikat::server::{self as verifikat, VerifikatState};
 
 #[derive(Clone)]
@@ -55,6 +56,10 @@ pub fn router(config: Arc<Config>, db: Databas) -> Router {
         db: db.clone(),
         klocka: inloggning.klocka.clone(),
     };
+    let kontoplan = KontoplansState {
+        db: db.clone(),
+        klocka: inloggning.klocka.clone(),
+    };
     let verifikat = VerifikatState {
         db: db.clone(),
         klocka: inloggning.klocka.clone(),
@@ -73,6 +78,10 @@ pub fn router(config: Arc<Config>, db: Databas) -> Router {
         .fallback(assets::serve_site)
         .with_state(leptos_options)
         .layer(middleware::from_fn_with_state(
+            kontoplan.clone(),
+            kontoplan::lägg_på_kontoplan,
+        ))
+        .layer(middleware::from_fn_with_state(
             verifikat.clone(),
             verifikat::lägg_på_verifikatdata,
         ))
@@ -88,6 +97,17 @@ pub fn router(config: Arc<Config>, db: Databas) -> Router {
             inloggning.clone(),
             inloggning::identifiera,
         ))
+        .merge(
+            kontoplan::routes(kontoplan)
+                .layer(middleware::from_fn_with_state(
+                    inloggning.clone(),
+                    inloggning::identifiera,
+                ))
+                .layer(middleware::from_fn_with_state(
+                    inloggning.clone(),
+                    inloggning::kräv_eget_origin,
+                )),
+        )
         .merge(
             foretag::routes(företag)
                 .layer(middleware::from_fn_with_state(

@@ -86,6 +86,9 @@ pub enum Handling {
     LäggaUppFöretag,
     /// Läsa ett företags uppgifter, kontoplan och behandlingshistorik.
     LäsaFöretag,
+    /// Skapa egna konton, byta namn på och aktivera och inaktivera konton. Bara webben, aldrig
+    /// AI (beslut i #82).
+    ÄndraKontoplan,
     /// Bokföra ett verifikat. MCP läggs till i etapp 6.
     Bokföra,
     /// Skriva in eller ändra den ingående balansen.
@@ -98,6 +101,7 @@ pub fn tillåter(kanal: Kanal, handling: Handling) -> bool {
         Handling::HanteraAnvändare => kanal == Kanal::Cli,
         Handling::LäggaUppFöretag
         | Handling::LäsaFöretag
+        | Handling::ÄndraKontoplan
         | Handling::Bokföra
         | Handling::ÄndraIngåendeBalans => kanal == Kanal::Webb,
     }
