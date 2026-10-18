@@ -172,6 +172,7 @@ pub async fn skicka_larm(
         .clone()
         .unwrap_or_else(|| format!("maya@{}", config.public_url.host_str().unwrap_or("maya")));
     let mut skickat = Vec::new();
+    let mut misslyckade = Vec::new();
     for larm in maya_domain::drift::larm(nu, &fel, &skickade) {
         let (ämne, text) = match larm {
             Larm::Fel(f) => {
@@ -202,7 +203,7 @@ pub async fn skicka_larm(
             ),
         };
         let (smtp, värd, från, till) = (smtp.clone(), värd.clone(), från.clone(), till.clone());
-        tokio::task::spawn_blocking(move || {
+        let utfall = tokio::task::spawn_blocking(move || {
             let brev = smtp::Brev {
                 från: &från,
                 till: &till,
@@ -212,8 +213,14 @@ pub async fn skicka_larm(
             smtp::skicka(&smtp, &värd, &brev, nu)
         })
         .await
-        .map_err(|e| DriftFel::Smtp(e.to_string()))?
-        .map_err(DriftFel::Smtp)?;
+        .map_err(|e| e.to_string())
+        .and_then(|r| r);
+        // Ett larm som inte kom fram stoppar inte de andra; det försöks igen nästa gång.
+        if let Err(e) = utfall {
+            tracing::error!("larmet {larm:?} kunde inte skickas: {e}");
+            misslyckade.push(e);
+            continue;
+        }
         match larm {
             Larm::Fel(f) => {
                 sqlx::query(
@@ -234,7 +241,11 @@ pub async fn skicka_larm(
         }
         skickat.push(larm);
     }
-    Ok(skickat)
+    if misslyckade.is_empty() {
+        Ok(skickat)
+    } else {
+        Err(DriftFel::Smtp(misslyckade.join("; ")))
+    }
 }
 
 /// Felen som driften får larm om just nu, med en beskrivning för mejlet.
