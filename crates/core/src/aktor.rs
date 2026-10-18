@@ -120,12 +120,16 @@ pub enum Handling {
     TaBackup,
     /// Verifiera en backup: Maya självt efter varje backup och driften med `maya backup verify`.
     VerifieraBackup,
+    /// Återställa hela installationen ur en backup med `maya restore`. Bara CLI:t.
+    Återställa,
+    /// Kvittera varningen efter en återställning under Att göra.
+    KvitteraÅterställning,
 }
 
 /// Kanalpolicyn: om `kanal` får utföra `handling`.
 pub fn tillåter(kanal: Kanal, handling: Handling) -> bool {
     match handling {
-        Handling::HanteraAnvändare => kanal == Kanal::Cli,
+        Handling::HanteraAnvändare | Handling::Återställa => kanal == Kanal::Cli,
         Handling::TaBackup => kanal == Kanal::Maya,
         Handling::VerifieraBackup => matches!(kanal, Kanal::Maya | Kanal::Cli),
         Handling::LäggaUppFöretag
@@ -139,6 +143,7 @@ pub fn tillåter(kanal: Kanal, handling: Handling) -> bool {
         | Handling::HanteraUnderlag
         | Handling::Komplettera
         | Handling::HanteraÅtkomst
-        | Handling::ExporteraSie4 => kanal == Kanal::Webb,
+        | Handling::ExporteraSie4
+        | Handling::KvitteraÅterställning => kanal == Kanal::Webb,
     }
 }

@@ -8,6 +8,9 @@
 //! nästa utkast, och ett underlag med "Vad är det här?". Sakernas sorter kommer från
 //! `maya_core::att_gora::Sak`; en ny sort får ett eget kort här ([`Sort`]).
 //!
+//! Överst, före allt annat, varningen efter en återställning med `maya restore`, tills
+//! användaren kvitterar den.
+//!
 //! Sidan läser sin data med `sidodata::sida`, så korten fälls ut i routern på klienten.
 
 use leptos::prelude::*;
@@ -26,6 +29,8 @@ use crate::verifikat::{
 pub struct AttGöradata {
     /// Dagens datum med veckodag.
     pub dag: String,
+    /// Varningarna efter en återställning som användaren inte har kvitterat.
+    pub återställningar: Vec<ÅterställningVy>,
     pub försenade: usize,
     pub inom_sju_dagar: usize,
     pub utan_datum: usize,
@@ -37,6 +42,13 @@ pub struct AttGöradata {
     pub öppet: Option<(String, Öppet)>,
     pub notis: Option<String>,
     pub fel: Option<String>,
+}
+
+/// Varningen efter en återställning.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ÅterställningVy {
+    pub id: String,
+    pub text: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -127,7 +139,7 @@ pub(crate) mod server {
     use jiff::civil::Date;
     use leptos::prelude::ServerFnError;
     use maya_core::atkomst::ÅtkomstFel;
-    use maya_core::att_gora::{self, Sak, Utkastsak};
+    use maya_core::att_gora::{self, Sak, Utkastsak, ÅterställningsId, Återställningsvarning};
     use maya_core::foretag::FöretagsId;
     use maya_core::inloggning::Inloggad;
     use maya_core::underlag::{self, Underlag, UnderlagFel, UnderlagId};
@@ -141,7 +153,9 @@ pub(crate) mod server {
     use maya_domain::verifikat::NyttVerifikat;
     use serde::Deserialize;
 
-    use super::{AttGöradata, DagVy, KortVy, NyckeltalVy, PeriodVy, Sort, Öppet};
+    use super::{
+        AttGöradata, DagVy, KortVy, NyckeltalVy, PeriodVy, Sort, ÅterställningVy, Öppet
+    };
     use crate::sidodata::{self, Sidbegäran};
     use crate::underlag::server::vy;
 
@@ -159,6 +173,10 @@ pub(crate) mod server {
                 post(komplettera),
             )
             .route("/foretag/{id}/att-gora/underlag/{u}/ta-bort", post(ta_bort))
+            .route(
+                "/foretag/{id}/att-gora/aterstallning/{a}/kvittera",
+                post(kvittera),
+            )
             .with_state(Arc::new(state))
     }
 
@@ -205,8 +223,10 @@ pub(crate) mod server {
         let idag = a.idag;
         let mut utkast = Vec::new();
         let mut underlagen = Vec::new();
+        let mut återställningar = Vec::new();
         for sak in a.saker {
             match sak {
+                Sak::Återställning(v) => återställningar.push(återställning(&v)),
                 Sak::Utkast(u) => utkast.push(u),
                 Sak::Underlag(u) => underlagen.push(u),
             }
@@ -241,6 +261,8 @@ pub(crate) mod server {
             ));
         } else if fråga("borttaget").is_some() {
             notis = Some("Underlaget togs bort, och borttagningen loggades.".into());
+        } else if fråga("kvitterad").is_some() {
+            notis = Some("Varningen är kvitterad.".into());
         }
         let fel = fråga("fel")
             .and_then(|kod| match kod {
@@ -360,6 +382,7 @@ pub(crate) mod server {
 
         Ok(AttGöradata {
             dag: stor_bokstav(&dag_lång(idag)),
+            återställningar,
             försenade,
             inom_sju_dagar,
             utan_datum,
@@ -371,6 +394,23 @@ pub(crate) mod server {
             notis,
             fel,
         })
+    }
+
+    fn återställning(v: &Återställningsvarning) -> ÅterställningVy {
+        let tid = |t: jiff::Timestamp| {
+            t.to_zoned(maya_domain::tid::stockholm())
+                .strftime("%Y-%m-%d %H:%M")
+                .to_string()
+        };
+        let backup = tid(v.backup_tid);
+        ÅterställningVy {
+            id: v.id.to_string(),
+            text: format!(
+                "Installationen återställdes {} ur backupen från {backup}. Det som \
+                 registrerades efter {backup} finns inte längre i Maya och måste registreras om.",
+                tid(v.tid)
+            ),
+        }
     }
 
     fn nyckeltal(n: &att_gora::Nyckeltal) -> Vec<NyckeltalVy> {
@@ -573,6 +613,27 @@ pub(crate) mod server {
         }
     }
 
+    /// Kvitterar varningen efter en återställning för den inloggade användaren.
+    async fn kvittera(
+        State(state): State<Arc<AttGöraState>>,
+        Path((id, a)): Path<(String, String)>,
+        inloggad: Option<Extension<Inloggad>>,
+    ) -> Response {
+        let Some(Extension(inloggad)) = inloggad else {
+            return Redirect::to("/").into_response();
+        };
+        let (Ok(företag), Ok(a)) = (id.parse::<FöretagsId>(), a.parse::<ÅterställningsId>())
+        else {
+            return ingen_åtkomst();
+        };
+        match att_gora::kvittera_återställning(&state.db, &state.klocka, &inloggad.aktör, a).await
+        {
+            Ok(()) => Redirect::to(&format!("/foretag/{företag}?kvitterad=1")).into_response(),
+            Err(ÅtkomstFel::IngenÅtkomst | ÅtkomstFel::KanalenFårInte) => ingen_åtkomst(),
+            Err(e) => serverfel(e),
+        }
+    }
+
     fn ingen_åtkomst() -> Response {
         (
             StatusCode::FORBIDDEN,
@@ -732,9 +793,16 @@ fn att_göra(data: AttGöradata) -> AnyView {
         .fel
         .clone()
         .map(|t| view! { <p class="fel" role="alert">{t}</p> });
+    let återställningar = data
+        .återställningar
+        .iter()
+        .cloned()
+        .map(|v| view! { <VarningEfterÅterställning bas=bas.clone() v=v /> })
+        .collect_view();
 
     view! {
         <section class="agenda">
+            {återställningar}
             {notis}
             {fel}
             <div class="ag-rubrik">
@@ -758,6 +826,24 @@ fn att_göra(data: AttGöradata) -> AnyView {
         </section>
     }
     .into_any()
+}
+
+/// Varningen efter en återställning, med kvittensen.
+#[component]
+fn VarningEfterÅterställning(bas: String, v: ÅterställningVy) -> impl IntoView {
+    view! {
+        <div class="aterstallning" role="alert">
+            <div>
+                <b>"Installationen är återställd"</b>
+                <p>{v.text}</p>
+            </div>
+            <form method="post" action=format!("{bas}/att-gora/aterstallning/{}/kvittera", v.id)>
+                <button class="knapp" type="submit">
+                    "Kvittera"
+                </button>
+            </form>
+        </div>
+    }
 }
 
 /// Ett kort i agendan. Rubriken fäller ut och ihop kortet.

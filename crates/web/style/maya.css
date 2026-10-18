@@ -2077,3 +2077,25 @@ kbd {
 .notis-frist {
   border-left: 3px solid var(--primary);
 }
+
+/* Att göra: varningen efter en återställning, överst tills användaren kvitterar den. */
+
+.aterstallning {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--destructive);
+  border-left-width: 3px;
+  border-radius: var(--radius);
+  background: var(--card);
+}
+
+.aterstallning p {
+  margin: 4px 0 0;
+}
+
+.aterstallning form {
+  flex: none;
+}

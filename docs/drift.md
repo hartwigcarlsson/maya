@@ -43,6 +43,19 @@ Lagra backupen i Sverige. Förvaring i ett annat EU-land kräver en anmälan til
 
 Provåterställ en gång per år: `docker compose exec maya maya backup verify` verifierar den senaste backupen (eller `maya backup verify <namn>` en viss), skriver resultatet på svenska och loggar körningen i installationsloggen.
 
+## Återställa
+
+`maya restore` återställer hela installationen ur en backup i backupmålet; ett enskilt företag går inte att återställa. Stoppa servern först, eftersom databasfilen byts ut:
+
+```sh
+docker compose stop maya
+docker compose run --rm maya restore            # den senaste backupen
+docker compose run --rm maya restore maya-20261018T010000Z
+docker compose start maya
+```
+
+Kommandot visar backupens tidpunkt och kräver att du skriver `ja`. Backupen granskas mot sitt manifest innan något ändras, och en backup vars `rp_id` skiljer sig från domänen i `MAYA_PUBLIC_URL` vägras, eftersom passkeys är bundna till domänen. Den nuvarande databasen raderas inte utan flyttas till `maya.db.fore-aterstallning-<tid i UTC>` i datakatalogen. Efter återställningen jämförs kontrollsummorna med backupen; stämmer de inte läggs den tidigare databasen tillbaka. Återställningen loggas i varje företags behandlingshistorik och i installationsloggen, och varje användare ser en varning under Att göra tills hen kvitterar den: det som registrerades efter backupen måste registreras om.
+
 ## Uppgradera
 
 Byt taggen i `compose.yaml` och kör `docker compose up -d`. Maya uppdateras aldrig automatiskt, och taggen är alltid en exakt version, aldrig `latest`. Migreringarna körs i ordning vid start, så det går att hoppa över versioner. Maya vägrar starta mot en databas med nyare schema än binären; nedgradering görs bara med `maya restore`.

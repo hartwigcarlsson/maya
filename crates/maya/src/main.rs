@@ -12,6 +12,7 @@ use maya_core::{Databas, Klocka};
 
 mod backup;
 mod healthcheck;
+mod restore;
 mod user;
 
 #[derive(Parser)]
@@ -42,6 +43,11 @@ enum Command {
         #[command(subcommand)]
         command: backup::BackupCommand,
     },
+    /// Återställer hela installationen ur en backup i backupmålet. Stoppa servern först.
+    Restore {
+        /// Backupens namn, t.ex. maya-20261018T010000Z. Utan namn används den senaste.
+        name: Option<String>,
+    },
 }
 
 fn main() -> ExitCode {
@@ -58,6 +64,7 @@ fn main() -> ExitCode {
         Command::User { command } => user::run_user(command),
         Command::Domain { command } => user::run_domain(command),
         Command::Backup { command } => backup::run(command),
+        Command::Restore { name } => restore::run(name),
     }
 }
 
