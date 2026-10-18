@@ -272,6 +272,9 @@ async fn filtret_nya_i_bas_visar_konton_som_en_ny_bas_version_lade_till() {
 
     assert_eq!(rader(&body), [5425]);
     assert!(body.contains("Nytt i BAS 2027"), "{body}");
+    // Varningsikonen är Lucides triangle-alert, inte ett tecken.
+    assert!(body.contains("lucide-triangle-alert"), "{body}");
+    assert!(!body.contains('⚠'), "{body}");
 }
 
 #[tokio::test]
