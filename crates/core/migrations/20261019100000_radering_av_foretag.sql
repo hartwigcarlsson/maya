@@ -8,9 +8,10 @@
 -- * `foretag_radering` markerar den radering som `foretag::radera` gör. Raden läggs in och
 --   tas bort i samma transaktion.
 -- * En markering går bara att lägga in för ett företag utan räkenskapsinformation (bokförda
---   verifikat eller underlag), samma regel som `har_räkenskapsinformation_i` i core.
+--   verifikat, underlag eller en inskriven ingående balans, Å2), samma regel som
+--   `har_räkenskapsinformation_i` i core.
 -- * Företaget, dess kontoplan och dess behandlingshistorik går bara att radera när
---   markeringen finns.
+--   markeringen finns, och företaget dessutom bara när det saknar räkenskapsinformation.
 
 CREATE TABLE foretag_radering (
     foretag_id INTEGER PRIMARY KEY
@@ -20,6 +21,8 @@ CREATE TRIGGER foretag_radering_kraver_utan_rakenskapsinformation
 BEFORE INSERT ON foretag_radering
 WHEN EXISTS (SELECT 1 FROM verifikat WHERE foretag_id = NEW.foretag_id AND bokford IS NOT NULL)
   OR EXISTS (SELECT 1 FROM underlag WHERE foretag_id = NEW.foretag_id)
+  OR EXISTS (SELECT 1 FROM ingaende_balans b JOIN rakenskapsar r ON r.id = b.rakenskapsar_id
+             WHERE r.foretag_id = NEW.foretag_id)
 BEGIN
     SELECT RAISE(ABORT, 'ett företag med räkenskapsinformation går inte att radera');
 END;
@@ -27,6 +30,10 @@ END;
 CREATE TRIGGER foretag_raderas_inte
 BEFORE DELETE ON foretag
 WHEN NOT EXISTS (SELECT 1 FROM foretag_radering WHERE foretag_id = OLD.id)
+  OR EXISTS (SELECT 1 FROM verifikat WHERE foretag_id = OLD.id AND bokford IS NOT NULL)
+  OR EXISTS (SELECT 1 FROM underlag WHERE foretag_id = OLD.id)
+  OR EXISTS (SELECT 1 FROM ingaende_balans b JOIN rakenskapsar r ON r.id = b.rakenskapsar_id
+             WHERE r.foretag_id = OLD.id)
 BEGIN
     SELECT RAISE(ABORT, 'ett företag raderas bara utan räkenskapsinformation, genom Maya');
 END;

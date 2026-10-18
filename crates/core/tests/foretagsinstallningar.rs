@@ -507,7 +507,7 @@ async fn ett_företag_med_bara_utkast_raderas_med_utkasten() {
 }
 
 #[tokio::test]
-async fn ett_företag_med_inskriven_ingående_balans_raderas_med_den() {
+async fn radering_nekas_när_företaget_har_en_inskriven_ingående_balans() {
     let db = Databas::tillfällig().await;
     let (anna, id) = testhjalp::företag(&db).await;
     let ib = NyIngåendeBalans {
@@ -528,7 +528,19 @@ async fn ett_företag_med_inskriven_ingående_balans_raderas_med_den() {
         .await
         .unwrap();
 
-    foretag::radera(&db, &klocka(), &anna, id).await.unwrap();
+    // Öppningsbalansen är räkenskapsinformation (Å2).
+    assert!(
+        foretag::har_räkenskapsinformation(&db, &anna, id)
+            .await
+            .unwrap()
+    );
+    let fel = foretag::radera(&db, &klocka(), &anna, id)
+        .await
+        .unwrap_err();
 
-    assert!(foretag::mina_företag(&db, &anna).await.unwrap().is_empty());
+    assert!(
+        matches!(fel, FöretagsFel::HarRäkenskapsinformation),
+        "{fel:?}"
+    );
+    assert_eq!(foretag::mina_företag(&db, &anna).await.unwrap().len(), 1);
 }

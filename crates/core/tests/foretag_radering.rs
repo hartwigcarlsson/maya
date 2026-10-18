@@ -79,6 +79,29 @@ async fn företaget_kontoplanen_och_historiken_raderas_inte_förbi_core_när_det
 }
 
 #[tokio::test]
+async fn ett_företag_med_ingående_balans_raderas_inte_förbi_core() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = databas(&dir, false).await;
+    kör_sql_utan_främmande_nycklar(
+        &path,
+        "INSERT INTO ingaende_balans (rakenskapsar_id, konto, saldo)
+         SELECT id, 1930, 100000 FROM rakenskapsar",
+    )
+    .await
+    .unwrap();
+
+    for sql in [
+        "INSERT INTO foretag_radering (foretag_id) SELECT id FROM foretag",
+        "DELETE FROM foretag",
+    ] {
+        assert!(
+            kör_sql_utan_främmande_nycklar(&path, sql).await.is_err(),
+            "{sql} gick igenom"
+        );
+    }
+}
+
+#[tokio::test]
 async fn historiken_och_kontoplanen_raderas_inte_förbi_core_ens_utan_bokfört() {
     let dir = tempfile::tempdir().unwrap();
     let path = databas(&dir, false).await;

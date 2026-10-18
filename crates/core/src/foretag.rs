@@ -45,7 +45,8 @@ pub enum FöretagsFel {
     Ogiltigt(Vec<Fältfel>),
     #[error("{0} finns redan i Maya. Be någon som har åtkomst till företaget om en inbjudan.")]
     OrgnrFinns(Organisationsnummer),
-    /// Företaget har bokförda verifikat eller underlag och kan inte raderas (A1).
+    /// Företaget har bokförda verifikat, underlag eller en ingående balans och kan inte raderas
+    /// (A1, Å2).
     #[error("företaget har räkenskapsinformation och kan inte raderas")]
     HarRäkenskapsinformation,
     #[error(transparent)]
@@ -619,8 +620,8 @@ pub async fn radera(
     Ok(())
 }
 
-/// Om företaget har räkenskapsinformation (bokförda verifikat och underlag; fakturor när de
-/// finns), så att det inte kan raderas.
+/// Om företaget har räkenskapsinformation (bokförda verifikat, underlag och en inskriven
+/// ingående balans, Å2; fakturor när de finns), så att det inte kan raderas.
 pub async fn har_räkenskapsinformation(
     db: &Databas,
     aktör: &Aktör,
@@ -637,7 +638,10 @@ async fn har_räkenskapsinformation_i(
 ) -> Result<bool, sqlx::Error> {
     sqlx::query_scalar(
         "SELECT EXISTS (SELECT 1 FROM verifikat WHERE foretag_id = ?1 AND bokford IS NOT NULL)
-             OR EXISTS (SELECT 1 FROM underlag WHERE foretag_id = ?1)",
+             OR EXISTS (SELECT 1 FROM underlag WHERE foretag_id = ?1)
+             OR EXISTS (SELECT 1 FROM ingaende_balans b
+                        JOIN rakenskapsar r ON r.id = b.rakenskapsar_id
+                        WHERE r.foretag_id = ?1)",
     )
     .bind(id.0)
     .fetch_one(conn)

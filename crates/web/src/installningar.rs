@@ -911,7 +911,7 @@ fn Radering(bas: String, data: Inställningsdata) -> impl IntoView {
         let kod = match serverfel.as_deref() {
             Some(HAR_RÄKENSKAPSINFORMATION) => Some((
                 HAR_RÄKENSKAPSINFORMATION,
-                "Företaget har bokförda verifikat eller underlag och kan inte raderas.",
+                "Företaget har bokförda verifikat, underlag eller en ingående balans och kan inte raderas.",
             )),
             _ if !bekräftelse.with(|b| bekräftar(b, &siffror)) => Some((
                 BEKRÄFTELSE_FEL,
@@ -947,7 +947,7 @@ fn Radering(bas: String, data: Inställningsdata) -> impl IntoView {
     let innehåll = if data.kan_raderas {
         view! {
             <p>
-                "Företaget har inga bokförda verifikat eller underlag och kan raderas med kontoplan, räkenskapsår, utkast och behandlingshistorik. Raderingen står i installationens logg."
+                "Företaget har inga bokförda verifikat, underlag eller ingående balans och kan raderas med kontoplan, räkenskapsår, utkast och behandlingshistorik. Raderingen står i installationens logg."
             </p>
             <form
                 class="formular"
@@ -977,7 +977,7 @@ fn Radering(bas: String, data: Inställningsdata) -> impl IntoView {
         .into_any()
     } else {
         view! {
-            <p>"Företaget har bokförda verifikat eller underlag och kan inte raderas."</p>
+            <p>"Företaget har bokförda verifikat, underlag eller en ingående balans och kan inte raderas."</p>
             {felvisning}
         }
         .into_any()

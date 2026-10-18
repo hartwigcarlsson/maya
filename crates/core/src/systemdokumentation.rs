@@ -656,8 +656,8 @@ fn arkivplanen(f: &Företag, config: &Config) -> Avsnitt {
         stycke(
             "Räkenskapsinformationen bevaras till och med 31 december det sjunde året efter \
              kalenderåret då räkenskapsåret slutade (BFL 7:2). Maya erbjuder ingen radering av \
-             räkenskapsinformation; ett företag med bokförda verifikat eller underlag kan inte \
-             raderas.",
+             räkenskapsinformation; ett företag med bokförda verifikat, underlag eller en inskriven \
+             ingående balans kan inte raderas.",
         ),
         tabell(
             &["Räkenskapsår", "Bevaras till och med"],
