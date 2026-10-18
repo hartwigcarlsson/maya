@@ -7,7 +7,7 @@ use maya_domain::kontoplan::Kontonummer;
 use maya_domain::rakenskapsar::periodnamn;
 use serde_json::{Value, json};
 
-use crate::data::tid;
+use crate::data::{företag, tid};
 use crate::{Företag, Rad};
 
 /// Räkenskapsåret och perioderna som en grundbok eller huvudbok gäller.
@@ -87,10 +87,6 @@ fn urval(u: &Bokföringsurval) -> Value {
             format!("{} – {}", periodnamn(u.från), periodnamn(u.till))
         },
     })
-}
-
-fn företag(f: &Företag) -> Value {
-    json!({ "namn": f.namn, "orgnr": f.orgnr })
 }
 
 pub(crate) fn grundbok(g: &Grundbok) -> Value {

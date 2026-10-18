@@ -67,23 +67,11 @@ fn signatur(s: &Signatur) -> Value {
     json!({ "tid": tid(s.tid), "namn": s.namn, "kanal": s.kanal })
 }
 
-fn storlek(byte: u64) -> String {
-    const KB: u64 = 1024;
-    match byte {
-        b if b < KB => format!("{b} B"),
-        b if b < KB * KB => format!("{} kB", b.div_ceil(KB)),
-        b => {
-            let tiondelar = (b * 10).div_ceil(KB * KB);
-            format!("{},{} MB", tiondelar / 10, tiondelar % 10)
-        }
-    }
-}
-
 fn verifikat(v: &Verifikat) -> Value {
     let summa =
         |f: fn(&crate::Rad) -> Belopp| Belopp::från_öre(v.rader.iter().map(|r| f(r).öre()).sum());
     json!({
-        "foretag": { "namn": v.företag.namn, "orgnr": v.företag.orgnr },
+        "foretag": företag(&v.företag),
         "nummer": v.nummer,
         "beskrivning": v.beskrivning,
         "summa": summa(|r| r.debet).to_string(),
@@ -103,7 +91,7 @@ fn verifikat(v: &Verifikat) -> Value {
         "underlag": v.underlag.iter().map(|u| json!({
             "filnamn": u.filnamn,
             "sha256": u.sha256,
-            "storlek": storlek(u.storlek),
+            "storlek": maya_domain::underlag::storlek(u.storlek),
             "komplettering": u.komplettering.as_ref().map(signatur),
         })).collect::<Vec<_>>(),
         "historik": v.historik.iter().map(|h| json!({
@@ -147,7 +135,7 @@ fn kontoplan(k: &Kontoplan) -> Value {
         klasser.push(json!({ "rubrik": format!("{k} {}", klassnamn(k)), "konton": rader }));
     }
     json!({
-        "foretag": { "namn": k.företag.namn, "orgnr": k.företag.orgnr },
+        "foretag": företag(&k.företag),
         "bas_version": k.bas_version,
         "antal": k.konton.len(),
         "klasser": klasser,
@@ -160,7 +148,7 @@ fn behandlingshistorik(b: &Behandlingshistorik) -> Value {
         n => format!("{n} poster"),
     };
     json!({
-        "foretag": { "namn": b.företag.namn, "orgnr": b.företag.orgnr },
+        "foretag": företag(&b.företag),
         "urval": b.urval,
         "antal": antal,
         "poster": b.poster.iter().map(|p| json!({
@@ -201,7 +189,7 @@ fn rapport(r: &Rapport) -> Value {
         Radslag::Kontroll => "kontroll",
     };
     json!({
-        "foretag": { "namn": r.företag.namn, "orgnr": r.företag.orgnr },
+        "foretag": företag(&r.företag),
         "titel": rapport.urval.typ.namn(),
         "ar": format!("{} – {}", rapport.år.start(), rapport.år.slut()),
         "period": rapport.period(),
@@ -226,14 +214,7 @@ fn rapport(r: &Rapport) -> Value {
     })
 }
 
-#[cfg(test)]
-mod tests {
-    use super::storlek;
-
-    #[test]
-    fn storlekar() {
-        assert_eq!(storlek(512), "512 B");
-        assert_eq!(storlek(48_213), "48 kB");
-        assert_eq!(storlek(1_234_567), "1,2 MB");
-    }
+/// Företaget som mallarna visar det i sidhuvudet.
+pub(crate) fn företag(f: &crate::Företag) -> Value {
+    json!({ "namn": f.namn, "orgnr": f.orgnr })
 }
