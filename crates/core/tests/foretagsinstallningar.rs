@@ -4,8 +4,11 @@
 use jiff::civil::date;
 use maya_core::atkomst::ÅtkomstFel;
 use maya_core::foretag::{self, FöretagsFel};
-use maya_core::{Databas, Klocka, behandlingshistorik, installationslogg, testhjalp, verifikat};
+use maya_core::{
+    Databas, Klocka, behandlingshistorik, installationslogg, saldo, testhjalp, verifikat,
+};
 use maya_domain::foretag::{Bokföringsmetod, Byte, Momsperiod, NyttFöretag, Uppgifter};
+use maya_domain::ingaende_balans::{NyIngåendeBalans, NySaldorad};
 use maya_domain::verifikat::{NyRad, NyttVerifikat};
 
 const NU: &str = "2026-10-18T08:00:00Z";
@@ -495,6 +498,33 @@ async fn ett_företag_med_bara_utkast_raderas_med_utkasten() {
         }],
     };
     verifikat::spara_utkast(&db, &klocka(), &anna, id, None, &utkast)
+        .await
+        .unwrap();
+
+    foretag::radera(&db, &klocka(), &anna, id).await.unwrap();
+
+    assert!(foretag::mina_företag(&db, &anna).await.unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn ett_företag_med_inskriven_ingående_balans_raderas_med_den() {
+    let db = Databas::tillfällig().await;
+    let (anna, id) = testhjalp::företag(&db).await;
+    let ib = NyIngåendeBalans {
+        rader: vec![
+            NySaldorad {
+                konto: "1930".into(),
+                debet: "1 000".into(),
+                kredit: String::new(),
+            },
+            NySaldorad {
+                konto: "2081".into(),
+                debet: String::new(),
+                kredit: "1 000".into(),
+            },
+        ],
+    };
+    saldo::ändra_ingående_balans(&db, &klocka(), &anna, id, date(2026, 1, 1), &ib)
         .await
         .unwrap();
 
