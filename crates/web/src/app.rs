@@ -9,9 +9,10 @@ use leptos_router::path;
 use serde::{Deserialize, Serialize};
 
 use crate::foretag::{
-    AttGöra, Företagslista, Inställningar, NyttFöretagSida, Rapporter, Toppmeny, företagsval,
+    AttGöra, Företagslista, NyttFöretagSida, Rapporter, Toppmeny, företagsval
 };
 use crate::ingaende_balans::IngåendeBalansSida;
+use crate::installningar::FöretagsInställningar;
 use crate::konto::{Passkeys, Sessioner};
 use crate::kontoplan::KontoplanSida;
 use crate::sok::SökSida;
@@ -140,7 +141,7 @@ fn Innehåll() -> impl IntoView {
                 <Route path=path!("foretag/:id/rapporter") view=Rapporter />
                 <Route path=path!("foretag/:id/sok") view=SökSida />
                 <Route path=path!("foretag/:id/underlag") view=UnderlagSida />
-                <Route path=path!("foretag/:id/installningar") view=Inställningar />
+                <Route path=path!("foretag/:id/installningar") view=FöretagsInställningar />
                 <Route
                     path=path!("foretag/:id/installningar/ingaende-balans")
                     view=IngåendeBalansSida

@@ -16,6 +16,7 @@ pub mod saldo;
 #[cfg(feature = "test-support")]
 pub mod testhjalp;
 pub mod underlag;
+pub mod utskrift;
 pub mod verifikat;
 
 #[cfg(feature = "test-support")]

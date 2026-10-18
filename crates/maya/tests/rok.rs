@@ -1,6 +1,6 @@
 //! Röktest med riktig server och en webbläsare med virtuella autentiserare: första användaren
 //! via CLI-länken, en passkey till, inloggning med e-post och passkey, borttagning av passkeys
-//! utom den sista, och ett nytt företag.
+//! utom den sista, ett nytt företag och kontoplanen som PDF.
 //!
 //! Kräver Chrome eller Chromium (sökvägen kan anges i `CHROME`). Sidan behöver ingen WASM:
 //! inloggningen är vanlig HTML med JS-shimmen.
@@ -196,6 +196,44 @@ fn forsta_anvandaren_via_cli_lanken_och_inloggning_med_passkey() {
     vänta_på_text(&tab, "Inget att göra ännu");
     vänta_på_text(&tab, "556036-0793");
     assert!(tab.get_url().contains("/foretag/"), "{}", tab.get_url());
+
+    // Kontoplanen som PDF: Skriv ut och Exportera är samma PDF, och routern på klienten tar
+    // inte över länkarna.
+    let kontoplan = format!("{}/installningar/kontoplan", tab.get_url());
+    tab.navigate_to(&kontoplan).unwrap();
+    vänta_på_text(&tab, "Exportera PDF");
+    inga_sidfel(&tab);
+    let svar = tab
+        .evaluate(
+            "(async () => {\
+               const skriv = document.querySelector('a.skriv-ut');\
+               const exp = document.querySelector('a.exportera-pdf');\
+               const r = await fetch(exp.href);\
+               const b = new Uint8Array(await r.arrayBuffer());\
+               return [skriv.href === exp.href, skriv.target, exp.download, r.status,\
+                       r.headers.get('content-type'), String.fromCharCode(...b.slice(0, 5))]\
+                       .join(' ');\
+             })()",
+            true,
+        )
+        .unwrap()
+        .value
+        .unwrap();
+    assert_eq!(
+        svar.as_str().unwrap(),
+        "true _blank kontoplan.pdf 200 application/pdf %PDF-"
+    );
+    tab.find_element("a.exportera-pdf")
+        .unwrap()
+        .click()
+        .unwrap();
+    std::thread::sleep(Duration::from_millis(500));
+    assert_eq!(
+        tab.get_url(),
+        kontoplan,
+        "Exportera laddar ned, sidan står kvar"
+    );
+    inga_sidfel(&tab);
 }
 
 fn skapa_användare(dir: &Path, bas: &str) -> String {
