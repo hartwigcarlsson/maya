@@ -45,7 +45,11 @@ fn maya_user_create_skriver_ut_en_registreringslank_for_forsta_anvandaren() {
 #[test]
 fn maya_user_create_vagrar_nar_det_redan_finns_en_anvandare() {
     let dir = tempfile::tempdir().unwrap();
-    assert!(maya(dir.path(), &["user", "create", "anna@example.se"]).status.success());
+    assert!(
+        maya(dir.path(), &["user", "create", "anna@example.se"])
+            .status
+            .success()
+    );
 
     let output = maya(dir.path(), &["user", "create", "bo@example.se"]);
 

@@ -383,7 +383,8 @@ pub async fn session(
     let Some((id, skapad, senast_aktiv, passkey_använd)) = rad else {
         return Ok(None);
     };
-    if nu >= tidpunkt(&senast_aktiv)? + SESSION_INAKTIV || nu >= tidpunkt(&skapad)? + SESSION_LÄNGST
+    if nu >= tidpunkt(&senast_aktiv)? + SESSION_INAKTIV
+        || nu >= tidpunkt(&skapad)? + SESSION_LÄNGST
     {
         sqlx::query("DELETE FROM session WHERE hash = ?")
             .bind(&hash)

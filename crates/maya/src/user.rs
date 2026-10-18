@@ -50,7 +50,9 @@ async fn kör(config: &Config, command: UserCommand) -> Result<(), Box<dyn std::
                 .public_url
                 .join(&format!("registrera/{}", länk.token()))?;
             println!("Användaren {} är skapad.", email.trim().to_lowercase());
-            println!("Öppna länken för att registrera en passkey. Den gäller i 24 timmar och kan användas en gång:");
+            println!(
+                "Öppna länken för att registrera en passkey. Den gäller i 24 timmar och kan användas en gång:"
+            );
             println!();
             println!("  {url}");
         }

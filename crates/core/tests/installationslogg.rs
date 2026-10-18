@@ -50,7 +50,11 @@ async fn installationsloggen_gar_inte_att_andra_eller_radera() {
     db.stäng().await;
 
     // Förbi `core`, som en angripare eller ett felaktigt verktyg med databasfilen.
-    let ändra = kör_sql(&path, "UPDATE installationslogg SET objekt = 'bo@example.se'").await;
+    let ändra = kör_sql(
+        &path,
+        "UPDATE installationslogg SET objekt = 'bo@example.se'",
+    )
+    .await;
     let radera = kör_sql(&path, "DELETE FROM installationslogg").await;
 
     assert!(ändra.unwrap_err().contains("går inte att ändra"));

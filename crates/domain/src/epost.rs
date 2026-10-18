@@ -46,7 +46,14 @@ mod tests {
 
     #[test]
     fn en_adress_utan_snabel_a_eller_med_tomma_delar_ar_ogiltig() {
-        for fel in ["anna", "@example.se", "anna@", "a@b@c", "an na@example.se", ""] {
+        for fel in [
+            "anna",
+            "@example.se",
+            "anna@",
+            "a@b@c",
+            "an na@example.se",
+            "",
+        ] {
             assert!(normalisera(fel).is_err(), "{fel}");
         }
     }
