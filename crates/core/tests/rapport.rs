@@ -5,7 +5,7 @@ use jiff::civil::{Date, date};
 use maya_core::aktor::Aktör;
 use maya_core::foretag::FöretagsId;
 use maya_core::rapport::{self, Urval};
-use maya_core::{Databas, Klocka, TillfälligDatabas, saldo, testhjalp, verifikat};
+use maya_core::{Databas, Klocka, TillfälligDatabas, saldo, testhjalp, utskrift, verifikat};
 use maya_domain::belopp::Saldo;
 use maya_domain::ingaende_balans::{NyIngåendeBalans, NySaldorad};
 use maya_domain::kontoplan::Kontonummer;
@@ -13,6 +13,7 @@ use maya_domain::rapport::{
     Nivå, Rad, Radslag, Rapport, Rapporttyp, Visning, ÅRETS_RESULTAT_EJ_BOKFÖRT,
 };
 use maya_domain::verifikat::{NyRad, NyttVerifikat};
+use maya_pdf::testhjalp::{innehåller, sidor, är_pdfa_2b};
 
 fn urval(typ: Rapporttyp, till_och_med: Date) -> Urval {
     Urval {
@@ -443,6 +444,58 @@ async fn csv_exporten_har_en_rad_per_konto_med_kolumnerna_som_visas() {
             .expect("UTF-8 med BOM");
         assert_eq!(utan_bom, förväntad);
     }
+}
+
+#[tokio::test]
+async fn pdf_exporten_är_pdfa_och_följer_nivå_och_kolumner() {
+    let (db, anna, företag) = två_år().await;
+    let klocka = Klocka::fast("2026-10-18T12:34:00Z".parse().unwrap());
+    let år = date(2027, 1, 1);
+    let br = Urval {
+        jämförelse: true,
+        ..urval(Rapporttyp::Balansräkning, date(2027, 2, 1))
+    };
+
+    let pdf = utskrift::rapport(&db, &klocka, &anna, företag, år, &br)
+        .await
+        .unwrap();
+
+    assert_eq!(pdf.filnamn, "balansrakning_5560360793_2027_202702.pdf");
+    är_pdfa_2b(&pdf.innehåll);
+    let text = sidor(&pdf.innehåll).concat();
+    for väntat in [
+        "Balansräkning",
+        "Exempel AB",
+        "556036-0793",
+        "januari–februari 2027",
+        "Ingående balans är preliminär",
+        "Föregående år",
+        "2026-02-28",
+        "Kassa, bank och redovisningsmedel",
+        "1930",
+        "Företagskonto",
+        "59 000,00",
+        "Årets resultat (ej bokfört på 2099)",
+        "Tillgångar − eget kapital och skulder",
+        "Utskrivet 2026-10-18 14:34 av anna@example.se",
+    ] {
+        assert!(innehåller(&text, väntat), "saknar {väntat:?} i {text}");
+    }
+
+    let rubriker = Urval {
+        nivå: Nivå::Rubriker,
+        visning: Visning::Månad,
+        ..urval(Rapporttyp::Resultaträkning, date(2026, 3, 1))
+    };
+    let pdf = utskrift::rapport(&db, &klocka, &anna, företag, date(2026, 1, 1), &rubriker)
+        .await
+        .unwrap();
+    är_pdfa_2b(&pdf.innehåll);
+    let text = sidor(&pdf.innehåll).concat();
+    assert!(innehåller(&text, "Rörelsens intäkter"), "{text}");
+    assert!(innehåller(&text, "Mars 2026"), "{text}");
+    assert!(!innehåller(&text, "Nettoomsättning"), "{text}");
+    assert!(!innehåller(&text, "ackumulerat"), "{text}");
 }
 
 #[tokio::test]

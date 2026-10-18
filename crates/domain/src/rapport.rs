@@ -512,6 +512,17 @@ impl Rapport {
         }
     }
 
+    /// Om rapporten ska säga att den ingående balansen är preliminär: balansräkningen för ett
+    /// år vars föregående år inte är stängt.
+    pub fn preliminär_ingående_balans(&self) -> bool {
+        self.urval.typ == Rapporttyp::Balansräkning && self.preliminär
+    }
+
+    /// Om året är företagets första i Maya, så att det inte finns något att jämföra med.
+    pub fn första_året(&self) -> bool {
+        self.föregående.is_none()
+    }
+
     /// Perioden som rapporten gäller, t.ex. "januari–mars 2026".
     pub fn period(&self) -> String {
         periodspann(self.från, self.till)
