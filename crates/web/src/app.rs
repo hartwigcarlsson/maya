@@ -17,6 +17,7 @@ use crate::kontoplan::KontoplanSida;
 use crate::rapporter::Rapporter;
 use crate::sidodata::per_adress;
 use crate::sok::SökSida;
+use crate::underlag::UnderlagSida;
 use crate::verifikat::{NyttVerifikatSida, VerifikatSida};
 
 /// Vad sidan ska visa, avgjort på servern ur sessionscookien.
@@ -144,6 +145,7 @@ fn Innehåll() -> impl IntoView {
                 />
                 <Route path=path!("foretag/:id/rapporter") view=Rapporter ssr=SsrMode::Async />
                 <Route path=path!("foretag/:id/sok") view=SökSida ssr=SsrMode::Async />
+                <Route path=path!("foretag/:id/underlag") view=UnderlagSida />
                 <Route
                     path=path!("foretag/:id/installningar")
                     view=FöretagsInställningar

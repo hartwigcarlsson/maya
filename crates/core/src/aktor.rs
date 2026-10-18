@@ -107,6 +107,10 @@ pub enum Handling {
     HanteraUtkast,
     /// Skriva in eller ändra den ingående balansen.
     ÄndraIngåendeBalans,
+    /// Ladda upp ett underlag och ta bort ett som aldrig har hört till ett bokfört verifikat.
+    HanteraUnderlag,
+    /// Komplettera ett bokfört verifikat med ett underlag (VF6).
+    Komplettera,
     /// Bjuda in till ett företag och ge och ta åtkomst. Bara webben, med färsk passkey.
     HanteraÅtkomst,
     /// Exportera ett räkenskapsår som SIE4. Bara webben, ingen export via MCP eller CLI (beslut
@@ -126,6 +130,8 @@ pub fn tillåter(kanal: Kanal, handling: Handling) -> bool {
         | Handling::RaderaFöretag
         | Handling::HanteraUtkast
         | Handling::ÄndraIngåendeBalans
+        | Handling::HanteraUnderlag
+        | Handling::Komplettera
         | Handling::HanteraÅtkomst
         | Handling::ExporteraSie4 => kanal == Kanal::Webb,
     }

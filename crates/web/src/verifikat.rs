@@ -17,6 +17,7 @@ use serde::{Deserialize, Serialize};
 use crate::app::{LoggaIn, Läge};
 use crate::foretag::{Företagsval, IngenÅtkomst};
 use crate::sidodata::sida;
+use crate::underlag::{Förhandsvisning, Gem, UnderlagVy, feltext};
 use crate::utskrift::Utskrift;
 
 /// Ett verifikat i listan.
@@ -62,6 +63,8 @@ pub struct DokumentVy {
     pub debet: String,
     pub kredit: String,
     pub historik: Vec<HistorikVy>,
+    /// Kopplade underlag, kompletteringar sist.
+    pub underlag: Vec<UnderlagVy>,
     /// PDF:ens adress och filnamn, för Skriv ut och Exportera PDF.
     pub pdf: (String, String),
 }
@@ -79,6 +82,9 @@ pub struct FormulärData {
     pub konton: Vec<KontoVy>,
     /// Start och slut, `ÅÅÅÅ-MM-DD`.
     pub räkenskapsår: Vec<(String, String)>,
+    /// Underlagen som formuläret har kopplade när det öppnas: utkastets, eller de som skickades
+    /// tillbaka med formuläret.
+    pub valda: Vec<UnderlagVy>,
 }
 
 impl FormulärData {
@@ -110,6 +116,8 @@ pub struct Verifikatdata {
     pub valt: Option<String>,
     pub dokument: Option<DokumentVy>,
     pub formulär: Option<FormulärData>,
+    /// Okopplade underlag att koppla till ett utkast eller komplettera ett verifikat med.
+    pub okopplade: Vec<UnderlagVy>,
 }
 
 /// Datan för `/foretag/<id>/verifikat` och `/foretag/<id>/verifikat/nytt`.
@@ -127,15 +135,16 @@ pub use maya_domain::rakenskapsar::periodnamn;
 pub(crate) mod server {
     use std::sync::Arc;
 
-    use axum::extract::{Path, State};
+    use axum::extract::{DefaultBodyLimit, Path, Request, State};
     use axum::http::{StatusCode, header};
     use axum::response::{IntoResponse, Redirect, Response};
     use axum::routing::post;
-    use axum::{Extension, Form, Router};
+    use axum::{Extension, Router};
     use leptos::prelude::ServerFnError;
     use maya_core::atkomst::ÅtkomstFel;
     use maya_core::foretag::FöretagsId;
     use maya_core::inloggning::Inloggad;
+    use maya_core::underlag::{self, UnderlagFel, UnderlagId};
     use maya_core::verifikat::{self, Signatur, Urval, VerifikatFel, VerifikatId};
     use maya_core::{Databas, Klocka, kontoplan};
     use maya_domain::belopp::Belopp;
@@ -145,6 +154,9 @@ pub(crate) mod server {
         DokumentVy, FormulärData, HistorikVy, KontoVy, ListVy, RadVy, Verifikatdata, periodnamn,
     };
     use crate::sidodata::{self, Sidbegäran};
+    use crate::underlag::server::{
+        STÖRSTA_BEGÄRAN, läs_formulär, underlagsfel, verifikatets_vy, vy,
+    };
 
     #[derive(Clone)]
     pub(crate) struct VerifikatState {
@@ -156,6 +168,8 @@ pub(crate) mod server {
         Router::new()
             .route("/foretag/{id}/verifikat", post(skicka))
             .route("/foretag/{id}/verifikat/{utkast}/radera", post(radera))
+            .route("/foretag/{id}/verifikat/{v}/komplettera", post(komplettera))
+            .layer(DefaultBodyLimit::max(STÖRSTA_BEGÄRAN))
             .with_state(Arc::new(state))
     }
 
@@ -176,7 +190,19 @@ pub(crate) mod server {
             .and_then(|u| Urval::från_kod(&u))
             .unwrap_or_default();
         let valt = if nytt { None } else { b.värde("v") };
-        match hämta(&b.db, &b.inloggad, företag, urval, valt, nytt).await {
+        // Formuläret som skickades tillbaka har sina underlag i adressen.
+        let tillbakaskickade = b.värde("datum").map(|_| b.värden("underlag"));
+        match hämta(
+            &b.db,
+            &b.inloggad,
+            företag,
+            urval,
+            valt,
+            nytt,
+            tillbakaskickade,
+        )
+        .await
+        {
             Ok(data) => Ok(data),
             Err(ÅtkomstFel::IngenÅtkomst | ÅtkomstFel::KanalenFårInte) => {
                 Ok(Verifikatdata::default())
@@ -192,6 +218,7 @@ pub(crate) mod server {
         urval: Urval,
         valt: Option<String>,
         nytt: bool,
+        tillbakaskickade: Option<Vec<String>>,
     ) -> Result<Verifikatdata, ÅtkomstFel> {
         let aktör = &inloggad.aktör;
         let lista = verifikat::lista(db, aktör, företag, urval)
@@ -256,9 +283,32 @@ pub(crate) mod server {
                         kanal: h.post.aktör.kanal.namn().to_string(),
                     })
                     .collect(),
+                underlag: v.underlag.iter().map(verifikatets_vy).collect(),
             });
         }
+        let alla_underlag = if dokument.is_some() || nytt {
+            underlag::lista(db, aktör, företag, underlag::Urval::Alla).await?
+        } else {
+            Vec::new()
+        };
+        let okopplade = alla_underlag
+            .iter()
+            .filter(|u| u.kopplingar.is_empty())
+            .map(vy)
+            .collect();
         let utkast = dokument.as_ref().is_some_and(|d| d.nummer.is_none());
+        let valda = match tillbakaskickade {
+            Some(ids) => ids
+                .iter()
+                .filter_map(|id| alla_underlag.iter().find(|u| u.id.to_string() == *id))
+                .map(vy)
+                .collect(),
+            None if utkast => dokument
+                .as_ref()
+                .map(|d| d.underlag.clone())
+                .unwrap_or_default(),
+            None => Vec::new(),
+        };
         let formulär = if nytt || utkast {
             let förutsättningar = verifikat::förutsättningar(db, aktör, företag).await?;
             Some(FormulärData {
@@ -275,6 +325,7 @@ pub(crate) mod server {
                     .iter()
                     .map(|å| (å.start().to_string(), å.slut().to_string()))
                     .collect(),
+                valda,
             })
         } else {
             None
@@ -284,6 +335,7 @@ pub(crate) mod server {
             valt: dokument.as_ref().and(valt),
             dokument,
             formulär,
+            okopplade,
         })
     }
 
@@ -295,7 +347,7 @@ pub(crate) mod server {
         }
     }
 
-    fn tid(t: jiff::Timestamp) -> String {
+    pub(crate) fn tid(t: jiff::Timestamp) -> String {
         t.to_zoned(maya_domain::tid::stockholm())
             .strftime("%Y-%m-%d %H:%M")
             .to_string()
@@ -337,11 +389,16 @@ pub(crate) mod server {
 
     /// Formuläret: Bokför (`handling=bokfor`) eller Spara utkast (`handling=utkast`), för ett
     /// nytt verifikat eller för utkastet i fältet `utkast`.
+    ///
+    /// Underlagen skickas som `underlag=<id>`, ett fält per underlag, tillsammans med
+    /// `underlag_finns=1`; utan det rörs inte utkastets kopplingar. En fil i `fil` laddas upp
+    /// först och kopplas. `koppla=<id>`, `koppla_bort=<id>` och `handling=ladda_upp` ändrar bara
+    /// vilka underlag formuläret har och skickar tillbaka det (sidan utan JavaScript).
     async fn skicka(
         State(state): State<Arc<VerifikatState>>,
         Path(id): Path<String>,
         inloggad: Option<Extension<Inloggad>>,
-        Form(fält): Form<Vec<(String, String)>>,
+        req: Request,
     ) -> Response {
         let Some(Extension(inloggad)) = inloggad else {
             return Redirect::to("/").into_response();
@@ -349,41 +406,193 @@ pub(crate) mod server {
         let Ok(företag) = id.parse::<FöretagsId>() else {
             return ingen_åtkomst();
         };
-        let värde = |namn: &str| {
-            fält
-                .iter()
-                .find(|(k, _)| k == namn)
-                .map(|(_, v)| v.as_str())
+        let skickat = match läs_formulär(req).await {
+            Ok(f) => f,
+            Err(r) => return *r,
         };
-        let utkast = match värde("utkast").filter(|u| !u.is_empty()) {
+        let utkast = match skickat.värde("utkast").filter(|u| !u.is_empty()) {
             Some(u) => match u.parse::<VerifikatId>() {
                 Ok(u) => Some(u),
                 Err(_) => return inget_utkast(),
             },
             None => None,
         };
-        let spara = värde("handling") == Some("utkast");
-        let formulär = tolka(&fält);
+        let handling = skickat.värde("handling");
+        let spara = handling == Some("utkast");
+        let formulär = tolka(&skickat.fält);
         let (db, klocka, aktör) = (&state.db, &state.klocka, &inloggad.aktör);
-        let resultat = match (spara, utkast) {
-            (true, _) => verifikat::spara_utkast(db, klocka, aktör, företag, utkast, &formulär)
+        let mut valda = Vec::new();
+        for u in skickat.värden("underlag") {
+            if !valda.contains(&u) {
+                valda.push(u);
+            }
+        }
+        let tillbaka_med = |fel: Option<&str>, valda: &[String], dubblett: Option<UnderlagId>| {
+            tillbaka(företag, utkast, fel, &formulär, Some(valda), dubblett)
+        };
+        if skickat.för_stort {
+            return tillbaka_med(Some("for_stort"), &valda, None);
+        }
+        let mut dubblett = None;
+        if let Some(fil) = &skickat.fil {
+            match underlag::ladda_upp(
+                db,
+                klocka,
+                aktör,
+                företag,
+                &fil.filnamn,
+                &fil.mime,
+                &fil.innehåll,
+            )
+            .await
+            {
+                Ok(u) => {
+                    valda.push(u.id.to_string());
+                    if !u.dubbletter.is_empty() {
+                        dubblett = Some(u.id);
+                    }
+                }
+                Err(UnderlagFel::FörStort) => {
+                    return tillbaka_med(Some("for_stort"), &valda, None);
+                }
+                Err(e) => return underlagsfel(e),
+            }
+        }
+        let koppla = skickat.värde("koppla").filter(|u| !u.is_empty());
+        let koppla_bort = skickat.värde("koppla_bort");
+        if let Some(u) = koppla
+            && !valda.iter().any(|v| v == u)
+        {
+            valda.push(u.to_string());
+        }
+        if let Some(u) = koppla_bort {
+            valda.retain(|v| v != u);
+        }
+        if koppla.is_some() || koppla_bort.is_some() || handling == Some("ladda_upp") {
+            return tillbaka_med(None, &valda, dubblett);
+        }
+        let hanterar_underlag = skickat.värde("underlag_finns").is_some() || skickat.fil.is_some();
+        let Ok(ids) = valda
+            .iter()
+            .map(|u| u.parse::<UnderlagId>())
+            .collect::<Result<Vec<_>, _>>()
+        else {
+            return tillbaka_med(Some("okant_underlag"), &[], None);
+        };
+        let underlag = hanterar_underlag.then_some(ids.as_slice());
+        let resultat = match (spara, underlag) {
+            (true, Some(u)) => verifikat::spara_utkast_med_underlag(
+                db, klocka, aktör, företag, utkast, &formulär, u,
+            )
+            .await
+            .map(|id| format!("/foretag/{företag}/verifikat?v={id}&sparat=1")),
+            (true, None) => verifikat::spara_utkast(db, klocka, aktör, företag, utkast, &formulär)
                 .await
                 .map(|id| format!("/foretag/{företag}/verifikat?v={id}&sparat=1")),
-            (false, Some(u)) => verifikat::bokför_utkast(db, klocka, aktör, företag, u, &formulär)
-                .await
-                .map(|b| format!("/foretag/{företag}/verifikat?v={}", b.id)),
-            (false, None) => verifikat::bokför(db, klocka, aktör, företag, &formulär)
-                .await
-                .map(|b| format!("/foretag/{företag}/verifikat?v={}", b.id)),
+            (false, Some(u)) => {
+                verifikat::bokför_med_underlag(db, klocka, aktör, företag, utkast, &formulär, u)
+                    .await
+                    .map(|b| format!("/foretag/{företag}/verifikat?v={}", b.id))
+            }
+            (false, None) => match utkast {
+                Some(u) => verifikat::bokför_utkast(db, klocka, aktör, företag, u, &formulär)
+                    .await
+                    .map(|b| format!("/foretag/{företag}/verifikat?v={}", b.id)),
+                None => verifikat::bokför(db, klocka, aktör, företag, &formulär)
+                    .await
+                    .map(|b| format!("/foretag/{företag}/verifikat?v={}", b.id)),
+            },
         };
         match resultat {
-            Ok(plats) => Redirect::to(&plats).into_response(),
-            Err(VerifikatFel::Spärrat(_)) => tillbaka(företag, utkast, spara, &formulär),
+            Ok(plats) => {
+                let plats = match dubblett {
+                    Some(u) => format!("{plats}&dubblett={u}"),
+                    None => plats,
+                };
+                Redirect::to(&plats).into_response()
+            }
+            Err(VerifikatFel::Spärrat(_)) => tillbaka(
+                företag,
+                utkast,
+                spara.then_some("utkast"),
+                &formulär,
+                hanterar_underlag.then_some(valda.as_slice()),
+                dubblett,
+            ),
+            Err(VerifikatFel::OkäntUnderlag) => tillbaka_med(Some("okant_underlag"), &[], None),
             Err(VerifikatFel::IngetUtkast) => inget_utkast(),
             Err(VerifikatFel::Åtkomst(ÅtkomstFel::IngenÅtkomst | ÅtkomstFel::KanalenFårInte)) => {
                 ingen_åtkomst()
             }
             Err(e) => serverfel(e),
+        }
+    }
+
+    /// Komplettera ett bokfört verifikat med ett okopplat underlag (`underlag=<id>`) eller en ny
+    /// fil (`fil`).
+    async fn komplettera(
+        State(state): State<Arc<VerifikatState>>,
+        Path((id, v)): Path<(String, String)>,
+        inloggad: Option<Extension<Inloggad>>,
+        req: Request,
+    ) -> Response {
+        let Some(Extension(inloggad)) = inloggad else {
+            return Redirect::to("/").into_response();
+        };
+        let Ok(företag) = id.parse::<FöretagsId>() else {
+            return ingen_åtkomst();
+        };
+        let Ok(v) = v.parse::<VerifikatId>() else {
+            return inget_utkast();
+        };
+        let skickat = match läs_formulär(req).await {
+            Ok(f) => f,
+            Err(r) => return *r,
+        };
+        let sida = format!("/foretag/{företag}/verifikat?v={v}");
+        if skickat.för_stort {
+            return Redirect::to(&format!("{sida}&fel=for_stort")).into_response();
+        }
+        let (db, klocka, aktör) = (&state.db, &state.klocka, &inloggad.aktör);
+        let resultat = match (&skickat.fil, skickat.värde("underlag")) {
+            (Some(fil), _) => underlag::ladda_upp_och_komplettera(
+                db,
+                klocka,
+                aktör,
+                företag,
+                v,
+                (&fil.filnamn, &fil.mime, &fil.innehåll),
+            )
+            .await
+            .map(|u| (!u.dubbletter.is_empty()).then_some(u.id)),
+            (None, Some(u)) => match u.parse::<UnderlagId>() {
+                Ok(u) => underlag::komplettera(db, klocka, aktör, företag, v, u)
+                    .await
+                    .map(|()| None),
+                Err(_) => Err(UnderlagFel::FinnsInte),
+            },
+            (None, None) => {
+                return Redirect::to(&format!("{sida}&fel=ingen_fil")).into_response();
+            }
+        };
+        match resultat {
+            Ok(dubblett) => {
+                let dubblett = dubblett
+                    .map(|u| format!("&dubblett={u}"))
+                    .unwrap_or_default();
+                Redirect::to(&format!("{sida}&kompletterat=1{dubblett}")).into_response()
+            }
+            Err(UnderlagFel::FörStort) => {
+                Redirect::to(&format!("{sida}&fel=for_stort")).into_response()
+            }
+            Err(UnderlagFel::FinnsInte) => {
+                Redirect::to(&format!("{sida}&fel=okant_underlag")).into_response()
+            }
+            Err(UnderlagFel::RedanKopplat) => {
+                Redirect::to(&format!("{sida}&fel=redan_kopplat")).into_response()
+            }
+            Err(UnderlagFel::IngetBokförtVerifikat) => inget_utkast(),
+            Err(e) => underlagsfel(e),
         }
     }
 
@@ -418,19 +627,25 @@ pub(crate) mod server {
     }
 
     /// Tillbaka till formuläret med det användaren skrev, till utkastet om det fanns ett. Sidan
-    /// prövar det igen med samma spärrar och visar dem vid fälten.
+    /// prövar det igen med samma spärrar och visar dem vid fälten. `valda` är formulärets
+    /// underlag, när formuläret hanterar dem.
     fn tillbaka(
         företag: FöretagsId,
         utkast: Option<VerifikatId>,
-        spara: bool,
+        fel: Option<&str>,
         f: &NyttVerifikat,
+        valda: Option<&[String]>,
+        dubblett: Option<UnderlagId>,
     ) -> Response {
         let mut query = url::form_urlencoded::Serializer::new(String::new());
         if let Some(u) = utkast {
             query.append_pair("v", &u.to_string());
         }
-        if spara {
-            query.append_pair("fel", "utkast");
+        if let Some(fel) = fel {
+            query.append_pair("fel", fel);
+        }
+        if let Some(u) = dubblett {
+            query.append_pair("dubblett", &u.to_string());
         }
         query
             .append_pair("datum", &f.datum)
@@ -441,6 +656,9 @@ pub(crate) mod server {
                 .append_pair(&format!("debet_{i}"), &rad.debet)
                 .append_pair(&format!("kredit_{i}"), &rad.kredit)
                 .append_pair(&format!("text_{i}"), &rad.text);
+        }
+        for u in valda.unwrap_or_default() {
+            query.append_pair("underlag", u);
         }
         let sida = if utkast.is_some() { "" } else { "/nytt" };
         Redirect::to(&format!(
@@ -480,13 +698,13 @@ pub(crate) mod server {
 }
 
 /// Företagets sida i sökvägen, eller `None` om användaren saknar åtkomst.
-fn företagets_bas() -> Option<String> {
+pub(crate) fn företagets_bas() -> Option<String> {
     let id = use_params_map().with_untracked(|p| p.get("id").unwrap_or_default());
     let val = use_context::<Företagsval>().unwrap_or_default();
     val.0.into_iter().find(|f| f.id == id).map(|f| f.href())
 }
 
-fn inloggad() -> bool {
+pub(crate) fn inloggad() -> bool {
     matches!(use_context::<Läge>(), Some(Läge::Inloggad { .. }))
 }
 
@@ -505,22 +723,34 @@ fn verifikatsida(data: Verifikatdata) -> AnyView {
     };
     let fråga = |namn: &str| use_query_map().with_untracked(|q| q.get(namn).is_some());
     let notis = if fråga("raderat") {
-        Some("Utkastet raderades och raderingen loggades.")
+        Some("Utkastet raderades och raderingen loggades. Dess underlag är okopplade.")
     } else if fråga("sparat") {
         Some("Utkastet sparades.")
+    } else if fråga("kompletterat") {
+        Some("Verifikatet kompletterades. Kompletteringen loggades och kan inte tas bort.")
     } else {
         None
     }
     .map(|text| view! { <p class="notis" role="status">{text}</p> });
+    // Formulärets fel visas i formuläret; dokumentets här.
+    let fel = data
+        .dokument
+        .as_ref()
+        .filter(|d| d.nummer.is_some())
+        .and_then(|_| use_query_map().with_untracked(|q| q.get("fel")))
+        .and_then(|k| feltext(&k))
+        .map(|text| view! { <p class="fel" role="alert">{text}</p> });
+    let okopplade = data.okopplade.clone();
     let detalj = match data.dokument.clone() {
         Some(d) if d.nummer.is_none() && fråga("radera") => {
             view! { <RaderaUtkast bas=bas.clone() d=d /> }.into_any()
         }
         Some(d) if d.nummer.is_none() => {
             let formulär = data.formulär.clone().unwrap_or_default();
-            view! { <Formulär bas=bas.clone() data=formulär utkast=Some(d) /> }.into_any()
+            view! { <Formulär bas=bas.clone() data=formulär okopplade=okopplade utkast=Some(d) /> }
+                .into_any()
         }
-        Some(d) => view! { <Dokument d=d /> }.into_any(),
+        Some(d) => view! { <Dokument bas=bas.clone() d=d okopplade=okopplade /> }.into_any(),
         None => view! {
             <div class="tom">
                 <p>"Välj ett verifikat i listan."</p>
@@ -533,6 +763,7 @@ fn verifikatsida(data: Verifikatdata) -> AnyView {
     };
     let detalj = view! {
         {notis}
+        {fel}
         {detalj}
     }
     .into_any();
@@ -556,10 +787,20 @@ fn RaderaUtkast(bas: String, d: DokumentVy) -> impl IntoView {
         1 => "1 rad".to_string(),
         n => format!("{n} rader"),
     };
+    let underlag = (!d.underlag.is_empty()).then(|| {
+        let namn = d
+            .underlag
+            .iter()
+            .map(|u| u.filnamn.clone())
+            .collect::<Vec<_>>()
+            .join(", ");
+        view! { <p>{namn} " blir okopplade och finns kvar i arkivet."</p> }
+    });
     view! {
         <section class="dialog" role="alertdialog" aria-labelledby="radera-rubrik">
             <h2 id="radera-rubrik">"Radera utkastet?"</h2>
             <p>{format!("{beskrivning} · {} kr · {datum} · {rader}", d.summa)}</p>
+            {underlag}
             <p class="diskret">
                 "Raderingen loggas med vem, när och en sammanfattning av utkastet."
             </p>
@@ -652,7 +893,10 @@ fn nytt_verifikat(data: Verifikatdata) -> AnyView {
         return view! { <IngenÅtkomst /> }.into_any();
     };
     let formulär = data.formulär.clone().unwrap_or_default();
-    let detalj = view! { <Formulär bas=bas.clone() data=formulär utkast=None /> }.into_any();
+    let detalj = view! {
+        <Formulär bas=bas.clone() data=formulär okopplade=data.okopplade.clone() utkast=None />
+    }
+    .into_any();
     view! { <Delad bas=bas data=data detalj=detalj /> }.into_any()
 }
 
@@ -724,7 +968,7 @@ fn Delad(bas: String, data: Verifikatdata, detalj: AnyView) -> impl IntoView {
 
 /// Ett verifikat som dokument: rubrik, nummer, belopp, metadata, rader och historik.
 #[component]
-fn Dokument(d: DokumentVy) -> impl IntoView {
+fn Dokument(bas: String, d: DokumentVy, okopplade: Vec<UnderlagVy>) -> impl IntoView {
     let status = if d.nummer.is_some() {
         "Bokfört"
     } else {
@@ -737,8 +981,13 @@ fn Dokument(d: DokumentVy) -> impl IntoView {
         }
     });
     let (_, skapad_namn, skapad_kanal) = d.skapad.clone();
+    let underlag = view! {
+        <DokumentetsUnderlag bas=bas id=d.id.clone() underlag=d.underlag.clone() okopplade=okopplade />
+    };
     let (pdf, filnamn) = d.pdf.clone();
     view! {
+        <div class="med-underlag">
+        {underlag}
         <article class="dokument">
             <Utskrift href=pdf filnamn=filnamn />
             <header>
@@ -813,6 +1062,265 @@ fn Dokument(d: DokumentVy) -> impl IntoView {
                 </ul>
             </section>
         </article>
+        </div>
+    }
+}
+
+/// Skickar formuläret som en fil just valdes i, med knappen `knapp` om den finns (bara i
+/// webbläsaren; utan JavaScript trycker användaren på knappen själv).
+fn skicka_vid_vald_fil(knapp: Option<NodeRef<leptos::html::Button>>) -> impl Fn(leptos::ev::Event) {
+    move |_ev: leptos::ev::Event| {
+        #[cfg(feature = "hydrate")]
+        {
+            use wasm_bindgen::JsCast;
+            let Some(fält) = _ev
+                .target()
+                .and_then(|t| t.dyn_into::<web_sys::HtmlInputElement>().ok())
+            else {
+                return;
+            };
+            let Some(formulär) = fält.form() else {
+                return;
+            };
+            let _ = match knapp.and_then(|k| k.get_untracked()) {
+                Some(knapp) => formulär.request_submit_with_submitter(Some(&*knapp)),
+                None => formulär.request_submit(),
+            };
+        }
+        #[cfg(not(feature = "hydrate"))]
+        let _ = knapp;
+    }
+}
+
+/// Underlaget till vänster om ett bokfört verifikat: förhandsvisning, listan med kompletteringar
+/// i streckad ram, och Komplettera med underlag.
+#[component]
+fn DokumentetsUnderlag(
+    bas: String,
+    id: String,
+    underlag: Vec<UnderlagVy>,
+    okopplade: Vec<UnderlagVy>,
+) -> impl IntoView {
+    let dubblett = use_query_map().with_untracked(|q| q.get("dubblett").is_some());
+    let förhandsvisning = underlag
+        .first()
+        .cloned()
+        .map(|u| view! { <Förhandsvisning bas=bas.clone() u=u /> });
+    let tomt = underlag
+        .is_empty()
+        .then(|| view! { <p class="diskret">"Inget underlag."</p> });
+    let filer = underlag
+        .into_iter()
+        .map(|u| {
+            let (klass, när) = match &u.komplettering {
+                Some((tid, namn)) => (
+                    "ufil komplettering",
+                    format!("Komplettering {tid} av {namn}"),
+                ),
+                None => ("ufil", "Vid bokföring".to_string()),
+            };
+            view! {
+                <div class=klass>
+                    <Gem />
+                    <a rel="external" href=format!("{bas}/underlag?u={}&visa=alla", u.id)>
+                        {u.filnamn}
+                    </a>
+                    <span class="diskret">{när}</span>
+                </div>
+            }
+        })
+        .collect_view();
+    let komplettera = format!("{bas}/verifikat/{id}/komplettera");
+    let val = okopplade
+        .into_iter()
+        .map(|u| {
+            view! {
+                <form class="ufil" method="post" action=komplettera.clone()>
+                    <Gem />
+                    <span>{u.filnamn}</span>
+                    <input type="hidden" name="underlag" value=u.id />
+                    <button class="knapp" type="submit">
+                        "Koppla"
+                    </button>
+                </form>
+            }
+        })
+        .collect_view();
+    view! {
+        <aside class="underlagsspalt" aria-label="Underlag">
+            {förhandsvisning}
+            {dubblett
+                .then(|| {
+                    view! {
+                        <p class="notis varningsnotis" role="status">
+                            "Samma fil finns redan i företaget. Den laddades upp ändå."
+                        </p>
+                    }
+                })}
+            <div class="ufiler">{filer} {tomt}</div>
+            <details class="komplettera">
+                <summary class="knapp knapp-diskret">
+                    <Gem />
+                    "Komplettera med underlag"
+                </summary>
+                <p class="diskret">"Kopplingen loggas och kan inte tas bort."</p>
+                <div class="ufiler">{val}</div>
+                <form
+                    class="uppladdning"
+                    method="post"
+                    action=komplettera.clone()
+                    enctype="multipart/form-data"
+                >
+                    <label class="slapp">
+                        <span>"Släpp en fil här eller välj en fil"</span>
+                        <input type="file" name="fil" required on:change=skicka_vid_vald_fil(None) />
+                    </label>
+                    <button class="knapp" type="submit">
+                        "Ladda upp och komplettera"
+                    </button>
+                </form>
+            </details>
+        </aside>
+    }
+}
+
+/// Underlaget till vänster om formuläret: förhandsvisning av det första, de kopplade med Koppla
+/// bort, uppladdning och okopplade underlag att välja. Fälten hör till formuläret
+/// `verifikatformular` genom attributet `form`, så att det användaren skrev följer med. Med
+/// JavaScript ändras valet utan att sidan skickas.
+#[component]
+fn FormuläretsUnderlag(
+    bas: String,
+    valda: RwSignal<Vec<UnderlagVy>>,
+    tillgängliga: Vec<UnderlagVy>,
+) -> impl IntoView {
+    let fråga = |namn: &str| use_query_map().with_untracked(|q| q.get(namn));
+    let dubblett = fråga("dubblett").and_then(|id| {
+        valda
+            .with_untracked(|v| v.iter().find(|u| u.id == id).cloned())
+            .map(|u| {
+                let andra = u
+                    .dubbletter
+                    .iter()
+                    .map(|(namn, _)| namn.clone())
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                view! {
+                    <p class="notis varningsnotis" role="status">
+                        {format!(
+                            "Samma fil som {} finns redan i företaget ({andra}). Den laddades upp ändå.",
+                            u.filnamn,
+                        )}
+                    </p>
+                }
+            })
+    });
+    let fel = fråga("fel")
+        .and_then(|k| feltext(&k))
+        .map(|text| view! { <p class="fel" role="alert">{text}</p> });
+    let förhandsvisning = {
+        let bas = bas.clone();
+        move || {
+            valda
+                .with(|v| v.first().cloned())
+                .map(|u| view! { <Förhandsvisning bas=bas.clone() u=u /> })
+        }
+    };
+    let kopplade = move || {
+        valda
+            .get()
+            .into_iter()
+            .map(|u| {
+                let id = u.id.clone();
+                let koppla_bort = move |ev: leptos::ev::MouseEvent| {
+                    ev.prevent_default();
+                    valda.update(|v| v.retain(|u| u.id != id));
+                };
+                view! {
+                    <div class="ufil">
+                        <Gem />
+                        <span>{u.filnamn.clone()}</span>
+                        <input type="hidden" form="verifikatformular" name="underlag" value=u.id.clone() />
+                        <button
+                            class="knapp knapp-diskret"
+                            type="submit"
+                            form="verifikatformular"
+                            name="koppla_bort"
+                            value=u.id.clone()
+                            aria-label=format!("Koppla bort {}", u.filnamn)
+                            on:click=koppla_bort
+                        >
+                            "Koppla bort"
+                        </button>
+                    </div>
+                }
+            })
+            .collect_view()
+    };
+    let att_välja = move || {
+        tillgängliga
+            .iter()
+            .filter(|u| valda.with(|v| v.iter().all(|vald| vald.id != u.id)))
+            .map(|u| {
+                let vald = u.clone();
+                let koppla = move |ev: leptos::ev::MouseEvent| {
+                    ev.prevent_default();
+                    let vald = vald.clone();
+                    valda.update(|v| v.push(vald));
+                };
+                view! {
+                    <div class="ufil">
+                        <Gem />
+                        <span>{u.filnamn.clone()}</span>
+                        <button
+                            class="knapp"
+                            type="submit"
+                            form="verifikatformular"
+                            name="koppla"
+                            value=u.id.clone()
+                            on:click=koppla
+                        >
+                            "Koppla"
+                        </button>
+                    </div>
+                }
+            })
+            .collect_view()
+    };
+    let ladda_upp = NodeRef::<leptos::html::Button>::new();
+    view! {
+        <aside class="underlagsspalt" aria-label="Underlag">
+            {förhandsvisning}
+            {dubblett}
+            {fel}
+            <div class="ufiler">{kopplade}</div>
+            <label class="slapp">
+                <span>"Släpp underlaget här eller välj en fil"</span>
+                <span class="diskret">"Högst 25 MB"</span>
+                <input
+                    type="file"
+                    name="fil"
+                    form="verifikatformular"
+                    on:change=skicka_vid_vald_fil(Some(ladda_upp))
+                />
+            </label>
+            <p>
+                <button
+                    class="knapp knapp-diskret"
+                    type="submit"
+                    form="verifikatformular"
+                    name="handling"
+                    value="ladda_upp"
+                    node_ref=ladda_upp
+                >
+                    "Ladda upp"
+                </button>
+            </p>
+            <details class="valj-okopplat">
+                <summary class="knapp knapp-diskret">"Välj ett okopplat underlag"</summary>
+                <div class="ufiler">{att_välja}</div>
+            </details>
+        </aside>
     }
 }
 
@@ -820,7 +1328,20 @@ fn Dokument(d: DokumentVy) -> impl IntoView {
 /// användaren skriver, och Bokför är inaktiv med antalet problem kvar. Spara utkast går alltid
 /// att trycka på.
 #[component]
-fn Formulär(bas: String, data: FormulärData, utkast: Option<DokumentVy>) -> impl IntoView {
+fn Formulär(
+    bas: String,
+    data: FormulärData,
+    okopplade: Vec<UnderlagVy>,
+    utkast: Option<DokumentVy>,
+) -> impl IntoView {
+    // De kopplade och de okopplade kan väljas; ett bortkopplat kan kopplas igen före sparning.
+    let mut tillgängliga = data.valda.clone();
+    tillgängliga.extend(
+        okopplade
+            .into_iter()
+            .filter(|u| data.valda.iter().all(|v| v.id != u.id)),
+    );
+    let valda = RwSignal::new(data.valda.clone());
     let från_servern = use_query_map().with_untracked(|q| q.get("datum").is_some());
     let utkastets = utkast
         .as_ref()
@@ -1017,11 +1538,17 @@ fn Formulär(bas: String, data: FormulärData, utkast: Option<DokumentVy>) -> im
         .map(|k| view! { <option value=k.nummer.to_string() label=k.namn.clone()></option> })
         .collect_view();
 
+    let underlag =
+        view! { <FormuläretsUnderlag bas=bas.clone() valda=valda tillgängliga=tillgängliga /> };
     view! {
+        <div class="med-underlag">
+        {underlag}
         <form
+            id="verifikatformular"
             class="verifikatformular"
             method="post"
             action=format!("{bas}/verifikat")
+            enctype="multipart/form-data"
             novalidate
         >
             {rubrik}
@@ -1034,6 +1561,7 @@ fn Formulär(bas: String, data: FormulärData, utkast: Option<DokumentVy>) -> im
                     }
                 })}
             <input type="hidden" name="utkast" value=utkast_id.clone().unwrap_or_default() />
+            <input type="hidden" name="underlag_finns" value="1" />
             <div class="falt-rad">
                 <div>
                     <label for="datum">"Verifikatdatum"</label>
@@ -1097,5 +1625,6 @@ fn Formulär(bas: String, data: FormulärData, utkast: Option<DokumentVy>) -> im
                 {radera}
             </p>
         </form>
+        </div>
     }
 }

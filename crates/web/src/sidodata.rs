@@ -140,6 +140,14 @@ mod server {
                 .find(|(k, _)| k == namn)
                 .map(|(_, v)| v.into_owned())
         }
+
+        /// Frågans alla värden för `namn`, i ordning.
+        pub(crate) fn värden(&self, namn: &str) -> Vec<String> {
+            url::form_urlencoded::parse(self.fråga.as_bytes())
+                .filter(|(k, _)| k == namn)
+                .map(|(_, v)| v.into_owned())
+                .collect()
+        }
     }
 
     /// Loggar felet och ger ett fel utan detaljer till sidan.

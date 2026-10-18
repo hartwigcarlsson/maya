@@ -40,6 +40,13 @@ pub fn mål(fråga: &str, valt: &FöretagVy, alla: &[FöretagVy]) -> Vec<Träff>
         ),
         (
             "Handlingar",
+            "Ladda upp underlag".into(),
+            "kvitto faktura fil okopplade",
+            String::new(),
+            format!("{bas}/underlag"),
+        ),
+        (
+            "Handlingar",
             "Lägg upp företag".into(),
             "nytt",
             String::new(),
