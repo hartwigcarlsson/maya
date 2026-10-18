@@ -239,6 +239,34 @@ async fn en_inbjudan_till_en_befintlig_epost_ger_bara_åtkomst() {
 }
 
 #[tokio::test]
+async fn en_avaktiverad_användare_får_ingen_åtkomst_genom_inbjudan_eller_delning() {
+    let db = Databas::tillfällig().await;
+    let (anna, företag) = anna(&db).await;
+    let andra = eget_företag(&db, &anna.aktör, "556677-8899").await;
+    let bo = testhjalp::användare(&db, "bo@example.se").await;
+    atkomst::bjud_in(&db, &nu(), &anna, företag, "bo@example.se")
+        .await
+        .unwrap();
+    inloggning::avaktivera_användare(&db, &nu(), &Aktör::cli(), "bo@example.se")
+        .await
+        .unwrap();
+
+    assert!(matches!(
+        atkomst::bjud_in(&db, &nu(), &anna, andra, "bo@example.se").await,
+        Err(DelningsFel::Avaktiverad)
+    ));
+    assert!(matches!(
+        atkomst::ge_åtkomst(&db, &nu(), &anna, andra, id(&bo)).await,
+        Err(DelningsFel::Avaktiverad)
+    ));
+    let medlemmar = atkomst::åtkomst(&db, &nu(), &anna.aktör, andra)
+        .await
+        .unwrap()
+        .användare;
+    assert_eq!(medlemmar.len(), 1);
+}
+
+#[tokio::test]
 async fn en_inbjudan_kräver_en_giltig_epostadress() {
     let db = Databas::tillfällig().await;
     let (anna, företag) = anna(&db).await;

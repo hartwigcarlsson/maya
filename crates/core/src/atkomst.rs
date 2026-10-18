@@ -155,6 +155,9 @@ pub enum DelningsFel {
     OkändAnvändare,
     #[error("den sista åtkomsten till företaget går inte att ta bort")]
     SistaÅtkomsten,
+    /// Användaren är avaktiverad och får ingen ny åtkomst förrän driften återaktiverar hen.
+    #[error("användaren är avaktiverad; driften återaktiverar med `maya user reactivate`")]
+    Avaktiverad,
     #[error(transparent)]
     Åtkomst(#[from] ÅtkomstFel),
 }
@@ -309,11 +312,15 @@ pub async fn bjud_in(
 ) -> Result<Inbjudan, DelningsFel> {
     let epost = maya_domain::epost::normalisera(epost)?;
     let mut ärende = ändra_åtkomst(db, klocka, inloggad, företag).await?;
-    let befintlig: Option<i64> = sqlx::query_scalar("SELECT id FROM anvandare WHERE epost = ?")
-        .bind(&epost)
-        .fetch_optional(ärende.conn())
-        .await?;
-    if let Some(id) = befintlig {
+    let befintlig: Option<(i64, Option<String>)> =
+        sqlx::query_as("SELECT id, avaktiverad FROM anvandare WHERE epost = ?")
+            .bind(&epost)
+            .fetch_optional(ärende.conn())
+            .await?;
+    if let Some((_, Some(_))) = befintlig {
+        return Err(DelningsFel::Avaktiverad);
+    }
+    if let Some((id, None)) = befintlig {
         ge(&mut ärende, AnvändarId(id), &epost).await?;
         ärende.slutför().await?;
         return Ok(Inbjudan::ÅtkomstGiven);
@@ -356,8 +363,8 @@ pub async fn ge_åtkomst(
     användare: AnvändarId,
 ) -> Result<(), DelningsFel> {
     let mut ärende = ändra_åtkomst(db, klocka, inloggad, företag).await?;
-    let epost: Option<String> = sqlx::query_scalar(
-        "SELECT u.epost FROM anvandare u
+    let rad: Option<(String, Option<String>)> = sqlx::query_as(
+        "SELECT u.epost, u.avaktiverad FROM anvandare u
          WHERE u.id = ?1 AND u.id IN (SELECT a.anvandare_id FROM atkomst a
                                       JOIN atkomst egen ON egen.foretag_id = a.foretag_id
                                       WHERE egen.anvandare_id = ?2)",
@@ -366,7 +373,10 @@ pub async fn ge_åtkomst(
     .bind(inloggad.användare.id.0)
     .fetch_optional(ärende.conn())
     .await?;
-    let epost = epost.ok_or(DelningsFel::OkändAnvändare)?;
+    let (epost, avaktiverad) = rad.ok_or(DelningsFel::OkändAnvändare)?;
+    if avaktiverad.is_some() {
+        return Err(DelningsFel::Avaktiverad);
+    }
     ge(&mut ärende, användare, &epost).await?;
     ärende.slutför().await?;
     Ok(())

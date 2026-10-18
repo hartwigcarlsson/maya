@@ -160,6 +160,7 @@ pub(crate) mod server {
             DelningsFel::HarRedanÅtkomst => "har_atkomst",
             DelningsFel::OkändAnvändare => "okand",
             DelningsFel::SistaÅtkomsten => "sista",
+            DelningsFel::Avaktiverad => "avaktiverad",
             DelningsFel::Åtkomst(ÅtkomstFel::IngenÅtkomst | ÅtkomstFel::KanalenFårInte) => {
                 return ingen_åtkomst();
             }
@@ -319,6 +320,9 @@ fn felmeddelande(kod: &str) -> &'static str {
         "epost" => "Skriv en giltig e-postadress.",
         "har_atkomst" => "Användaren har redan åtkomst till företaget.",
         "okand" => "Det finns ingen sådan användare.",
+        "avaktiverad" => {
+            "Användaren är avaktiverad och kan inte få åtkomst. Driften kan återaktivera hen."
+        }
         "sista" => "Den sista åtkomsten till företaget går inte att ta bort.",
         _ => "Det gick inte. Försök igen.",
     }
