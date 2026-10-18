@@ -18,6 +18,7 @@ pub enum Händelse {
     AnvändareÅteraktiverad,
     DomänBytt,
     BackupVerifierad,
+    ÅterställningGjord,
 }
 
 impl Händelse {
@@ -30,6 +31,7 @@ impl Händelse {
             Händelse::AnvändareÅteraktiverad => "användare återaktiverad",
             Händelse::DomänBytt => "domän bytt",
             Händelse::BackupVerifierad => "backup verifierad",
+            Händelse::ÅterställningGjord => "återställning gjord",
         }
     }
 }

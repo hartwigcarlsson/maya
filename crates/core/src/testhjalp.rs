@@ -125,3 +125,22 @@ pub async fn bokför(
         .await
         .expect("testverifikatet bokförs")
 }
+
+/// Loggar en återställning från backupen som togs vid `backup_tid`, som `maya restore` gör
+/// efter att databasen har bytts, utan att byta databasen.
+pub async fn logga_återställning(db: &Databas, klocka: &Klocka, backup_tid: jiff::Timestamp) {
+    let backup = crate::backup::Backup {
+        namn: format!("maya-{}", backup_tid.strftime("%Y%m%dT%H%M%SZ")),
+        tid: backup_tid,
+    };
+    crate::aterstallning::logga(
+        db,
+        &backup,
+        "0.1.0",
+        "katalogen /backup",
+        klocka.nu(),
+        &Aktör::cli(),
+    )
+    .await
+    .expect("återställningen loggas");
+}

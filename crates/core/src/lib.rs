@@ -2,6 +2,7 @@
 //! som anropar användningsfallen här och aldrig kör sqlx själva.
 
 pub mod aktor;
+pub mod aterstallning;
 pub mod atkomst;
 pub mod att_gora;
 pub mod backup;

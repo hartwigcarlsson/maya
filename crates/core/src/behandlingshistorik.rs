@@ -40,12 +40,13 @@ pub enum Händelse {
     InbjudanSkapad,
     InbjudanAnvänd,
     Sie4Exporterad,
+    ÅterställningGjord,
 }
 
 impl Händelse {
     /// Alla typer som har en kodväg. En ny typ läggs till här också, så att testet som kör
     /// varje typ genom `core` måste få en kodväg för den.
-    pub const ALLA: [Händelse; 23] = [
+    pub const ALLA: [Händelse; 24] = [
         Händelse::FöretagSkapat,
         Händelse::FöretagÄndrat,
         Händelse::KontoSkapat,
@@ -69,6 +70,7 @@ impl Händelse {
         Händelse::InbjudanSkapad,
         Händelse::InbjudanAnvänd,
         Händelse::Sie4Exporterad,
+        Händelse::ÅterställningGjord,
     ];
 
     pub fn namn(self) -> &'static str {
@@ -96,6 +98,7 @@ impl Händelse {
             Händelse::InbjudanSkapad => "inbjudan skapad",
             Händelse::InbjudanAnvänd => "inbjudan använd",
             Händelse::Sie4Exporterad => "SIE4 exporterad",
+            Händelse::ÅterställningGjord => "återställning gjord",
         }
     }
 }
@@ -447,6 +450,18 @@ impl Post {
             "inbjudan använd" => format!("{} registrerade sig med inbjudan", f("epost")),
             "SIE4 exporterad" => {
                 format!("{}, {} verifikat", f("filnamn"), s(&b["antal_verifikat"]))
+            }
+            "återställning gjord" => {
+                let backup_tid = f("backup_tid");
+                let backup_tid = backup_tid.parse::<Timestamp>().map_or(backup_tid, |t| {
+                    t.to_zoned(maya_domain::tid::stockholm())
+                        .strftime("%Y-%m-%d %H:%M")
+                        .to_string()
+                });
+                format!(
+                    "Hela installationen återställd från backupen {backup_tid}. Det som \
+                     registrerades efter den måste registreras om"
+                )
             }
             _ => fält_som_text(b),
         }
