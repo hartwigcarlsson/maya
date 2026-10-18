@@ -82,11 +82,16 @@ pub enum Handling {
     /// Skapa, återställa, avaktivera och återaktivera en användare, och byta domän. Bara CLI:t
     /// (ADR 0005).
     HanteraAnvändare,
+    /// Lägga upp ett företag. Bara webben (beslut i #61).
+    LäggaUppFöretag,
+    /// Läsa ett företags uppgifter, kontoplan och behandlingshistorik.
+    LäsaFöretag,
 }
 
 /// Kanalpolicyn: om `kanal` får utföra `handling`.
 pub fn tillåter(kanal: Kanal, handling: Handling) -> bool {
     match handling {
         Handling::HanteraAnvändare => kanal == Kanal::Cli,
+        Handling::LäggaUppFöretag | Handling::LäsaFöretag => kanal == Kanal::Webb,
     }
 }

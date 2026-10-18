@@ -1,5 +1,5 @@
 //! Röktest med riktig server och en webbläsare med virtuell autentiserare: första användaren
-//! via CLI-länken, och inloggning med e-post och passkey.
+//! via CLI-länken, inloggning med e-post och passkey, och ett nytt företag.
 //!
 //! Kräver Chrome eller Chromium (sökvägen kan anges i `CHROME`). Sidan behöver ingen WASM:
 //! inloggningen är vanlig HTML med JS-shimmen.
@@ -82,7 +82,7 @@ fn forsta_anvandaren_via_cli_lanken_och_inloggning_med_passkey() {
         .unwrap()
         .click()
         .unwrap();
-    vänta_på_text(&tab, "Du är inloggad som anna@example.se");
+    vänta_på_text(&tab, "Lägg upp ett företag");
 
     let kaka = tab
         .get_cookies()
@@ -121,7 +121,44 @@ fn forsta_anvandaren_via_cli_lanken_och_inloggning_med_passkey() {
         .unwrap()
         .click()
         .unwrap();
-    vänta_på_text(&tab, "Du är inloggad som anna@example.se");
+    vänta_på_text(&tab, "Lägg upp ett företag");
+
+    // Ett nytt företag: först med fel kontrollsiffra, sedan rätt.
+    tab.find_element("a[href='/foretag/nytt']").unwrap();
+    tab.navigate_to(&format!("{bas}/foretag/nytt")).unwrap();
+    tab.wait_for_element("#orgnr")
+        .unwrap()
+        .type_into("556036-0794")
+        .unwrap();
+    tab.find_element("#namn")
+        .unwrap()
+        .type_into("Exempel AB")
+        .unwrap();
+    tab.evaluate(
+        "document.querySelector('#start').value = '2026-01-01';\
+         document.querySelector('#slut').value = '2026-12-31';",
+        false,
+    )
+    .unwrap();
+    tab.find_element("form[action='/foretag'] button")
+        .unwrap()
+        .click()
+        .unwrap();
+    vänta_på_text(&tab, "Kontrollsiffran stämmer inte");
+    tab.evaluate(
+        "document.querySelector('#orgnr').value = '556036-0793';\
+         document.querySelector('#start').value = '2026-01-01';\
+         document.querySelector('#slut').value = '2026-12-31';",
+        false,
+    )
+    .unwrap();
+    tab.find_element("form[action='/foretag'] button")
+        .unwrap()
+        .click()
+        .unwrap();
+    vänta_på_text(&tab, "Inget att göra ännu");
+    vänta_på_text(&tab, "556036-0793");
+    assert!(tab.get_url().contains("/foretag/"), "{}", tab.get_url());
 }
 
 fn skapa_användare(dir: &Path, bas: &str) -> String {

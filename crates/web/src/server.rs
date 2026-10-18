@@ -18,6 +18,7 @@ use maya_core::{Databas, Klocka};
 
 use crate::app::{App, shell};
 use crate::assets;
+use crate::foretag::server::{self as foretag, FöretagsState};
 use crate::inloggning::{self, InloggningsState};
 
 #[derive(Clone)]
@@ -48,6 +49,10 @@ pub fn router(config: Arc<Config>, db: Databas) -> Router {
         klocka,
         passkeys: Arc::new(passkeys),
     };
+    let företag = FöretagsState {
+        db: db.clone(),
+        klocka: inloggning.klocka.clone(),
+    };
     let state = AppState { config, db };
 
     let pages = Router::new()
@@ -58,9 +63,24 @@ pub fn router(config: Arc<Config>, db: Databas) -> Router {
         .fallback(assets::serve_site)
         .with_state(leptos_options)
         .layer(middleware::from_fn_with_state(
+            företag.clone(),
+            foretag::lägg_på_företagsval,
+        ))
+        .layer(middleware::from_fn_with_state(
             inloggning.clone(),
             inloggning::identifiera,
         ))
+        .merge(
+            foretag::routes(företag)
+                .layer(middleware::from_fn_with_state(
+                    inloggning.clone(),
+                    inloggning::identifiera,
+                ))
+                .layer(middleware::from_fn_with_state(
+                    inloggning.clone(),
+                    inloggning::kräv_eget_origin,
+                )),
+        )
         .merge(
             inloggning::routes(inloggning.clone()).layer(middleware::from_fn_with_state(
                 inloggning,
