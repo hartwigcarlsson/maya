@@ -25,11 +25,44 @@ pub fn flöde_som_bokför_på(nummer: Kontonummer) -> Option<&'static str> {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Kontonummer(u16);
 
+/// Text som inte är ett kontonummer: fyra siffror i klass 1–8.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct OgiltigtKontonummer;
+
+impl std::fmt::Display for OgiltigtKontonummer {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("inget kontonummer (fyra siffror, klass 1–8)")
+    }
+}
+
+impl std::str::FromStr for Kontonummer {
+    type Err = OgiltigtKontonummer;
+
+    /// Fyra siffror, med blanksteg runt om, i klass 1–8. Det är den enda tolkningen av ett
+    /// kontonummer i text.
+    fn from_str(text: &str) -> Result<Self, Self::Err> {
+        let text = text.trim();
+        if text.len() != 4 || !text.bytes().all(|b| b.is_ascii_digit()) {
+            return Err(OgiltigtKontonummer);
+        }
+        text.parse::<u16>()
+            .ok()
+            .and_then(Kontonummer::new)
+            .ok_or(OgiltigtKontonummer)
+    }
+}
+
 impl Kontonummer {
     /// Kontonumret, om det är fyrsiffrigt och hör till klass 1–8. Klass 9 (internredovisning)
     /// för Maya inte.
     pub fn new(nummer: u16) -> Option<Self> {
         (1000..=8999).contains(&nummer).then_some(Self(nummer))
+    }
+
+    /// Kontonumret utan kontroll, för konstanter som är kända vid kompileringen.
+    pub(crate) const fn konstant(nummer: u16) -> Self {
+        assert!(nummer >= 1000 && nummer <= 8999);
+        Self(nummer)
     }
 
     pub fn get(self) -> u16 {

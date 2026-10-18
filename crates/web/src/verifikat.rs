@@ -2064,13 +2064,11 @@ fn kontantfristens_notis(
         verifikat.with(|v| {
             let läge = Utkastläge {
                 datum: Some(v.datum.trim().parse().ok()?),
-                kassa: rör_kassan(v.rader.iter().filter_map(|r| {
-                    r.konto
-                        .trim()
-                        .parse::<u16>()
-                        .ok()
-                        .and_then(Kontonummer::new)
-                })),
+                kassa: rör_kassan(
+                    v.rader
+                        .iter()
+                        .filter_map(|r| r.konto.parse::<Kontonummer>().ok()),
+                ),
             };
             match frist(&läge, idag) {
                 Frist::Kontantfrist { senast, försenad } => Some((senast, försenad)),

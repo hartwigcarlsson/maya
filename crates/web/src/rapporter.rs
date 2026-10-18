@@ -802,9 +802,7 @@ pub(crate) mod server {
                 jämförelse: hämta("jmf") == Some("1"),
                 nivå: hämta("niva").and_then(Nivå::från_kod).unwrap_or_default(),
             },
-            konto: hämta("konto")
-                .and_then(|k| k.parse::<u16>().ok())
-                .and_then(Kontonummer::new),
+            konto: hämta("konto").and_then(|k| k.parse::<Kontonummer>().ok()),
         })
     }
 

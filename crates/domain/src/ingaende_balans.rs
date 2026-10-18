@@ -114,7 +114,7 @@ impl NyIngåendeBalans {
 }
 
 /// Kontot som den preliminära ingående balansen för resultatet som inte är ombokat förs till.
-pub const PRELIMINÄRT_RESULTAT: u16 = 2099;
+pub const PRELIMINÄRT_RESULTAT: Kontonummer = Kontonummer::konstant(2099);
 
 /// Den preliminära ingående balansen ur föregående års utgående balans, enligt tabellen över
 /// automatkonteringar: IB(k, n) = UB(k, n−1) för varje konto k i klass 1–2, och därtill
@@ -122,8 +122,7 @@ pub const PRELIMINÄRT_RESULTAT: u16 = 2099;
 pub fn preliminär(
     utgående: impl IntoIterator<Item = (Kontonummer, Saldo)>,
 ) -> Vec<(Kontonummer, Saldo)> {
-    let resultatkonto =
-        Kontonummer::new(PRELIMINÄRT_RESULTAT).expect("2099 är ett giltigt kontonummer");
+    let resultatkonto = PRELIMINÄRT_RESULTAT;
     let mut ingående: Vec<(Kontonummer, Saldo)> = Vec::new();
     for (konto, saldo) in utgående {
         let konto = if konto.typ().balanskonto() {
@@ -148,7 +147,7 @@ fn kontrollera_konto(
     spärrar: &mut Vec<Spärr>,
 ) -> Option<Kontonummer> {
     let text = text.trim();
-    let konto = text.parse::<u16>().ok().and_then(Kontonummer::new);
+    let konto = text.parse::<Kontonummer>().ok();
     if let Some(konto) = konto
         && !konto.typ().balanskonto()
     {
