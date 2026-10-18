@@ -15,6 +15,9 @@ pub const SESSION_INAKTIV: SignedDuration = SignedDuration::from_hours(7 * 24);
 pub const SESSION_LÄNGST: SignedDuration = SignedDuration::from_hours(30 * 24);
 /// En engångslänk gäller så här länge.
 pub const LÄNK_GILTIG: SignedDuration = SignedDuration::from_hours(24);
+/// En passkey är färsk så här länge efter att användaren använde den i sessionen. Att hantera
+/// passkeys kräver en färsk passkey.
+pub const FÄRSK_PASSKEY: SignedDuration = SignedDuration::from_mins(5);
 
 #[derive(Debug, thiserror::Error)]
 pub enum InloggningsFel {
@@ -30,6 +33,14 @@ pub enum InloggningsFel {
     PasskeyFinns,
     #[error("passkeyn hör inte till användaren")]
     OkändPasskey,
+    #[error("använd din passkey igen; det krävs för att hantera passkeys")]
+    KräverFärskPasskey,
+    #[error("den sista passkeyn går inte att ta bort")]
+    SistaPasskeyn,
+    #[error("passkeyn måste ha ett namn")]
+    TomtNamn,
+    #[error("sessionen hör inte till användaren")]
+    OkändSession,
     #[error(transparent)]
     Databas(#[from] DatabasFel),
 }
@@ -122,6 +133,50 @@ pub struct Inloggad {
     pub aktör: Aktör,
     /// När användaren senast använde en passkey i sessionen.
     pub passkey_använd: Timestamp,
+    /// SHA-256 av sessionstoken.
+    session: Vec<u8>,
+}
+
+impl Inloggad {
+    /// Sessionens id i sessionslistan.
+    pub fn session_id(&self) -> String {
+        hex::encode(&self.session)
+    }
+
+    /// Om användaren har använt en passkey i sessionen de senaste [`FÄRSK_PASSKEY`].
+    pub fn har_färsk_passkey(&self, klocka: &Klocka) -> bool {
+        klocka.nu() < self.passkey_använd + FÄRSK_PASSKEY
+    }
+
+    fn kräv_färsk_passkey(&self, klocka: &Klocka) -> Result<(), InloggningsFel> {
+        if self.har_färsk_passkey(klocka) {
+            Ok(())
+        } else {
+            Err(InloggningsFel::KräverFärskPasskey)
+        }
+    }
+}
+
+/// En av användarens passkeys.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PasskeyRad {
+    /// Credential-id:t i hex.
+    pub id: String,
+    pub namn: String,
+    pub skapad: Timestamp,
+    pub senast_använd: Option<Timestamp>,
+}
+
+/// En av användarens sessioner.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SessionRad {
+    pub id: String,
+    pub skapad: Timestamp,
+    pub senast_aktiv: Timestamp,
+    /// User-Agent när sessionen skapades.
+    pub enhet: Option<String>,
+    /// Sessionen som frågar.
+    pub denna: bool,
 }
 
 pub async fn finns_användare(db: &Databas) -> Result<bool, DatabasFel> {
@@ -250,6 +305,7 @@ pub async fn slutför_registrering(
     klocka: &Klocka,
     token: &str,
     passkey: NyPasskey,
+    enhet: Option<&str>,
 ) -> Result<Session, InloggningsFel> {
     let nu = klocka.nu();
     let mut tx = db.pool().begin_with("BEGIN IMMEDIATE").await?;
@@ -259,10 +315,26 @@ pub async fn slutför_registrering(
         .bind(hash(token))
         .execute(&mut *tx)
         .await?;
+    spara_passkey(&mut tx, nu, användare.id, &passkey).await?;
+    let session = ny_session(&mut tx, nu, användare.id, enhet).await?;
+    tx.commit().await?;
+    Ok(session)
+}
+
+async fn spara_passkey(
+    conn: &mut SqliteConnection,
+    nu: Timestamp,
+    användare: AnvändarId,
+    passkey: &NyPasskey,
+) -> Result<(), InloggningsFel> {
+    let namn = passkey.namn.trim();
+    if namn.is_empty() {
+        return Err(InloggningsFel::TomtNamn);
+    }
     let finns: bool =
         sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM passkey WHERE credential_id = ?)")
             .bind(&passkey.credential_id)
-            .fetch_one(&mut *tx)
+            .fetch_one(&mut *conn)
             .await?;
     if finns {
         return Err(InloggningsFel::PasskeyFinns);
@@ -272,15 +344,13 @@ pub async fn slutför_registrering(
          VALUES (?, ?, ?, ?, ?)",
     )
     .bind(&passkey.credential_id)
-    .bind(användare.id.0)
-    .bind(passkey.namn.trim())
+    .bind(användare.0)
+    .bind(namn)
     .bind(&passkey.passkey)
     .bind(nu.to_string())
-    .execute(&mut *tx)
+    .execute(conn)
     .await?;
-    let session = ny_session(&mut tx, nu, användare.id).await?;
-    tx.commit().await?;
-    Ok(session)
+    Ok(())
 }
 
 /// Användaren med e-postadressen `epost` och hens passkeys, om användaren finns och är aktiv.
@@ -321,6 +391,7 @@ pub async fn logga_in(
     användare: AnvändarId,
     credential_id: &[u8],
     uppdaterad: Option<String>,
+    enhet: Option<&str>,
 ) -> Result<Session, InloggningsFel> {
     let nu = klocka.nu();
     let mut tx = db.pool().begin_with("BEGIN IMMEDIATE").await?;
@@ -338,7 +409,7 @@ pub async fn logga_in(
     if träff.rows_affected() != 1 {
         return Err(InloggningsFel::OkändPasskey);
     }
-    let session = ny_session(&mut tx, nu, användare).await?;
+    let session = ny_session(&mut tx, nu, användare, enhet).await?;
     tx.commit().await?;
     Ok(session)
 }
@@ -347,15 +418,17 @@ async fn ny_session(
     conn: &mut SqliteConnection,
     nu: Timestamp,
     användare: AnvändarId,
+    enhet: Option<&str>,
 ) -> Result<Session, sqlx::Error> {
     let token = Token::ny();
     sqlx::query(
-        "INSERT INTO session (hash, anvandare_id, skapad, senast_aktiv, passkey_anvand)
-         VALUES (?1, ?2, ?3, ?3, ?3)",
+        "INSERT INTO session (hash, anvandare_id, skapad, senast_aktiv, passkey_anvand, enhet)
+         VALUES (?1, ?2, ?3, ?3, ?3, ?4)",
     )
     .bind(hash(&token.0))
     .bind(användare.0)
     .bind(nu.to_string())
+    .bind(enhet.map(|e| e.chars().take(300).collect::<String>()))
     .execute(conn)
     .await?;
     Ok(Session { token })
@@ -404,6 +477,7 @@ pub async fn session(
         aktör: Aktör::webb(användare.id),
         användare,
         passkey_använd: tidpunkt(&passkey_använd).unwrap_or(nu),
+        session: hash,
     }))
 }
 
@@ -413,6 +487,220 @@ pub async fn logga_ut(db: &Databas, token: &str) -> Result<(), InloggningsFel> {
         .bind(hash(token))
         .execute(db.pool())
         .await?;
+    Ok(())
+}
+
+/// Användarens passkeys i den ordning de registrerades.
+pub async fn passkeys(
+    db: &Databas,
+    inloggad: &Inloggad,
+) -> Result<Vec<PasskeyRad>, InloggningsFel> {
+    let rader: Vec<(Vec<u8>, String, String, Option<String>)> = sqlx::query_as(
+        "SELECT credential_id, namn, skapad, senast_anvand FROM passkey
+         WHERE anvandare_id = ? ORDER BY skapad, rowid",
+    )
+    .bind(inloggad.användare.id.0)
+    .fetch_all(db.pool())
+    .await?;
+    rader
+        .into_iter()
+        .map(|(id, namn, skapad, senast_använd)| {
+            Ok(PasskeyRad {
+                id: hex::encode(id),
+                namn,
+                skapad: tidpunkt(&skapad)?,
+                senast_använd: senast_använd.as_deref().map(tidpunkt).transpose()?,
+            })
+        })
+        .collect()
+}
+
+/// Det en ceremoni behöver för att lägga till en passkey för den inloggade. Kräver en färsk
+/// passkey.
+pub async fn ny_passkey(
+    db: &Databas,
+    klocka: &Klocka,
+    inloggad: &Inloggad,
+) -> Result<Registrering, InloggningsFel> {
+    inloggad.kräv_färsk_passkey(klocka)?;
+    let befintliga_passkeys =
+        sqlx::query_scalar("SELECT credential_id FROM passkey WHERE anvandare_id = ?")
+            .bind(inloggad.användare.id.0)
+            .fetch_all(db.pool())
+            .await?;
+    Ok(Registrering {
+        användare: inloggad.användare.clone(),
+        befintliga_passkeys,
+    })
+}
+
+/// Sparar en passkey som den inloggade har registrerat. Kräver en färsk passkey.
+pub async fn lägg_till_passkey(
+    db: &Databas,
+    klocka: &Klocka,
+    inloggad: &Inloggad,
+    passkey: NyPasskey,
+) -> Result<(), InloggningsFel> {
+    inloggad.kräv_färsk_passkey(klocka)?;
+    let mut tx = db.pool().begin_with("BEGIN IMMEDIATE").await?;
+    spara_passkey(&mut tx, klocka.nu(), inloggad.användare.id, &passkey).await?;
+    tx.commit().await?;
+    Ok(())
+}
+
+/// Byter namn på en av den inloggades passkeys. Kräver en färsk passkey.
+pub async fn byt_namn_på_passkey(
+    db: &Databas,
+    klocka: &Klocka,
+    inloggad: &Inloggad,
+    id: &str,
+    namn: &str,
+) -> Result<(), InloggningsFel> {
+    inloggad.kräv_färsk_passkey(klocka)?;
+    let namn = namn.trim();
+    if namn.is_empty() {
+        return Err(InloggningsFel::TomtNamn);
+    }
+    let id = hex::decode(id).map_err(|_| InloggningsFel::OkändPasskey)?;
+    let träff =
+        sqlx::query("UPDATE passkey SET namn = ? WHERE credential_id = ? AND anvandare_id = ?")
+            .bind(namn)
+            .bind(&id)
+            .bind(inloggad.användare.id.0)
+            .execute(db.pool())
+            .await?;
+    if träff.rows_affected() != 1 {
+        return Err(InloggningsFel::OkändPasskey);
+    }
+    Ok(())
+}
+
+/// Tar bort en av den inloggades passkeys, men aldrig den sista. Kräver en färsk passkey.
+pub async fn ta_bort_passkey(
+    db: &Databas,
+    klocka: &Klocka,
+    inloggad: &Inloggad,
+    id: &str,
+) -> Result<(), InloggningsFel> {
+    inloggad.kräv_färsk_passkey(klocka)?;
+    let id = hex::decode(id).map_err(|_| InloggningsFel::OkändPasskey)?;
+    let mut tx = db.pool().begin_with("BEGIN IMMEDIATE").await?;
+    let antal: i64 = sqlx::query_scalar("SELECT count(*) FROM passkey WHERE anvandare_id = ?")
+        .bind(inloggad.användare.id.0)
+        .fetch_one(&mut *tx)
+        .await?;
+    let träff = sqlx::query("DELETE FROM passkey WHERE credential_id = ? AND anvandare_id = ?")
+        .bind(&id)
+        .bind(inloggad.användare.id.0)
+        .execute(&mut *tx)
+        .await?;
+    if träff.rows_affected() != 1 {
+        return Err(InloggningsFel::OkändPasskey);
+    }
+    if antal <= 1 {
+        return Err(InloggningsFel::SistaPasskeyn);
+    }
+    tx.commit().await?;
+    Ok(())
+}
+
+/// Den inloggades passkeys som JSON, för en ceremoni som bekräftar att användaren har en av
+/// dem till hands.
+pub async fn bekräftelse_för(
+    db: &Databas,
+    inloggad: &Inloggad,
+) -> Result<Inloggningsgrund, InloggningsFel> {
+    let passkeys = sqlx::query_scalar(
+        "SELECT passkey FROM passkey WHERE anvandare_id = ? ORDER BY skapad, credential_id",
+    )
+    .bind(inloggad.användare.id.0)
+    .fetch_all(db.pool())
+    .await?;
+    Ok(Inloggningsgrund {
+        användare: inloggad.användare.clone(),
+        passkeys,
+    })
+}
+
+/// Den inloggade har använt passkeyn `credential_id` i sessionen: passkeyn blir färsk.
+/// `uppdaterad` som i [`logga_in`].
+pub async fn bekräfta_passkey(
+    db: &Databas,
+    klocka: &Klocka,
+    inloggad: &Inloggad,
+    credential_id: &[u8],
+    uppdaterad: Option<String>,
+) -> Result<(), InloggningsFel> {
+    let nu = klocka.nu().to_string();
+    let mut tx = db.pool().begin_with("BEGIN IMMEDIATE").await?;
+    let träff = sqlx::query(
+        "UPDATE passkey SET senast_anvand = ?1, passkey = coalesce(?2, passkey)
+         WHERE credential_id = ?3 AND anvandare_id = ?4",
+    )
+    .bind(&nu)
+    .bind(uppdaterad)
+    .bind(credential_id)
+    .bind(inloggad.användare.id.0)
+    .execute(&mut *tx)
+    .await?;
+    if träff.rows_affected() != 1 {
+        return Err(InloggningsFel::OkändPasskey);
+    }
+    let träff =
+        sqlx::query("UPDATE session SET passkey_anvand = ? WHERE hash = ? AND anvandare_id = ?")
+            .bind(&nu)
+            .bind(&inloggad.session)
+            .bind(inloggad.användare.id.0)
+            .execute(&mut *tx)
+            .await?;
+    if träff.rows_affected() != 1 {
+        return Err(InloggningsFel::OkändSession);
+    }
+    tx.commit().await?;
+    Ok(())
+}
+
+/// Den inloggades sessioner, senast aktiv först.
+pub async fn sessioner(
+    db: &Databas,
+    inloggad: &Inloggad,
+) -> Result<Vec<SessionRad>, InloggningsFel> {
+    let rader: Vec<(Vec<u8>, String, String, Option<String>)> = sqlx::query_as(
+        "SELECT hash, skapad, senast_aktiv, enhet FROM session
+         WHERE anvandare_id = ? ORDER BY senast_aktiv DESC, skapad DESC",
+    )
+    .bind(inloggad.användare.id.0)
+    .fetch_all(db.pool())
+    .await?;
+    rader
+        .into_iter()
+        .map(|(hash, skapad, senast_aktiv, enhet)| {
+            Ok(SessionRad {
+                denna: hash == inloggad.session,
+                id: hex::encode(hash),
+                skapad: tidpunkt(&skapad)?,
+                senast_aktiv: tidpunkt(&senast_aktiv)?,
+                enhet,
+            })
+        })
+        .collect()
+}
+
+/// Avslutar en av den inloggades sessioner. Den som har sessionen är utloggad direkt.
+pub async fn avsluta_session(
+    db: &Databas,
+    inloggad: &Inloggad,
+    id: &str,
+) -> Result<(), InloggningsFel> {
+    let hash = hex::decode(id).map_err(|_| InloggningsFel::OkändSession)?;
+    let träff = sqlx::query("DELETE FROM session WHERE hash = ? AND anvandare_id = ?")
+        .bind(hash)
+        .bind(inloggad.användare.id.0)
+        .execute(db.pool())
+        .await?;
+    if träff.rows_affected() != 1 {
+        return Err(InloggningsFel::OkändSession);
+    }
     Ok(())
 }
 

@@ -104,6 +104,14 @@ fn sessionstoken(headers: &HeaderMap) -> Option<String> {
         .map(|(_, värde)| värde.to_string())
 }
 
+/// Webbläsaren som skapar en session, så att användaren känner igen den i sessionslistan.
+fn enhet(headers: &HeaderMap) -> Option<&str> {
+    headers
+        .get(header::USER_AGENT)
+        .and_then(|v| v.to_str().ok())
+        .filter(|v| !v.trim().is_empty())
+}
+
 fn sessionscookie(session: &Session) -> String {
     format!(
         "{SESSIONSCOOKIE}={}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age={}",
@@ -150,11 +158,17 @@ struct SlutförRegistrering {
 
 async fn slutför_registrering(
     State(state): State<InloggningsState>,
+    headers: HeaderMap,
     Json(begäran): Json<SlutförRegistrering>,
 ) -> Response {
     match state
         .passkeys
-        .slutför_registrering(begäran.ceremoni, &begäran.namn, &begäran.svar)
+        .slutför_registrering(
+            begäran.ceremoni,
+            &begäran.namn,
+            &begäran.svar,
+            enhet(&headers),
+        )
         .await
     {
         Ok(session) => inloggad(&session),
@@ -187,11 +201,12 @@ struct SlutförInloggning {
 
 async fn slutför_inloggning(
     State(state): State<InloggningsState>,
+    headers: HeaderMap,
     Json(begäran): Json<SlutförInloggning>,
 ) -> Response {
     match state
         .passkeys
-        .slutför_inloggning(begäran.ceremoni, &begäran.svar)
+        .slutför_inloggning(begäran.ceremoni, &begäran.svar, enhet(&headers))
         .await
     {
         Ok(session) => inloggad(&session),

@@ -99,6 +99,7 @@ impl Passkeys {
         ceremoni: CeremoniId,
         namn: &str,
         svar: &RegisterPublicKeyCredential,
+        enhet: Option<&str>,
     ) -> Result<Session, AuthFel> {
         let (token, state) = self
             .registreringar
@@ -114,7 +115,7 @@ impl Passkeys {
             namn: namn.to_string(),
             passkey: serde_json::to_string(&passkey).expect("en passkey kan serialiseras"),
         };
-        Ok(inloggning::slutför_registrering(&self.db, &self.klocka, &token, ny).await?)
+        Ok(inloggning::slutför_registrering(&self.db, &self.klocka, &token, ny, enhet).await?)
     }
 
     /// Börjar logga in användaren med e-postadressen `epost`.
@@ -145,6 +146,7 @@ impl Passkeys {
         &self,
         ceremoni: CeremoniId,
         svar: &PublicKeyCredential,
+        enhet: Option<&str>,
     ) -> Result<Session, AuthFel> {
         let (användare, passkeys, state) = self
             .inloggningar
@@ -165,6 +167,7 @@ impl Passkeys {
             användare,
             resultat.cred_id(),
             uppdaterad,
+            enhet,
         )
         .await?)
     }

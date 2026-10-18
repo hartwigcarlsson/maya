@@ -65,7 +65,7 @@ async fn inloggad(db: &Databas) -> String {
         namn: "MacBook".into(),
         passkey: "{}".into(),
     };
-    inloggning::slutför_registrering(db, &Klocka::system(), &token, ny)
+    inloggning::slutför_registrering(db, &Klocka::system(), &token, ny, None)
         .await
         .unwrap()
         .token()
