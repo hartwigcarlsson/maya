@@ -5,6 +5,7 @@ pub mod arbetsdagar;
 pub mod att_gora;
 pub mod backup;
 pub mod belopp;
+pub mod betalsatt;
 pub mod csv;
 pub mod drift;
 pub mod epost;
