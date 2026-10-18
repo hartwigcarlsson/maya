@@ -63,15 +63,7 @@ impl Organisationsnummer {
         if s[2] < 2 {
             return Err(OrgnrFel::TredjeSiffran);
         }
-        let summa: u32 = s[..9]
-            .iter()
-            .enumerate()
-            .map(|(i, &d)| {
-                let v = if i % 2 == 0 { d * 2 } else { d };
-                v / 10 + v % 10
-            })
-            .sum();
-        if (10 - summa % 10) % 10 != s[9] {
+        if crate::luhn::kontrollsiffra(&s[..9]) != s[9] {
             return Err(OrgnrFel::Kontrollsiffra);
         }
         Ok(Organisationsnummer(siffror))
