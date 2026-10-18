@@ -5,6 +5,7 @@ on:
   push:
     branches: [main]
     tags: ["v*.*.*"]
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -16,18 +17,42 @@ env:
 jobs:
   test:
     runs-on: ubuntu-latest
+    env:
+      CARGO_INCREMENTAL: 0
     steps:
       - uses: actions/checkout@v4
       # rustup installerar verktygskedjan och wasm32-målet ur rust-toolchain.toml.
       - run: rustup show active-toolchain || rustup toolchain install
       - uses: Swatinem/rust-cache@v2
+      # Samma version som i Dockerfile. Förbyggd binär, inget kompilerat i CI.
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-leptos@0.3.11
+      # cargo-leptos hämtar wasm-bindgen-cli i den version som Cargo.lock pinnar.
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/cargo-leptos
+          key: cargo-leptos-0.3.11-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}
+          restore-keys: cargo-leptos-0.3.11-${{ runner.os }}-
+      - name: Taggen är versionen i Cargo.toml
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          version=$(cargo metadata --no-deps --format-version 1 --locked \
+            | jq -r '.packages[] | select(.name == "maya") | .version')
+          test "v$version" = "$GITHUB_REF_NAME" \
+            || { echo "::error::taggen $GITHUB_REF_NAME men Cargo.toml har $version"; exit 1; }
       - run: cargo fmt --all --check
       - run: cargo clippy --workspace --all-targets --locked -- -D warnings
-      - run: cargo test --workspace --locked
       - name: domain kompilerar till WASM
         run: cargo build -p maya-domain --target wasm32-unknown-unknown --locked
-      - name: webbens hydrering kompilerar till WASM
-        run: cargo build -p maya-web --lib --no-default-features --features hydrate --target wasm32-unknown-unknown --locked
+      # Hydreringens WASM, JS och CSS i target/site. Webbläsartesterna (rok, hydrering,
+      # klientnavigering) kör mot den och misslyckas i CI (CI=true) om den saknas, i stället
+      # för att hoppa över sig själva. Servern byggs med samma flaggor, så cargo test bygger
+      # inte om den.
+      - name: Sajten (cargo leptos build)
+        run: cargo leptos build
+      # ubuntu-latest har Google Chrome; headless_chrome hittar den på PATH.
+      - run: cargo test --workspace --locked
 
   image:
     needs: test
