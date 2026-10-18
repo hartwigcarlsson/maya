@@ -1,2 +1,22 @@
 //! Webben: Leptos med SSR och full hydrering. Server functions och sidor är tunna adaptrar mot
 //! `maya-core` (ADR 0003).
+
+pub mod app;
+
+#[cfg(feature = "ssr")]
+mod assets;
+#[cfg(feature = "ssr")]
+mod server;
+
+#[cfg(feature = "ssr")]
+pub use assets::serve_embedded;
+#[cfg(feature = "ssr")]
+pub use server::{ClientIp, client_ip, router};
+
+/// Startpunkten för WASM-bygget: hydrerar sidan som servern renderade.
+#[cfg(feature = "hydrate")]
+#[wasm_bindgen::prelude::wasm_bindgen]
+pub fn hydrate() {
+    console_error_panic_hook::set_once();
+    leptos::mount::hydrate_body(app::App);
+}

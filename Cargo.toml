@@ -25,7 +25,8 @@ jiff = { version = "0.2", default-features = false, features = ["std", "static"]
 leptos = "0.8"
 leptos_axum = "0.8"
 leptos_meta = "0.8"
-rust-embed = { version = "8", features = ["interpolate-folder-path"] }
+leptos_router = "0.8"
+rust-embed = { version = "8", features = ["interpolate-folder-path", "mime-guess"] }
 sqlx = { version = "0.9", default-features = false, features = ["sqlite", "runtime-tokio", "migrate", "macros"] }
 tempfile = "3"
 thiserror = "2"
@@ -35,6 +36,7 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 url = "2"
 wasm-bindgen = "=0.2.129"
+web-sys = { version = "0.3", features = ["MediaQueryList", "Storage"] }
 
 [workspace.lints.rust]
 unsafe_code = "deny"

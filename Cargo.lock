@@ -1738,12 +1738,14 @@ dependencies = [
  "leptos",
  "leptos_axum",
  "leptos_meta",
+ "leptos_router",
  "maya-core",
  "rust-embed",
  "tokio",
  "tower",
  "tracing",
  "wasm-bindgen",
+ "web-sys",
 ]
 
 [[package]]
@@ -2260,6 +2262,7 @@ version = "8.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0d84e8ba78bd384263e5922f084cbe1b081c3b7e69add59c8fb097b879ba968a"
 dependencies = [
+ "mime_guess",
  "sha2 0.11.1",
  "walkdir",
 ]

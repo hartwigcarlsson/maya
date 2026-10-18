@@ -79,6 +79,12 @@ impl Databas {
             .await?)
     }
 
+    /// Kontrollerar att databasen svarar, för `/healthz`.
+    pub async fn kontrollera(&self) -> Result<(), DatabasFel> {
+        sqlx::query("SELECT 1").execute(&self.pool).await?;
+        Ok(())
+    }
+
     /// Stänger alla anslutningar.
     pub async fn stäng(self) {
         self.pool.close().await;
