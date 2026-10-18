@@ -364,12 +364,7 @@ pub(crate) mod server {
         let orgnr = foretag::företaget(db, aktör, företag).await?.orgnr;
         data.export = (
             format!("/foretag/{företag}/rapporter/{rapport}"),
-            format!(
-                "{rapport}_{}_{}_{}",
-                orgnr.to_string().replace('-', ""),
-                år.start.strftime("%Y"),
-                sista.strftime("%Y%m")
-            ),
+            bokforing::filnamnsstam(rapport, &orgnr.to_string(), år.start, sista),
         );
         Ok(data)
     }

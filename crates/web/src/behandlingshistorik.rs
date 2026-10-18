@@ -184,10 +184,9 @@ pub(crate) mod server {
                 till: urval.till.map(|d| d.to_string()).unwrap_or_default(),
             },
             query: query(urval),
-            filnamn: format!(
-                "behandlingshistorik_{}_{}",
-                f.orgnr.siffror(),
-                state.klocka.idag().strftime("%Y%m%d")
+            filnamn: maya_core::export::behandlingshistorikens_filnamn(
+                &f.orgnr,
+                state.klocka.idag(),
             ),
         })
     }

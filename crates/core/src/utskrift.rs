@@ -175,9 +175,8 @@ pub async fn behandlingshistorik(
     let historik = behandlingshistorik::historik(db, aktör, företag, urval).await?;
     let f = foretag::företaget(db, aktör, företag).await?;
     let filnamn = format!(
-        "behandlingshistorik_{}_{}.pdf",
-        f.orgnr.siffror(),
-        klocka.idag().strftime("%Y%m%d")
+        "{}.pdf",
+        crate::export::behandlingshistorikens_filnamn(&f.orgnr, klocka.idag())
     );
     let dokument = Dokument::Behandlingshistorik(maya_pdf::Behandlingshistorik {
         företag: maya_pdf::Företag {
@@ -232,6 +231,15 @@ pub async fn rapport(
     skriv(db, klocka, aktör, filnamn, &dokument).await
 }
 
+/// `systemdokumentation_<orgnr>_<ÅÅÅÅMMDD>.pdf`; `orgnr` med eller utan bindestreck.
+pub fn systemdokumentationens_filnamn(orgnr: &str, idag: jiff::civil::Date) -> String {
+    format!(
+        "systemdokumentation_{}_{}.pdf",
+        orgnr.replace('-', ""),
+        idag.strftime("%Y%m%d")
+    )
+}
+
 /// Systemdokumentationen som PDF (S1–S6), med samma avsnitt som sidan. Filnamnet är
 /// `systemdokumentation_<orgnr>_<ÅÅÅÅMMDD>.pdf`.
 pub async fn systemdokumentation(
@@ -243,11 +251,7 @@ pub async fn systemdokumentation(
 ) -> Result<Pdf, UtskriftFel> {
     let dokument =
         crate::systemdokumentation::systemdokumentation(db, config, aktör, företag).await?;
-    let filnamn = format!(
-        "systemdokumentation_{}_{}.pdf",
-        dokument.orgnr.replace('-', ""),
-        klocka.idag().strftime("%Y%m%d")
-    );
+    let filnamn = systemdokumentationens_filnamn(&dokument.orgnr, klocka.idag());
     skriv(
         db,
         klocka,

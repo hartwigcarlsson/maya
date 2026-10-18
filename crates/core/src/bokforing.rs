@@ -636,10 +636,20 @@ pub(crate) async fn filnamn(
         .await?;
     let sista = perioder.last().map_or(år.slut(), |p| p.start);
     Ok(format!(
-        "{rapport}_{orgnr}_{}_{}.{ändelse}",
-        år.start().strftime("%Y"),
-        sista.strftime("%Y%m"),
+        "{}.{ändelse}",
+        filnamnsstam(rapport, &orgnr, år.start(), sista)
     ))
+}
+
+/// `<rapport>_<orgnr>_<år>_<ÅÅÅÅMM>` utan ändelse: räkenskapsårets startår och urvalets sista
+/// period. `orgnr` med eller utan bindestreck.
+pub fn filnamnsstam(rapport: &str, orgnr: &str, år_start: Date, sista_period: Date) -> String {
+    format!(
+        "{rapport}_{}_{}_{}",
+        orgnr.replace('-', ""),
+        år_start.strftime("%Y"),
+        sista_period.strftime("%Y%m"),
+    )
 }
 
 use maya_domain::tid::sekund as tid;

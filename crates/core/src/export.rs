@@ -2,7 +2,9 @@
 //! med BOM, semikolon som avgränsare, decimalkomma och CRLF. Som PDF:erna skrivs filen om vid
 //! varje export.
 
+use jiff::civil::Date;
 use maya_domain::belopp::Saldo;
+use maya_domain::orgnr::Organisationsnummer;
 
 use crate::aktor::Aktör;
 use crate::atkomst::ÅtkomstFel;
@@ -15,6 +17,15 @@ use crate::{Databas, Klocka};
 pub struct Csv {
     pub filnamn: String,
     pub innehåll: Vec<u8>,
+}
+
+/// `behandlingshistorik_<orgnr>_<ÅÅÅÅMMDD>`, utan ändelse: CSV:n och PDF:en heter så.
+pub fn behandlingshistorikens_filnamn(orgnr: &Organisationsnummer, idag: Date) -> String {
+    format!(
+        "behandlingshistorik_{}_{}",
+        orgnr.siffror(),
+        idag.strftime("%Y%m%d")
+    )
 }
 
 /// Behandlingshistoriken i urvalet (A2), en rad per post i den ordning posterna skrevs.
@@ -41,9 +52,8 @@ pub async fn behandlingshistorik(
     });
     Ok(Csv {
         filnamn: format!(
-            "behandlingshistorik_{}_{}.csv",
-            f.orgnr.siffror(),
-            klocka.idag().strftime("%Y%m%d")
+            "{}.csv",
+            behandlingshistorikens_filnamn(&f.orgnr, klocka.idag())
         ),
         innehåll: {
             let mut csv = maya_domain::csv::Csv::new(&[
