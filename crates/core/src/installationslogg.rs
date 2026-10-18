@@ -12,12 +12,14 @@ use crate::{Databas, DatabasFel};
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Händelse {
     AnvändareSkapad,
+    FöretagRaderat,
 }
 
 impl Händelse {
     pub fn namn(self) -> &'static str {
         match self {
             Händelse::AnvändareSkapad => "användare skapad",
+            Händelse::FöretagRaderat => "företag raderat",
         }
     }
 }

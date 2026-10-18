@@ -9,3 +9,15 @@ ALTER TABLE foretag ADD COLUMN telefon TEXT NOT NULL DEFAULT '';
 ALTER TABLE foretag ADD COLUMN sate TEXT NOT NULL DEFAULT '';
 ALTER TABLE foretag ADD COLUMN momsregnr TEXT NOT NULL DEFAULT '';
 ALTER TABLE foretag ADD COLUMN f_skatt INTEGER NOT NULL DEFAULT 0 CHECK (f_skatt IN (0, 1));
+
+-- Behandlingshistoriken för ett företag som finns går inte att radera (H3). När ett företag
+-- utan räkenskapsinformation raderas tas företagsraden bort först, med främmande nycklar
+-- uppskjutna till COMMIT, och sedan dess historik. Raderingen står i installationsloggen.
+DROP TRIGGER behandlingshistorik_raderas_inte;
+
+CREATE TRIGGER behandlingshistorik_raderas_inte
+BEFORE DELETE ON behandlingshistorik
+WHEN EXISTS (SELECT 1 FROM foretag WHERE id = OLD.foretag_id)
+BEGIN
+    SELECT RAISE(ABORT, 'behandlingshistoriken går inte att radera');
+END;

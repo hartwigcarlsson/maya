@@ -2,9 +2,10 @@
 //! slutdatum och radering, genom `core` mot en tillfällig databas.
 
 use jiff::civil::date;
+use maya_core::atkomst::ÅtkomstFel;
 use maya_core::foretag::{self, FöretagsFel};
-use maya_core::{Databas, Klocka, behandlingshistorik, testhjalp};
-use maya_domain::foretag::{Bokföringsmetod, Byte, Momsperiod, Uppgifter};
+use maya_core::{Databas, Klocka, behandlingshistorik, installationslogg, testhjalp};
+use maya_domain::foretag::{Bokföringsmetod, Byte, Momsperiod, NyttFöretag, Uppgifter};
 
 const NU: &str = "2026-10-18T08:00:00Z";
 
@@ -131,7 +132,7 @@ async fn den_utan_åtkomst_kan_inte_ändra_uppgifterna() {
 
     assert!(matches!(
         fel,
-        FöretagsFel::Åtkomst(maya_core::atkomst::ÅtkomstFel::IngenÅtkomst)
+        FöretagsFel::Åtkomst(ÅtkomstFel::IngenÅtkomst)
     ));
 }
 
@@ -382,4 +383,99 @@ async fn första_räkenskapsårets_slut_ändras_inte_när_ett_senare_år_eller_b
         .await
         .unwrap_err();
     assert_eq!(koder(fel), ["senare_ar_finns"]);
+}
+
+#[tokio::test]
+async fn ett_företag_utan_räkenskapsinformation_raderas_och_raderingen_står_i_installationsloggen()
+{
+    let db = Databas::tillfällig().await;
+    let (anna, id) = testhjalp::företag(&db).await;
+    foretag::ändra_uppgifter(
+        &db,
+        &klocka(),
+        &anna,
+        id,
+        &Uppgifter {
+            gatuadress: "Storgatan 1".into(),
+            ..uppgifter()
+        },
+    )
+    .await
+    .unwrap();
+    foretag::ändra_första_årets_slut(&db, &klocka(), &anna, id, "2027-03-31")
+        .await
+        .unwrap();
+
+    foretag::radera(&db, &klocka(), &anna, id).await.unwrap();
+
+    assert!(foretag::mina_företag(&db, &anna).await.unwrap().is_empty());
+    assert!(matches!(
+        foretag::företaget(&db, &anna, id).await,
+        Err(ÅtkomstFel::IngenÅtkomst)
+    ));
+    let post = installationslogg::läs(&db).await.unwrap().pop().unwrap();
+    assert_eq!(post.typ, "företag raderat");
+    assert_eq!(post.objekt, "556036-0793");
+    assert_eq!(post.aktör, anna);
+    assert_eq!(post.tid.to_string(), NU);
+    assert_eq!(
+        post.beskrivning,
+        serde_json::json!({ "orgnr": "556036-0793", "namn": "Exempel AB" })
+    );
+
+    // Organisationsnumret är ledigt igen.
+    let igen = NyttFöretag {
+        orgnr: "556036-0793".into(),
+        namn: "Exempel AB".into(),
+        första_år_start: "2026-01-01".into(),
+        första_år_slut: "2026-12-31".into(),
+        bokföringsmetod: "faktura".into(),
+        momsperiod: "kvartal".into(),
+    };
+    foretag::lägg_upp(&db, &klocka(), &anna, &igen)
+        .await
+        .unwrap();
+}
+
+#[tokio::test]
+async fn radering_nekas_när_företaget_har_bokförda_verifikat() {
+    let db = Databas::tillfällig().await;
+    let (anna, id) = testhjalp::företag(&db).await;
+    testhjalp::bokför(
+        &db,
+        &anna,
+        id,
+        "2026-03-14",
+        &[(1930, 10_000, 0), (3001, 0, 10_000)],
+    )
+    .await;
+    let loggen = installationslogg::läs(&db).await.unwrap().len();
+
+    let fel = foretag::radera(&db, &klocka(), &anna, id)
+        .await
+        .unwrap_err();
+
+    assert!(
+        matches!(fel, FöretagsFel::HarRäkenskapsinformation),
+        "{fel:?}"
+    );
+    assert_eq!(foretag::mina_företag(&db, &anna).await.unwrap().len(), 1);
+    assert_eq!(installationslogg::läs(&db).await.unwrap().len(), loggen);
+}
+
+#[tokio::test]
+async fn den_utan_åtkomst_kan_inte_radera_företaget() {
+    let db = Databas::tillfällig().await;
+    let (anna, id) = testhjalp::företag(&db).await;
+    let bertil = testhjalp::användare(&db, "bertil@example.se").await;
+
+    let fel = foretag::radera(&db, &klocka(), &bertil, id)
+        .await
+        .unwrap_err();
+
+    assert!(matches!(
+        fel,
+        FöretagsFel::Åtkomst(ÅtkomstFel::IngenÅtkomst)
+    ));
+    assert_eq!(foretag::mina_företag(&db, &anna).await.unwrap().len(), 1);
 }

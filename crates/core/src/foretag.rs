@@ -18,7 +18,7 @@ use sqlx::SqliteConnection;
 use crate::aktor::{self, Aktör, Handling};
 use crate::atkomst::{self, Ärende, ÅtkomstFel};
 use crate::behandlingshistorik::Händelse;
-use crate::{Databas, DatabasFel, Klocka, kontoplan};
+use crate::{Databas, DatabasFel, Klocka, installationslogg, kontoplan};
 
 /// Ett företags id i installationen. Vem som helst kan skriva ett id; `core` avgör om aktören
 /// har åtkomst till företaget.
@@ -45,6 +45,9 @@ pub enum FöretagsFel {
     Ogiltigt(Vec<Fältfel>),
     #[error("{0} finns redan i Maya. Be någon som har åtkomst till företaget om en inbjudan.")]
     OrgnrFinns(Organisationsnummer),
+    /// Företaget har bokförda verifikat eller underlag och kan inte raderas (A1).
+    #[error("företaget har räkenskapsinformation och kan inte raderas")]
+    HarRäkenskapsinformation,
     #[error(transparent)]
     Åtkomst(#[from] ÅtkomstFel),
 }
@@ -549,6 +552,63 @@ pub async fn ändra_första_årets_slut(
             }),
         )
         .await?;
+    ärende.slutför().await?;
+    Ok(())
+}
+
+/// Raderar ett företag som saknar räkenskapsinformation (bokförda verifikat; underlag och
+/// fakturor när de finns) med kontoplan, räkenskapsår, utkast, åtkomst och
+/// behandlingshistorik. Raderingen skrivs i installationsloggen som `företag raderat` med
+/// orgnr och namn, aktör och tid, i samma transaktion.
+pub async fn radera(
+    db: &Databas,
+    klocka: &Klocka,
+    aktör: &Aktör,
+    id: FöretagsId,
+) -> Result<(), FöretagsFel> {
+    let mut ärende = Ärende::börja(db, klocka, aktör, id, Handling::RaderaFöretag).await?;
+    let nu = ärende.nu;
+    let conn = ärende.conn();
+    let har: bool = sqlx::query_scalar(
+        "SELECT EXISTS (SELECT 1 FROM verifikat WHERE foretag_id = ? AND bokford IS NOT NULL)",
+    )
+    .bind(id.0)
+    .fetch_one(&mut *conn)
+    .await?;
+    if har {
+        return Err(FöretagsFel::HarRäkenskapsinformation);
+    }
+    let (orgnr, uppgifter) = läs_uppgifter(&mut *conn, id).await?;
+    // Företagsraden tas bort före behandlingshistoriken, som bara går att radera för ett
+    // företag som inte finns; främmande nycklar prövas vid COMMIT.
+    sqlx::query("PRAGMA defer_foreign_keys = ON")
+        .execute(&mut *conn)
+        .await?;
+    for sql in [
+        "DELETE FROM verifikatrad
+         WHERE verifikat_id IN (SELECT id FROM verifikat WHERE foretag_id = ?1)",
+        "DELETE FROM verifikat WHERE foretag_id = ?1",
+        "DELETE FROM period
+         WHERE rakenskapsar_id IN (SELECT id FROM rakenskapsar WHERE foretag_id = ?1)",
+        "DELETE FROM rakenskapsar WHERE foretag_id = ?1",
+        "DELETE FROM bokforingsmetod WHERE foretag_id = ?1",
+        "DELETE FROM momsperiod WHERE foretag_id = ?1",
+        "DELETE FROM konto WHERE foretag_id = ?1",
+        "DELETE FROM atkomst WHERE foretag_id = ?1",
+        "DELETE FROM foretag WHERE id = ?1",
+        "DELETE FROM behandlingshistorik WHERE foretag_id = ?1",
+    ] {
+        sqlx::query(sql).bind(id.0).execute(&mut *conn).await?;
+    }
+    installationslogg::skriv(
+        &mut *conn,
+        nu,
+        aktör,
+        installationslogg::Händelse::FöretagRaderat,
+        &orgnr.to_string(),
+        serde_json::json!({ "orgnr": orgnr.to_string(), "namn": uppgifter.namn }),
+    )
+    .await?;
     ärende.slutför().await?;
     Ok(())
 }
