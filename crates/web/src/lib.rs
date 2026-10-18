@@ -27,4 +27,8 @@ pub use server::{ClientIp, client_ip, router};
 pub fn hydrate() {
     console_error_panic_hook::set_once();
     leptos::mount::hydrate_body(app::App);
+    // Klar: röktesten väntar på den här markören innan de klickar.
+    if let Some(rot) = leptos::prelude::document().document_element() {
+        let _ = rot.set_attribute("data-hydrerad", "");
+    }
 }
