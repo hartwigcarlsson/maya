@@ -9,6 +9,7 @@ pub mod atkomst;
 pub mod att_gora;
 pub mod behandlingshistorik;
 pub mod bokforing;
+pub mod fakturauppgifter;
 pub mod foretag;
 pub mod ingaende_balans;
 pub mod installation;

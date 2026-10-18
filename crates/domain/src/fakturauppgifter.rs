@@ -145,22 +145,33 @@ impl Fakturauppgifter {
 /// Den största logotyp som tas emot.
 pub const STÖRSTA_LOGOTYP: usize = 1024 * 1024;
 
+/// Koderna som en logotyp kan nekas med, och texten vid fältet.
+pub const LOGOTYPSPÄRRAR: &[(&str, &str)] = &[
+    ("logotyp_saknas", "Välj en fil med logotypen."),
+    ("logotyp_for_stor", "Logotypen får vara högst 1 MB."),
+    (
+        "logotyp_format",
+        "Logotypen ska vara en PNG-, JPG- eller SVG-fil.",
+    ),
+];
+
+/// Felet för en kod i [`LOGOTYPSPÄRRAR`], t.ex. när servern skickar tillbaka koden.
+pub fn logotypfel(kod: &str) -> Option<Fältfel> {
+    LOGOTYPSPÄRRAR
+        .iter()
+        .find(|(k, _)| *k == kod)
+        .map(|(kod, text)| Fältfel::nytt(Fält::Logotyp, kod, *text))
+}
+
 /// MIME-typen för en logotyp efter filens innehåll: PNG, JPG eller SVG. Andra format nekas,
 /// liksom en tom eller för stor fil.
 pub fn kontrollera_logotyp(innehåll: &[u8]) -> Result<&'static str, Fältfel> {
+    let fel = |kod: &str| Err(logotypfel(kod).expect("koden finns i LOGOTYPSPÄRRAR"));
     if innehåll.is_empty() {
-        return Err(Fältfel::nytt(
-            Fält::Logotyp,
-            "logotyp_saknas",
-            "Välj en fil med logotypen.",
-        ));
+        return fel("logotyp_saknas");
     }
     if innehåll.len() > STÖRSTA_LOGOTYP {
-        return Err(Fältfel::nytt(
-            Fält::Logotyp,
-            "logotyp_for_stor",
-            "Logotypen får vara högst 1 MB.",
-        ));
+        return fel("logotyp_for_stor");
     }
     if innehåll.starts_with(b"\x89PNG\r\n\x1a\n") {
         return Ok("image/png");
@@ -171,11 +182,7 @@ pub fn kontrollera_logotyp(innehåll: &[u8]) -> Result<&'static str, Fältfel> {
     if är_svg(innehåll) {
         return Ok("image/svg+xml");
     }
-    Err(Fältfel::nytt(
-        Fält::Logotyp,
-        "logotyp_format",
-        "Logotypen ska vara en PNG-, JPG- eller SVG-fil.",
-    ))
+    fel("logotyp_format")
 }
 
 /// Om filen är en SVG: UTF-8-text vars första element, efter en XML-deklaration, kommentarer
