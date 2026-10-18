@@ -14,6 +14,7 @@ use std::collections::BTreeMap;
 use jiff::Timestamp;
 use jiff::civil::Date;
 use maya_domain::belopp::{Belopp, Saldo};
+use maya_domain::csv::Csv;
 use maya_domain::kontoplan::Kontonummer;
 use maya_domain::kontourval::Kontourval;
 use maya_domain::rakenskapsar::{Period, Räkenskapsår};
@@ -641,38 +642,6 @@ pub(crate) async fn filnamn(
     ))
 }
 
-/// CSV för svenska kalkylark: UTF-8 med BOM, semikolon och decimalkomma. Fält med semikolon,
-/// citattecken eller radbrytning citeras.
-struct Csv(String);
-
-impl Csv {
-    fn new(rubriker: &[&str]) -> Self {
-        let mut csv = Csv("\u{feff}".into());
-        csv.rad(rubriker.iter().map(|r| r.to_string()));
-        csv
-    }
-
-    fn rad(&mut self, fält: impl IntoIterator<Item = String>) {
-        for (i, f) in fält.into_iter().enumerate() {
-            if i > 0 {
-                self.0.push(';');
-            }
-            if f.contains([';', '"', '\n', '\r']) {
-                self.0.push('"');
-                self.0.push_str(&f.replace('"', "\"\""));
-                self.0.push('"');
-            } else {
-                self.0.push_str(&f);
-            }
-        }
-        self.0.push('\n');
-    }
-
-    fn innehåll(self) -> Vec<u8> {
-        self.0.into_bytes()
-    }
-}
-
 /// Tid i Stockholm till sekunden.
 fn tid(t: Timestamp) -> String {
     t.to_zoned(maya_domain::tid::stockholm())
@@ -691,10 +660,7 @@ fn belopp(b: Belopp) -> String {
 
 /// Kronor med decimalkomma, utan tusentalsavgränsare och med minus för kredit.
 fn saldo_text(s: Saldo) -> String {
-    let öre = s.öre();
-    let tecken = if öre < 0 { "-" } else { "" };
-    let öre = öre.unsigned_abs();
-    format!("{tecken}{},{:02}", öre / 100, öre % 100)
+    maya_domain::csv::belopp(s.öre())
 }
 
 fn kontonummer(nummer: i64) -> Result<Kontonummer, DatabasFel> {

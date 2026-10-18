@@ -544,7 +544,6 @@ impl Rapport {
     /// CSV för kalkylark: UTF-8 med BOM, semikolon, decimalkomma och en rad per konto, med
     /// kolumnerna som rapporten visar.
     pub fn csv(&self) -> String {
-        let mut ut = String::from("\u{feff}");
         let mut rubriker: Vec<String> = [
             "Rapport",
             "Räkenskapsår",
@@ -561,7 +560,8 @@ impl Rapport {
                 .iter()
                 .map(|k| format!("{} ({})", k.rubrik, k.underrubrik)),
         );
-        skriv_csv_rad(&mut ut, &rubriker);
+        let rubriker: Vec<&str> = rubriker.iter().map(String::as_str).collect();
+        let mut ut = crate::csv::Csv::new(&rubriker);
         let år = format!("{} – {}", self.år.start(), self.år.slut());
         for k in &self.konton {
             let mut fält = vec![
@@ -576,11 +576,11 @@ impl Rapport {
             fält.extend(
                 k.värden
                     .iter()
-                    .map(|v| v.map(csv_belopp).unwrap_or_default()),
+                    .map(|v| v.map(crate::csv::belopp).unwrap_or_default()),
             );
-            skriv_csv_rad(&mut ut, &fält);
+            ut.rad(fält);
         }
-        ut
+        ut.text()
     }
 }
 
@@ -591,28 +591,6 @@ fn saknad_period() -> Kolumnperiod {
         ingående: false,
         rörelser: None,
     }
-}
-
-fn skriv_csv_rad(ut: &mut String, fält: &[String]) {
-    let rad: Vec<String> = fält
-        .iter()
-        .map(|f| {
-            if f.contains([';', '"', '\n', '\r']) {
-                format!("\"{}\"", f.replace('"', "\"\""))
-            } else {
-                f.clone()
-            }
-        })
-        .collect();
-    ut.push_str(&rad.join(";"));
-    ut.push('\n');
-}
-
-/// Kronor med decimalkomma och utan tusentalsavgränsare: `-1234,50`.
-fn csv_belopp(öre: i64) -> String {
-    let tecken = if öre < 0 { "-" } else { "" };
-    let öre = öre.unsigned_abs();
-    format!("{tecken}{},{:02}", öre / 100, öre % 100)
 }
 
 fn stor_bokstav(text: &str) -> String {
