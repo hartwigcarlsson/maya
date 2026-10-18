@@ -1,0 +1,2 @@
+# Golden files jämförs byte för byte (CRLF och BOM i CSV); git får inte röra radsluten.
+crates/*/tests/golden/** -text

@@ -5,7 +5,7 @@ use maya_domain::belopp::Belopp;
 use maya_domain::kontoplan::{ink2, klassnamn, om_numret};
 use serde_json::{Value, json};
 
-use crate::{Kontoplan, Sidfot, Signatur, Verifikat};
+use crate::{Behandlingshistorik, Kontoplan, Sidfot, Signatur, Verifikat};
 
 /// Ett dokument som Maya kan skriva som PDF. Varje variant har en egen mall.
 // Ett dokument skapas en gång och lånas till `skriv`; storleken spelar ingen roll.
@@ -14,6 +14,7 @@ use crate::{Kontoplan, Sidfot, Signatur, Verifikat};
 pub enum Dokument {
     Verifikat(Verifikat),
     Kontoplan(Kontoplan),
+    Behandlingshistorik(Behandlingshistorik),
 }
 
 impl Dokument {
@@ -22,6 +23,7 @@ impl Dokument {
         match self {
             Dokument::Verifikat(_) => "verifikat.typ",
             Dokument::Kontoplan(_) => "kontoplan.typ",
+            Dokument::Behandlingshistorik(_) => "behandlingshistorik.typ",
         }
     }
 
@@ -30,6 +32,7 @@ impl Dokument {
         let dokument = match self {
             Dokument::Verifikat(v) => verifikat(v),
             Dokument::Kontoplan(k) => kontoplan(k),
+            Dokument::Behandlingshistorik(b) => behandlingshistorik(b),
         };
         json!({
             "sidfot": {
@@ -47,6 +50,13 @@ impl Dokument {
 fn tid(t: Timestamp) -> String {
     t.to_zoned(maya_domain::tid::stockholm())
         .strftime("%Y-%m-%d %H:%M")
+        .to_string()
+}
+
+/// Tid i Stockholm, till sekunden, som i behandlingshistoriken.
+fn sekund(t: Timestamp) -> String {
+    t.to_zoned(maya_domain::tid::stockholm())
+        .strftime("%Y-%m-%d %H:%M:%S")
         .to_string()
 }
 
@@ -147,6 +157,25 @@ fn kontoplan(k: &Kontoplan) -> Value {
         "bas_version": k.bas_version,
         "antal": k.konton.len(),
         "klasser": klasser,
+    })
+}
+
+fn behandlingshistorik(b: &Behandlingshistorik) -> Value {
+    let antal = match b.poster.len() {
+        1 => "1 post".to_string(),
+        n => format!("{n} poster"),
+    };
+    json!({
+        "foretag": { "namn": b.företag.namn, "orgnr": b.företag.orgnr },
+        "urval": b.urval,
+        "antal": antal,
+        "poster": b.poster.iter().map(|p| json!({
+            "tid": sekund(p.tid),
+            "aktor": p.aktör,
+            "typ": p.typ,
+            "objekt": p.objekt,
+            "beskrivning": p.beskrivning,
+        })).collect::<Vec<_>>(),
     })
 }
 

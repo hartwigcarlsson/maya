@@ -118,6 +118,26 @@ pub struct Historikpost {
     pub kanal: String,
 }
 
+/// Ett urval ur företagets behandlingshistorik (A2), en rad per post i den ordning de skrevs.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Behandlingshistorik {
+    pub företag: Företag,
+    /// Urvalet som text, t.ex. `typ konto namnbytt · från 2026-10-01`, eller `alla poster`.
+    pub urval: String,
+    pub poster: Vec<Behandlingspost>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Behandlingspost {
+    pub tid: Timestamp,
+    /// Aktören som den visas, t.ex. `Anna (webb)` eller `Maya`.
+    pub aktör: String,
+    pub typ: String,
+    pub objekt: String,
+    /// Ändringen som text.
+    pub beskrivning: String,
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum PdfFel {
     /// Mallen gick inte att kompilera eller blev inte PDF/A-2b. Mallarna är inbyggda, så det

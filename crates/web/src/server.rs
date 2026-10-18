@@ -19,6 +19,7 @@ use maya_core::{Databas, Klocka};
 use crate::app::{App, shell};
 use crate::assets;
 use crate::atkomst::server::{self as atkomst, ÅtkomstState};
+use crate::behandlingshistorik::server::{self as behandlingshistorik, BehandlingshistorikState};
 use crate::foretag::server::{self as foretag, FöretagsState};
 use crate::ingaende_balans::server::{self as ingaende_balans, IngåendeBalansState};
 use crate::inloggning::{self, InloggningsState};
@@ -72,6 +73,10 @@ pub fn router(config: Arc<Config>, db: Databas) -> Router {
         klocka: inloggning.klocka.clone(),
     };
     let inställningar = InställningsState {
+        db: db.clone(),
+        klocka: inloggning.klocka.clone(),
+    };
+    let behandlingshistorik = BehandlingshistorikState {
         db: db.clone(),
         klocka: inloggning.klocka.clone(),
     };
@@ -140,6 +145,10 @@ pub fn router(config: Arc<Config>, db: Databas) -> Router {
         .layer(middleware::from_fn_with_state(
             inställningar.clone(),
             installningar::lägg_på_inställningar,
+        ))
+        .layer(middleware::from_fn_with_state(
+            behandlingshistorik,
+            behandlingshistorik::lägg_på_behandlingshistorik,
         ))
         .layer(middleware::from_fn_with_state(
             åtkomst.clone(),

@@ -6,6 +6,7 @@ pub mod atkomst;
 pub mod behandlingshistorik;
 pub mod config;
 mod databas;
+pub mod export;
 pub mod foretag;
 pub mod inloggning;
 pub mod installation;

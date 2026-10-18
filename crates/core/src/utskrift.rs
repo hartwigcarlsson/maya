@@ -8,8 +8,9 @@ use maya_domain::kontoplan::bas;
 use maya_domain::rakenskapsar::periodnamn;
 use maya_pdf::{Dokument, Sidfot};
 
-use crate::aktor::Aktör;
+use crate::aktor::{Aktör, Kanal};
 use crate::atkomst::ÅtkomstFel;
+use crate::behandlingshistorik::{self, Urval};
 use crate::foretag::{self, FöretagsId};
 use crate::verifikat::{self, Signatur, VerifikatId, Verifikationsnummer};
 use crate::{Databas, DatabasFel, Klocka, kontoplan};
@@ -155,6 +156,45 @@ pub async fn kontoplan(
             .collect(),
     });
     skriv(db, klocka, aktör, "kontoplan.pdf".into(), &dokument).await
+}
+
+/// Behandlingshistoriken i urvalet som PDF (A2), med urvalet överst.
+pub async fn behandlingshistorik(
+    db: &Databas,
+    klocka: &Klocka,
+    aktör: &Aktör,
+    företag: FöretagsId,
+    urval: &Urval,
+) -> Result<Pdf, UtskriftFel> {
+    let historik = behandlingshistorik::historik(db, aktör, företag, urval).await?;
+    let f = foretag::företaget(db, aktör, företag).await?;
+    let filnamn = format!(
+        "behandlingshistorik_{}_{}.pdf",
+        f.orgnr.siffror(),
+        klocka.idag().strftime("%Y%m%d")
+    );
+    let dokument = Dokument::Behandlingshistorik(maya_pdf::Behandlingshistorik {
+        företag: maya_pdf::Företag {
+            namn: f.namn,
+            orgnr: f.orgnr.to_string(),
+        },
+        urval: urval.beskriv(&historik.aktörer),
+        poster: historik
+            .poster
+            .iter()
+            .map(|p| maya_pdf::Behandlingspost {
+                tid: p.tid,
+                aktör: match p.aktör.kanal {
+                    Kanal::Maya => p.aktörsnamn(),
+                    kanal => format!("{} ({})", p.aktörsnamn(), kanal.namn()),
+                },
+                typ: p.typ.clone(),
+                objekt: p.objekt.clone(),
+                beskrivning: p.text(),
+            })
+            .collect(),
+    });
+    skriv(db, klocka, aktör, filnamn, &dokument).await
 }
 
 async fn skriv(
