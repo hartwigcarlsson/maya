@@ -5,6 +5,7 @@ use maya_domain::verifikat::{NyRad, NyttVerifikat};
 
 use crate::aktor::{Aktör, AnvändarId};
 use crate::foretag::{self, FöretagsId};
+use crate::inloggning::{self, Inloggad, Token, hash};
 use crate::{Databas, Klocka, verifikat};
 
 /// En ny användare i webben, utan passkey och utan åtkomst till något företag. Inbjudningar
@@ -23,6 +24,32 @@ pub async fn användare(db: &Databas, epost: &str) -> Aktör {
     .await
     .expect("testanvändare");
     Aktör::webb(AnvändarId(id))
+}
+
+/// `aktör` inloggad i en ny session där passkeyn användes vid `klocka`s tid, som om hen just
+/// hade loggat in.
+pub async fn inloggad(db: &Databas, klocka: &Klocka, aktör: &Aktör) -> Inloggad {
+    let token = session(db, klocka, aktör).await;
+    inloggning::session(db, klocka, &token)
+        .await
+        .expect("sessionen läses")
+        .expect("sessionen gäller")
+}
+
+/// Som [`inloggad`], men ger sessionstoken till cookien.
+pub async fn session(db: &Databas, klocka: &Klocka, aktör: &Aktör) -> String {
+    let token = Token::ny();
+    sqlx::query(
+        "INSERT INTO session (hash, anvandare_id, skapad, senast_aktiv, passkey_anvand)
+         VALUES (?1, ?2, ?3, ?3, ?3)",
+    )
+    .bind(hash(token.hemlighet()))
+    .bind(aktör.användare.expect("en användare").0)
+    .bind(klocka.nu().to_string())
+    .execute(db.pool())
+    .await
+    .expect("testsession");
+    token.hemlighet().to_string()
 }
 
 /// Kör en SQL-sats direkt mot databasen, förbi `core`, för att visa att schemat avvisar den.
