@@ -3,6 +3,10 @@
 //! raderar en post, och schemat avvisar `UPDATE` och `DELETE`.
 
 use jiff::Timestamp;
+use jiff::civil::Date;
+use maya_domain::belopp::Saldo;
+use maya_domain::foretag::{Bokföringsmetod, Momsperiod};
+use serde_json::Value;
 use sqlx::SqliteConnection;
 
 use crate::aktor::{Aktör, AnvändarId, Handling, Kanal};
@@ -30,6 +34,25 @@ pub enum Händelse {
 }
 
 impl Händelse {
+    /// Alla typer som har en kodväg. En ny typ läggs till här också, så att testet som kör
+    /// varje typ genom `core` måste få en kodväg för den.
+    pub const ALLA: [Händelse; 14] = [
+        Händelse::FöretagSkapat,
+        Händelse::FöretagÄndrat,
+        Händelse::KontoSkapat,
+        Händelse::KontoNamnbytt,
+        Händelse::KontoAktiverat,
+        Händelse::KontoInaktiverat,
+        Händelse::BasTillägg,
+        Händelse::RäkenskapsårSkapat,
+        Händelse::RäkenskapsårÄndrat,
+        Händelse::BokföringsmetodBytt,
+        Händelse::MomsperiodBytt,
+        Händelse::VerifikatBokfört,
+        Händelse::UtkastRaderat,
+        Händelse::IngåendeBalansÄndrad,
+    ];
+
     pub fn namn(self) -> &'static str {
         match self {
             Händelse::FöretagSkapat => "företag skapat",
@@ -109,6 +132,235 @@ pub async fn läs(
     .fetch_all(&mut *tx)
     .await?;
     Ok(poster(rader)?)
+}
+
+/// Ett urval ur behandlingshistoriken. `None` betyder alla.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Urval {
+    /// Typen som den står i posten, t.ex. `konto namnbytt`.
+    pub typ: Option<String>,
+    pub aktör: Option<Aktörsval>,
+    /// Första dagen, i Stockholm.
+    pub från: Option<Date>,
+    /// Sista dagen, i Stockholm.
+    pub till: Option<Date>,
+}
+
+/// En aktör att välja i urvalet: en användare (i vilken kanal som helst), eller en kanal utan
+/// användare (Maya självt, CLI:t).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Aktörsval {
+    Användare(AnvändarId),
+    Kanal(Kanal),
+}
+
+/// Ett urval ur behandlingshistoriken och det som går att välja i den.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Historik {
+    /// Posterna i urvalet, i den ordning de skrevs.
+    pub poster: Vec<Post>,
+    /// Typerna som finns i företagets historik, i bokstavsordning.
+    pub typer: Vec<String>,
+    /// Aktörerna som finns i företagets historik, med namn, i namnordning.
+    pub aktörer: Vec<(Aktörsval, String)>,
+}
+
+/// Företagets behandlingshistorik i urvalet.
+pub async fn historik(
+    db: &Databas,
+    aktör: &Aktör,
+    företag: FöretagsId,
+    urval: &Urval,
+) -> Result<Historik, ÅtkomstFel> {
+    let alla = läs(db, aktör, företag).await?;
+    let mut typer: Vec<String> = alla.iter().map(|p| p.typ.clone()).collect();
+    typer.sort();
+    typer.dedup();
+    let mut aktörer: Vec<(Aktörsval, String)> = Vec::new();
+    for post in &alla {
+        let val = post.aktörsval();
+        if !aktörer.iter().any(|(a, _)| *a == val) {
+            aktörer.push((val, post.aktörsnamn()));
+        }
+    }
+    // Användarna i namnordning, sedan Maya och CLI:t.
+    aktörer.sort_by_key(|(val, namn)| (matches!(val, Aktörsval::Kanal(_)), namn.to_lowercase()));
+    let poster = alla.into_iter().filter(|p| urval.tar_med(p)).collect();
+    Ok(Historik {
+        poster,
+        typer,
+        aktörer,
+    })
+}
+
+impl Urval {
+    /// Om posten är med i urvalet.
+    pub fn tar_med(&self, post: &Post) -> bool {
+        let dag = maya_domain::tid::datum(post.tid);
+        self.typ.as_ref().is_none_or(|t| *t == post.typ)
+            && self.aktör.is_none_or(|a| a == post.aktörsval())
+            && self.från.is_none_or(|f| dag >= f)
+            && self.till.is_none_or(|t| dag <= t)
+    }
+}
+
+impl Post {
+    /// Aktören som den kan väljas i ett urval.
+    pub fn aktörsval(&self) -> Aktörsval {
+        match self.aktör.användare {
+            Some(a) => Aktörsval::Användare(a),
+            None => Aktörsval::Kanal(self.aktör.kanal),
+        }
+    }
+
+    /// Beloppet som posten gäller, för verifikat och utkast.
+    pub fn belopp(&self) -> Option<Saldo> {
+        self.beskrivning["summa_öre"].as_i64().map(Saldo::från_öre)
+    }
+
+    /// Beskrivningen av ändringen som text. En typ som saknar egen text (en som tillkommit
+    /// efter den här versionen) visas med beskrivningens fält, så att inget döljs.
+    pub fn text(&self) -> String {
+        let b = &self.beskrivning;
+        let s = |v: &Value| match v {
+            Value::String(s) => s.clone(),
+            Value::Null => String::new(),
+            v => v.to_string(),
+        };
+        let f = |namn: &str| s(&b[namn]);
+        let metod = |kod: &Value| {
+            Bokföringsmetod::från_kod(&s(kod)).map_or_else(|| s(kod), |m| m.namn().to_lowercase())
+        };
+        let moms = |kod: &Value| {
+            Momsperiod::från_kod(&s(kod)).map_or_else(|| s(kod), |m| m.namn().to_lowercase())
+        };
+        let kronor = |öre: &Value| Saldo::från_öre(öre.as_i64().unwrap_or_default()).to_string();
+        match self.typ.as_str() {
+            "företag skapat" => format!(
+                "{} upplagt: räkenskapsår {} – {}, {}, momsperiod {}, kontoplan {}",
+                f("namn"),
+                s(&b["första_räkenskapsår"]["start"]),
+                s(&b["första_räkenskapsår"]["slut"]),
+                metod(&b["bokföringsmetod"]),
+                moms(&b["momsperiod"]),
+                f("kontoplan"),
+            ),
+            "företag ändrat" => b
+                .as_object()
+                .map(|fält| {
+                    fält
+                        .iter()
+                        .map(|(namn, v)| {
+                            format!("{namn}: ”{}” → ”{}”", s(&v["från"]), s(&v["till"]))
+                        })
+                        .collect::<Vec<_>>()
+                        .join("; ")
+                })
+                .unwrap_or_default(),
+            "räkenskapsår skapat" => {
+                let mut skäl = f("skäl");
+                if let Some(först) = skäl.chars().next() {
+                    skäl.replace_range(..först.len_utf8(), &först.to_uppercase().to_string());
+                }
+                skäl
+            }
+            "räkenskapsår ändrat" => format!(
+                "Slutet ändrat från {} till {}",
+                s(&b["slut"]["från"]),
+                s(&b["slut"]["till"])
+            ),
+            "bokföringsmetod bytt" => format!(
+                "Från {} till {} fr.o.m. {}",
+                metod(&b["från"]),
+                metod(&b["till"]),
+                f("gäller_från")
+            ),
+            "momsperiod bytt" => format!(
+                "Från {} till {} fr.o.m. {}",
+                moms(&b["från"]),
+                moms(&b["till"]),
+                f("gäller_från")
+            ),
+            "ingående balans ändrad" => b["ändringar"]
+                .as_array()
+                .map(|ä| {
+                    ä.iter()
+                        .map(|r| {
+                            format!(
+                                "{}: {} → {}",
+                                s(&r["konto"]),
+                                kronor(&r["före_öre"]),
+                                kronor(&r["efter_öre"])
+                            )
+                        })
+                        .collect::<Vec<_>>()
+                        .join("; ")
+                })
+                .unwrap_or_default(),
+            "konto skapat" => format!("Eget konto ”{}”", f("namn")),
+            "konto namnbytt" => {
+                format!("Namn ändrat från ”{}” till ”{}”", f("från"), f("till"))
+            }
+            "konto aktiverat" => "Aktiverat".into(),
+            "konto inaktiverat" => "Inaktiverat".into(),
+            "BAS-tillägg" => {
+                let konton: Vec<String> = b["konton"]
+                    .as_array()
+                    .map(|k| k.iter().map(s).collect())
+                    .unwrap_or_default();
+                let antal = if konton.len() == 1 {
+                    "1 konto tillagt som inaktivt".to_string()
+                } else {
+                    format!("{} konton tillagda som inaktiva", konton.len())
+                };
+                format!("{antal}: {}", konton.join(", "))
+            }
+            "verifikat bokfört" => format!(
+                "{} ”{}”, {} rader",
+                f("datum"),
+                f("beskrivning"),
+                b["rader"].as_array().map_or(0, Vec::len)
+            ),
+            "utkast raderat" => format!(
+                "Utkast daterat {}, {} rader",
+                f("datum"),
+                s(&b["antal_rader"])
+            ),
+            _ => fält_som_text(b),
+        }
+    }
+
+    /// Aktören som den visas: `Maya`, användarens namn, eller kanalen (`cli`).
+    pub fn aktörsnamn(&self) -> String {
+        match (self.aktör.kanal, &self.användarnamn) {
+            (Kanal::Maya, _) => "Maya".into(),
+            (_, Some(namn)) => namn.clone(),
+            (kanal, None) => kanal.namn().into(),
+        }
+    }
+}
+
+/// En beskrivning utan egen text: `nyckel: värde` för varje fält, nästlade med punkt.
+fn fält_som_text(v: &Value) -> String {
+    fn platta(prefix: &str, v: &Value, ut: &mut Vec<String>) {
+        match v {
+            Value::Object(fält) => {
+                for (k, v) in fält {
+                    let namn = if prefix.is_empty() {
+                        k.clone()
+                    } else {
+                        format!("{prefix}.{k}")
+                    };
+                    platta(&namn, v, ut);
+                }
+            }
+            Value::String(s) => ut.push(format!("{prefix}: {s}")),
+            v => ut.push(format!("{prefix}: {v}")),
+        }
+    }
+    let mut ut = Vec::new();
+    platta("", v, &mut ut);
+    ut.join("; ")
 }
 
 /// Posterna som rör ett konto: när det kom till (företaget skapat med en kopia av BAS, eller ett
