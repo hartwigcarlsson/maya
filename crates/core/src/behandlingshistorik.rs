@@ -23,6 +23,7 @@ pub enum Händelse {
     VerifikatBokfört,
     UtkastRaderat,
     IngåendeBalansÄndrad,
+    Sie4Exporterad,
 }
 
 impl Händelse {
@@ -38,6 +39,7 @@ impl Händelse {
             Händelse::VerifikatBokfört => "verifikat bokfört",
             Händelse::UtkastRaderat => "utkast raderat",
             Händelse::IngåendeBalansÄndrad => "ingående balans ändrad",
+            Händelse::Sie4Exporterad => "SIE4 exporterad",
         }
     }
 }

@@ -95,6 +95,9 @@ pub enum Handling {
     HanteraUtkast,
     /// Skriva in eller ändra den ingående balansen.
     ÄndraIngåendeBalans,
+    /// Exportera ett räkenskapsår som SIE4. Bara webben, ingen export via MCP eller CLI (beslut
+    /// i #67).
+    ExporteraSie4,
 }
 
 /// Kanalpolicyn: om `kanal` får utföra `handling`.
@@ -106,6 +109,7 @@ pub fn tillåter(kanal: Kanal, handling: Handling) -> bool {
         | Handling::ÄndraKontoplan
         | Handling::Bokföra
         | Handling::HanteraUtkast
-        | Handling::ÄndraIngåendeBalans => kanal == Kanal::Webb,
+        | Handling::ÄndraIngåendeBalans
+        | Handling::ExporteraSie4 => kanal == Kanal::Webb,
     }
 }

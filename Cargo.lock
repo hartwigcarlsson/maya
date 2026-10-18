@@ -2041,6 +2041,7 @@ dependencies = [
  "jiff",
  "maya-core",
  "maya-domain",
+ "maya-sie",
  "serde_json",
  "sha2 0.10.9",
  "sqlx",

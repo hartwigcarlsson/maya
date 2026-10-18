@@ -5,7 +5,20 @@ use maya_domain::verifikat::{NyRad, NyttVerifikat};
 
 use crate::aktor::{Aktör, AnvändarId};
 use crate::foretag::{self, FöretagsId};
-use crate::{Databas, Klocka, verifikat};
+use crate::{Databas, Klocka, sie4, verifikat};
+
+/// SIE4-exporten med en skrivare som `förvanskar` filen innan den skrivs, för att visa att
+/// återläsningen stoppar den.
+pub async fn exportera_sie4_förvanskad(
+    db: &Databas,
+    klocka: &Klocka,
+    aktör: &Aktör,
+    företag: FöretagsId,
+    år: jiff::civil::Date,
+    förvanska: impl FnOnce(&mut maya_sie::Sie4),
+) -> Result<sie4::Sie4Export, sie4::Sie4Fel> {
+    sie4::exportera_med(db, klocka, aktör, företag, år, förvanska).await
+}
 
 /// En ny användare i webben, utan passkey och utan åtkomst till något företag. Inbjudningar
 /// kommer i ett senare ticket; tills dess är det här vägen till en andra användare i tester.
