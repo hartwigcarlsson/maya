@@ -1,5 +1,9 @@
 # Mayas image: binären med sajten inbäddad, i en minimal image som kör som icke-root.
 # CI bygger den för linux/amd64 och linux/arm64 på var sin maskin och publicerar den på GHCR.
+#
+# webauthn-rs länkar mot systemets OpenSSL (det finns ingen rustls-variant): rust:bookworm har
+# libssl-dev och distroless/cc-debian12 har libssl3. Byt inte till distroless/static eller en
+# image utan libssl3 utan att vendra OpenSSL.
 
 FROM rust:1.99.0-bookworm AS build
 ARG CARGO_LEPTOS_VERSION=0.3.11

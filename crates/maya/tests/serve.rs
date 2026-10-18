@@ -80,6 +80,41 @@ fn maya_serve_las_env_skriver_ut_konfigurationen_och_svarar_pa_healthz() {
     assert!(!stdout.contains("hemligt-losenord"), "{stdout}");
 }
 
+#[test]
+fn maya_serve_vagrar_starta_nar_den_publika_url_en_har_bytt_domän() {
+    let dir = tempfile::tempdir().unwrap();
+    let port = ledig_port();
+    let konfiguration = |url: &str| {
+        std::fs::write(
+            dir.path().join(".env"),
+            format!(
+                "MAYA_PUBLIC_URL={url}\nMAYA_BACKUP_DIR={backup}\nMAYA_DATA_DIR={data}\n\
+                 MAYA_LISTEN=127.0.0.1:{port}\n",
+                backup = dir.path().display(),
+                data = dir.path().join("data").display(),
+            ),
+        )
+        .unwrap();
+    };
+    konfiguration("https://bokforing.example.se");
+    let server = Server(
+        maya(dir.path())
+            .arg("serve")
+            .stdout(Stdio::piped())
+            .spawn()
+            .unwrap(),
+    );
+    assert_eq!(vänta_på_healthz(port, &server), "HTTP/1.1 200 OK");
+    server.stoppa();
+
+    konfiguration("https://annan.example.se");
+    let output = maya(dir.path()).arg("serve").output().unwrap();
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("rp_id bokforing.example.se"), "{stderr}");
+}
+
 struct Server(Child);
 
 impl Server {

@@ -12,8 +12,12 @@ test-support = ["dep:tempfile"]
 
 [dependencies]
 maya-domain.workspace = true
+getrandom.workspace = true
+hex.workspace = true
 ipnet.workspace = true
 jiff.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
 sqlx.workspace = true
 tempfile = { workspace = true, optional = true }
 thiserror.workspace = true
