@@ -13,7 +13,8 @@ COPY rust-toolchain.toml ./
 RUN rustup show active-toolchain || rustup toolchain install
 COPY . .
 # Den enda sekventiella vägen genom cargo-leptos: sajten byggs före servern, som bäddar in den.
-RUN cargo leptos build --release --precompress \
+# --cargo-locked: bygget använder exakt Cargo.lock, som CI (`--locked`).
+RUN cargo leptos build --release --precompress --cargo-locked \
     && install -D target/release/maya /out/maya \
     && mkdir -p /out/data /out/backup
 
