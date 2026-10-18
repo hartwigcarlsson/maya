@@ -1,0 +1,38 @@
+# Exempel: Maya bakom en Traefik som redan finns, via labels på ett externt nätverk.
+# Traefiks nätverk heter här `traefik`; byt namn och certResolver efter din installation.
+#
+#   docker compose -f compose.traefik-extern.yaml up -d
+#
+# Sätt MAYA_TRUSTED_PROXY i .env till Traefiks adress (eller nätverkets nätblock), annars
+# ignorerar Maya X-Forwarded-For. Se docs/drift.md.
+
+name: maya
+
+services:
+  maya:
+    image: ghcr.io/hartwigcarlsson/maya:0.1.0
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      MAYA_DATA_DIR: /data
+      MAYA_LISTEN: 0.0.0.0:8080
+    volumes:
+      - maya-data:/data
+      - ${MAYA_BACKUP_HOST_DIR:-./backup}:/backup
+    networks: [traefik]
+    labels:
+      traefik.enable: "true"
+      traefik.docker.network: traefik
+      traefik.http.routers.maya.rule: Host(`${MAYA_DOMAIN:?ange MAYA_DOMAIN i .env}`)
+      traefik.http.routers.maya.entrypoints: websecure
+      traefik.http.routers.maya.tls.certresolver: le
+      traefik.http.services.maya.loadbalancer.server.port: "8080"
+      traefik.http.services.maya.loadbalancer.passhostheader: "true"
+      traefik.http.services.maya.loadbalancer.responseforwarding.flushinterval: "-1"
+
+volumes:
+  maya-data:
+
+networks:
+  traefik:
+    external: true

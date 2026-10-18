@@ -1,0 +1,6 @@
+target
+.git
+.claude
+.agents
+.env
+docs
