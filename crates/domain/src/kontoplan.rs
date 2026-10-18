@@ -87,7 +87,7 @@ impl std::fmt::Display for Kontonummer {
 pub struct Årssaldo {
     pub start: jiff::civil::Date,
     pub slut: jiff::civil::Date,
-    pub öre: i64,
+    pub saldo: crate::belopp::Saldo,
 }
 
 /// Varför ett konto inte kan inaktiveras.
@@ -116,9 +116,7 @@ impl std::fmt::Display for Inaktiveringsspärr {
                 f,
                 "Saldo {} kr i räkenskapsåret {}–{}, som inte är stängt. \
                  Bara konton med nollsaldo kan inaktiveras.",
-                kronor(s.öre),
-                s.start,
-                s.slut
+                s.saldo, s.start, s.slut
             ),
         }
     }
@@ -132,25 +130,13 @@ pub fn kan_inaktiveras(
     if let Some(flöde) = flöde_som_bokför_på(nummer) {
         return Err(Inaktiveringsspärr::Flöde(flöde));
     }
-    match saldon.iter().find(|s| s.öre != 0) {
+    match saldon
+        .iter()
+        .find(|s| s.saldo != crate::belopp::Saldo::NOLL)
+    {
         Some(s) => Err(Inaktiveringsspärr::Saldo(*s)),
         None => Ok(()),
     }
-}
-
-/// Öre som kronor på svenska: "−1 234 567,78".
-pub fn kronor(öre: i64) -> String {
-    let tecken = if öre < 0 { "−" } else { "" };
-    let öre = öre.unsigned_abs();
-    let heltal = (öre / 100).to_string();
-    let mut grupperat = String::new();
-    for (i, c) in heltal.chars().enumerate() {
-        if i > 0 && (heltal.len() - i).is_multiple_of(3) {
-            grupperat.push('\u{a0}');
-        }
-        grupperat.push(c);
-    }
-    format!("{tecken}{grupperat},{:02}", öre % 100)
 }
 
 /// BAS namn på kontoklassen (1–8).

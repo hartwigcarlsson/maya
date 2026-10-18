@@ -1014,7 +1014,7 @@ pub(crate) mod server {
             ink2: if ink2.is_empty() { "–".into() } else { ink2 },
             saldon: saldon
                 .iter()
-                .map(|s| format!("{} kr ({}–{})", regler::kronor(s.öre), s.start, s.slut))
+                .map(|s| format!("{} kr ({}–{})", s.saldo, s.start, s.slut))
                 .collect(),
             flöde: flöde_som_bokför_på(k.nummer).map(str::to_string),
             poster: poster.into_iter().map(historikpost).collect(),

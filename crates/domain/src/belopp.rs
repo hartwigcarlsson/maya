@@ -108,6 +108,8 @@ impl fmt::Display for Saldo {
     }
 }
 
+/// Kronor som Maya visar dem överallt: mellanslag mellan tusentalen och decimalkomma,
+/// "1 234 567,78"; ett negativt saldo får ett vanligt minus framför.
 fn skriv_kronor(f: &mut fmt::Formatter<'_>, öre: u64) -> fmt::Result {
     let kronor = (öre / 100).to_string();
     let mut med_avgränsare = String::new();
