@@ -113,6 +113,14 @@ impl Original {
                 text: format!("Tidigast {} (originalets datum).", self.datum),
             }]);
         }
+        // En rättelse vänder originalets rader, också på konton som har inaktiverats sedan
+        // originalet bokfördes (R1 kräver inga aktiva konton).
+        let mut förutsättningar = förutsättningar.clone();
+        for (konto, aktiv) in &mut förutsättningar.konton {
+            if self.rader.iter().any(|r| r.konto == *konto) {
+                *aktiv = true;
+            }
+        }
         let text = |b: Belopp| {
             if b == Belopp::NOLL {
                 String::new()
@@ -133,7 +141,7 @@ impl Original {
                 })
                 .collect(),
         }
-        .kontrollera(förutsättningar)
+        .kontrollera(&förutsättningar)
     }
 }
 

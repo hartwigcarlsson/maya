@@ -416,3 +416,45 @@ async fn schemat_avvisar_en_andra_rättelse_en_rättelse_av_en_rättelse_och_än
             .contains("källa och länkar går inte att ändra")
     );
 }
+
+#[tokio::test]
+async fn ett_verifikat_rättas_också_när_ett_av_dess_konton_har_inaktiverats() {
+    let db = Databas::tillfällig().await;
+    let (anna, id) = testhjalp::företag(&db).await;
+    let original = testhjalp::bokför(
+        &db,
+        &anna,
+        id,
+        "2026-03-14",
+        &[(1930, 100, 0), (3001, 0, 100)],
+    )
+    .await;
+    // Saldot på 3001 nollas, och kontot inaktiveras.
+    testhjalp::bokför(
+        &db,
+        &anna,
+        id,
+        "2026-03-15",
+        &[(3001, 100, 0), (1930, 0, 100)],
+    )
+    .await;
+    let konto = maya_domain::kontoplan::Kontonummer::new(3001).unwrap();
+    maya_core::kontoplan::inaktivera(&db, &klocka(), &anna, id, konto)
+        .await
+        .unwrap();
+
+    let rättad = verifikat::rätta(
+        &db,
+        &klocka(),
+        &anna,
+        id,
+        original.id,
+        "2026-10-18",
+        "fel konto",
+        Rättelseval::BaraRättelse,
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(rättad.rättelse.nummer.to_string(), "V3");
+}
