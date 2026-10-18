@@ -204,6 +204,7 @@ pub fn Toppmeny() -> impl IntoView {
             <Sökfält valt=valt.clone() alla=val.0.clone() />
             <a
                 class="knapp knapp-diskret kugghjul"
+                rel="external"
                 href=format!("{bas}/installningar")
                 title="Inställningar"
                 aria-label="Inställningar"
@@ -552,41 +553,4 @@ pub(crate) fn IngenÅtkomst() -> impl IntoView {
 #[component]
 pub fn AttGöra() -> impl IntoView {
     view! { <Företagssida rubrik="Att göra" tom="Inget att göra ännu." /> }
-}
-
-/// Inställningar bakom kugghjulet. Företag, Åtkomst, Behandlingshistorik och
-/// Systemdokumentation kommer med sina tickets.
-#[component]
-pub fn Inställningar() -> impl IntoView {
-    if !inloggad() {
-        return view! { <LoggaIn /> }.into_any();
-    }
-    let id = use_params_map().with_untracked(|p| p.get("id").unwrap_or_default());
-    let val = use_context::<Företagsval>().unwrap_or_default();
-    match val.0.into_iter().find(|f| f.id == id) {
-        Some(f) => {
-            let kontoplan = format!("{}/installningar/kontoplan", f.href());
-            let ingående_balans = format!("{}/installningar/ingaende-balans", f.href());
-            view! {
-                <section class="sida">
-                    <p class="diskret">{f.namn} " · " {f.orgnr}</p>
-                    <h1>"Inställningar"</h1>
-                    <ul class="lista">
-                        <li>
-                            <a rel="external" href=kontoplan>
-                                "Kontoplan"
-                            </a>
-                        </li>
-                        <li>
-                            <a rel="external" href=ingående_balans>
-                                "Ingående balans"
-                            </a>
-                        </li>
-                    </ul>
-                </section>
-            }
-            .into_any()
-        }
-        None => view! { <IngenÅtkomst /> }.into_any(),
-    }
 }
