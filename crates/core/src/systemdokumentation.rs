@@ -642,6 +642,11 @@ fn arkivplanen(f: &Företag, config: &Config) -> Avsnitt {
                 "i webben, som PDF/A-2b och CSV och som SIE4, se Utskrift".into(),
             ),
         ]),
+        stycke(
+            "Den som driftar servern väljer ett backupmål som är åtskilt från databasen, till \
+             exempel en annan disk eller S3-kompatibel lagring. Maya kräver att ett backupmål är \
+             angivet men kontrollerar inte var det ligger.",
+        ),
         Block::Underrubrik("Förvaring i Sverige".into()),
         stycke(
             "Maya förutsätter att databasen och alla backuper förvaras i Sverige (BFL 7:2). Den \

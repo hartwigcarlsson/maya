@@ -36,12 +36,14 @@ Maya säkerhetskopierar hela installationen varje natt på `MAYA_BACKUP_TIME` (s
 
 Direkt efter varje backup läser Maya tillbaka den ur målet och verifierar den: filens SHA-256 mot manifestet, `PRAGMA integrity_check`, underlagens innehåll och kontrollsummorna. Sedan gallras äldre backuper: den senaste från var och en av de 7 senaste dagarna och de 12 senaste månaderna sparas. Resultatet syns i loggen och sparas för Att göra och sidan Installation.
 
-- **Katalog** (`MAYA_BACKUP_DIR`, i containern `/backup`): lägg den på en annan disk än databasen. Maya varnar vid start om katalogen ligger på samma enhet som databasen, eftersom kopian då inte är åtskild från originalet.
+- **Katalog** (`MAYA_BACKUP_DIR`, i containern `/backup`): lägg den på en annan disk än databasen.
 - **S3-kompatibel lagring** (`MAYA_BACKUP_S3_ENDPOINT`, `_BUCKET`, `_REGION`, `_ACCESS_KEY_ID`, `_SECRET_ACCESS_KEY` eller `_SECRET_ACCESS_KEY_FILE`): Maya använder path-style-adresser (`<endpoint>/<bucket>/<fil>`), så det fungerar med AWS S3, MinIO, Garage och liknande. Bucketen måste finnas; nyckeln behöver rätt att lista, läsa, skriva och radera i den.
+
+Den som driftar servern väljer ett backupmål som är åtskilt från databasen. Maya kräver att ett backupmål är angivet och startar inte utan det, men kontrollerar inte var det ligger.
 
 Maya förutsätter att databasen och alla backuper, även en kopia som flyttas offsite, förvaras i Sverige (BFL 7:2). Den som driftar servern ansvarar för det; Maya kontrollerar inte var servern eller backupmålet står. Förvaring i ett annat land kräver en anmälan till Skatteverket eller ett tillstånd (BFL 7:3 a) och stöds inte i Maya 0.1. Maya krypterar inte backupen; om målet är krypterat ska nyckeln bevaras som räkenskapsinformation och anges i arkivplanen (`MAYA_ARKIVPLAN_NYCKEL`), så att kopian kan läsas under hela bevarandetiden.
 
-Går något fel visas en driftvarning överst i Att göra för alla användare, i alla företag, tills det är löst: backupen är äldre än 36 timmar, verifieringen misslyckades, backupkatalogen ligger på samma enhet som databasen (eller saknas). Sidan Installation i användarmenyn visar version, publik URL, senaste backup och verifiering och arkivplanen. Med `MAYA_SMTP_HOST` och `MAYA_DRIFT_EPOST` mejlar Maya driften när backupen eller verifieringen misslyckas eller backupen är äldre än 36 timmar: högst ett mejl per dygn och fel, och ett när felet är löst. Maya ser efter fel var tionde minut.
+Går något fel visas en driftvarning överst i Att göra för alla användare, i alla företag, tills det är löst: backupen är äldre än 36 timmar, verifieringen misslyckades, backupkatalogen finns inte. Sidan Installation i användarmenyn visar version, publik URL, senaste backup och verifiering och arkivplanen. Med `MAYA_SMTP_HOST` och `MAYA_DRIFT_EPOST` mejlar Maya driften när backupen eller verifieringen misslyckas eller backupen är äldre än 36 timmar: högst ett mejl per dygn och fel, och ett när felet är löst. Maya ser efter fel var tionde minut.
 
 Provåterställ en gång per år: `docker compose exec maya maya backup verify` verifierar den senaste backupen (eller `maya backup verify <namn>` en viss), skriver resultatet på svenska och loggar körningen i installationsloggen.
 
