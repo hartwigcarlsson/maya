@@ -1,5 +1,5 @@
-//! `maya backup verify` och det nattliga backupjobbet i `maya serve`. Båda är tunna adaptrar
-//! runt `maya_core::backup`.
+//! `maya backup verify`, det nattliga backupjobbet och larmjobbet i `maya serve`. Alla är tunna
+//! adaptrar runt `maya_core::backup` och `maya_core::drift`.
 
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
@@ -10,7 +10,9 @@ use jiff::Timestamp;
 use maya_core::aktor::Aktör;
 use maya_core::backup::{self, Backupmål};
 use maya_core::config::Config;
+use maya_core::drift;
 use maya_core::{Databas, Klocka};
+use maya_domain::drift::Larm;
 
 #[derive(Subcommand)]
 pub enum BackupCommand {
@@ -118,6 +120,43 @@ async fn kör(db: &Databas, mål: &Backupmål, arbete: &Path) {
             resultat.verifiering.problem.join("; ")
         ),
         Err(e) => tracing::error!("backupen misslyckades: {e}"),
+    }
+}
+
+/// Hur ofta larmjobbet ser efter fel.
+const LARMINTERVALL: Duration = Duration::from_secs(10 * 60);
+
+/// Skickar larm till driften (beslut 13 i #70) som Maya självt: ser efter fel vid start och
+/// sedan var tionde minut. Utan SMTP eller larmadress loggar jobbet det en gång och slutar.
+pub async fn larmjobb(config: &Config, db: Databas) {
+    let saknas = match (&config.smtp, &config.drift_epost) {
+        (None, _) => Some("MAYA_SMTP_HOST"),
+        (Some(_), None) => Some("MAYA_DRIFT_EPOST"),
+        (Some(_), Some(_)) => None,
+    };
+    if let Some(variabel) = saknas {
+        tracing::info!("larm till driften är avstängda: {variabel} saknas");
+        return;
+    }
+    tracing::info!(
+        "larm till driften skickas till {}",
+        config.drift_epost.as_deref().unwrap_or_default()
+    );
+    loop {
+        match drift::skicka_larm(&db, &Klocka::system(), config, &Aktör::maya()).await {
+            Ok(larm) => {
+                for larm in larm {
+                    match larm {
+                        Larm::Fel(f) => tracing::warn!("larm till driften skickat: {}", f.namn()),
+                        Larm::Löst(f) => {
+                            tracing::info!("larm till driften skickat: löst: {}", f.namn())
+                        }
+                    }
+                }
+            }
+            Err(e) => tracing::error!("{e}"),
+        }
+        tokio::time::sleep(LARMINTERVALL).await;
     }
 }
 

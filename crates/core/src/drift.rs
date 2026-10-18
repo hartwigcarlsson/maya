@@ -3,13 +3,13 @@
 //! ligger i samma databas, så varningarna gäller alla företag.
 
 use jiff::Timestamp;
-use maya_domain::drift::backupen_för_gammal;
+use maya_domain::drift::{Larm, Larmfel, Skickat, backupen_för_gammal};
 
 use crate::aktor::{self, Aktör, Handling};
 use crate::backup::{Backupmål, Backupstatus};
 use crate::config::{Arkivplan, Config};
 use crate::inloggning::tidpunkt;
-use crate::{Databas, DatabasFel, Klocka, backup};
+use crate::{Databas, DatabasFel, Klocka, backup, smtp};
 
 /// Något som är fel i driften.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -117,8 +117,164 @@ pub async fn driftvarningar(
 pub enum DriftFel {
     #[error("kanalen får inte göra det här")]
     KanalenFårInte,
+    /// Larmet kunde inte skickas; det försöks igen nästa gång.
+    #[error("larmet kunde inte skickas: {0}")]
+    Smtp(String),
     #[error(transparent)]
     Databas(#[from] DatabasFel),
+}
+
+impl From<sqlx::Error> for DriftFel {
+    fn from(e: sqlx::Error) -> Self {
+        DriftFel::Databas(e.into())
+    }
+}
+
+/// Skickar larmen till driften som behövs just nu (beslut 13 i #70): när backupen eller
+/// verifieringen misslyckas eller backupen är äldre än 36 timmar, högst ett per dygn och fel,
+/// och ett när felet är löst. Utan `MAYA_SMTP_HOST` eller `MAYA_DRIFT_EPOST` skickas inget.
+/// Bara Maya självt; ger larmen som skickades. Ett larm som inte gick att skicka försöks igen
+/// vid nästa anrop.
+pub async fn skicka_larm(
+    db: &Databas,
+    klocka: &Klocka,
+    config: &Config,
+    aktör: &Aktör,
+) -> Result<Vec<Larm>, DriftFel> {
+    if !aktor::tillåter(aktör.kanal, Handling::SkickaLarm) {
+        return Err(DriftFel::KanalenFårInte);
+    }
+    let (Some(smtp), Some(till)) = (&config.smtp, &config.drift_epost) else {
+        return Ok(Vec::new());
+    };
+    let nu = klocka.nu();
+    let aktiva = larmfel(db, config, nu).await?;
+    let rader: Vec<(String, String)> = sqlx::query_as("SELECT fel, skickat FROM driftlarm")
+        .fetch_all(db.pool())
+        .await?;
+    let skickade = rader
+        .iter()
+        .filter_map(|(fel, tid)| {
+            Some(Ok(Skickat {
+                fel: Larmfel::från_kod(fel)?,
+                tid: match tidpunkt(tid) {
+                    Ok(t) => t,
+                    Err(e) => return Some(Err(e)),
+                },
+            }))
+        })
+        .collect::<Result<Vec<_>, DatabasFel>>()?;
+    let fel: Vec<Larmfel> = aktiva.iter().map(|(f, _)| *f).collect();
+
+    let värd = config.public_host();
+    let från = smtp
+        .from
+        .clone()
+        .unwrap_or_else(|| format!("maya@{}", config.public_url.host_str().unwrap_or("maya")));
+    let mut skickat = Vec::new();
+    for larm in maya_domain::drift::larm(nu, &fel, &skickade) {
+        let (ämne, text) = match larm {
+            Larm::Fel(f) => {
+                let detalj = aktiva
+                    .iter()
+                    .find(|(a, _)| *a == f)
+                    .map(|(_, d)| d.as_str())
+                    .unwrap_or_default();
+                (
+                    format!("Maya: {}", f.namn()),
+                    format!(
+                        "Maya på {url} har ett fel i driften: {namn}.\n\n{detalj}\n\nMaya \
+                         mejlar om felet igen tidigast om ett dygn, och en gång när det är \
+                         löst. Läget finns på sidan Installation: {url}installation\n",
+                        url = config.public_url,
+                        namn = f.namn(),
+                    ),
+                )
+            }
+            Larm::Löst(f) => (
+                format!("Maya: löst: {}", f.namn()),
+                format!(
+                    "Felet i driften av Maya på {url} är löst: {namn}.\n\nLäget finns på sidan \
+                     Installation: {url}installation\n",
+                    url = config.public_url,
+                    namn = f.namn(),
+                ),
+            ),
+        };
+        let (smtp, värd, från, till) = (smtp.clone(), värd.clone(), från.clone(), till.clone());
+        tokio::task::spawn_blocking(move || {
+            let brev = smtp::Brev {
+                från: &från,
+                till: &till,
+                ämne: &ämne,
+                text: &text,
+            };
+            smtp::skicka(&smtp, &värd, &brev, nu)
+        })
+        .await
+        .map_err(|e| DriftFel::Smtp(e.to_string()))?
+        .map_err(DriftFel::Smtp)?;
+        match larm {
+            Larm::Fel(f) => {
+                sqlx::query(
+                    "INSERT INTO driftlarm (fel, skickat) VALUES (?1, ?2)
+                     ON CONFLICT (fel) DO UPDATE SET skickat = ?2",
+                )
+                .bind(f.kod())
+                .bind(nu.to_string())
+                .execute(db.pool())
+                .await?;
+            }
+            Larm::Löst(f) => {
+                sqlx::query("DELETE FROM driftlarm WHERE fel = ?")
+                    .bind(f.kod())
+                    .execute(db.pool())
+                    .await?;
+            }
+        }
+        skickat.push(larm);
+    }
+    Ok(skickat)
+}
+
+/// Felen som driften får larm om just nu, med en beskrivning för mejlet.
+async fn larmfel(
+    db: &Databas,
+    config: &Config,
+    nu: Timestamp,
+) -> Result<Vec<(Larmfel, String)>, DatabasFel> {
+    let status = backup::status(db).await?;
+    let mut fel = Vec::new();
+    if let Some(b) = status.senaste_backup.filter(|b| !b.lyckades) {
+        fel.push((
+            Larmfel::BackupMisslyckades,
+            format!(
+                "Backupen {} till {} misslyckades: {}",
+                tid(b.tid),
+                Backupmål::från(&config.backup).beskrivning(),
+                b.meddelande.lines().collect::<Vec<_>>().join("; ")
+            ),
+        ));
+    }
+    let senaste = status.senaste_lyckade_backup.as_ref().map(|k| k.tid);
+    if backupen_för_gammal(nu, senaste, installerad(db).await?) {
+        fel.push((
+            Larmfel::BackupGammal,
+            Driftvarning::BackupGammal { senaste }.text(),
+        ));
+    }
+    if let Some(v) = status.senaste_verifiering.filter(|v| !v.lyckades) {
+        fel.push((
+            Larmfel::VerifieringMisslyckades,
+            Driftvarning::VerifieringMisslyckades {
+                tid: v.tid,
+                backup: v.backup,
+                meddelande: v.meddelande,
+            }
+            .text(),
+        ));
+    }
+    Ok(fel)
 }
 
 /// Det som sidan Installation visar. Bara läsning: konfigurationen ändras bara på servern.

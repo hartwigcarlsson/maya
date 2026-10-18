@@ -74,6 +74,11 @@ fn maya_serve_las_env_skriver_ut_konfigurationen_och_svarar_pa_healthz() {
     // Backupkatalogen ligger här på samma enhet som databasen (A5).
     assert!(stdout.contains("samma enhet som databasen"), "{stdout}");
     assert!(stdout.contains("nästa backup"), "{stdout}");
+    // SMTP utan larmadress: inga larm.
+    assert!(
+        stdout.contains("larm till driften är avstängda: MAYA_DRIFT_EPOST saknas"),
+        "{stdout}"
+    );
 }
 
 #[test]
@@ -94,7 +99,12 @@ fn maya_serve_vagrar_starta_nar_den_publika_url_en_har_bytt_domän() {
     konfiguration("https://bokforing.example.se");
     let server = Server::starta(maya(dir.path()).arg("serve"));
     assert_eq!(server.healthz(), "HTTP/1.1 200 OK");
-    server.stoppa();
+    // Utan SMTP startar Maya och skickar inga larm.
+    let stdout = server.stoppa();
+    assert!(
+        stdout.contains("larm till driften är avstängda: MAYA_SMTP_HOST saknas"),
+        "{stdout}"
+    );
 
     konfiguration("https://annan.example.se");
     let output = maya(dir.path()).arg("serve").output().unwrap();

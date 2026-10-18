@@ -21,6 +21,7 @@ pub mod kontrollsumma;
 pub mod rapport;
 pub mod saldo;
 pub mod sie4;
+mod smtp;
 #[cfg(feature = "test-support")]
 pub mod testhjalp;
 pub mod underlag;
