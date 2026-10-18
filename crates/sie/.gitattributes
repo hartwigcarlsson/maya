@@ -1,0 +1,2 @@
+# SIE-filer är CP437 med CRLF och ska jämföras byte för byte.
+*.se binary

@@ -1,0 +1,2266 @@
+/*
+ * Mayas skal: shadcn-presetet b1Gdz9bFY (Mira, Stone, Amber, Inter, Lucide, liten radie), med
+ * tokens från den valda prototypen (prototype/24-granssnitt, prototypes/granssnitt/index.html).
+ * Tokens som CSS-variabler i shadcn:s namn, ljust och mörkt läge enligt systemet med manuell
+ * växling via data-theme på <html>.
+ */
+
+/* Inter 4.1 (rsms/inter), variabel, inbäddad i binären: inga externa anrop. Licens (OFL 1.1):
+ * /fonts/Inter-LICENSE.txt. */
+@font-face {
+  font-family: "Inter";
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("/fonts/InterVariable.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "Inter";
+  font-style: italic;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("/fonts/InterVariable-Italic.woff2") format("woff2");
+}
+
+:root {
+  --radius: 0.45rem;
+  --background: oklch(1 0 0);
+  --foreground: oklch(0.147 0.004 49.25);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.147 0.004 49.25);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.147 0.004 49.25);
+  --primary: oklch(0.555 0.163 48.998);
+  --primary-foreground: oklch(0.987 0.022 95.277);
+  --secondary: oklch(0.967 0.001 286.375);
+  --secondary-foreground: oklch(0.21 0.006 285.885);
+  --muted: oklch(0.97 0.001 106.424);
+  --muted-foreground: oklch(0.553 0.013 58.071);
+  --accent: oklch(0.97 0.001 106.424);
+  --accent-foreground: oklch(0.216 0.006 56.043);
+  --destructive: oklch(0.577 0.245 27.325);
+  --border: oklch(0.923 0.003 48.717);
+  --input: oklch(0.923 0.003 48.717);
+  --ring: oklch(0.709 0.01 56.259);
+  --sidebar: oklch(0.985 0.001 106.423);
+  --sidebar-primary: oklch(0.666 0.179 58.318);
+  --sidebar-accent: oklch(0.97 0.001 106.424);
+  --sidebar-border: oklch(0.923 0.003 48.717);
+  --success: oklch(0.52 0.12 150);
+
+  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --text: 13px;
+  --control-height: 28px;
+
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --background: oklch(0.147 0.004 49.25);
+    --foreground: oklch(0.985 0.001 106.423);
+    --card: oklch(0.216 0.006 56.043);
+    --card-foreground: oklch(0.985 0.001 106.423);
+    --popover: oklch(0.216 0.006 56.043);
+    --popover-foreground: oklch(0.985 0.001 106.423);
+    --primary: oklch(0.473 0.137 46.201);
+    --primary-foreground: oklch(0.987 0.022 95.277);
+    --secondary: oklch(0.274 0.006 286.033);
+    --secondary-foreground: oklch(0.985 0 0);
+    --muted: oklch(0.268 0.007 34.298);
+    --muted-foreground: oklch(0.709 0.01 56.259);
+    --accent: oklch(0.268 0.007 34.298);
+    --accent-foreground: oklch(0.985 0.001 106.423);
+    --destructive: oklch(0.704 0.191 22.216);
+    --border: oklch(1 0 0 / 10%);
+    --input: oklch(1 0 0 / 15%);
+    --ring: oklch(0.553 0.013 58.071);
+    --sidebar: oklch(0.216 0.006 56.043);
+    --sidebar-primary: oklch(0.769 0.188 70.08);
+    --sidebar-accent: oklch(0.268 0.007 34.298);
+    --sidebar-border: oklch(1 0 0 / 10%);
+    --success: oklch(0.75 0.13 150);
+    color-scheme: dark;
+  }
+}
+
+:root[data-theme="dark"] {
+  --background: oklch(0.147 0.004 49.25);
+  --foreground: oklch(0.985 0.001 106.423);
+  --card: oklch(0.216 0.006 56.043);
+  --card-foreground: oklch(0.985 0.001 106.423);
+  --popover: oklch(0.216 0.006 56.043);
+  --popover-foreground: oklch(0.985 0.001 106.423);
+  --primary: oklch(0.473 0.137 46.201);
+  --primary-foreground: oklch(0.987 0.022 95.277);
+  --secondary: oklch(0.274 0.006 286.033);
+  --secondary-foreground: oklch(0.985 0 0);
+  --muted: oklch(0.268 0.007 34.298);
+  --muted-foreground: oklch(0.709 0.01 56.259);
+  --accent: oklch(0.268 0.007 34.298);
+  --accent-foreground: oklch(0.985 0.001 106.423);
+  --destructive: oklch(0.704 0.191 22.216);
+  --border: oklch(1 0 0 / 10%);
+  --input: oklch(1 0 0 / 15%);
+  --ring: oklch(0.553 0.013 58.071);
+  --sidebar: oklch(0.216 0.006 56.043);
+  --sidebar-primary: oklch(0.769 0.188 70.08);
+  --sidebar-accent: oklch(0.268 0.007 34.298);
+  --sidebar-border: oklch(1 0 0 / 10%);
+  --success: oklch(0.75 0.13 150);
+  color-scheme: dark;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans);
+  font-size: var(--text);
+  line-height: 1.5;
+}
+
+a {
+  color: inherit;
+}
+
+.toppmeny {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  height: 44px;
+  padding: 0 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.logotyp {
+  font-weight: 600;
+  text-decoration: none;
+}
+
+main {
+  padding: 24px 16px;
+}
+
+.tom-sida {
+  max-width: 40rem;
+  margin: 4rem auto;
+  text-align: center;
+}
+
+.tom-sida h1 {
+  font-size: 20px;
+  font-weight: 600;
+  margin: 0 0 0.5rem;
+}
+
+.tom-sida p {
+  color: var(--muted-foreground);
+  margin: 0;
+}
+
+.knapp {
+  height: var(--control-height);
+  padding: 0 10px;
+  border: 1px solid var(--input);
+  border-radius: var(--radius);
+  background: var(--background);
+  color: var(--foreground);
+  font: inherit;
+  cursor: pointer;
+}
+
+.knapp:hover {
+  background: var(--accent);
+  color: var(--accent-foreground);
+}
+
+.knapp:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 1px;
+}
+
+.knapp-diskret {
+  border-color: transparent;
+}
+
+.toppmeny-hoger {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.toppmeny-hoger form {
+  margin: 0;
+}
+
+.toppmeny-hoger .knapp {
+  white-space: nowrap;
+}
+
+.anvandare {
+  color: var(--muted-foreground);
+}
+
+.kommando {
+  display: inline-block;
+  margin: 1rem 0;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.formular {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  max-width: 20rem;
+  margin: 1.5rem auto 0;
+  text-align: left;
+}
+
+.formular input {
+  height: var(--control-height);
+  padding: 0 8px;
+  border: 1px solid var(--input);
+  border-radius: var(--radius);
+  background: var(--background);
+  color: var(--foreground);
+  font: inherit;
+}
+
+.formular input:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 1px;
+}
+
+.formular .knapp {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: var(--primary-foreground);
+}
+
+.tom-sida .fel {
+  color: var(--destructive);
+}
+
+/* Företagen: toppmenyn med företagsväljaren, flikarna och kugghjulet, och formuläret. */
+
+.toppmeny-foretag {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.toppmeny-foretag .kugghjul {
+  display: inline-flex;
+  align-items: center;
+}
+
+.flikar {
+  display: flex;
+  gap: 0.25rem;
+}
+
+.flikar a {
+  white-space: nowrap;
+  padding: 4px 8px;
+  border-radius: var(--radius);
+  text-decoration: none;
+  color: var(--muted-foreground);
+}
+
+.flikar a:hover {
+  background: var(--accent);
+  color: var(--accent-foreground);
+}
+
+.foretagsvaljare {
+  position: relative;
+}
+
+.foretagsvaljare summary {
+  white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  list-style: none;
+  font-weight: 500;
+}
+
+.foretagsvaljare ul {
+  position: absolute;
+  z-index: 10;
+  min-width: 16rem;
+  margin: 4px 0 0;
+  padding: 4px;
+  list-style: none;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--card);
+  color: var(--card-foreground);
+}
+
+.foretagsvaljare a {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 4px 8px;
+  border-radius: var(--radius);
+  text-decoration: none;
+}
+
+.foretagsvaljare a:hover,
+.foretagsvaljare a[aria-current="page"] {
+  background: var(--accent);
+}
+
+.diskret {
+  color: var(--muted-foreground);
+}
+
+.sida {
+  max-width: 48rem;
+  margin: 0 auto;
+}
+
+.sida h1 {
+  font-size: 20px;
+  font-weight: 600;
+  margin: 0 0 0.75rem;
+}
+
+.sida .formular {
+  margin: 0;
+}
+
+.formular select {
+  height: var(--control-height);
+  padding: 0 6px;
+  border: 1px solid var(--input);
+  border-radius: var(--radius);
+  background: var(--background);
+  color: var(--foreground);
+  font: inherit;
+}
+
+.formular fieldset {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin: 0.5rem 0;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.formular .fel,
+.sida .fel {
+  margin: 0;
+  color: var(--destructive);
+}
+
+/* Kontoplanen: tät tabell per kontoklass, filterrad, nytt konto och sidopanelen. */
+
+.sida.kontoplan {
+  max-width: 72rem;
+}
+
+.kontoplan .sidhuvud {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.kontoplan .sidhuvud h1 {
+  margin: 0;
+}
+
+.kontoplan a.knapp,
+.sidopanel a.knapp {
+  display: inline-flex;
+  align-items: center;
+  text-decoration: none;
+}
+
+.meddelande {
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--muted);
+}
+
+.sida .meddelande.fel {
+  padding: 6px 10px;
+  border-color: var(--destructive);
+}
+
+.filterrad {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0.75rem 0;
+}
+
+.filterrad .sok {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: var(--control-height);
+  min-width: 16rem;
+  margin: 0;
+  padding: 0 6px 0 8px;
+  border: 1px solid var(--input);
+  border-radius: var(--radius);
+}
+
+.filterrad .sok:focus-within {
+  outline: 2px solid var(--ring);
+  outline-offset: 1px;
+}
+
+.filterrad .sok input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--foreground);
+  font: inherit;
+}
+
+kbd {
+  padding: 0 4px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  color: var(--muted-foreground);
+  font-family: inherit;
+  font-size: 11px;
+}
+
+.tabbar {
+  display: inline-flex;
+  padding: 2px;
+  border-radius: var(--radius);
+  background: var(--muted);
+}
+
+.tabbar a,
+.chip {
+  padding: 2px 8px;
+  border-radius: var(--radius);
+  text-decoration: none;
+}
+
+.tabbar a[aria-current="page"] {
+  background: var(--background);
+}
+
+.chip {
+  border: 1px dashed var(--border);
+}
+
+.chip.pa {
+  border-style: solid;
+  border-color: var(--primary);
+}
+
+.kontotabell {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.kontotabell th,
+.kontotabell td {
+  height: 30px;
+  padding: 0 6px;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+  vertical-align: middle;
+}
+
+.kontotabell thead th {
+  color: var(--muted-foreground);
+  font-weight: 500;
+}
+
+.kontotabell .klassrad th {
+  background: var(--muted);
+  font-weight: 600;
+}
+
+.kontotabell tr.inaktiv td {
+  color: var(--muted-foreground);
+}
+
+.kontotabell .nr {
+  width: 4rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.kontotabell td:nth-child(2) {
+  width: 45%;
+}
+
+.kontotabell .namn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.kontotabell .ink2 {
+  max-width: 20rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.kontotabell .ikon {
+  width: 2rem;
+}
+
+.kontotabell form {
+  margin: 0;
+}
+
+.namnform {
+  flex: 1;
+}
+
+.cell {
+  width: 100%;
+  height: 24px;
+  padding: 0 6px;
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+}
+
+.cell:hover {
+  border-color: var(--input);
+}
+
+.cell:focus-visible {
+  border-color: var(--ring);
+  outline: 0;
+}
+
+.etikett {
+  padding: 0 6px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--muted-foreground);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.etikett.ny {
+  border-color: var(--primary);
+}
+
+.brytare {
+  position: relative;
+  width: 28px;
+  height: 16px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: var(--input);
+  cursor: pointer;
+}
+
+.brytare::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--background);
+  transition: left 0.1s;
+}
+
+.brytare.pa {
+  background: var(--primary);
+}
+
+.brytare.pa::after {
+  left: 14px;
+}
+
+.brytare:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.varning {
+  color: var(--primary);
+}
+
+.fler {
+  color: var(--muted-foreground);
+}
+
+.dialog {
+  margin: 0.75rem 0;
+  padding: 12px 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--card);
+}
+
+.dialog h2,
+.sidopanel h2,
+.sidopanel h3 {
+  margin: 0 0 0.5rem;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.dialog .formular {
+  max-width: 28rem;
+}
+
+.formular .knapp-diskret {
+  border-color: var(--input);
+  background: var(--background);
+  color: var(--foreground);
+}
+
+.knappar {
+  display: flex;
+  gap: 0.5rem;
+  justify-content: flex-end;
+}
+
+.fakta {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 4px 12px;
+  margin: 0.5rem 0;
+}
+
+.fakta dt {
+  color: var(--muted-foreground);
+}
+
+.fakta dd {
+  margin: 0;
+}
+
+.sidopanel {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: min(460px, 100vw);
+  overflow-y: auto;
+  padding: 12px 16px;
+  border-left: 1px solid var(--border);
+  background: var(--background);
+  box-shadow: -8px 0 24px rgb(0 0 0 / 8%);
+}
+
+.panelhuvud {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.historik {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.historik li {
+  padding: 6px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.historik .typ {
+  font-weight: 500;
+}
+
+/* Verifikat: lista och detalj sida vid sida, formuläret och dokumentet (variant C). */
+
+.verifikat-delad {
+  display: grid;
+  grid-template-columns: 320px 1fr;
+  gap: 1.5rem;
+  align-items: start;
+}
+
+@media (max-width: 760px) {
+  .verifikat-delad {
+    grid-template-columns: 1fr;
+  }
+}
+
+.verifikat-spalt-rubrik {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.verifikat-spalt h1 {
+  font-size: 16px;
+  font-weight: 600;
+  margin: 0;
+}
+
+.filter {
+  display: inline-flex;
+  gap: 2px;
+  margin: 0.5rem 0;
+  padding: 2px;
+  border-radius: var(--radius);
+  background: var(--muted);
+}
+
+.filter a,
+.verifikatlista a {
+  text-decoration: none;
+  color: inherit;
+}
+
+.filter a {
+  padding: 2px 8px;
+  border-radius: var(--radius);
+  color: var(--muted-foreground);
+}
+
+.filter a[aria-current="page"] {
+  background: var(--background);
+  color: var(--foreground);
+}
+
+.verifikatlista {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.verifikatlista a {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 10px;
+  border-radius: var(--radius);
+}
+
+.verifikatlista a:hover,
+.verifikatlista a[aria-current="page"] {
+  background: var(--accent);
+}
+
+.verifikatlista-topp {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.belopp {
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.dokument,
+.verifikatformular {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  max-width: 860px;
+  padding: 24px 28px;
+  border-radius: var(--radius);
+  background: var(--card);
+  color: var(--card-foreground);
+  box-shadow: 0 0 0 1px var(--border);
+}
+
+.dokument h2,
+.verifikatformular h2 {
+  font-size: 18px;
+  font-weight: 600;
+  margin: 0;
+}
+
+.dokument h3 {
+  font-size: 13px;
+  font-weight: 500;
+  margin: 0 0 0.25rem;
+}
+
+.dokument p {
+  margin: 0;
+}
+
+.dokument-nummer {
+  color: var(--muted-foreground);
+  font-weight: 500;
+}
+
+/* Skriv ut och Exportera PDF: samma PDF, olika länkar. */
+.utskrift {
+  font-size: 13px;
+  color: var(--muted-foreground);
+}
+
+.dokument > .utskrift {
+  align-self: flex-end;
+  margin-bottom: -0.75rem;
+}
+
+.markering {
+  padding: 1px 6px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.metadata {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 4px 1rem;
+  margin: 0;
+}
+
+.metadata dt {
+  color: var(--muted-foreground);
+}
+
+.metadata dd {
+  margin: 0;
+}
+
+.rader {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.rader th,
+.rader td {
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+  vertical-align: top;
+}
+
+.rader th {
+  font-weight: 500;
+  color: var(--muted-foreground);
+}
+
+.rader .belopp {
+  text-align: right;
+}
+
+.rader tfoot td {
+  font-weight: 500;
+  border-bottom: none;
+}
+
+.historik {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.verifikatformular .falt-rad {
+  display: grid;
+  grid-template-columns: 160px 1fr;
+  gap: 0.75rem;
+}
+
+.verifikatformular label {
+  display: block;
+  margin-bottom: 4px;
+}
+
+.verifikatformular input {
+  width: 100%;
+  height: var(--control-height);
+  padding: 0 8px;
+  border: 1px solid var(--input);
+  border-radius: var(--radius);
+  background: var(--background);
+  color: var(--foreground);
+  font: inherit;
+}
+
+.verifikatformular .fel {
+  margin: 4px 0 0;
+  color: var(--destructive);
+}
+
+.verifikatformular p {
+  margin: 0;
+}
+
+.knapp-primar {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: var(--primary-foreground);
+}
+
+.knapp-primar:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* Användarmenyns sidor: passkeys och sessioner. */
+
+a.knapp {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  text-decoration: none;
+}
+
+.uppmaning {
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--muted);
+}
+
+.lista {
+  list-style: none;
+  margin: 0 0 1.5rem;
+  padding: 0;
+  border-top: 1px solid var(--border);
+}
+
+.lista li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.detalj {
+  flex: 1;
+  color: var(--muted-foreground);
+}
+
+.rad-formular {
+  display: flex;
+  gap: 0.25rem;
+  margin: 0;
+}
+
+.rad-formular input[type="text"] {
+  height: var(--control-height);
+  padding: 0 8px;
+  border: 1px solid var(--input);
+  border-radius: var(--radius);
+  background: var(--background);
+  color: var(--foreground);
+  font: inherit;
+}
+
+/* Sökningen: sökfältet i toppmenyn, paletten (⌘K) och sidan /foretag/<id>/sok. */
+
+kbd {
+  font: 500 10px var(--font-sans, system-ui);
+  padding: 1px 5px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--muted);
+  color: var(--muted-foreground);
+}
+
+.sokfalt {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: var(--control-height);
+  width: 240px;
+  min-width: 120px;
+  flex-shrink: 1;
+  margin-left: auto;
+  padding: 0 8px;
+  border: 1px solid var(--input);
+  border-radius: var(--radius);
+  background: color-mix(in oklch, var(--muted) 50%, transparent);
+}
+
+.sokfalt input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: var(--foreground);
+  font: inherit;
+}
+
+.palett-bakgrund {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding-top: 14vh;
+  background: rgb(0 0 0 / 50%);
+}
+
+.palett {
+  width: 520px;
+  max-width: 92vw;
+  overflow: hidden;
+  border-radius: var(--radius);
+  background: var(--card);
+  color: var(--card-foreground);
+  box-shadow:
+    0 0 0 1px color-mix(in oklch, var(--foreground) 10%, transparent),
+    0 16px 48px rgb(0 0 0 / 40%);
+}
+
+.sokning input {
+  width: 100%;
+  height: 40px;
+  padding: 0 12px;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  outline: none;
+  background: transparent;
+  color: var(--foreground);
+  font: inherit;
+}
+
+.sida .sokning {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.sok-traffar {
+  max-height: 340px;
+  overflow: auto;
+  margin: 0;
+  padding: 4px;
+  list-style: none;
+}
+
+.sida .sok-traffar {
+  max-height: none;
+}
+
+.sok-grupp {
+  padding: 8px 8px 4px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--muted-foreground);
+}
+
+.sok-traffar a {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  height: 30px;
+  padding: 0 8px;
+  border-radius: var(--radius);
+  text-decoration: none;
+}
+
+.sok-traffar a span:first-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sok-traffar a .diskret {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.sok-traffar a:hover,
+.sok-traffar a.vald {
+  background: var(--accent);
+}
+
+.sok-tom {
+  margin: 0;
+  padding: 12px;
+  color: var(--muted-foreground);
+}
+
+.sok-hjalp {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+  margin: 0;
+  padding: 6px 12px;
+  border-top: 1px solid var(--border);
+  font-size: 11px;
+}
+
+.knappar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.knapp-fara {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--destructive);
+  border-color: var(--destructive);
+  color: var(--primary-foreground);
+}
+
+.knapp-fara:hover {
+  background: var(--destructive);
+  color: var(--primary-foreground);
+  opacity: 0.9;
+}
+
+.knapp-fara-diskret {
+  margin-left: auto;
+  border-color: transparent;
+  color: var(--destructive);
+}
+
+.ikon {
+  flex: none;
+}
+
+/* Utkast: en neutral streckad badge med pennikon. */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 20px;
+  padding: 2px 8px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 500;
+  white-space: nowrap;
+  vertical-align: middle;
+}
+
+.badge-utkast {
+  border: 1px dashed var(--muted-foreground);
+  color: var(--muted-foreground);
+}
+
+/* Ett rättat verifikat (R2). */
+.badge-rattad {
+  background: color-mix(in oklch, var(--destructive) 12%, transparent);
+  color: var(--destructive);
+}
+
+/* Rätta… i dokumentet (variant C). */
+.rattelse {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding: 14px;
+  border: 1px solid var(--ring);
+  border-radius: var(--radius);
+  background: var(--card);
+}
+
+.rattelse h3,
+.rattelse p {
+  margin: 0;
+}
+
+.rattelse-rubrik {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.rattelse-formular {
+  display: grid;
+  grid-template-columns: minmax(0, 160px) minmax(0, 1fr);
+  gap: 0.75rem;
+}
+
+.rattelse-formular label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.rattelse-formular > :not(label) {
+  grid-column: 1 / -1;
+}
+
+.rattelse-fel:empty {
+  display: none;
+}
+
+.notis {
+  max-width: 860px;
+  margin: 0 0 0.75rem;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--muted);
+}
+
+.dialog {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  max-width: 520px;
+  padding: 20px 24px;
+  border-radius: var(--radius);
+  background: var(--card);
+  color: var(--card-foreground);
+  box-shadow: 0 0 0 1px var(--border);
+}
+
+.dialog h2 {
+  font-size: 16px;
+  font-weight: 600;
+  margin: 0;
+}
+
+.dialog p,
+.dialog form {
+  margin: 0;
+}
+
+.dialog form {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+}
+
+/* Underlag: bredvid formuläret och dokumentet (variant C), och sidan Underlag. */
+
+.med-underlag {
+  display: grid;
+  grid-template-columns: minmax(240px, 38%) 1fr;
+  gap: 1.25rem;
+  align-items: start;
+}
+
+@media (max-width: 1100px) {
+  .med-underlag {
+    grid-template-columns: 1fr;
+  }
+}
+
+.underlagsspalt {
+  position: sticky;
+  top: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.underlagsspalt p {
+  margin: 0;
+}
+
+.forhandsvisning {
+  display: block;
+  width: 100%;
+  height: 420px;
+  border: 0;
+  border-radius: var(--radius);
+  background: var(--muted);
+  object-fit: contain;
+}
+
+.tom-visning {
+  display: grid;
+  place-content: center;
+  gap: 4px;
+  height: 160px;
+  text-align: center;
+}
+
+.ufiler {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.ufil {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  margin: 0;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: calc(var(--radius) * 0.8);
+}
+
+.ufil > span,
+.ufil > a {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ufil > :last-child {
+  margin-left: auto;
+}
+
+/* En komplettering har streckad ram (VF6). */
+.ufil.komplettering {
+  border-style: dashed;
+}
+
+.slapp {
+  position: relative;
+  display: grid;
+  place-items: center;
+  gap: 4px;
+  padding: 16px;
+  border: 1px dashed var(--ring);
+  border-radius: var(--radius);
+  color: var(--muted-foreground);
+  text-align: center;
+  cursor: pointer;
+}
+
+.slapp:focus-within,
+.slapp:hover {
+  background: var(--muted);
+}
+
+/* Filfältet täcker hela ytan, så att en fil kan släppas var som helst på den. */
+.slapp input[type="file"] {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.uppladdning {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0.5rem 0;
+}
+
+.komplettera summary,
+.valj-okopplat summary {
+  list-style: none;
+  cursor: pointer;
+}
+
+.komplettera[open],
+.valj-okopplat[open] {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.varningsnotis {
+  border-color: var(--primary);
+}
+
+.underlagsdokument {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  max-width: 860px;
+}
+
+.underlagsdokument h2 {
+  font-size: 18px;
+  font-weight: 600;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.hash {
+  font-family: ui-monospace, monospace;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+/* Inställningar: menyn överst är gemensam för inställningssidorna. */
+
+.installningsmeny {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  margin: 0 0 1rem;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--border);
+}
+
+.installningsmeny a {
+  padding: 4px 8px;
+  border-radius: var(--radius);
+  color: var(--foreground);
+  text-decoration: none;
+}
+
+.installningsmeny a:hover,
+.installningsmeny a[aria-current="page"] {
+  background: var(--accent);
+}
+
+.installningar-innehall {
+  display: flex;
+  flex-direction: column;
+  gap: 2rem;
+  min-width: 0;
+}
+
+.installningar-innehall h2 {
+  font-size: 15px;
+  font-weight: 600;
+  margin: 0;
+}
+
+.installningar-innehall .formular {
+  max-width: 24rem;
+}
+
+.installningar-innehall .kryss {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.installningar-innehall .kryss input {
+  height: auto;
+}
+
+.installningstabell {
+  border-collapse: collapse;
+  width: 100%;
+}
+
+.installningstabell th,
+.installningstabell td {
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+}
+
+.installningstabell th {
+  color: var(--muted-foreground);
+  font-weight: 500;
+}
+
+.notis {
+  margin: 0;
+  padding: 6px 10px;
+  border-radius: var(--radius);
+  background: var(--muted);
+}
+
+.radering {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--border);
+}
+
+.radering p {
+  margin: 0;
+}
+
+.formular .knapp-fara {
+  background: var(--destructive);
+  border-color: var(--destructive);
+  color: var(--primary-foreground);
+}
+
+/* Inställningar → Behandlingshistorik: urval i adressen, export av samma urval. */
+.historikfilter {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 0.5rem 1rem;
+  margin: 1rem 0 0.5rem;
+  font-size: 13px;
+}
+
+.historikfilter label {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  color: var(--muted-foreground);
+}
+
+.historikfilter select,
+.historikfilter input {
+  font: inherit;
+  color: var(--foreground);
+  background: var(--background);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 4px 6px;
+}
+
+.historikexport {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.25rem 1rem;
+}
+
+.behandlingshistorik {
+  font-size: 13px;
+}
+
+.behandlingshistorik .tid {
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.behandlingshistorik .typ {
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.behandlingshistorik tr.maya td {
+  color: var(--muted-foreground);
+}
+
+@media (max-width: 760px) {
+  .behandlingshistorik {
+    display: block;
+    overflow-x: auto;
+  }
+}
+
+/* Rapporter → Bokföring: grundboken och huvudboken. */
+
+.verktygsrad {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  margin: 0.5rem 0;
+}
+
+.verktygsrad select,
+.verktygsrad input {
+  height: 28px;
+  padding: 0 8px;
+  border: 1px solid var(--input);
+  border-radius: var(--radius);
+  background: var(--background);
+  color: var(--foreground);
+  font: inherit;
+}
+
+.verktygsrad .fel {
+  flex-basis: 100%;
+}
+
+.exporter {
+  display: flex;
+  align-items: baseline;
+  gap: 0.75rem;
+}
+
+.bokforingsdokument {
+  max-width: none;
+}
+
+.bokforingsdokument .verifikathuvud td {
+  padding-top: 10px;
+  font-weight: 500;
+}
+
+/* Rapporter: menyn, verktygsraden, banderollerna och dokumentet (variant A i #69). */
+
+.sida.rapport {
+  max-width: 80rem;
+}
+
+.rapport-delad {
+  display: grid;
+  grid-template-columns: 200px 1fr;
+  gap: 1.5rem;
+  align-items: start;
+}
+
+@media (max-width: 760px) {
+  .rapport-delad {
+    grid-template-columns: 1fr;
+  }
+}
+
+.rapport-innehall h1 {
+  margin: 0 0 0.5rem;
+}
+
+.rapportmeny h2 {
+  margin: 0.75rem 0 0.25rem;
+  color: var(--muted-foreground);
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.rapportmeny ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.rapportmeny a {
+  display: block;
+  padding: 4px 8px;
+  border-radius: var(--radius);
+  color: inherit;
+  text-decoration: none;
+}
+
+.rapportmeny a:hover,
+.rapportmeny a[aria-current="page"] {
+  background: var(--muted);
+}
+
+.verktygsrad,
+.rapporturval {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.verktygsrad {
+  margin: 0.5rem 0;
+}
+
+.verktygsrad .filter {
+  margin: 0;
+}
+
+.verktygsgrupp {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  white-space: nowrap;
+}
+
+.rapporturval select {
+  height: var(--control-height);
+}
+
+.banderoll {
+  margin: 0.5rem 0;
+  padding: 6px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--muted);
+}
+
+.banderoll p {
+  margin: 0;
+}
+
+.rapport-export {
+  display: flex;
+  gap: 1rem;
+}
+
+.rapportdokument {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 24px 28px;
+  border-radius: var(--radius);
+  background: var(--background);
+  box-shadow: 0 0 0 1px color-mix(in oklch, var(--foreground) 10%, transparent);
+}
+
+.rapportdokument-huvud {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.rapportdokument-huvud .hoger {
+  text-align: right;
+}
+
+.rapportdokument-titel {
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.rapporttabell {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12.5px;
+}
+
+.rapporttabell th {
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--foreground);
+  color: var(--muted-foreground);
+  font-size: 11px;
+  font-weight: 500;
+  vertical-align: bottom;
+  white-space: nowrap;
+}
+
+.rapporttabell th .underrubrik {
+  display: block;
+  font-weight: 400;
+}
+
+.rapporttabell td {
+  padding: 3px 8px;
+}
+
+.rapporttabell .belopp {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.rapporttabell .foregaende {
+  color: var(--muted-foreground);
+}
+
+.rapporttabell a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.rapporttabell a:hover {
+  text-decoration: underline;
+}
+
+.rapporttabell .ink2 {
+  display: inline-block;
+  min-width: 34px;
+  color: var(--muted-foreground);
+  font-size: 10px;
+  font-weight: 500;
+}
+
+.rapporttabell tr.sida td {
+  padding-top: 14px;
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+.rapporttabell tr.rubrik td {
+  padding-top: 8px;
+  font-weight: 600;
+}
+
+.rapporttabell tr.underrubrik td {
+  font-style: italic;
+  font-weight: 500;
+}
+
+.rapporttabell tr.rad td:first-child,
+.rapporttabell tr.arets-resultat td:first-child {
+  padding-left: 22px;
+}
+
+.rapporttabell tr.arets-resultat td {
+  font-style: italic;
+}
+
+.rapporttabell tr.konto td {
+  color: var(--muted-foreground);
+  font-size: 12px;
+}
+
+.rapporttabell tr.konto td:first-child {
+  padding-left: 42px;
+}
+
+.rapporttabell tr.summa td,
+.rapporttabell tr.delsumma td {
+  border-top: 1px solid var(--border);
+  font-weight: 600;
+}
+
+.rapporttabell tr.slutsumma td {
+  padding: 6px 8px;
+  border-top: 1px solid var(--foreground);
+  font-weight: 700;
+}
+
+.rapporttabell tr.kontroll td {
+  border-top: 1px dashed var(--border);
+  color: var(--muted-foreground);
+  font-size: 11px;
+}
+
+.kontoutdrag {
+  font-size: 12px;
+}
+
+.kontoutdrag .ingaende td {
+  color: var(--muted-foreground);
+  font-style: italic;
+}
+
+/* Att göra: agendan (variant C i prototype/47-att-gora). */
+
+.antal {
+  display: inline-grid;
+  place-items: center;
+  min-width: 18px;
+  height: 18px;
+  margin-left: 6px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: var(--muted);
+  color: var(--muted-foreground);
+  font-size: 11px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+
+.agenda {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  max-width: 1180px;
+  margin: 0 auto;
+}
+
+.ag-rubrik h1 {
+  font-size: 20px;
+  font-weight: 600;
+  margin: 0;
+}
+
+.ag-rubrik p {
+  margin: 0;
+}
+
+.nyck {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 8px;
+}
+
+.stat {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.stat b {
+  font-size: 16px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.stat .sub {
+  font-size: 11px;
+  color: var(--muted-foreground);
+}
+
+.ag-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 380px;
+  gap: 24px;
+  align-items: start;
+}
+
+.ag-grid.sida-oppen {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 2fr);
+}
+
+@media (max-width: 900px) {
+  .ag-grid,
+  .ag-grid.sida-oppen {
+    grid-template-columns: 1fr;
+  }
+}
+
+.ag-day {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 14px 2px 6px;
+  margin-bottom: 6px;
+  border-bottom: 1px solid var(--border);
+  font-weight: 500;
+}
+
+.ag-day .diskret {
+  font-size: 11px;
+  font-weight: 400;
+}
+
+.ag-day.bad {
+  color: var(--destructive);
+}
+
+.ag-day.idag {
+  color: var(--primary);
+}
+
+.ag-tom {
+  padding: 14px 2px;
+}
+
+.ag-side {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.ig {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 12px 4px 2px;
+  color: var(--muted-foreground);
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.ig .n {
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+}
+
+.per {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 4px 2px;
+  color: var(--muted-foreground);
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.per .badge {
+  margin-left: auto;
+}
+
+.badge-varning {
+  background: color-mix(in oklch, var(--primary) 14%, transparent);
+  color: var(--primary);
+}
+
+.badge-okopplat {
+  background: var(--muted);
+  color: var(--muted-foreground);
+}
+
+/* Driftvarningar överst i Att göra och på sidan Installation: bara när något är fel. */
+.driftvarningar {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.driftvarningar:empty {
+  display: none;
+}
+
+.driftvarning {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 9px 12px;
+  border: 1px solid var(--destructive);
+  border-left-width: 3px;
+  border-radius: var(--radius);
+  background: var(--card);
+}
+
+.driftvarning > div {
+  flex: 1 1 14rem;
+  min-width: 0;
+}
+
+.driftvarning p {
+  margin: 2px 0 0;
+  color: var(--muted-foreground);
+  overflow-wrap: anywhere;
+}
+
+.badge-drift {
+  background: color-mix(in oklch, var(--destructive) 12%, transparent);
+  color: var(--destructive);
+}
+
+.installation h2 {
+  font-size: 14px;
+  font-weight: 600;
+  margin: 1.25rem 0 0.25rem;
+}
+
+.installation .fakta dd {
+  overflow-wrap: anywhere;
+}
+
+.acard {
+  margin-bottom: 6px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--card);
+  min-width: 0;
+}
+
+.acard.open {
+  border-color: var(--ring);
+}
+
+.acard .ah {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 12px;
+  color: inherit;
+  text-decoration: none;
+}
+
+.acard .ah:hover {
+  background: color-mix(in oklch, var(--muted) 50%, transparent);
+}
+
+.ah-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.ah-text b {
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ah-text .s {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  color: var(--muted-foreground);
+  font-size: 12px;
+}
+
+.ah-hoger {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+  white-space: nowrap;
+}
+
+.when {
+  color: var(--muted-foreground);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.when.hot {
+  color: var(--primary);
+}
+
+.when.bad {
+  color: var(--destructive);
+}
+
+.acard .ab {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px 16px;
+  border-top: 1px solid var(--border);
+}
+
+.acard .med-underlag {
+  grid-template-columns: 1fr;
+}
+
+.triage {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 240px;
+  gap: 16px;
+  align-items: start;
+}
+
+@media (max-width: 1100px) {
+  .triage {
+    grid-template-columns: 1fr;
+  }
+}
+
+.triage .forhandsvisning {
+  height: 280px;
+}
+
+.tchoice {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.tchoice h2 {
+  font-size: 14px;
+  font-weight: 600;
+  margin: 0;
+}
+
+.tchoice form,
+.tchoice p {
+  margin: 0;
+}
+
+.tchoice-form {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.tchoice-form select {
+  height: var(--control-height);
+  max-width: 100%;
+  border: 1px solid var(--input);
+  border-radius: var(--radius);
+  background: var(--background);
+  color: inherit;
+}
+
+.inl {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--ring);
+  border-radius: var(--radius);
+}
+
+.inl p {
+  margin: 0;
+}
+
+.notis-frist {
+  border-left: 3px solid var(--primary);
+}
+
+/* Att göra: varningen efter en återställning, överst tills användaren kvitterar den. */
+
+.aterstallning {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--destructive);
+  border-left-width: 3px;
+  border-radius: var(--radius);
+  background: var(--card);
+}
+
+.aterstallning p {
+  margin: 4px 0 0;
+}
+
+.aterstallning form {
+  flex: none;
+}
+
+/* Inställningar → Systemdokumentation */
+.systemdokumentation .sd-innehall ol {
+  margin: 0.5rem 0 1rem;
+  padding-left: 1.25rem;
+  columns: 2;
+}
+
+.sd-avsnitt {
+  margin-top: 1.5rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--border);
+  scroll-margin-top: 1rem;
+}
+
+.sd-avsnitt h2 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.sd-avsnitt h3 {
+  margin: 1rem 0 0.25rem;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.sd-avsnitt p,
+.sd-avsnitt ul {
+  max-width: 48rem;
+}
+
+.sd-krav {
+  margin: 0 0 0.5rem;
+  font-size: 12px;
+}
+
+.sd-tabell {
+  margin: 0.5rem 0;
+}
+
+.sd-tabell td {
+  vertical-align: top;
+}
+
+.sd-tabell .sd-rubrik th {
+  padding-top: 10px;
+  color: var(--foreground);
+  font-weight: 600;
+}
+
+.sd-hopfalld summary {
+  cursor: pointer;
+  color: var(--muted-foreground);
+}
+
+.sd-lank {
+  margin: 0.25rem 0;
+}
+
+/* Antalet utkast per företag i företagsväljaren (berättelse 52). */
+.utkastantal {
+  color: var(--muted-foreground);
+  font-size: 0.92em;
+  margin-left: 0.5rem;
+}

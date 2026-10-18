@@ -1,0 +1,33 @@
+﻿Tidpunkt;Aktör;Kanal;Typ;Objekt;Belopp;Beskrivning
+2026-01-10 09:00:00;anna@example.se;webb;företag skapat;556036-0793;;Exempel AB upplagt: räkenskapsår 2026-01-01 – 2026-12-31, fakturametoden, momsperiod kvartal, kontoplan BAS 2026
+2026-01-10 09:00:00;anna@example.se;webb;åtkomst given;anna@example.se;;Åtkomst till företaget för anna@example.se
+2026-03-02 10:15:00;anna@example.se;webb;företag ändrat;556036-0793;;namn: ”Exempel AB” → ”Exempel Handel AB”
+2026-03-02 10:15:00;anna@example.se;webb;räkenskapsår ändrat;2026-01-01;;Slutet ändrat från 2026-12-31 till 2027-06-30
+2026-03-02 10:15:00;anna@example.se;webb;bokföringsmetod bytt;2027-07-01;;Från fakturametoden till kontantmetoden fr.o.m. 2027-07-01
+2026-03-02 10:15:00;anna@example.se;webb;momsperiod bytt;2026-04-01;;Från kvartal till månad fr.o.m. 2026-04-01
+2026-03-02 10:15:00;anna@example.se;webb;ingående balans ändrad;2026-01-01 – 2027-06-30;;"1930: 0,00 → 1 000,00; 2081: 0,00 → -1 000,00"
+2026-03-02 10:15:00;anna@example.se;webb;konto skapat;1939;;Eget konto ”Sparkonto”
+2026-03-02 10:15:00;anna@example.se;webb;konto namnbytt;1939;;Namn ändrat från ”Sparkonto” till ”Sparkonto Swedbank”
+2026-03-02 10:15:00;anna@example.se;webb;konto inaktiverat;1939;;Inaktiverat
+2026-03-02 10:15:00;anna@example.se;webb;konto aktiverat;1939;;Aktiverat
+2026-03-02 10:15:00;Maya;maya;BAS-tillägg;BAS 2027;;1 konto tillagt som inaktivt: 6542
+2026-03-02 10:15:00;anna@example.se;webb;verifikat bokfört;V1;125,00;2026-03-14 ”Kontantförsäljning 2026-03-14”, 2 rader
+2026-03-02 10:15:00;anna@example.se;webb;räkenskapsår skapat;2027-07-01 – 2028-06-30;;Första verifikatet dateras i året
+2026-03-02 10:15:00;anna@example.se;webb;verifikat bokfört;V1;1234,50;2027-08-01 ”Kontantförsäljning 2027-08-01”, 2 rader
+2026-03-02 10:15:00;anna@example.se;webb;verifikat bokfört;V2;125,00;2026-03-20 ”Rättelse av V1, fel belopp”, 2 rader
+2026-03-02 10:15:00;anna@example.se;webb;verifikat rättat;V1;;Rättat av V2 daterad 2026-03-20, orsak ”fel belopp”
+2026-03-02 10:15:00;anna@example.se;webb;underlag uppladdat;kvitto.pdf;;”kvitto.pdf” uppladdat, application/pdf, 15 byte
+2026-03-02 10:15:00;anna@example.se;webb;verifikat kompletterat;V1;;Kompletterat med underlaget ”kvitto.pdf”
+2026-03-02 10:15:00;anna@example.se;webb;underlag uppladdat;fel.pdf;;”fel.pdf” uppladdat, application/pdf, 12 byte
+2026-03-02 10:15:00;anna@example.se;webb;underlag borttaget;fel.pdf;;”fel.pdf” borttaget, application/pdf, 12 byte
+2026-03-02 10:15:00;anna@example.se;webb;utkast raderat;Halvfärdigt;0,00;Utkast daterat 2026-05-02, 0 rader
+2026-03-02 10:15:00;anna@example.se;webb;inbjudan skapad;bo@example.se;;Inbjudan till bo@example.se, giltig till 2026-03-03 10:15
+2026-03-02 10:15:00;bo@example.se;webb;inbjudan använd;bo@example.se;;bo@example.se registrerade sig med inbjudan
+2026-03-02 10:15:00;bo@example.se;webb;åtkomst given;bo@example.se;;Åtkomst till företaget för bo@example.se
+2026-03-02 10:15:00;cli;cli;användare avaktiverad;bo@example.se;;bo@example.se avaktiverad: kan inte logga in, åtkomsten står kvar
+2026-03-02 10:15:00;anna@example.se;webb;åtkomst tagen;bo@example.se;;Åtkomsten till företaget borttagen för bo@example.se
+2026-03-02 10:15:00;anna@example.se;webb;SIE4 exporterad;2026-01-01 – 2027-06-30;;SIE4_5560360793_2026.se, 2 verifikat
+2026-03-02 10:15:00;cli;cli;återställning gjord;maya-20260301T020000Z;;Hela installationen återställd från backupen 2026-03-01 03:00. Det som registrerades efter den måste registreras om
+2026-03-02 10:15:00;Maya;maya;migrering misslyckad;20270101000000;;1 migrering av Maya 0.5.0 (20270101000000 exempel): misslyckades och rullades tillbaka, databasen är som före: no such table: finns_inte
+2026-03-02 10:15:00;Maya;maya;migrering körd;20270101000000;;1 migrering av Maya 0.5.0 (20270101000000 exempel): kontrollsummorna oförändrade, backup maya-20260301T090000Z
+2026-03-02 10:15:00;Maya;maya;programversion bytt;0.5.0;;Från 0.4.0 till 0.5.0

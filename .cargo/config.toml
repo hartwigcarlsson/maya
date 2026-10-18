@@ -1,0 +1,8 @@
+# rust-embed reads the site folder from this variable at compile time. cargo-leptos sets it
+# itself; this default lets a plain `cargo build` or `cargo test` compile without it.
+[env]
+LEPTOS_SITE_ROOT = { value = "target/site", relative = true }
+# Leptos väljer namnet på wasm-filen vid kompileringen: utan LEPTOS_OUTPUT_NAME pekar
+# HydrationScripts på `maya_bg.wasm`, men cargo-leptos skriver `maya.wasm`. Samma värde som
+# `output-name` i Cargo.toml, så att även en vanlig `cargo build` laddar rätt fil.
+LEPTOS_OUTPUT_NAME = "maya"

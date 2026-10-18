@@ -1,0 +1,20 @@
+# Traefik framför Maya med file provider, alltså utan Docker-socket.
+# Traefik tolkar filen som en Go-mall, så domänen läses ur MAYA_DOMAIN.
+http:
+  routers:
+    maya:
+      rule: 'Host(`{{ env "MAYA_DOMAIN" }}`)'
+      entryPoints: [websecure]
+      service: maya
+      tls:
+        certResolver: le
+  services:
+    maya:
+      loadBalancer:
+        # Host skickas oförändrad till Maya.
+        passHostHeader: true
+        # Ingen buffring, så att server-sent events når webbläsaren direkt.
+        responseForwarding:
+          flushInterval: "-1"
+        servers:
+          - url: http://maya:8080

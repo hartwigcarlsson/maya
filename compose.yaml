@@ -1,0 +1,85 @@
+# Maya med Caddy framför. Konfigurationen ligger i .env (se .env.example).
+#
+#   docker compose up -d                      Maya och Caddy (standard)
+#   COMPOSE_PROFILES=traefik och              Traefik med file provider i stället för Caddy
+#   MAYA_CADDY_SCALE=0 i .env
+#
+# Uppgradera genom att byta taggen nedan och köra `docker compose up -d`. Använd aldrig latest.
+# Se docs/drift.md.
+
+name: maya
+
+services:
+  maya:
+    image: ghcr.io/hartwigcarlsson/maya:0.1.0
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      MAYA_DATA_DIR: /data
+      MAYA_LISTEN: 0.0.0.0:8080
+      # Bara proxyn i nätverket nedan får ange klientens adress i X-Forwarded-For.
+      MAYA_TRUSTED_PROXY: ${MAYA_TRUSTED_PROXY:-172.31.80.2,172.31.80.3}
+    volumes:
+      - maya-data:/data
+      # Backupmålet ska ligga på en annan disk än /data. Katalogen ägs av uid 65532.
+      - ${MAYA_BACKUP_HOST_DIR:-./backup}:/backup
+    networks:
+      maya:
+        ipv4_address: 172.31.80.10
+
+  caddy:
+    image: caddy:2.10.2
+    # 0 när Traefik eller en annan proxy står framför Maya.
+    scale: ${MAYA_CADDY_SCALE:-1}
+    restart: unless-stopped
+    depends_on: [maya]
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      MAYA_DOMAIN: ${MAYA_DOMAIN:?ange MAYA_DOMAIN i .env, t.ex. bokforing.example.se}
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    networks:
+      maya:
+        ipv4_address: 172.31.80.2
+
+  traefik:
+    image: traefik:v3.5.3
+    profiles: [traefik]
+    restart: unless-stopped
+    depends_on: [maya]
+    command:
+      - --entrypoints.web.address=:80
+      - --entrypoints.web.http.redirections.entrypoint.to=websecure
+      - --entrypoints.websecure.address=:443
+      - --providers.file.filename=/etc/traefik/dynamic.yml
+      - --certificatesresolvers.le.acme.tlschallenge=true
+      - --certificatesresolvers.le.acme.email=${MAYA_ACME_EPOST:-}
+      - --certificatesresolvers.le.acme.storage=/acme/acme.json
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      MAYA_DOMAIN: ${MAYA_DOMAIN:?ange MAYA_DOMAIN i .env, t.ex. bokforing.example.se}
+    volumes:
+      - ./deploy/traefik-dynamic.yml:/etc/traefik/dynamic.yml:ro
+      - traefik-acme:/acme
+    networks:
+      maya:
+        ipv4_address: 172.31.80.3
+
+volumes:
+  maya-data:
+  caddy-data:
+  caddy-config:
+  traefik-acme:
+
+networks:
+  maya:
+    ipam:
+      config:
+        - subnet: 172.31.80.0/24

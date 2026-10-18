@@ -1,0 +1,282 @@
+//! Utskrift som PDF/A-2b (A2): ett enskilt verifikat, kontoplanen och rapporterna. Skriv ut och exporten
+//! är samma PDF. Sidfoten får klockans tid och aktörens namn; resten fyller `maya-pdf` i.
+//!
+//! PDF:en skrivs om vid varje utskrift och sparas inte. Det som arkiveras är datat; en PDF som
+//! ska arkiveras som dokument sparas som fil av den som tar ut den (A3, #65).
+
+use jiff::civil::Date;
+use maya_domain::kontoplan::bas;
+use maya_domain::rakenskapsar::periodnamn;
+use maya_pdf::{Dokument, Sidfot};
+
+use crate::aktor::{Aktör, Kanal};
+use crate::atkomst::ÅtkomstFel;
+use crate::behandlingshistorik;
+use crate::config::Config;
+use crate::foretag::{self, FöretagsId};
+use crate::rapport::{self, Urval};
+use crate::saldo::SaldoFel;
+use crate::verifikat::{self, Signatur, VerifikatId, Verifikationsnummer};
+use crate::{Databas, DatabasFel, Klocka, kontoplan};
+
+/// En färdig PDF med ett filnamn att spara den under.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Pdf {
+    pub filnamn: String,
+    pub innehåll: Vec<u8>,
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum UtskriftFel {
+    #[error(transparent)]
+    Åtkomst(#[from] ÅtkomstFel),
+    #[error(transparent)]
+    Pdf(#[from] maya_pdf::PdfFel),
+    #[error("företaget har inget räkenskapsår som börjar det datumet")]
+    OkäntRäkenskapsår,
+}
+
+impl From<DatabasFel> for UtskriftFel {
+    fn from(e: DatabasFel) -> Self {
+        UtskriftFel::Åtkomst(e.into())
+    }
+}
+
+impl From<sqlx::Error> for UtskriftFel {
+    fn from(e: sqlx::Error) -> Self {
+        UtskriftFel::Åtkomst(e.into())
+    }
+}
+
+/// Verifikatet som PDF: rubrik, nummer, metadata, rader, underlagsförteckning och historik.
+/// `None` om verifikatet inte finns i företaget.
+pub async fn verifikat(
+    db: &Databas,
+    klocka: &Klocka,
+    aktör: &Aktör,
+    företag: FöretagsId,
+    id: VerifikatId,
+) -> Result<Option<Pdf>, UtskriftFel> {
+    let Some(v) = verifikat::verifikatet(db, aktör, företag, id).await? else {
+        return Ok(None);
+    };
+    let f = foretag::företaget(db, aktör, företag).await?;
+    let konton = kontoplan::konton(db, aktör, företag).await?;
+    let kontonamn = |nr: Option<_>| {
+        konton
+            .iter()
+            .find(|k| Some(k.nummer) == nr)
+            .map(|k| k.namn.clone())
+            .unwrap_or_default()
+    };
+    let signatur = |s: &Signatur| maya_pdf::Signatur {
+        tid: s.tid,
+        namn: s.namn.clone(),
+        kanal: s.aktör.kanal.namn().to_string(),
+    };
+    let filnamn = verifikatets_filnamn(v.nummer);
+    let nummer = v.nummer.map(|n| n.to_string());
+    let dokument = Dokument::Verifikat(maya_pdf::Verifikat {
+        företag: maya_pdf::Företag {
+            namn: f.namn,
+            orgnr: f.orgnr.to_string(),
+        },
+        nummer,
+        beskrivning: v.beskrivning,
+        datum: v.datum,
+        period: v.datum.map(periodnamn),
+        skapad: signatur(&v.skapad),
+        bokförd: v.bokförd.as_ref().map(signatur),
+        rader: v
+            .rader
+            .iter()
+            .map(|r| maya_pdf::Rad {
+                konto: r.konto,
+                kontonamn: kontonamn(r.konto),
+                text: r.text.clone(),
+                debet: r.debet,
+                kredit: r.kredit,
+            })
+            .collect(),
+        // Referenserna till underlagen och var de finns: filnamn och hash i Maya (VF2).
+        underlag: v
+            .underlag
+            .iter()
+            .map(|u| maya_pdf::Underlag {
+                filnamn: u.filnamn.clone(),
+                sha256: u.sha256.clone(),
+                storlek: u.storlek,
+                komplettering: u.komplettering.then(|| signatur(&u.kopplad)),
+            })
+            .collect(),
+        historik: v
+            .historik
+            .iter()
+            .map(|h| maya_pdf::Historikpost {
+                tid: h.post.tid,
+                typ: h.post.typ.clone(),
+                namn: h.namn.clone(),
+                kanal: h.post.aktör.kanal.namn().to_string(),
+            })
+            .collect(),
+    });
+    Ok(Some(skriv(db, klocka, aktör, filnamn, &dokument).await?))
+}
+
+/// Filnamnet som [`verifikat`] ger PDF:en, t.ex. `V5.pdf`.
+pub fn verifikatets_filnamn(nummer: Option<Verifikationsnummer>) -> String {
+    match nummer {
+        Some(n) => format!("{n}.pdf"),
+        None => "Verifikatutkast.pdf".into(),
+    }
+}
+
+/// Hela kontoplanen som PDF, aktiva och inaktiva konton (S1).
+pub async fn kontoplan(
+    db: &Databas,
+    klocka: &Klocka,
+    aktör: &Aktör,
+    företag: FöretagsId,
+) -> Result<Pdf, UtskriftFel> {
+    let konton = kontoplan::konton(db, aktör, företag).await?;
+    let f = foretag::företaget(db, aktör, företag).await?;
+    // Den senaste BAS-versionen som kontoplanen har konton ur.
+    let bas_version = konton
+        .iter()
+        .filter_map(|k| k.bas_version.clone())
+        .max()
+        .unwrap_or_else(|| bas::VERSION.to_string());
+    let dokument = Dokument::Kontoplan(maya_pdf::Kontoplan {
+        företag: maya_pdf::Företag {
+            namn: f.namn,
+            orgnr: f.orgnr.to_string(),
+        },
+        bas_version,
+        konton: konton
+            .into_iter()
+            .map(|k| maya_pdf::Konto {
+                nummer: k.nummer,
+                namn: k.namn,
+                aktiv: k.aktiv,
+            })
+            .collect(),
+    });
+    skriv(db, klocka, aktör, "kontoplan.pdf".into(), &dokument).await
+}
+
+/// Behandlingshistoriken i urvalet som PDF (A2), med urvalet överst.
+pub async fn behandlingshistorik(
+    db: &Databas,
+    klocka: &Klocka,
+    aktör: &Aktör,
+    företag: FöretagsId,
+    urval: &behandlingshistorik::Urval,
+) -> Result<Pdf, UtskriftFel> {
+    let historik = behandlingshistorik::historik(db, aktör, företag, urval).await?;
+    let f = foretag::företaget(db, aktör, företag).await?;
+    let filnamn = format!(
+        "{}.pdf",
+        crate::export::behandlingshistorikens_filnamn(&f.orgnr, klocka.idag())
+    );
+    let dokument = Dokument::Behandlingshistorik(maya_pdf::Behandlingshistorik {
+        företag: maya_pdf::Företag {
+            namn: f.namn,
+            orgnr: f.orgnr.to_string(),
+        },
+        urval: urval.beskriv(&historik.aktörer),
+        poster: historik
+            .poster
+            .iter()
+            .map(|p| maya_pdf::Behandlingspost {
+                tid: p.tid,
+                aktör: match p.aktör.kanal {
+                    Kanal::Maya => p.aktörsnamn(),
+                    kanal => format!("{} ({})", p.aktörsnamn(), kanal.namn()),
+                },
+                typ: p.typ.clone(),
+                objekt: p.objekt.clone(),
+                beskrivning: p.text(),
+            })
+            .collect(),
+    });
+    skriv(db, klocka, aktör, filnamn, &dokument).await
+}
+
+/// Resultat- eller balansräkningen i urvalet som PDF, med nivån och kolumnerna som urvalet
+/// visar. Filnamnet är `<rapport>_<orgnr>_<år>_<ÅÅÅÅMM>.pdf`.
+pub async fn rapport(
+    db: &Databas,
+    klocka: &Klocka,
+    aktör: &Aktör,
+    företag: FöretagsId,
+    år: Date,
+    urval: &Urval,
+) -> Result<Pdf, UtskriftFel> {
+    let r = rapport::rapport(db, aktör, företag, år, urval)
+        .await
+        .map_err(|e| match e {
+            SaldoFel::Åtkomst(e) => UtskriftFel::Åtkomst(e),
+            SaldoFel::OkäntRäkenskapsår => UtskriftFel::OkäntRäkenskapsår,
+        })?;
+    let f = foretag::företaget(db, aktör, företag).await?;
+    let orgnr = f.orgnr.to_string();
+    let filnamn = format!("{}.pdf", r.filnamn(&orgnr));
+    let dokument = Dokument::Rapport(maya_pdf::Rapport {
+        företag: maya_pdf::Företag {
+            namn: f.namn,
+            orgnr,
+        },
+        rapport: r,
+    });
+    skriv(db, klocka, aktör, filnamn, &dokument).await
+}
+
+/// `systemdokumentation_<orgnr>_<ÅÅÅÅMMDD>.pdf`; `orgnr` med eller utan bindestreck.
+pub fn systemdokumentationens_filnamn(orgnr: &str, idag: jiff::civil::Date) -> String {
+    format!(
+        "systemdokumentation_{}_{}.pdf",
+        orgnr.replace('-', ""),
+        idag.strftime("%Y%m%d")
+    )
+}
+
+/// Systemdokumentationen som PDF (S1–S6), med samma avsnitt som sidan. Filnamnet är
+/// `systemdokumentation_<orgnr>_<ÅÅÅÅMMDD>.pdf`.
+pub async fn systemdokumentation(
+    db: &Databas,
+    klocka: &Klocka,
+    config: &Config,
+    aktör: &Aktör,
+    företag: FöretagsId,
+) -> Result<Pdf, UtskriftFel> {
+    let dokument =
+        crate::systemdokumentation::systemdokumentation(db, config, aktör, företag).await?;
+    let filnamn = systemdokumentationens_filnamn(&dokument.orgnr, klocka.idag());
+    skriv(
+        db,
+        klocka,
+        aktör,
+        filnamn,
+        &Dokument::Systemdokumentation(dokument),
+    )
+    .await
+}
+
+pub(crate) async fn skriv(
+    db: &Databas,
+    klocka: &Klocka,
+    aktör: &Aktör,
+    filnamn: String,
+    dokument: &Dokument,
+) -> Result<Pdf, UtskriftFel> {
+    let mut conn = db.pool().acquire().await?;
+    let sidfot = Sidfot {
+        tidpunkt: klocka.nu(),
+        användare: verifikat::namn(&mut conn, aktör).await?,
+    };
+    drop(conn);
+    Ok(Pdf {
+        filnamn,
+        innehåll: maya_pdf::skriv(dokument, &sidfot)?,
+    })
+}

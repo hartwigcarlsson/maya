@@ -40,6 +40,10 @@ _Avoid_: Behörighet, roll, medlemskap
 En engångslänk som låter en ny användare registrera sin första passkey och därmed få den åtkomst som inbjudaren gav.
 _Avoid_: Registrering, invite
 
+**Färsk passkey**:
+En passkey som användaren har använt i den aktuella sessionen de senaste 5 minuterna; krävs för att hantera passkeys, bjuda in och ändra åtkomst.
+_Avoid_: Ny passkey, nyligen inloggad
+
 **Avaktivera**:
 Att ta bort all åtkomst, alla sessioner och alla token för en användare utan att radera hen, så att behandlingshistoriken fortfarande pekar på hen.
 _Avoid_: Radera, ta bort, spärra
