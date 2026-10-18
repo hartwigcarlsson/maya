@@ -53,3 +53,29 @@ async fn maya_vagrar_starta_nar_origin_har_bytt_port() {
 
     assert!(err.is_err());
 }
+
+#[tokio::test]
+async fn databasfilens_rp_id_prövas_före_öppningen_utan_att_filen_ändras() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("maya.db");
+    // Ingen fil än: första starten.
+    installation::kontrollera_rp_i_fil(&path, &rp("https://bokforing.example.se"))
+        .await
+        .unwrap();
+    let db = Databas::öppna(&path).await.unwrap();
+    installation::kontrollera_rp(&db, &rp("https://bokforing.example.se"))
+        .await
+        .unwrap();
+    db.stäng().await;
+    let före = std::fs::read(&path).unwrap();
+
+    installation::kontrollera_rp_i_fil(&path, &rp("https://bokforing.example.se"))
+        .await
+        .unwrap();
+    let err = installation::kontrollera_rp_i_fil(&path, &rp("https://annan.example.se"))
+        .await
+        .unwrap_err();
+
+    assert!(err.to_string().contains("maya domain change"), "{err}");
+    assert_eq!(std::fs::read(&path).unwrap(), före);
+}

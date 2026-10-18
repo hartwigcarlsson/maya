@@ -41,7 +41,7 @@ pub enum DomainCommand {
 }
 
 pub fn run_user(command: UserCommand) -> ExitCode {
-    kör_med_databas(|config, db| async move {
+    kör_med_databas_för_domänen(|config, db| async move {
         installation::kontrollera_rp(&db, &RelyingParty::från_publik_url(&config.public_url))
             .await?;
         let resultat = user(&config, &db, command).await;
@@ -65,6 +65,24 @@ where
     F: FnOnce(Config, Databas) -> Fut,
     Fut: Future<Output = Resultat>,
 {
+    kör(false, f)
+}
+
+/// Som [`kör_med_databas`], och domänen i `MAYA_PUBLIC_URL` prövas mot databasen innan den
+/// öppnas (och migreras och loggar starten).
+fn kör_med_databas_för_domänen<F, Fut>(f: F) -> ExitCode
+where
+    F: FnOnce(Config, Databas) -> Fut,
+    Fut: Future<Output = Resultat>,
+{
+    kör(true, f)
+}
+
+fn kör<F, Fut>(pröva_domänen: bool, f: F) -> ExitCode
+where
+    F: FnOnce(Config, Databas) -> Fut,
+    Fut: Future<Output = Resultat>,
+{
     let config = match Config::from_env(std::env::vars()) {
         Ok(config) => config,
         Err(e) => {
@@ -76,6 +94,13 @@ where
     let resultat = runtime.block_on(async {
         std::fs::create_dir_all(&config.data_dir)
             .map_err(|e| format!("kan inte skapa {}: {e}", config.data_dir.display()))?;
+        if pröva_domänen {
+            installation::kontrollera_rp_i_fil(
+                &config.database_path(),
+                &RelyingParty::från_publik_url(&config.public_url),
+            )
+            .await?;
+        }
         let db = Databas::öppna_med_backup(
             &config.database_path(),
             &maya_core::backup::Backupmål::från(&config.backup),
