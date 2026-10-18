@@ -20,6 +20,7 @@ pub enum Dokument {
     Grundbok(Grundbok),
     Huvudbok(Huvudbok),
     Rapport(Rapport),
+    Systemdokumentation(maya_domain::systemdokumentation::Systemdokumentation),
 }
 
 impl Dokument {
@@ -32,6 +33,7 @@ impl Dokument {
             Dokument::Grundbok(_) => "grundbok.typ",
             Dokument::Huvudbok(_) => "huvudbok.typ",
             Dokument::Rapport(_) => "rapport.typ",
+            Dokument::Systemdokumentation(_) => "systemdokumentation.typ",
         }
     }
 
@@ -44,6 +46,7 @@ impl Dokument {
             Dokument::Grundbok(g) => bokforing::grundbok(g),
             Dokument::Huvudbok(h) => bokforing::huvudbok(h),
             Dokument::Rapport(r) => rapport(r),
+            Dokument::Systemdokumentation(s) => crate::systemdokumentation::systemdokumentation(s),
         };
         json!({
             "sidfot": {
