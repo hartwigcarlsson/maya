@@ -2085,6 +2085,7 @@ dependencies = [
  "maya-auth",
  "maya-core",
  "maya-domain",
+ "maya-sie",
  "rust-embed",
  "serde",
  "serde_json",

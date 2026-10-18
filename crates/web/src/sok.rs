@@ -68,7 +68,7 @@ pub fn mål(fråga: &str, valt: &FöretagVy, alla: &[FöretagVy]) -> Vec<Träff>
         (
             "Gå till",
             "Rapporter".into(),
-            "balansräkning resultaträkning",
+            "balansräkning resultaträkning sie4 export",
             String::new(),
             format!("{bas}/rapporter"),
         ),

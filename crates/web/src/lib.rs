@@ -9,6 +9,7 @@ pub mod foretag;
 pub mod ingaende_balans;
 pub mod konto;
 pub mod kontoplan;
+pub mod rapporter;
 pub mod sok;
 pub mod verifikat;
 
