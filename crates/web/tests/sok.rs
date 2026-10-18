@@ -175,6 +175,7 @@ async fn sidor_och_handlingar_nås_från_sökningen() {
         (format!("{exempel}/rapporter"), "Rapporter"),
         (format!("{exempel}/installningar"), "Inställningar"),
         (format!("{exempel}/installningar/kontoplan"), "Kontoplan"),
+        (format!("{exempel}/underlag"), "Ladda upp underlag"),
         ("/foretag/nytt".to_string(), "Lägg upp företag"),
     ] {
         assert!(
