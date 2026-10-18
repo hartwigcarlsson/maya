@@ -3,8 +3,8 @@
 //! En schemamigrering ändrar aldrig bokföringen i tysthet (A3): före migreringarna tas en
 //! ögonblicksbild (och, med ett backupmål, en backup dit) med kontrollsummorna, efteråt räknas
 //! de igen, och vid avvikelse eller fel läggs ögonblicksbilden tillbaka och databasen öppnas
-//! inte. Resultatet och varje byte av programversion loggas i varje företags
-//! behandlingshistorik. Schemaepoken hindrar en `1.x` från att öppna en databas från `0.x` (A4).
+//! inte. Resultatet, också en misslyckad migrering, och varje byte av programversion loggas i
+//! varje företags behandlingshistorik. Schemaepoken hindrar en `1.x` från att öppna en databas från `0.x` (A4).
 
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
@@ -146,7 +146,9 @@ impl Databas {
         // migreras. En ny databas har ingen epok ännu.
         db.kontrollera_epok(epok).await?;
         let tid = Klocka::system().nu();
-        let körda = db.migrera(path, binär.migrator, tid, mål).await?;
+        let körda = db
+            .migrera(path, binär.migrator, binär.version, tid, mål)
+            .await?;
         db.kontrollera_epok(epok).await?;
 
         let mut tx = db.pool.begin().await?;
@@ -161,6 +163,7 @@ impl Databas {
         &self,
         path: &Path,
         migrator: &Migrator,
+        binär_version: &str,
         tid: Timestamp,
         mål: Option<&Backupmål>,
     ) -> Result<Option<Migreringsresultat>, DatabasFel> {
@@ -227,6 +230,15 @@ impl Databas {
             Err(fel) => {
                 tracing::error!("{fel}");
                 self.lägg_tillbaka(path, &före.fil).await?;
+                let försök = Migreringsresultat {
+                    migreringar: väntande,
+                    backup,
+                };
+                // Försöket ska stå kvar i den återlagda databasen. Går det inte att logga är
+                // det migreringens fel som visas.
+                if let Err(e) = logga_misslyckad(path, tid, binär_version, &försök, &fel).await {
+                    tracing::error!("den misslyckade migreringen kunde inte loggas: {e}");
+                }
                 Err(fel)
             }
         }
@@ -331,6 +343,66 @@ impl Databas {
     }
 }
 
+/// Loggar en migrering som misslyckades eller ändrade bokföringen i varje företags
+/// behandlingshistorik i den återlagda databasen `path`, med Maya som aktör.
+async fn logga_misslyckad(
+    path: &Path,
+    tid: Timestamp,
+    version: &str,
+    försök: &Migreringsresultat,
+    fel: &DatabasFel,
+) -> Result<(), sqlx::Error> {
+    use sqlx::Connection;
+    let options = SqliteConnectOptions::new()
+        .filename(path)
+        .foreign_keys(true)
+        .busy_timeout(Duration::from_secs(5));
+    let mut conn = SqliteConnection::connect_with(&options).await?;
+    let mut tx = conn.begin().await?;
+    logga_misslyckad_i(&mut tx, tid, version, försök, &fel.to_string()).await?;
+    tx.commit().await?;
+    conn.close().await
+}
+
+pub(crate) async fn logga_misslyckad_i(
+    conn: &mut SqliteConnection,
+    tid: Timestamp,
+    version: &str,
+    försök: &Migreringsresultat,
+    fel: &str,
+) -> Result<(), sqlx::Error> {
+    let företag: Vec<i64> = sqlx::query_scalar("SELECT id FROM foretag ORDER BY id")
+        .fetch_all(&mut *conn)
+        .await?;
+    let senaste = försök.migreringar.last().map(|(v, _)| v.to_string());
+    for id in företag {
+        behandlingshistorik::skriv(
+            conn,
+            FöretagsId(id),
+            tid,
+            &Aktör::maya(),
+            Händelse::MigreringMisslyckad,
+            senaste.as_deref().unwrap_or_default(),
+            serde_json::json!({
+                "migreringar": migreringar_json(försök),
+                "programversion": version,
+                "fel": fel,
+                "backup": försök.backup,
+            }),
+        )
+        .await?;
+    }
+    Ok(())
+}
+
+fn migreringar_json(körda: &Migreringsresultat) -> Vec<serde_json::Value> {
+    körda
+        .migreringar
+        .iter()
+        .map(|(version, namn)| serde_json::json!({"version": version, "namn": namn}))
+        .collect()
+}
+
 /// Loggar starten i varje företags behandlingshistorik med Maya som aktör: migreringarna som
 /// kördes, och programversionen om den har bytts sedan förra starten.
 pub(crate) async fn logga_start(
@@ -358,9 +430,7 @@ pub(crate) async fn logga_start(
                 Händelse::MigreringKörd,
                 &senaste.unwrap_or_default(),
                 serde_json::json!({
-                    "migreringar": körda.migreringar.iter()
-                        .map(|(version, namn)| serde_json::json!({"version": version, "namn": namn}))
-                        .collect::<Vec<_>>(),
+                    "migreringar": migreringar_json(körda),
                     "programversion": version,
                     "kontrollsummor": "oförändrade",
                     "backup": körda.backup,

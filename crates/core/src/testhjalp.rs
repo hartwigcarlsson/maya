@@ -212,3 +212,25 @@ pub async fn starta_om(
         .expect("starten loggas");
     tx.commit().await.expect("commit");
 }
+
+/// Loggar en migrering som misslyckades och rullades tillbaka, utan att köra någon.
+pub async fn misslyckad_migrering(
+    db: &Databas,
+    klocka: &Klocka,
+    version: &str,
+    migreringar: &[(i64, &str)],
+    fel: &str,
+) {
+    let mut tx = db.pool().begin().await.expect("transaktion");
+    let försök = crate::databas::Migreringsresultat {
+        migreringar: migreringar
+            .iter()
+            .map(|(v, namn)| (*v, namn.to_string()))
+            .collect(),
+        backup: None,
+    };
+    crate::databas::logga_misslyckad_i(&mut tx, klocka.nu(), version, &försök, fel)
+        .await
+        .expect("misslyckandet loggas");
+    tx.commit().await.expect("commit");
+}

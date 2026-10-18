@@ -42,13 +42,14 @@ pub enum Händelse {
     Sie4Exporterad,
     ÅterställningGjord,
     MigreringKörd,
+    MigreringMisslyckad,
     ProgramversionBytt,
 }
 
 impl Händelse {
     /// Alla typer som har en kodväg. En ny typ läggs till här också, så att testet som kör
     /// varje typ genom `core` måste få en kodväg för den.
-    pub const ALLA: [Händelse; 26] = [
+    pub const ALLA: [Händelse; 27] = [
         Händelse::FöretagSkapat,
         Händelse::FöretagÄndrat,
         Händelse::KontoSkapat,
@@ -74,6 +75,7 @@ impl Händelse {
         Händelse::Sie4Exporterad,
         Händelse::ÅterställningGjord,
         Händelse::MigreringKörd,
+        Händelse::MigreringMisslyckad,
         Händelse::ProgramversionBytt,
     ];
 
@@ -104,6 +106,7 @@ impl Händelse {
             Händelse::Sie4Exporterad => "SIE4 exporterad",
             Händelse::ÅterställningGjord => "återställning gjord",
             Händelse::MigreringKörd => "migrering körd",
+            Händelse::MigreringMisslyckad => "migrering misslyckad",
             Händelse::ProgramversionBytt => "programversion bytt",
         }
     }
@@ -469,7 +472,7 @@ impl Post {
                      registrerades efter den måste registreras om"
                 )
             }
-            "migrering körd" => {
+            "migrering körd" | "migrering misslyckad" => {
                 let migreringar: Vec<String> = b["migreringar"]
                     .as_array()
                     .map(|m| {
@@ -486,11 +489,18 @@ impl Post {
                     Value::Null => String::new(),
                     v => format!(", backup {}", s(v)),
                 };
+                let utfall = if self.typ == "migrering körd" {
+                    format!("kontrollsummorna {}", f("kontrollsummor"))
+                } else {
+                    format!(
+                        "misslyckades och rullades tillbaka, databasen är som före: {}",
+                        f("fel")
+                    )
+                };
                 format!(
-                    "{antal} av Maya {} ({}): kontrollsummorna {}{backup}",
+                    "{antal} av Maya {} ({}): {utfall}{backup}",
                     f("programversion"),
                     migreringar.join(", "),
-                    f("kontrollsummor"),
                 )
             }
             "programversion bytt" => {

@@ -570,6 +570,7 @@ fn överföringarna(config: &Config, status: &backup::Backupstatus, historik: &[
         .filter(|p| {
             [
                 Händelse::MigreringKörd.namn(),
+                Händelse::MigreringMisslyckad.namn(),
                 Händelse::ProgramversionBytt.namn(),
                 Händelse::ÅterställningGjord.namn(),
             ]

@@ -134,7 +134,12 @@ async fn radera_tömmer_varje_tabell_med_företagets_data() {
         .await
         .unwrap();
     let tabeller = företagets_tabeller(&path).await;
-    for tabell in ["behandlingshistorik", "period", "verifikatrad", "underlagskoppling"] {
+    for tabell in [
+        "behandlingshistorik",
+        "period",
+        "verifikatrad",
+        "underlagskoppling",
+    ] {
         assert!(tabeller.contains(&tabell.to_string()), "{tabell} saknas");
     }
 
