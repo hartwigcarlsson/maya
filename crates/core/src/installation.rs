@@ -2,7 +2,9 @@
 
 use url::Url;
 
-use crate::{Databas, DatabasFel};
+use crate::aktor::{self, Aktör, Handling};
+use crate::installationslogg::{self, Händelse};
+use crate::{Databas, DatabasFel, Klocka};
 
 /// `rp_id` och origin för WebAuthn, härledda ur den publika URL:en.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -33,6 +35,10 @@ pub enum InstallationsFel {
         nu_rp_id: String,
         nu_origin: String,
     },
+    #[error("kanalen får inte göra det här")]
+    KanalenFårInte,
+    #[error("installationen har redan domänen {0}; ändra MAYA_PUBLIC_URL först")]
+    SammaDomän(String),
     #[error(transparent)]
     Databas(#[from] DatabasFel),
 }
@@ -68,4 +74,64 @@ pub async fn kontrollera_rp(db: &Databas, rp: &RelyingParty) -> Result<(), Insta
             nu_origin: rp.origin.clone(),
         }),
     }
+}
+
+/// Byter installationens domän till `rp`: sparar nytt `rp_id` och origin och tömmer alla
+/// passkeys och sessioner, eftersom passkeys är bundna till domänen. Användarna får sedan en
+/// återställningslänk var. Bara CLI:t (ADR 0005). Händelsen skrivs i installationsloggen.
+pub async fn byt_domän(
+    db: &Databas,
+    klocka: &Klocka,
+    aktör: &Aktör,
+    rp: &RelyingParty,
+) -> Result<(), InstallationsFel> {
+    if !aktor::tillåter(aktör.kanal, Handling::HanteraAnvändare) {
+        return Err(InstallationsFel::KanalenFårInte);
+    }
+    let mut tx = db.pool().begin_with("BEGIN IMMEDIATE").await?;
+    let sparat: Option<(String, String)> =
+        sqlx::query_as("SELECT rp_id, origin FROM installation WHERE id = 1")
+            .fetch_optional(&mut *tx)
+            .await?;
+    if let Some((rp_id, origin)) = &sparat
+        && *rp_id == rp.rp_id
+        && *origin == rp.origin
+    {
+        return Err(InstallationsFel::SammaDomän(rp.origin.clone()));
+    }
+    sqlx::query(
+        "INSERT INTO installation (id, rp_id, origin) VALUES (1, ?1, ?2)
+         ON CONFLICT (id) DO UPDATE SET rp_id = ?1, origin = ?2",
+    )
+    .bind(&rp.rp_id)
+    .bind(&rp.origin)
+    .execute(&mut *tx)
+    .await?;
+    let passkeys = sqlx::query("DELETE FROM passkey")
+        .execute(&mut *tx)
+        .await?
+        .rows_affected();
+    let sessioner = sqlx::query("DELETE FROM session")
+        .execute(&mut *tx)
+        .await?
+        .rows_affected();
+    let (från_rp_id, från_origin) = sparat.unzip();
+    installationslogg::skriv(
+        &mut tx,
+        klocka.nu(),
+        aktör,
+        Händelse::DomänBytt,
+        &rp.rp_id,
+        serde_json::json!({
+            "från_rp_id": från_rp_id,
+            "från_origin": från_origin,
+            "till_rp_id": rp.rp_id,
+            "till_origin": rp.origin,
+            "borttagna_passkeys": passkeys,
+            "avslutade_sessioner": sessioner,
+        }),
+    )
+    .await?;
+    tx.commit().await?;
+    Ok(())
 }

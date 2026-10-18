@@ -104,9 +104,10 @@ async fn registreringslanken_ger_en_passkey_och_en_session_och_kan_bara_anvandas
         .await
         .unwrap();
 
-    let session = inloggning::slutför_registrering(&db, &nu(), länk.token(), passkey(b"ett"))
-        .await
-        .unwrap();
+    let session =
+        inloggning::slutför_registrering(&db, &nu(), länk.token(), passkey(b"ett"), None)
+            .await
+            .unwrap();
 
     let inloggad = inloggning::session(&db, &nu(), session.token())
         .await
@@ -116,7 +117,8 @@ async fn registreringslanken_ger_en_passkey_och_en_session_och_kan_bara_anvandas
     assert_eq!(inloggad.aktör, Aktör::webb(inloggad.användare.id));
     assert_eq!(inloggad.passkey_använd, nu().nu());
 
-    let igen = inloggning::slutför_registrering(&db, &nu(), länk.token(), passkey(b"tva")).await;
+    let igen =
+        inloggning::slutför_registrering(&db, &nu(), länk.token(), passkey(b"tva"), None).await;
     assert!(matches!(igen, Err(InloggningsFel::OgiltigLänk)));
     let igen = inloggning::registrering(&db, &nu(), länk.token()).await;
     assert!(matches!(igen, Err(InloggningsFel::OgiltigLänk)));
@@ -128,7 +130,7 @@ async fn inloggning_borjar_med_e_post_och_ger_anvandarens_passkeys() {
     let länk = inloggning::skapa_första_användare(&db, &nu(), &Aktör::cli(), "anna@example.se")
         .await
         .unwrap();
-    inloggning::slutför_registrering(&db, &nu(), länk.token(), passkey(b"ett"))
+    inloggning::slutför_registrering(&db, &nu(), länk.token(), passkey(b"ett"), None)
         .await
         .unwrap();
 
@@ -150,6 +152,7 @@ async fn inloggning_borjar_med_e_post_och_ger_anvandarens_passkeys() {
         grund.användare.id,
         b"ett",
         Some("{\"uppdaterad\":true}".into()),
+        None,
     )
     .await
     .unwrap();
@@ -173,7 +176,7 @@ async fn inloggning_med_nagon_annans_passkey_vagras() {
     let länk = inloggning::skapa_första_användare(&db, &nu(), &Aktör::cli(), "anna@example.se")
         .await
         .unwrap();
-    inloggning::slutför_registrering(&db, &nu(), länk.token(), passkey(b"ett"))
+    inloggning::slutför_registrering(&db, &nu(), länk.token(), passkey(b"ett"), None)
         .await
         .unwrap();
     let grund = inloggning::inloggning_för(&db, "anna@example.se")
@@ -181,7 +184,7 @@ async fn inloggning_med_nagon_annans_passkey_vagras() {
         .unwrap()
         .unwrap();
 
-    let err = inloggning::logga_in(&db, &nu(), grund.användare.id, b"okand", None)
+    let err = inloggning::logga_in(&db, &nu(), grund.användare.id, b"okand", None, None)
         .await
         .unwrap_err();
 
@@ -274,7 +277,7 @@ async fn inloggad_session(db: &Databas) -> String {
     let länk = inloggning::skapa_första_användare(db, &nu(), &Aktör::cli(), "anna@example.se")
         .await
         .unwrap();
-    inloggning::slutför_registrering(db, &nu(), länk.token(), passkey(b"ett"))
+    inloggning::slutför_registrering(db, &nu(), länk.token(), passkey(b"ett"), None)
         .await
         .unwrap()
         .token()

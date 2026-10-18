@@ -6,6 +6,7 @@
 
 pub mod app;
 pub mod foretag;
+pub mod konto;
 pub mod kontoplan;
 pub mod verifikat;
 

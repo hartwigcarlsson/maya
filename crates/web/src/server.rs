@@ -20,6 +20,7 @@ use crate::app::{App, shell};
 use crate::assets;
 use crate::foretag::server::{self as foretag, FöretagsState};
 use crate::inloggning::{self, InloggningsState};
+use crate::konto::server as konto;
 use crate::kontoplan::server::{self as kontoplan, KontoplansState};
 use crate::verifikat::server::{self as verifikat, VerifikatState};
 
@@ -81,6 +82,10 @@ pub fn router(config: Arc<Config>, db: Databas) -> Router {
             verifikat::lägg_på_verifikatdata,
         ))
         .layer(middleware::from_fn_with_state(
+            inloggning.clone(),
+            konto::lägg_på_kontodata,
+        ))
+        .layer(middleware::from_fn_with_state(
             företag.clone(),
             foretag::lägg_på_företagsval,
         ))
@@ -122,10 +127,15 @@ pub fn router(config: Arc<Config>, db: Databas) -> Router {
                 )),
         )
         .merge(
-            inloggning::routes(inloggning.clone()).layer(middleware::from_fn_with_state(
-                inloggning,
-                inloggning::kräv_eget_origin,
-            )),
+            inloggning::routes(inloggning.clone())
+                .layer(middleware::from_fn_with_state(
+                    inloggning.clone(),
+                    inloggning::identifiera,
+                ))
+                .layer(middleware::from_fn_with_state(
+                    inloggning,
+                    inloggning::kräv_eget_origin,
+                )),
         )
         .layer(middleware::from_fn_with_state(
             state.clone(),

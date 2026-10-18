@@ -11,6 +11,7 @@ use serde::{Deserialize, Serialize};
 use crate::foretag::{
     AttGöra, Företagslista, Inställningar, NyttFöretagSida, Rapporter, Toppmeny, företagsval,
 };
+use crate::konto::{Passkeys, Sessioner};
 use crate::kontoplan::KontoplanSida;
 use crate::verifikat::{NyttVerifikatSida, VerifikatSida};
 
@@ -82,6 +83,12 @@ pub fn App() -> impl IntoView {
     let användarmeny = match läge {
         Läge::Inloggad { visningsnamn } => Some(view! {
             <span class="anvandare">{visningsnamn}</span>
+            <a class="knapp knapp-diskret" href="/passkeys" rel="external">
+                "Passkeys"
+            </a>
+            <a class="knapp knapp-diskret" href="/sessioner" rel="external">
+                "Sessioner"
+            </a>
             <form method="post" action="/auth/utloggning">
                 <button class="knapp knapp-diskret" type="submit">
                     "Logga ut"
@@ -121,6 +128,8 @@ fn Innehåll() -> impl IntoView {
             <Routes fallback=|| view! { <SidanFinnsInte /> }>
                 <Route path=path!("") view=Startsida />
                 <Route path=path!("registrera/:token") view=Registrera />
+                <Route path=path!("passkeys") view=Passkeys />
+                <Route path=path!("sessioner") view=Sessioner />
                 <Route path=path!("foretag/nytt") view=NyttFöretagSida />
                 <Route path=path!("foretag/:id") view=AttGöra />
                 <Route path=path!("foretag/:id/verifikat") view=VerifikatSida />
@@ -174,7 +183,8 @@ pub(crate) fn LoggaIn() -> impl IntoView {
     }
 }
 
-/// Sidan som registreringslänken från `maya user create` leder till.
+/// Sidan som registrerings- och återställningslänkarna från CLI:t leder till. Efteråt ber
+/// Maya användaren lägga till en passkey till.
 #[component]
 fn Registrera() -> impl IntoView {
     let token = use_params_map().with_untracked(|p| p.get("token").unwrap_or_default());
@@ -182,7 +192,12 @@ fn Registrera() -> impl IntoView {
         <section class="tom-sida">
             <h1>"Registrera passkey"</h1>
             <p>"Med en passkey loggar du in i Maya utan lösenord."</p>
-            <form class="formular" data-passkey="registrera" data-token=token>
+            <form
+                class="formular"
+                data-passkey="registrera"
+                data-token=token
+                data-efter="/passkeys?ny=1"
+            >
                 <label for="namn">"Namn på passkeyn"</label>
                 <input id="namn" name="namn" type="text" placeholder="t.ex. MacBook" />
                 <button class="knapp" type="submit">
