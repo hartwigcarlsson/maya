@@ -1466,7 +1466,9 @@ fn Formulär(
                         .collect_view();
                     let förutsättningar = förutsättningar.clone();
                     let kontonamn = move || {
-                        let konto = faktura.with(|f| f.rader[i].konto.clone());
+                        // Raderna kan bli färre (Kontera som originalet, #148).
+                        let konto = faktura
+                            .with(|f| f.rader.get(i).map(|r| r.konto.clone()).unwrap_or_default());
                         let konto = if konto.trim().is_empty() {
                             standardkonto.get()
                         } else {
@@ -1476,7 +1478,9 @@ fn Formulär(
                     };
                     let beräknad = move || {
                         faktura.with(|f| {
-                            let r = &f.rader[i];
+                            let Some(r) = f.rader.get(i) else {
+                                return String::new();
+                            };
                             let netto = tolka_med_tecken(&r.netto);
                             let sats = r.momssats.trim().parse::<u8>().ok();
                             match (netto, sats) {
