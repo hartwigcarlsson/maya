@@ -17,6 +17,7 @@ pub mod installningar;
 pub mod konto;
 pub mod kontoplan;
 pub mod kunder;
+pub mod kundfakturor;
 pub mod leverantorer;
 pub mod rapporter;
 pub mod sidodata;

@@ -358,6 +358,162 @@ fn forsta_anvandaren_via_cli_lanken_och_inloggning_med_passkey() {
     inga_sidfel(&tab);
 }
 
+/// Specens flöde för kundfakturor (#135): en kund finns, användaren skapar en faktura i
+/// formuläret, fäller ut förhandsvisningen med P, granskar och utfärdar, och den utfärdade
+/// fakturan visar sin arkiverade PDF.
+#[test]
+fn kundfaktura_skapas_granskas_och_utfärdas() {
+    if !stod::sajten_finns() {
+        return;
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let port = ledig_port();
+    let bas = format!("http://localhost:{port}");
+    std::fs::write(
+        dir.path().join(".env"),
+        format!(
+            "MAYA_PUBLIC_URL={bas}\nMAYA_LISTEN=127.0.0.1:{port}\nMAYA_BACKUP_DIR={backup}\n\
+             MAYA_DATA_DIR={data}\n",
+            backup = dir.path().display(),
+            data = dir.path().join("data").display(),
+        ),
+    )
+    .unwrap();
+    let _server = Server::starta(dir.path(), port);
+    let browser = Browser::new(
+        LaunchOptions::default_builder()
+            .sandbox(false)
+            .idle_browser_timeout(Duration::from_secs(120))
+            .build()
+            .unwrap(),
+    )
+    .expect("röktestet kräver Chrome eller Chromium; ange sökvägen i CHROME");
+    let tab = browser.new_tab().unwrap();
+    tab.call_method(Page::AddScriptToEvaluateOnNewDocument {
+        source: SAMLA_FEL.to_string(),
+        world_name: None,
+        include_command_line_api: None,
+        run_immediately: None,
+    })
+    .unwrap();
+    tab.call_method(WebAuthn::Enable {
+        enable_ui: Some(false),
+    })
+    .unwrap();
+    autentiserare(&tab);
+    tab.navigate_to(&skapa_användare(dir.path(), &bas)).unwrap();
+    vänta_på_shimmen(&tab);
+    tab.wait_for_element("#namn")
+        .unwrap()
+        .type_into("Virtuell nyckel")
+        .unwrap();
+    klicka(&tab, "form[data-passkey='registrera'] button");
+    vänta_på_text(&tab, "Lägg till en passkey till");
+
+    // Företaget med fakturauppgifterna och kunden, med vanliga formulärposter.
+    let företaget = posta(
+        &tab,
+        "/foretag",
+        "orgnr=556036-0793&namn=Exempel+AB&start=2026-01-01&slut=2026-12-31\
+         &bokforingsmetod=faktura&momsperiod=kvartal",
+    );
+    let id = företaget.rsplit('/').next().unwrap().to_string();
+    posta(
+        &tab,
+        &format!("/foretag/{id}/installningar/uppgifter"),
+        "namn=Exempel+AB&gatuadress=Exempelgatan+1&postnummer=12345&postort=Exempelstad\
+         &epost=&telefon=&sate=Stockholm&momsregnr=SE556036079301&f_skatt=ja",
+    );
+    posta(
+        &tab,
+        &format!("/foretag/{id}/installningar/fakturauppgifter"),
+        "bankgiro=50501055&ocr=ja",
+    );
+    let kund = posta(
+        &tab,
+        &format!("/foretag/{id}/kunder"),
+        "namn=Kund+AB&identitet=&adress=Storgatan+1%0A111+22+Stockholm&epost=\
+         &momsregnr=&betalningsvillkor=30&omvand_skattskyldighet=ingen",
+    );
+    let k = kund
+        .split("k=")
+        .nth(1)
+        .unwrap()
+        .split('&')
+        .next()
+        .unwrap()
+        .to_string();
+
+    // Formuläret: kund, datum och en rad. Spärrarna räknas medan användaren skriver.
+    tab.navigate_to(&format!("{bas}/foretag/{id}/kundfakturor/ny"))
+        .unwrap();
+    vänta_på_hydreringen(&tab);
+    vänta_på_text(&tab, "Granska och utfärda · ");
+    tab.evaluate(
+        &format!(
+            "(() => {{ const s = document.querySelector('#kund'); s.value = '{k}'; \
+             s.dispatchEvent(new Event('change', {{bubbles: true}})); }})()"
+        ),
+        false,
+    )
+    .unwrap();
+    fyll(&tab, "#fakturadatum", "2026-03-10");
+    fyll(&tab, "input[name='beskrivning_0']", "Konsulttimmar");
+    fyll(&tab, "input[name='antal_0']", "10");
+    fyll(&tab, "input[name='a_pris_0']", "950");
+    vänta_på_text(&tab, "11 875,00");
+    // Rutan "Bokförs som" med konteringen (rubriken visas i versaler).
+    tab.wait_for_element(".kont").unwrap();
+    vänta_på_text(&tab, "2 375,00");
+    // P fäller ut förhandsvisningen, som visar fakturan medan den skrivs.
+    tab.evaluate(
+        "document.body.dispatchEvent(new KeyboardEvent('keydown', {key: 'p', bubbles: true}))",
+        false,
+    )
+    .unwrap();
+    tab.wait_for_element(".papper").unwrap();
+    vänta_på_text(&tab, "Uppdateras medan du skriver.");
+    let knapp = tab
+        .evaluate(
+            "document.querySelector(\"button[value='granska']\").textContent",
+            false,
+        )
+        .unwrap()
+        .value;
+    assert_eq!(knapp, Some("Granska och utfärda".into()));
+    klicka(&tab, "button[value='granska']");
+
+    // Granska och utfärda: PDF:en, numret och konteringen, sedan Utfärda.
+    vänta_på_text(&tab, "Så här ser PDF:en ut");
+    tab.wait_for_element("iframe.granska-pdf").unwrap();
+    klicka(&tab, "form[action$='/utfarda'] button");
+    vänta_på_text(&tab, "Fakturan utfärdades");
+    vänta_på_text(&tab, "Kundfaktura 1");
+    vänta_på_text(&tab, "SHA-256");
+    vänta_på_text(&tab, "Kundfaktura_1.pdf");
+    let pdf = hämta(&tab, ".arkiverad-pdf a");
+    assert_eq!(
+        (pdf.status, pdf.typ.as_str(), &pdf.text[..5]),
+        (200, "application/pdf", "%PDF-")
+    );
+    inga_sidfel(&tab);
+}
+
+/// Postar ett formulär från sidan (samma origin, sessionscookien följer med) och ger adressen
+/// som svaret ledde till.
+fn posta(tab: &Tab, sökväg: &str, kropp: &str) -> String {
+    let skript = format!(
+        "fetch({sökväg:?}, {{method: 'POST', \
+         headers: {{'content-type': 'application/x-www-form-urlencoded'}}, \
+         body: {kropp:?}}}).then(r => r.ok ? r.url : Promise.reject(r.status + ' ' + r.url))"
+    );
+    tab.evaluate(&skript, true)
+        .unwrap()
+        .value
+        .and_then(|v| v.as_str().map(str::to_string))
+        .unwrap_or_else(|| panic!("{sökväg} gav inget svar"))
+}
+
 /// Ett litet PDF-dokument som underlag.
 const KVITTO: &[u8] = b"%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n\
 2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n\

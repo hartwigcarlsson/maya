@@ -224,6 +224,7 @@ pub fn Toppmeny() -> impl IntoView {
                     <Antal n=valt.att_göra />
                 </a>
                 <a href=format!("{bas}/verifikat")>"Verifikat"</a>
+                <a href=format!("{bas}/kundfakturor")>"Kundfakturor"</a>
                 <a href=format!("{bas}/rapporter")>
                     "Rapporter"
                 </a>

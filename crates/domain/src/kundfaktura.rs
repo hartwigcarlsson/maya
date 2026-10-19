@@ -102,7 +102,7 @@ pub struct NyKundfaktura {
 
 /// Kunden som fakturan går till, ur kundregistret. Uppgifterna kopieras in när fakturan
 /// utfärdas.
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Fakturakund {
     pub id: i64,
     pub namn: String,

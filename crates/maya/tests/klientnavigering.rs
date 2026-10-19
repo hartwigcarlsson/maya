@@ -257,18 +257,61 @@ fn menylankarna_navigerar_pa_klienten_och_sidorna_visar_sina_data() {
     assert_eq!(samma_sida, Some(true.into()), "en länk laddade om sidan");
     assert_eq!(fel(&tab), Vec::<String>::new());
 
-    // #133 Kundregistret. Kundfakturor (#135) får länken hit; tills dess laddas sidan direkt,
-    // och listan, detaljen och formulären nås med klick i routern.
+    // #133 Kundregistret och #135 Kundfakturor: fliken Kundfakturor med ett utkast och en
+    // utfärdad faktura, och länken därifrån till kundregistret, allt i routern.
     posta(
+        &tab,
+        &format!("/foretag/{id}/installningar/uppgifter"),
+        "namn=Exempel+AB&gatuadress=Exempelgatan+1&postnummer=12345&postort=Exempelstad\
+         &epost=&telefon=&sate=Stockholm&momsregnr=SE556036079301&f_skatt=ja",
+    );
+    let kund = posta(
         &tab,
         &format!("/foretag/{id}/kunder"),
         "namn=Kund+AB&identitet=5560360793&adress=Storgatan+1&epost=faktura%40kund.se\
          &momsregnr=&betalningsvillkor=30&omvand_skattskyldighet=bygg",
     );
-    tab.navigate_to(&format!("{bas}/foretag/{id}/kunder"))
-        .unwrap();
+    let k = kund
+        .split("k=")
+        .nth(1)
+        .unwrap()
+        .split('&')
+        .next()
+        .unwrap()
+        .to_string();
+    let rad = "&beskrivning_0=Konsulttimmar&antal_0=10&enhet_0=tim&a_pris_0=950&rabatt_0=\
+               &momssats_0=25&konto_0=3001";
+    let granska = posta(
+        &tab,
+        &format!("/foretag/{id}/kundfakturor"),
+        &format!("handling=granska&kund={k}&fakturadatum=2026-03-10&startnummer=1007{rad}"),
+    );
+    let f = granska
+        .split("f=")
+        .nth(1)
+        .unwrap()
+        .split('&')
+        .next()
+        .unwrap()
+        .to_string();
+    posta(&tab, &format!("/foretag/{id}/kundfakturor/{f}/utfarda"), "");
+    posta(
+        &tab,
+        &format!("/foretag/{id}/kundfakturor"),
+        &format!("handling=spara&kund={k}&fakturadatum=2026-03-11{rad}"),
+    );
+    tab.navigate_to(&format!("{bas}/foretag/{id}")).unwrap();
     vänta_på_hydreringen(&tab);
     tab.evaluate("window.__samma_sida = true", false).unwrap();
+    klicka(&tab, "nav.flikar a[href$='/kundfakturor']");
+    vänta_på_text(&tab, "Välj en faktura i listan.");
+    klicka(&tab, &format!(".verifikatlista a[href$='?f={f}']"));
+    vänta_på_text(&tab, "SHA-256");
+    vänta_på_text(&tab, "Kundfaktura 1007");
+    klicka(&tab, &format!(".verifikatlista a:not([href$='?f={f}'])"));
+    vänta_på_text(&tab, "Granska och utfärda");
+    klicka(&tab, ".verifikat-spalt a[href$='/kunder']");
+    vänta_på_text(&tab, "Kundregistret");
     klicka(&tab, ".verifikatlista a[href*='/kunder?k=']");
     vänta_på_text(&tab, "Bygg inom Sverige");
     klicka(&tab, "a[href*='andra=1']");

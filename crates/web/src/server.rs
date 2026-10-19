@@ -28,6 +28,7 @@ use crate::inloggning::{self, InloggningsState};
 use crate::installningar::server::{self as installningar, InställningsState};
 use crate::kontoplan::server::{self as kontoplan, KontoplansState};
 use crate::kunder::server::{self as kunder, KundState};
+use crate::kundfakturor::server::{self as kundfakturor, KundfakturaState};
 use crate::leverantorer::server::{self as leverantorer, LeverantörsState};
 use crate::rapporter::server::{self as rapporter, RapportState};
 use crate::underlag::server::{self as underlag, UnderlagState};
@@ -139,6 +140,11 @@ pub fn router(config: Arc<Config>, db: Databas) -> Router {
     };
     // #133 Kundregister
     let kundregistret = KundState {
+        db: db.clone(),
+        klocka: inloggning.klocka.clone(),
+    };
+    // #135 Kundfakturor
+    let kundfakturorna = KundfakturaState {
         db: db.clone(),
         klocka: inloggning.klocka.clone(),
     };
@@ -292,6 +298,18 @@ pub fn router(config: Arc<Config>, db: Databas) -> Router {
         // #133 Kundregister
         .merge(
             kunder::routes(kundregistret)
+                .layer(middleware::from_fn_with_state(
+                    inloggning.clone(),
+                    inloggning::identifiera,
+                ))
+                .layer(middleware::from_fn_with_state(
+                    inloggning.clone(),
+                    inloggning::kräv_eget_origin,
+                )),
+        )
+        // #135 Kundfakturor
+        .merge(
+            kundfakturor::routes(kundfakturorna)
                 .layer(middleware::from_fn_with_state(
                     inloggning.clone(),
                     inloggning::identifiera,

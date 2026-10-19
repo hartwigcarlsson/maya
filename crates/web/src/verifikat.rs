@@ -81,6 +81,8 @@ pub struct DokumentVy {
     pub inte_rättbart: Option<String>,
     /// Det som Rätta… behöver, när verifikatet kan rättas.
     pub rättelse: Option<RättelseVy>,
+    /// Fakturan som verifikatet bokfördes från: adressen och fakturan i text.
+    pub faktura: Option<(String, String)>,
 }
 
 /// En länk till ett annat verifikat, med vem som bokförde det och när.
@@ -381,7 +383,14 @@ pub(crate) mod server {
                 }
                 None => None,
             };
+            let faktura = v.flöde.as_ref().map(|f| match f.sort {
+                verifikat::Flöde::Kundfaktura => (
+                    format!("/foretag/{företag}/kundfakturor?f={}", f.id),
+                    f.text.clone(),
+                ),
+            });
             dokument = Some(DokumentVy {
+                faktura,
                 rättar: v.rättar.as_ref().map(länk),
                 rättad_av: v.rättad_av.as_ref().map(länk),
                 kopia_av: v.kopia_av.as_ref().map(länk),
@@ -1376,6 +1385,16 @@ fn Dokument(bas: String, d: DokumentVy, okopplade: Vec<UnderlagVy>) -> impl Into
         .inte_rättbart
         .clone()
         .map(|text| view! { <p class="notis">{text}</p> });
+    let faktura = d.faktura.clone().map(|(href, text)| {
+        view! {
+            <dt>"Bokfört från"</dt>
+            <dd>
+                <a class="fakturalank" href=href>
+                    {text}
+                </a>
+            </dd>
+        }
+    });
     let öppen = use_query_map().with_untracked(|q| q.get("ratta").is_some());
     let rätta = match d.rättelse.clone() {
         Some(r) if öppen => {
@@ -1419,6 +1438,7 @@ fn Dokument(bas: String, d: DokumentVy, okopplade: Vec<UnderlagVy>) -> impl Into
                 {bokförd}
                 <dt>"Skapat"</dt>
                 <dd>"av " {skapad_namn} " via " {skapad_kanal}</dd>
+                {faktura}
                 {rättad}
                 {rättar}
                 {ersätter}
