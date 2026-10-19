@@ -139,6 +139,12 @@ async fn sidan_visar_avsnitten_versionen_och_förvaringen_i_sverige() {
         "Bankkonto SEB",
         "<strong>Rättelse</strong>",
         "Första versionen av behandlingsreglerna.",
+        // #155 Fakturaflödena
+        "<strong>T2-samlingsverifikat</strong>",
+        "Intäktskonto per momssats",
+        "Fakturaserien",
+        "Reskontrorna som delsystem",
+        "Avstämningen mot 1510 och 2440",
         "ej angivet",
         "förvaras i Sverige",
         // Skriv ut och Exportera ger samma PDF.
