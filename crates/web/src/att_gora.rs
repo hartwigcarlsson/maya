@@ -194,6 +194,7 @@ pub(crate) mod server {
     use maya_core::foretag::FöretagsId;
     use maya_core::inloggning::Inloggad;
     use maya_core::kundfaktura::KundfakturaId;
+    use maya_core::leverantorsfaktura::LeverantörsfakturaId;
     use maya_core::underlag::{self, Underlag, UnderlagFel, UnderlagId};
     use maya_core::verifikat::{self, Urval, VerifikatFel, VerifikatId};
     use maya_core::{Databas, Klocka};
@@ -241,6 +242,10 @@ pub(crate) mod server {
             .route(
                 "/foretag/{id}/att-gora/kundfakturor/{f}/betalning",
                 post(kundbetalning),
+            )
+            .route(
+                "/foretag/{id}/att-gora/leverantorsfakturor/{f}/betalning",
+                post(leverantörsbetalning),
             )
             .with_state(Arc::new(state))
     }
@@ -613,38 +618,34 @@ pub(crate) mod server {
             betala: None,
             betalning: None,
         };
-        match f.faktura {
+        // Betalningen registreras med samma panel och use case som i fakturans dokument
+        // (#139, #147), med en egen POST som går tillbaka till Att göra.
+        let (faktura, sida) = match f.faktura {
             Reskontrafaktura::Kund(id) => {
                 vy.kund = true;
-                vy.dokument = format!("{bas}/kundfakturor?f={id}");
-                vy.betala = Some(format!("{bas}?oppna={nyckel}&panel=betalning"));
-                if b.värde("panel").as_deref() == Some("betalning") {
-                    let r = crate::betalning::server::reskontra(
-                        b,
-                        företag,
-                        Faktura::Kund(id),
-                        Some("betalning"),
-                    )
-                    .await
-                    .map_err(|e| match e {
-                        BetalningFel::Åtkomst(e) => e,
-                        e => ÅtkomstFel::Databas(maya_core::DatabasFel::Korrupt(e.to_string())),
-                    })?;
-                    vy.betalning = r.betalning.map(|v| {
-                        (
-                            format!("{bas}/att-gora/kundfakturor/{id}/betalning"),
-                            format!("{bas}?oppna={nyckel}"),
-                            v,
-                        )
-                    });
-                }
+                (Faktura::Kund(id), format!("kundfakturor/{id}"))
             }
-            // Betalningen av en leverantörsfaktura (#147) registreras i fakturans dokument
-            // tills den kommer hit.
             Reskontrafaktura::Leverantör(id) => {
-                vy.dokument = format!("{bas}/leverantorsfakturor?f={id}");
                 vy.kopieringschips.push(("Belopp".into(), återstår));
+                (Faktura::Leverantör(id), format!("leverantorsfakturor/{id}"))
             }
+        };
+        vy.dokument = format!("{bas}/{}", sida.replace('/', "?f="));
+        vy.betala = Some(format!("{bas}?oppna={nyckel}&panel=betalning"));
+        if b.värde("panel").as_deref() == Some("betalning") {
+            let r = crate::betalning::server::reskontra(b, företag, faktura, Some("betalning"))
+                .await
+                .map_err(|e| match e {
+                    BetalningFel::Åtkomst(e) => e,
+                    e => ÅtkomstFel::Databas(maya_core::DatabasFel::Korrupt(e.to_string())),
+                })?;
+            vy.betalning = r.betalning.map(|v| {
+                (
+                    format!("{bas}/att-gora/{sida}/betalning"),
+                    format!("{bas}?oppna={nyckel}"),
+                    v,
+                )
+            });
         }
         Ok(Some(Öppet::Faktura(Box::new(vy))))
     }
@@ -881,6 +882,40 @@ pub(crate) mod server {
         let (Ok(företag), Ok(f)) = (id.parse::<FöretagsId>(), f.parse::<KundfakturaId>()) else {
             return ingen_åtkomst();
         };
+        betala(&state, &inloggad, företag, Faktura::Kund(f), &fält).await
+    }
+
+    /// #152 `POST /foretag/{id}/att-gora/leverantorsfakturor/{f}/betalning`: som
+    /// [`kundbetalning`], för en leverantörsfaktura (#147).
+    async fn leverantörsbetalning(
+        State(state): State<Arc<AttGöraState>>,
+        Path((id, f)): Path<(String, String)>,
+        inloggad: Option<Extension<Inloggad>>,
+        Form(fält): Form<Vec<(String, String)>>,
+    ) -> Response {
+        let Some(Extension(inloggad)) = inloggad else {
+            return Redirect::to("/").into_response();
+        };
+        let (Ok(företag), Ok(f)) = (id.parse::<FöretagsId>(), f.parse::<LeverantörsfakturaId>())
+        else {
+            return ingen_åtkomst();
+        };
+        betala(&state, &inloggad, företag, Faktura::Leverantör(f), &fält).await
+    }
+
+    /// Registrerar betalningen av `faktura` och visar Att göra med verifikatets nummer, eller
+    /// kortet igen med panelen och spärrarna vid fälten.
+    async fn betala(
+        state: &AttGöraState,
+        inloggad: &Inloggad,
+        företag: FöretagsId,
+        faktura: Faktura,
+        fält: &Vec<(String, String)>,
+    ) -> Response {
+        let nyckel = match faktura {
+            Faktura::Kund(f) => format!("kundfaktura-{f}"),
+            Faktura::Leverantör(f) => format!("leverantorsfaktura-{f}"),
+        };
         let formulär = crate::betalning::ur_fält(|namn| {
             fält.iter().find(|(k, _)| k == namn).map(|(_, v)| v.clone())
         });
@@ -889,7 +924,7 @@ pub(crate) mod server {
             &state.klocka,
             &inloggad.aktör,
             företag,
-            Faktura::Kund(f),
+            faktura,
             &formulär,
         )
         .await
@@ -898,12 +933,12 @@ pub(crate) mod server {
                 .into_response(),
             Err(BetalningFel::Spärrat(_) | BetalningFel::Verifikat(_)) => {
                 crate::betalning::server::tillbaka(
-                    &format!("/foretag/{företag}?oppna=kundfaktura-{f}"),
-                    &fält,
+                    &format!("/foretag/{företag}?oppna={nyckel}"),
+                    fält,
                     &[("panel", "betalning"), ("fel", "betalning")],
                 )
             }
-            Err(BetalningFel::FinnsInte) => crate::kundfakturor::server::finns_inte(),
+            Err(BetalningFel::FinnsInte) => ingen_åtkomst(),
             Err(e) => crate::betalning::server::betalningsfel(e),
         }
     }

@@ -852,10 +852,9 @@ fn leverantorsfaktura_betalas_i_dokumentet() {
     inga_sidfel(&tab);
 }
 
-/// #152 Att göra med fakturorna: en uppladdad leverantörsfaktura registreras från Att göra och
-/// står sedan som förfallen i tidslinjen med kopieringschipsen, och en förfallen kundfaktura
-/// betalas i sitt kort utan att fakturan öppnas. Betalningen av leverantörsfakturan från kortet
-/// kommer med #147.
+/// #152 Att göra med fakturorna (specens röktest): en uppladdad leverantörsfaktura registreras
+/// från Att göra, står sedan som förfallen i tidslinjen med kopieringschipsen och betalas i sitt
+/// kort, och en förfallen kundfaktura betalas i sitt kort utan att fakturan öppnas.
 #[test]
 fn fakturor_registreras_och_betalas_från_att_göra() {
     if !stod::sajten_finns() {
@@ -1014,6 +1013,18 @@ fn fakturor_registreras_och_betalas_från_att_göra() {
         .unwrap();
     vänta_på_text(&tab, "88120044711");
     inga_sidfel(&tab);
+    // Betalningspanelen fälls ut i kortet och betalningen bokförs utan att fakturan öppnas.
+    klicka(
+        &tab,
+        ".acard.open[id^='leverantorsfaktura-'] a[href$='panel=betalning']",
+    );
+    vänta_på_text(&tab, "Återstår 1 250,00 kr");
+    vänta_på_hydreringen(&tab);
+    fyll(&tab, "#betaldag", "2026-04-13");
+    klicka(&tab, ".betalningspanel button[type='submit']");
+    vänta_på_text(&tab, "Betalningen är bokförd som V3.");
+    vänta_på_text_borta(&tab, "Kontorsvaror AB · 8812");
+    inga_sidfel(&tab);
 
     // Kundfakturans kort: betalningspanelen fälls ut i kortet och betalningen bokförs.
     klicka(&tab, &format!("#kundfaktura-{f} a.ah"));
@@ -1026,7 +1037,7 @@ fn fakturor_registreras_och_betalas_från_att_göra() {
     vänta_på_hydreringen(&tab);
     fyll(&tab, "#betaldag", "2026-04-20");
     klicka(&tab, ".betalningspanel button[type='submit']");
-    vänta_på_text(&tab, "Betalningen är bokförd som V3.");
+    vänta_på_text(&tab, "Betalningen är bokförd som V4.");
     vänta_på_text_borta(&tab, "Kund AB");
     inga_sidfel(&tab);
 

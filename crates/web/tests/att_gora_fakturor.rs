@@ -348,3 +348,64 @@ async fn en_kundbetalning_registreras_i_kortet_och_bokförs_som_från_fakturan()
     let dokument = hämta(&db, &session, &format!("{bas}/kundfakturor?f={kund}")).await;
     assert!(dokument.contains("badge-betald"), "{dokument}");
 }
+
+#[tokio::test]
+async fn en_leverantörsbetalning_registreras_i_kortet_och_bokförs_som_från_fakturan() {
+    let db = Databas::tillfällig().await;
+    let (session, bas, _, [telia, _, _]) = fakturor(&db).await;
+    let nyckel = format!("leverantorsfaktura-{telia}");
+
+    let sida = hämta(&db, &session, &format!("{bas}?oppna={nyckel}")).await;
+    let kort = kortet(&sida, &nyckel);
+    assert!(
+        kort.contains(&format!("{bas}?oppna={nyckel}&amp;panel=betalning")),
+        "{kort}"
+    );
+    assert!(!kort.contains("Kontakta kunden själv"), "{kort}");
+
+    let sida = hämta(
+        &db,
+        &session,
+        &format!("{bas}?oppna={nyckel}&panel=betalning"),
+    )
+    .await;
+    let kort = kortet(&sida, &nyckel);
+    let action = format!("{bas}/att-gora/leverantorsfakturor/{telia}/betalning");
+    assert!(kort.contains(&format!(r#"action="{action}""#)), "{kort}");
+    assert!(kort.contains(r#"value="1 250,00""#), "{kort}");
+    // Kopieringschipsen står kvar bredvid panelen.
+    assert!(kort.contains(r#"<span class="k">OCR</span>"#), "{kort}");
+
+    let tillbaka = posta(
+        &db,
+        &session,
+        &action,
+        &format!("betaldag={}&belopp=2000&konto=1930", idag()),
+    )
+    .await;
+    assert!(
+        tillbaka.starts_with(&format!("{bas}?oppna={nyckel}&panel=betalning")),
+        "{tillbaka}"
+    );
+
+    let klar = posta(
+        &db,
+        &session,
+        &action,
+        &format!("betaldag={}&belopp=1250&konto=1930", idag()),
+    )
+    .await;
+    let sida = hämta(&db, &session, &klar).await;
+    assert!(sida.contains("Betalningen är bokförd som V"), "{sida}");
+    assert!(!sida.contains(&format!(r#"id="{nyckel}""#)), "{sida}");
+    // Leverantörsskulderna har inget förfallet kvar.
+    let nyckeltal = efter(&sida, "Leverantörsskulder");
+    assert!(nyckeltal.contains("inget förfallet"), "{nyckeltal}");
+    let dokument = hämta(
+        &db,
+        &session,
+        &format!("{bas}/leverantorsfakturor?f={telia}"),
+    )
+    .await;
+    assert!(dokument.contains("badge-betald"), "{dokument}");
+}
