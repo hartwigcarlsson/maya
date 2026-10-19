@@ -2747,3 +2747,29 @@ kbd {
   padding: 4px 8px;
   font-weight: 600;
 }
+
+/* Kreditfakturor (#140): märkena krediterad, tillgodo och kreditfaktura, panelen Kreditfaktura…
+   och hänvisningen på kreditutkastet. */
+.badge-krediterad {
+  background: var(--muted);
+  color: var(--muted-foreground);
+}
+
+.badge-tillgodo {
+  background: color-mix(in oklch, var(--primary) 12%, transparent);
+  color: var(--primary);
+}
+
+.badge-kreditfaktura {
+  background: transparent;
+  color: var(--foreground);
+  border: 1px solid var(--border);
+}
+
+.panel.kreditera input.belopp {
+  width: 6em;
+}
+
+.hanvisning {
+  font-weight: 600;
+}
