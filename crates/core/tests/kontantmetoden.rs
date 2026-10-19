@@ -899,6 +899,36 @@ async fn byt(db: &Databas, anna: &Aktör, id: FöretagsId, metod: &str) {
 }
 
 #[tokio::test]
+async fn bokföringsmetoden_byts_inte_från_ett_år_som_redan_har_fakturor_utan_verifikat() {
+    let db = Databas::tillfällig().await;
+    let (anna, id) = testhjalp::fakturaföretag_med_metod(&db, "kontant").await;
+    // Utfärdad under kontantmetoden utan verifikat: efter ett byte till fakturametoden skulle
+    // fakturans fordran inte vara bokförd fast metoden på fakturadatumet säger att den är det.
+    let k = testhjalp::kund(&db, &anna, id, "Kund AB").await;
+    let utkast = testhjalp::kundfakturautkast(&db, &anna, id, k, "2027-01-20").await;
+    let u = kundfaktura::utfärda(&db, &klocka(), &anna, id, utkast)
+        .await
+        .unwrap();
+    assert_eq!(u.verifikat, None);
+    let fel = foretag::byt_bokföringsmetod(
+        &db,
+        &klocka(),
+        &anna,
+        id,
+        &maya_domain::foretag::Byte {
+            gäller_från: "2027-01-01".into(),
+            val: "faktura".into(),
+        },
+    )
+    .await
+    .unwrap_err();
+    assert!(
+        matches!(&fel, foretag::FöretagsFel::Ogiltigt(f) if f.iter().map(|f| f.kod).eq(["fakturor_efter"])),
+        "{fel:?}"
+    );
+}
+
+#[tokio::test]
 async fn efter_byte_till_kontantmetoden_betalas_en_redan_bokförd_faktura_mot_1510() {
     let db = Databas::tillfällig().await;
     let (anna, id) = testhjalp::fakturaföretag_med_metod(&db, "faktura").await;

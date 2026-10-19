@@ -338,6 +338,8 @@ pub struct Ändringsläge {
     pub senast_bokförda: Option<Date>,
     /// Datumet på det senast daterade verifikatet, bokfört eller utkast.
     pub senast_daterade: Option<Date>,
+    /// Det senaste fakturadatumet på en utfärdad, registrerad eller upplåst faktura (#151).
+    pub senast_fakturerade: Option<Date>,
 }
 
 impl Ändringsläge {
@@ -362,7 +364,7 @@ pub struct Byte {
 
 impl Byte {
     /// Ett byte av bokföringsmetod gäller från början av ett räkenskapsår efter det första,
-    /// som finns eller är nästa, och som inte har några bokförda verifikat.
+    /// som finns eller är nästa, och som inte har några bokförda verifikat eller fakturor.
     pub fn kontrollera_bokföringsmetod(
         &self,
         läge: &Ändringsläge,
@@ -393,6 +395,17 @@ impl Byte {
             läge,
             Fält::Bokföringsmetod,
         )?;
+        // Metoden på fakturadatumet avgör om en faktura bokförs när den utfärdas eller
+        // registreras, så ett byte får inte ändra metoden för en faktura som redan finns: under
+        // kontantmetoden har den inget verifikat som spärren ovan ser (#151).
+        if läge.senast_fakturerade.is_some_and(|d| d >= från) {
+            return Err(vec![Fältfel::nytt(
+                Fält::GällerFrån,
+                "fakturor_efter",
+                "Det finns utfärdade eller registrerade fakturor från det datumet. Ett byte \
+                 gäller bara framåt.",
+            )]);
+        }
         Ok((från, metod))
     }
 

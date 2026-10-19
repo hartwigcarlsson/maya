@@ -105,6 +105,9 @@ pub struct Inställningsdata {
     pub momsperioder: Vec<(String, String)>,
     pub senast_bokförda: Option<String>,
     pub senast_daterade: Option<String>,
+    // #151
+    #[serde(default)]
+    pub senast_fakturerade: Option<String>,
     pub kan_raderas: bool,
     // #134
     pub fakturauppgifter: FakturauppgifterVy,
@@ -131,6 +134,7 @@ impl Inställningsdata {
                 .collect(),
             senast_bokförda: self.senast_bokförda.as_deref().and_then(datum),
             senast_daterade: self.senast_daterade.as_deref().and_then(datum),
+            senast_fakturerade: self.senast_fakturerade.as_deref().and_then(datum),
         }
     }
 }
@@ -243,6 +247,7 @@ pub(crate) mod server {
                 .collect(),
             senast_bokförda: läge.senast_bokförda.map(|d| d.to_string()),
             senast_daterade: läge.senast_daterade.map(|d| d.to_string()),
+            senast_fakturerade: läge.senast_fakturerade.map(|d| d.to_string()),
             kan_raderas,
             fakturauppgifter,
         })
