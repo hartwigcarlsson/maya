@@ -147,6 +147,8 @@ pub enum Handling {
     /// Registrera en betalning av en faktura (#139); Rätta betalning är [`Handling::RättaFlöde`].
     /// Bara webben.
     RegistreraBetalning,
+    /// Bokföra och återkalla en kundförlust (#141). Bara webben.
+    BokföraKundförlust,
 }
 
 /// Kanalpolicyn: om `kanal` får utföra `handling`.
@@ -176,6 +178,7 @@ pub fn tillåter(kanal: Kanal, handling: Handling) -> bool {
         | Handling::UtfärdaFaktura
         | Handling::RättaFlöde
         | Handling::SkickaFaktura
-        | Handling::RegistreraBetalning => kanal == Kanal::Webb,
+        | Handling::RegistreraBetalning
+        | Handling::BokföraKundförlust => kanal == Kanal::Webb,
     }
 }

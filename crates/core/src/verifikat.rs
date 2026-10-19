@@ -1197,6 +1197,10 @@ async fn flödeslänk(
     if let Some((flöde, id, text)) = crate::betalning::fakturan_för_verifikat(conn, id).await? {
         return Ok(Some(Flödeslänk { flöde, id, text }));
     }
+    // #141 Kundförlust
+    if let Some((flöde, id, text)) = crate::kundforlust::fakturan_för_verifikat(conn, id).await? {
+        return Ok(Some(Flödeslänk { flöde, id, text }));
+    }
     // #135 Kundfakturor
     Ok(crate::kundfaktura::fakturan_för_verifikat(conn, id)
         .await?

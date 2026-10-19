@@ -160,6 +160,8 @@ pub struct Kundfakturarad {
     pub ny_kund: bool,
     /// Det som återstår att betala i öre (#139); för ett utkast totalen.
     pub återstår: i64,
+    /// En kundförlust som inte är återkallad gäller fakturan (#141).
+    pub kundförlust: bool,
 }
 
 /// Den arkiverade PDF:en, som aldrig skrivs om.
@@ -909,9 +911,10 @@ async fn lista_i(
         Option<i64>,
         bool,
         Option<i64>,
+        bool,
     );
-    // Det som återstår: totalen minus betalningarna i reskontran (#139), samma regel som
-    // `betalning::reskontrapost`.
+    // Det som återstår: totalen minus betalningarna i reskontran (#139) och det som en
+    // gällande kundförlust skrev av (#141), samma regel som `betalning::återstår_i`.
     let rader: Vec<Rad> = sqlx::query_as(
         "SELECT f.id, f.status, f.nummer,
                 coalesce(f.kunduppgifter ->> '$.namn', k.namn),
@@ -919,6 +922,9 @@ async fn lista_i(
                 f.total - coalesce((SELECT sum(b.belopp + b.oresutjamning)
                                     FROM betalning_i_reskontran b
                                     WHERE b.kundfaktura_id = f.id), 0)
+                - coalesce((SELECT sum(l.belopp) FROM kundforlust_i_reskontran l
+                            WHERE l.kundfaktura_id = f.id), 0),
+                EXISTS (SELECT 1 FROM kundforlust_i_reskontran l WHERE l.kundfaktura_id = f.id)
          FROM kundfaktura f LEFT JOIN kund k ON k.id = f.kund_id
          WHERE f.foretag_id = ?1 AND (?2 IS NULL OR f.kund_id = ?2)
          ORDER BY f.status = 'utkast' DESC, f.nummer DESC, f.id DESC",
@@ -928,7 +934,18 @@ async fn lista_i(
     .fetch_all(&mut *conn)
     .await?;
     let mut lista = Vec::new();
-    for (id, status, nummer, kund, fakturadatum, förfallodag, total, ny_kund, återstår) in rader
+    for (
+        id,
+        status,
+        nummer,
+        kund,
+        fakturadatum,
+        förfallodag,
+        total,
+        ny_kund,
+        återstår,
+        kundförlust,
+    ) in rader
     {
         let status = Status::från_kod(&status)
             .ok_or_else(|| DatabasFel::Korrupt("kundfaktura.status".into()))?;
@@ -952,6 +969,7 @@ async fn lista_i(
             total,
             ny_kund,
             återstår: återstår.unwrap_or(total),
+            kundförlust,
         });
     }
     Ok(lista)

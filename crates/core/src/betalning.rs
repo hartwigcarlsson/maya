@@ -174,6 +174,8 @@ pub struct Reskontrapost {
     pub återstår: i64,
     pub förfallodag: Date,
     pub betalningar: Vec<Betalningspost>,
+    /// En kundförlust som inte är återkallad gäller fakturan (#141).
+    pub kundförlust: bool,
 }
 
 /// Fakturan som betalningen gäller, läst i transaktionen.
@@ -232,6 +234,20 @@ async fn betalt_i(conn: &mut SqliteConnection, faktura: Faktura) -> Result<i64, 
     .await
 }
 
+/// Det som återstår av fakturan med `total` öre: totalen minus betalningarna i reskontran och
+/// det som en gällande kundförlust har skrivit av (#141).
+pub(crate) async fn återstår_i(
+    conn: &mut SqliteConnection,
+    faktura: Faktura,
+    total: i64,
+) -> Result<i64, sqlx::Error> {
+    let betalt = betalt_i(&mut *conn, faktura).await?;
+    let avskrivet = match faktura {
+        Faktura::Kund(id) => crate::kundforlust::avskrivet_i(&mut *conn, id).await?,
+    };
+    Ok(total - betalt - avskrivet)
+}
+
 /// Det som betalningspanelen prövas mot: fakturans reskontra, det som återstår, kontona och
 /// räkenskapsåren.
 pub async fn förutsättningar(
@@ -251,7 +267,7 @@ async fn läs_förutsättningar(
     faktura: Faktura,
 ) -> Result<Förutsättningar, BetalningFel> {
     let fakturan = läs_fakturan(&mut *conn, företag, faktura).await?;
-    let återstår = fakturan.total - betalt_i(&mut *conn, faktura).await?;
+    let återstår = återstår_i(&mut *conn, faktura, fakturan.total).await?;
     let v = verifikat::läs_förutsättningar(&mut *conn, företag).await?;
     Ok(Förutsättningar {
         reskontra: faktura.reskontra(),
@@ -389,7 +405,7 @@ pub async fn rätta(
     .bind(av)
     .execute(ärende.conn())
     .await?;
-    let återstår = fakturan.total - betalt_i(ärende.conn(), faktura).await?;
+    let återstår = återstår_i(ärende.conn(), faktura, fakturan.total).await?;
     let verifikatnummer = verifikat::länk(ärende.conn(), Some(verifikat_id))
         .await?
         .and_then(|l| l.nummer)
@@ -445,7 +461,7 @@ pub async fn reskontrapost(
     let mut tx = db.pool().begin().await?;
     atkomst::kräv(&mut tx, aktör, företag, Handling::LäsaFöretag).await?;
     let fakturan = läs_fakturan(&mut tx, företag, faktura).await?;
-    let återstår = fakturan.total - betalt_i(&mut tx, faktura).await?;
+    let återstår = återstår_i(&mut tx, faktura, fakturan.total).await?;
     type Rad = (
         i64,
         String,
@@ -527,11 +543,15 @@ pub async fn reskontrapost(
             rättad,
         });
     }
+    let kundförlust = match faktura {
+        Faktura::Kund(id) => crate::kundforlust::avskrivet_i(&mut tx, id).await? != 0,
+    };
     Ok(Reskontrapost {
         total: fakturan.total,
         återstår,
         förfallodag: fakturan.förfallodag,
         betalningar,
+        kundförlust,
     })
 }
 

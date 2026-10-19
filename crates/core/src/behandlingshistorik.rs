@@ -105,6 +105,9 @@ händelser! {
     // #139 Betalningar
     BetalningRegistrerad => "betalning registrerad",
     BetalningRättad => "betalning rättad",
+    // #141 Kundförlust
+    KundförlustBokförd => "kundförlust bokförd",
+    KundförlustÅterkallad => "kundförlust återkallad",
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -725,6 +728,40 @@ impl Post {
                 );
                 if !f("orsak").is_empty() {
                     text.push_str(&format!(", {}", f("orsak")));
+                }
+                text.push_str(&format!(", {} kr återstår", kronor(&b["återstår_öre"])));
+                text
+            }
+            // #141 Kundförlust
+            Händelse::KundförlustBokförd => {
+                let mut text = format!(
+                    "Kundförlust {} kr på faktura {} till ”{}” den {} ({})",
+                    kronor(&b["summa_öre"]),
+                    f("fakturanummer"),
+                    f("motpart"),
+                    f("datum"),
+                    f("skälet")
+                );
+                match b["verifikat"]["nummer"].as_str() {
+                    Some(nr) => text.push_str(&format!(
+                        ", bokförd som {nr}, utgående moms minskad med {} kr",
+                        kronor(&b["moms_öre"])
+                    )),
+                    None => text.push_str(", bara status: fordran är inte bokförd"),
+                }
+                text
+            }
+            Händelse::KundförlustÅterkallad => {
+                let mut text = format!(
+                    "Kundförlust {} kr på faktura {} återkallad",
+                    kronor(&b["summa_öre"]),
+                    f("fakturanummer")
+                );
+                if let (Some(v), Some(å)) = (
+                    b["verifikat"]["nummer"].as_str(),
+                    b["återkallelse"]["nummer"].as_str(),
+                ) {
+                    text.push_str(&format!(" med {å}, som vänder {v}"));
                 }
                 text.push_str(&format!(", {} kr återstår", kronor(&b["återstår_öre"])));
                 text
