@@ -142,7 +142,7 @@ pub(crate) async fn reskontran_i(
     let mut delar = Vec::new();
     for r in [Reskontra::Kund, Reskontra::Leverantör] {
         let mut poster = Vec::new();
-        for f in fakturorna_i(&mut *conn, företag, r, dag).await? {
+        for f in fakturorna_i(&mut *conn, företag, r, dag, None).await? {
             if let Some(post) = posten_i(&mut *conn, företag, f, dag).await? {
                 poster.push(post);
             }
@@ -168,6 +168,28 @@ pub(crate) async fn reskontran_i(
     })
 }
 
+/// Det av fakturan som står på reskontrakontot vid utgången av `dag` enligt reskontran
+/// ([`Öppenpost::bokfört`]), i öre. Ett flöde som inte bokför mot kontot får inte ändra det
+/// (#151).
+pub(crate) async fn på_kontot_i(
+    conn: &mut SqliteConnection,
+    företag: FöretagsId,
+    faktura: Faktura,
+    dag: Date,
+) -> Result<i64, DatabasFel> {
+    let (reskontra, id) = match faktura {
+        Faktura::Kund(id) => (Reskontra::Kund, id.0),
+        Faktura::Leverantör(id) => (Reskontra::Leverantör, id.0),
+    };
+    let mut bokfört = 0;
+    for f in fakturorna_i(&mut *conn, företag, reskontra, dag, Some(id)).await? {
+        if let Some(post) = posten_i(&mut *conn, företag, f, dag).await? {
+            bokfört += post.bokfört;
+        }
+    }
+    Ok(bokfört)
+}
+
 /// En faktura i reskontran som kan ha något kvar på dagen.
 struct Fakturan {
     faktura: Faktura,
@@ -186,6 +208,7 @@ async fn fakturorna_i(
     företag: FöretagsId,
     reskontra: Reskontra,
     dag: Date,
+    bara: Option<i64>,
 ) -> Result<Vec<Fakturan>, DatabasFel> {
     type Rad = (
         i64,
@@ -203,6 +226,7 @@ async fn fakturorna_i(
              FROM kundfaktura
              WHERE foretag_id = ?1 AND status IN ('utfardad', 'registrerad', 'upplast')
                AND krediterar IS NULL AND fakturadatum <= ?2 AND total IS NOT NULL
+               AND (?3 IS NULL OR id = ?3)
              ORDER BY fakturadatum, id"
         }
         Reskontra::Leverantör => {
@@ -211,12 +235,14 @@ async fn fakturorna_i(
              FROM leverantorsfaktura f LEFT JOIN leverantor l ON l.id = f.leverantor_id
              WHERE f.foretag_id = ?1 AND f.status IN ('registrerad', 'upplast')
                AND f.krediterar IS NULL AND f.fakturadatum <= ?2 AND f.total IS NOT NULL
+               AND (?3 IS NULL OR f.id = ?3)
              ORDER BY f.fakturadatum, f.id"
         }
     };
     let rader: Vec<Rad> = sqlx::query_as(sql)
         .bind(företag.0)
         .bind(dag.to_string())
+        .bind(bara)
         .fetch_all(&mut *conn)
         .await?;
     rader

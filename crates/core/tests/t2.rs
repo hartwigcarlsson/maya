@@ -685,7 +685,10 @@ async fn en_betalning_mot_intäkt_före_ett_bokfört_t2_rättas_inte_men_en_mot_
     let fel = betalning::rätta(&db, &januari, &anna, id, i_året.id, "2027-01-10", "")
         .await
         .unwrap_err();
-    assert!(matches!(fel, betalning::BetalningFel::FöreT2), "{fel:?}");
+    assert!(
+        matches!(fel, betalning::BetalningFel::BokförtUtifrån),
+        "{fel:?}"
+    );
     let efter = betala(
         &db,
         &januari,

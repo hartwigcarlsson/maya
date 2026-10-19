@@ -119,11 +119,12 @@ pub enum BetalningFel {
     /// Betalningen är redan rättad.
     #[error("betalningen är redan rättad")]
     RedanRättad,
-    /// Betalningen bokfördes mot intäkt eller kostnad och moms före årets slut, och fakturan
-    /// har sedan kommit med i ett bokfört T2-verifikat, som aldrig vänds: en rättelse skulle ge
-    /// fakturan det betalda tillbaka i reskontran men inte på 1510 eller 2440 (#150, #151).
-    #[error("betalningen kom före ett bokfört T2-verifikat")]
-    FöreT2,
+    /// Betalningen bokfördes mot intäkt eller kostnad och moms (kontantmetoden), och något har
+    /// sedan bokförts utifrån den på 1510 eller 2440: ett bokfört T2-verifikat, som aldrig
+    /// vänds, eller den del av en kredit som översteg det obetalda. En rättelse skulle ge
+    /// fakturan det betalda tillbaka i reskontran men inte på kontot (#150, #151).
+    #[error("något har bokförts på reskontrakontot utifrån betalningen")]
+    BokförtUtifrån,
     /// Betalningens verifikat kunde inte bokföras eller rättas, t.ex. ett rättelsedatum före
     /// betaldagen.
     #[error(transparent)]
@@ -518,9 +519,13 @@ pub async fn rätta(
     .bind(i64::from(faktura.reskontra().konto().get()))
     .fetch_one(ärende.conn())
     .await?;
-    if !mot_reskontrakontot && crate::fordran::i_bokfört_t2_i(ärende.conn(), faktura).await? {
-        return Err(BetalningFel::FöreT2);
-    }
+    // En betalning mot intäkt eller kostnad ändrar inte reskontrakontot, så rättelsen får inte
+    // ändra det som reskontran säger står där (#151).
+    let före = if mot_reskontrakontot {
+        None
+    } else {
+        Some(crate::reskontra::på_kontot_i(ärende.conn(), företag, faktura, Date::MAX).await?)
+    };
     let datum = rättelsedatum(datum)?;
     let rättelse = verifikat::rätta_i(&mut ärende, VerifikatId(verifikat_id), datum, orsak).await?;
     let (nu, kanal, av) = (
@@ -541,6 +546,12 @@ pub async fn rätta(
     .bind(av)
     .execute(ärende.conn())
     .await?;
+    if let Some(före) = före
+        && crate::reskontra::på_kontot_i(ärende.conn(), företag, faktura, Date::MAX).await? != före
+    {
+        // Ärendet slutförs inte, så rättelsen rullas tillbaka.
+        return Err(BetalningFel::BokförtUtifrån);
+    }
     let återstår = återstår_i(ärende.conn(), faktura, fakturan.total).await?;
     let verifikatnummer = verifikat::länk(ärende.conn(), Some(verifikat_id))
         .await?

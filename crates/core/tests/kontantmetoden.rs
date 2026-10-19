@@ -359,6 +359,33 @@ async fn rätta_betalning_vänder_betalningens_verifikat_under_båda_metoderna()
     }
 }
 
+#[tokio::test]
+async fn en_betalning_som_en_bokförd_kredit_bygger_på_rättas_inte_under_kontantmetoden() {
+    let db = Databas::tillfällig().await;
+    let (anna, id, f) = kundfaktura(&db, "kontant").await;
+    let r = betala(
+        &db,
+        &anna,
+        id,
+        Faktura::Kund(f),
+        &betalning("2026-04-01", "11 875"),
+    )
+    .await;
+    // Krediten av den betalda fakturan bokförs mot 1510, eftersom inget var obetalt.
+    let k = kreditera_hela(&db, &anna, id, f).await;
+    assert!(k.verifikat.is_some());
+    // Utan betalningen hade krediten rymts i det obetalda: en rättelse av betalningen skulle
+    // lämna krediten på 1510 fast fakturan inte längre har något tillgodo.
+    let fel = betalning::rätta(&db, &klocka(), &anna, id, r.id, "2026-10-18", "")
+        .await
+        .unwrap_err();
+    assert!(
+        matches!(fel, betalning::BetalningFel::BokförtUtifrån),
+        "{fel:?}"
+    );
+    assert_eq!(antal_verifikat(&db, &anna, id).await, 2);
+}
+
 // Kreditfaktura och återbetalning till kund
 
 async fn kreditera_hela(
