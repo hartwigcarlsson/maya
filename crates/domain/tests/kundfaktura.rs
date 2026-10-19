@@ -93,6 +93,7 @@ fn faktura() -> NyKundfaktura {
             rad("Utlägg", "1", "50", "0", "3004"),
         ],
         ny_kund: NyKund::default(),
+        krediterar: None,
     }
 }
 
@@ -518,6 +519,22 @@ fn varje_spärr_vid_utfärdande_är_dokumenterad_och_ingen_annan() {
     let mut okänd = faktura();
     okänd.omvänd_skattskyldighet = "export".into();
     fall.push((okänd, förutsättningar()));
+    // #140: en kreditfaktura vars summa inte är negativ, och en som krediterar för mycket.
+    let hänvisning = maya_domain::kreditfaktura::Hänvisning {
+        faktura: 1,
+        nummer: 1,
+        fakturadatum: "2026-03-01".into(),
+        momsläge: Momsläge::Moms,
+        kund: kund(),
+        total: 100,
+        kvar: 100,
+    };
+    let mut kredit = faktura();
+    kredit.krediterar = Some(hänvisning);
+    kredit.rader = vec![rad("x", "-1", "0", "25", "3001")];
+    fall.push((kredit.clone(), förutsättningar()));
+    kredit.rader = vec![rad("x", "-1", "10", "25", "3001")];
+    fall.push((kredit, förutsättningar()));
 
     let mut koder: Vec<&str> = fall
         .iter()
@@ -598,6 +615,7 @@ fn med_ny_kund(k: NyKund) -> NyKundfaktura {
     NyKundfaktura {
         kund: NY.into(),
         ny_kund: k,
+        krediterar: None,
         ..faktura()
     }
 }

@@ -487,3 +487,30 @@ pub async fn registrerad_leverantörsfaktura(
     .expect("fakturan registreras");
     id
 }
+
+// #140 Kreditfakturor
+/// En utfärdad kreditfaktura som krediterar hela den utfärdade fakturan `original`.
+pub async fn utfärdad_kreditfaktura(
+    db: &Databas,
+    aktör: &Aktör,
+    företag: FöretagsId,
+    original: crate::kundfaktura::KundfakturaId,
+) -> crate::kundfaktura::Utfärdad {
+    let klocka = Klocka::system();
+    let utkast = crate::kundfaktura::kreditera(
+        db,
+        &klocka,
+        aktör,
+        företag,
+        original,
+        &maya_domain::kreditfaktura::NyKreditering {
+            hela: true,
+            antal: Vec::new(),
+        },
+    )
+    .await
+    .expect("kreditutkastet");
+    crate::kundfaktura::utfärda(db, &klocka, aktör, företag, utkast)
+        .await
+        .expect("kreditfakturan utfärdas")
+}

@@ -63,6 +63,8 @@ pub struct Kunddata {
     /// Den valda kundens fakturor och vad som är obetalt (#139).
     pub fakturor: Vec<KundensFakturaVy>,
     pub obetalt: String,
+    /// Det som kunden har tillgodo efter kreditfakturor, tomt utan (#140).
+    pub tillgodo: String,
 }
 
 /// En faktura i kundens detalj (#139).
@@ -215,6 +217,11 @@ pub(crate) mod server {
                 .filter(|f| f.status != Status::Utkast)
                 .map(|f| f.återstår.max(0))
                 .sum();
+            let tillgodo: i64 = fakturor
+                .iter()
+                .filter(|f| f.status != Status::Utkast)
+                .map(|f| (-f.återstår).max(0))
+                .sum();
             let fakturor = fakturor
                 .iter()
                 .map(|f| KundensFakturaVy {
@@ -226,13 +233,7 @@ pub(crate) mod server {
                     återstår: kr(f.återstår),
                     märke: match (f.status, f.förfallodag) {
                         (Status::Utfärdad, Some(d)) => {
-                            let m = maya_domain::reskontra::kundfakturans_märke(
-                                f.total,
-                                f.återstår,
-                                f.kundförlust,
-                                d,
-                                idag,
-                            );
+                            let m = crate::kundfakturor::server::märke_för(f, d, idag);
                             (m.kod().into(), m.namn().into())
                         }
                         _ => ("utkast".into(), "Utkast".into()),
@@ -249,6 +250,11 @@ pub(crate) mod server {
                 kan_raderas,
                 fakturor,
                 obetalt: kr(obetalt),
+                tillgodo: if tillgodo > 0 {
+                    kr(tillgodo)
+                } else {
+                    String::new()
+                },
             })
         }
         .await;
@@ -552,7 +558,12 @@ fn kundregistret_sida(data: Kunddata, ny: bool) -> AnyView {
                 arkivera=fråga("arkivera").is_some()
                 radera=fråga("radera").is_some()
             />
-            <KundensFakturor bas=bas.clone() fakturor=data.fakturor.clone() obetalt=data.obetalt.clone() />
+            <KundensFakturor
+                bas=bas.clone()
+                fakturor=data.fakturor.clone()
+                obetalt=data.obetalt.clone()
+                tillgodo=data.tillgodo.clone()
+            />
         }
         .into_any(),
         None => view! {
@@ -832,7 +843,12 @@ fn KundFormulär(
 // #139 Betalningar
 /// Kundens fakturor med status och det som återstår, och summan som är obetald (story 11).
 #[component]
-fn KundensFakturor(bas: String, fakturor: Vec<KundensFakturaVy>, obetalt: String) -> impl IntoView {
+fn KundensFakturor(
+    bas: String,
+    fakturor: Vec<KundensFakturaVy>,
+    obetalt: String,
+    tillgodo: String,
+) -> impl IntoView {
     let lista = crate::kundfakturor::kundfakturorna(&bas);
     let rader = fakturor
         .iter()
@@ -882,6 +898,7 @@ fn KundensFakturor(bas: String, fakturor: Vec<KundensFakturaVy>, obetalt: String
         <section class="dokument kundens-fakturor">
             <h3>"Fakturor"</h3>
             <p>{format!("Obetalt {obetalt} kr")}</p>
+            {(!tillgodo.is_empty()).then(|| view! { <p>{format!("Tillgodo {tillgodo} kr")}</p> })}
             {innehåll}
         </section>
     }

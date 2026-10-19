@@ -219,6 +219,14 @@ _Avoid_: Valutadifferens, kursavvikelse, valutajustering
 En konstaterad förlust på det som återstår av en utfärdad kundfaktura, med skäl (konkurs, ackord, utmätning utan resultat eller annat) och datum; när fordran är bokförd bokförs den på 6351 med utgående moms minskad proportionellt, och den kan återkallas med ett nytt verifikat så att fakturan kan betalas igen. En befarad kundförlust är ett manuellt verifikat och ingen kundförlust i Maya.
 _Avoid_: Avskrivning (det är anläggningstillgångar), osäker fordran, nedskrivning av kundfordran
 
+**Tillgodohavande**:
+Det som motparten har att få tillbaka när det som återstår av en faktura är negativt, till exempel när en betald faktura krediteras; det återbetalas som en betalning åt andra hållet och visas på fakturan och kunden.
+_Avoid_: Kreditsaldo, överskott, negativ fordran
+
+**Återbetalning**:
+En betalning åt andra hållet av ett tillgodohavande: för en kund 1510 mot betalkontot, för en leverantör betalkontot mot 2440.
+_Avoid_: Utbetalning (som term), retur, kreditering
+
 **Anställd**:
 En person som får lön eller styrelsearvode från ett företag, även en ägare; registreras per företag.
 _Avoid_: Personal, medarbetare, löntagare

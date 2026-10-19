@@ -1,8 +1,8 @@
 //! Kund- och leverantörsreskontran: fakturornas status och listornas gruppering. Allt räknas
 //! fram ur fakturans total, det som återstår, förfallodagen och dagens datum, och lagras inte.
 //!
-//! Märkena i etapp 2 är obetald, delbetald, förfallen och betald; krediterad och tillgodo
-//! kommer med kreditfakturorna (#140). Kundförlust (#141) är märket för en kundfaktura som en
+//! Märkena i etapp 2 är obetald, delbetald, förfallen och betald, med kreditfakturorna (#140)
+//! krediterad, tillgodo och kreditfaktura, och kundförlust (#141) för en kundfaktura som en
 //! gällande kundförlust har skrivit bort.
 
 use jiff::civil::Date;
@@ -22,6 +22,14 @@ pub enum Märke {
     Betald,
     /// En kundförlust som inte är återkallad har skrivit bort det som återstod (#141).
     Kundförlust,
+    // #140 Kreditfakturor
+    /// Hela fakturan är krediterad och inget var betalt.
+    Krediterad,
+    /// Mer är betalt än det som återstår efter krediteringarna: motparten har pengar tillgodo,
+    /// som kan återbetalas.
+    Tillgodo,
+    /// Fakturan är en kreditfaktura, som räknas av mot originalet.
+    Kreditfaktura,
 }
 
 impl Märke {
@@ -32,6 +40,9 @@ impl Märke {
             Märke::Förfallen => "Förfallen",
             Märke::Betald => "Betald",
             Märke::Kundförlust => "Kundförlust",
+            Märke::Krediterad => "Krediterad",
+            Märke::Tillgodo => "Tillgodo",
+            Märke::Kreditfaktura => "Kreditfaktura",
         }
     }
 
@@ -43,6 +54,9 @@ impl Märke {
             Märke::Förfallen => "forfallen",
             Märke::Betald => "betald",
             Märke::Kundförlust => "kundforlust",
+            Märke::Krediterad => "krediterad",
+            Märke::Tillgodo => "tillgodo",
+            Märke::Kreditfaktura => "kreditfaktura",
         }
     }
 }
@@ -52,9 +66,12 @@ pub fn förfallen(återstår: i64, förfallodag: Date, idag: Date) -> bool {
     återstår > 0 && förfallodag < idag
 }
 
-/// Märket för en faktura med `total` öre, varav `återstår` öre är obetalt.
+/// Märket för en faktura med `total` öre, varav `återstår` öre är obetalt. Ett negativt
+/// `återstår` är ett tillgodohavande.
 pub fn märke(total: i64, återstår: i64, förfallodag: Date, idag: Date) -> Märke {
-    if återstår <= 0 {
+    if återstår < 0 {
+        Märke::Tillgodo
+    } else if återstår == 0 {
         Märke::Betald
     } else if förfallen(återstår, förfallodag, idag) {
         Märke::Förfallen
@@ -65,10 +82,16 @@ pub fn märke(total: i64, återstår: i64, förfallodag: Date, idag: Date) -> M�
     }
 }
 
-/// Märket för en kundfaktura: [`Märke::Kundförlust`] medan en kundförlust gäller den, annars
-/// [`märke`] (#141).
+/// Märket för en utfärdad kundfaktura med `total` öre som kreditfakturor har krediterat
+/// `krediterat` öre av (positivt), varav `återstår` öre är obetalt efter krediteringarna,
+/// betalningarna och en gällande kundförlust. [`Märke::Kundförlust`] medan en kundförlust gäller
+/// fakturan (#141), [`Märke::Krediterad`] när hela fakturan är krediterad och inget var betalt
+/// (#140), annars [`märke`] räknat mot det som finns kvar efter krediteringarna, så att ett
+/// negativt `återstår` är [`Märke::Tillgodo`]. En kreditfaktura själv får
+/// [`Märke::Kreditfaktura`] av anroparen.
 pub fn kundfakturans_märke(
     total: i64,
+    krediterat: i64,
     återstår: i64,
     kundförlust: bool,
     förfallodag: Date,
@@ -76,8 +99,10 @@ pub fn kundfakturans_märke(
 ) -> Märke {
     if kundförlust {
         Märke::Kundförlust
+    } else if återstår == 0 && krediterat > 0 && krediterat >= total {
+        Märke::Krediterad
     } else {
-        märke(total, återstår, förfallodag, idag)
+        märke(total - krediterat, återstår, förfallodag, idag)
     }
 }
 

@@ -12,7 +12,9 @@ use std::future::Future;
 
 use jiff::Timestamp;
 use jiff::civil::Date;
-use maya_domain::utskick::{Lämningssätt, förvalt_meddelande, ämne};
+use maya_domain::utskick::{
+    Lämningssätt, förvalt_meddelande, kreditmeddelande, kreditämne, ämne
+};
 use serde_json::json;
 use sqlx::SqliteConnection;
 
@@ -140,9 +142,18 @@ struct Fakturan {
     registrets_epost: Option<String>,
     säljare: String,
     pdf: Bilaga,
+    /// Originalets nummer när fakturan är en kreditfaktura (#140).
+    krediterar: Option<u64>,
 }
 
 impl Fakturan {
+    fn ämne(&self) -> String {
+        match self.krediterar {
+            Some(_) => kreditämne(self.nummer, &self.säljare),
+            None => ämne(self.nummer, &self.säljare),
+        }
+    }
+
     fn kundens_adress(&self) -> String {
         match &self.registrets_epost {
             Some(e) if !e.trim().is_empty() => e.clone(),
@@ -162,6 +173,7 @@ type Fakturarad = (
     Option<String>,
     Option<String>,
     Option<Vec<u8>>,
+    Option<i64>,
 );
 
 async fn läs_fakturan(
@@ -172,7 +184,8 @@ async fn läs_fakturan(
     let rad: Option<Fakturarad> = sqlx::query_as(
         "SELECT f.status, f.nummer, f.total, f.forfallodag,
                 f.kunduppgifter ->> '$.epost', k.epost, f.saljaruppgifter ->> '$.namn',
-                u.filnamn, u.mime, u.innehall
+                u.filnamn, u.mime, u.innehall,
+                (SELECT o.nummer FROM kundfaktura o WHERE o.id = f.krediterar)
          FROM kundfaktura f
          LEFT JOIN kund k ON k.id = f.kund_id
          LEFT JOIN underlag u ON u.id = f.underlag_id
@@ -193,6 +206,7 @@ async fn läs_fakturan(
         filnamn,
         mime,
         pdf,
+        krediterar,
     )) = rad
     else {
         return Err(UtskickFel::FinnsInte);
@@ -213,6 +227,7 @@ async fn läs_fakturan(
             mime: mime.ok_or_else(|| korrupt("pdf"))?,
             innehåll: pdf.ok_or_else(|| korrupt("pdf"))?,
         },
+        krediterar: krediterar.map(i64::unsigned_abs),
     })
 }
 
@@ -240,13 +255,16 @@ pub async fn förslag(
         till,
         kundregistret: f.kundens_adress(),
         svarsadress: uppgifter.svarsadress.clone(),
-        meddelande: förvalt_meddelande(
-            &uppgifter.standardmeddelande,
-            f.nummer,
-            f.total,
-            f.förfallodag,
-            &f.säljare,
-        ),
+        meddelande: match f.krediterar {
+            Some(original) => kreditmeddelande(f.nummer, f.total, original, &f.säljare),
+            None => förvalt_meddelande(
+                &uppgifter.standardmeddelande,
+                f.nummer,
+                f.total,
+                f.förfallodag,
+                &f.säljare,
+            ),
+        },
         bilaga: f.pdf.filnamn,
         misslyckat,
     })
@@ -279,7 +297,7 @@ pub async fn skicka<E: Epost>(
             till,
             svara_till: (!svarsadress.is_empty()).then_some(svarsadress),
             avsändarnamn: f.säljare.clone(),
-            ämne: ämne(f.nummer, &f.säljare),
+            ämne: f.ämne(),
             text: utskick.meddelande.replace("\r\n", "\n"),
             bilaga: f.pdf,
         };

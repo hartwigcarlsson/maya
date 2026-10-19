@@ -58,6 +58,28 @@ impl fmt::Display for Belopp {
     }
 }
 
+/// Tolkar ett belopp på en faktura, som kan vara negativt (en kreditfaktura): samma regler som
+/// [`Belopp::tolka`] med ett minustecken (`-` eller `−`) först. Svaret är i öre med tecken.
+pub fn tolka_med_tecken(text: &str) -> Option<i64> {
+    let text = text.trim();
+    match text.strip_prefix('-').or_else(|| text.strip_prefix('−')) {
+        Some(rest) => Belopp::tolka(rest.trim_start()).map(|b| -b.0),
+        None => Belopp::tolka(text).map(Belopp::öre),
+    }
+}
+
+/// Ett belopp i öre med tecken som det står i ett formulärfält: utan tusentalsavgränsare, med
+/// decimalkomma och utan `,00`, så att [`tolka_med_tecken`] läser tillbaka det.
+pub fn formulärtext(öre: i64) -> String {
+    let tecken = if öre < 0 { "-" } else { "" };
+    let (kronor, rest) = (öre.unsigned_abs() / 100, öre.unsigned_abs() % 100);
+    if rest == 0 {
+        format!("{tecken}{kronor}")
+    } else {
+        format!("{tecken}{kronor},{rest:02}")
+    }
+}
+
 /// Ett kontos saldo i öre, med debet som positivt och kredit som negativt.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Saldo(i64);

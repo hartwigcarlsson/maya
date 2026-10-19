@@ -18,6 +18,7 @@ pub mod ingaende_balans;
 pub mod kontering;
 pub mod kontoplan;
 pub mod kontourval;
+pub mod kreditfaktura;
 pub mod kund;
 pub mod kundfaktura;
 pub mod kundforlust;

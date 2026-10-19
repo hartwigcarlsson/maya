@@ -217,3 +217,22 @@ fn behandlingsreglerna_har_spärrarna_vid_kundförlust() {
         maya_domain::kundforlust::KUNDFÖRLUSTSPÄRRAR.len()
     );
 }
+
+// #140 Kreditfakturor
+#[test]
+fn behandlingsreglerna_har_spärrarna_när_en_kreditfaktura_skapas() {
+    let blocken = maya_domain::systemdokumentation::behandlingsregler();
+    let i = blocken
+        .iter()
+        .position(
+            |b| matches!(b, Block::Underrubrik(t) if t == "Spärrar när en kreditfaktura skapas"),
+        )
+        .expect("underrubriken");
+    let Some(Block::Tabell(tabell)) = blocken.get(i + 2) else {
+        panic!("en tabell efter stycket");
+    };
+    assert_eq!(
+        tabell.rader.len(),
+        maya_domain::kreditfaktura::KREDITERINGSSPÄRRAR.len()
+    );
+}

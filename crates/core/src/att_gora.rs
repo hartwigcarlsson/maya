@@ -266,8 +266,8 @@ pub async fn antal(
         }
     }
     // #152 Kundfakturorna räknas när de har förfallit och något återstår, med det som återstår
-    // ur `kundfaktura::lista_i` som i `fakturor`: en gällande kundförlust (#141) har skrivit
-    // bort resten, så den fakturan räknas inte.
+    // ur `kundfaktura::lista_i` som i `fakturor`: utfärdade kreditfakturor (#140) och en
+    // gällande kundförlust (#141) har dragits av, och en kreditfaktura räknas aldrig.
     let idag = klocka.idag();
     let mut conn = db.pool().acquire().await?;
     for (företag, a) in antal.iter_mut() {
@@ -276,6 +276,7 @@ pub async fn antal(
             .iter()
             .filter(|f| {
                 f.status != kundfaktura::Status::Utkast
+                    && f.krediterar.is_none()
                     && f.återstår > 0
                     && f.förfallodag.is_some_and(|d| d < idag)
             })
@@ -430,8 +431,10 @@ async fn nyckeltal(
 
 /// Reskontrornas fakturor med något kvar att betala, i förfallodagens ordning: de utfärdade
 /// kundfakturorna och de registrerade leverantörsfakturorna (#152). Det som återstår på en
-/// kundfaktura räknas av `kundfaktura::lista_i`, samma som i listan: en gällande kundförlust
-/// (#141) har skrivit bort resten, så fakturan är varken obetald eller förfallen.
+/// kundfaktura räknas av `kundfaktura::lista_i`, samma som i listan: utfärdade kreditfakturor
+/// (#140) drar av från originalet, så en krediterad faktura eller en med tillgodohavande har
+/// inget kvar, och en gällande kundförlust (#141) har skrivit bort resten, så fakturan är varken
+/// obetald eller förfallen. En kreditfaktura räknas av mot originalet och är aldrig att betala.
 async fn fakturor(
     conn: &mut SqliteConnection,
     företag: FöretagsId,
@@ -441,7 +444,7 @@ async fn fakturor(
         let (Some(nummer), Some(förfallodag)) = (f.nummer, f.förfallodag) else {
             continue;
         };
-        if f.status == kundfaktura::Status::Utkast || f.återstår <= 0 {
+        if f.status == kundfaktura::Status::Utkast || f.krediterar.is_some() || f.återstår <= 0 {
             continue;
         }
         let kontakt: Option<String> =

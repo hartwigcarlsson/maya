@@ -301,10 +301,12 @@ pub fn Betalningspanel(action: String, stäng: String, v: BetalningsVy) -> impl 
             .filter(|r| *r > 0 && !betalning.with(|b| b.kursdifferens))
             .map(|r| view! { <p class="diskret delbetalning">{format!("Delbetalning, {} kr återstår.", kr(r))}</p> })
     };
+    // #140: med ett tillgodohavande är panelen en återbetalning åt andra hållet.
+    let återbetalning = v.återstår < 0;
     let öresutjämning = move || {
         let r = rest.get().unwrap_or_default();
         let vald = betalning.with(|b| b.öresutjämning);
-        ((r > 0 && r <= STÖRSTA_ÖRESUTJÄMNING) || vald).then(|| {
+        (!återbetalning && ((r > 0 && r <= STÖRSTA_ÖRESUTJÄMNING) || vald)).then(|| {
             view! {
                 <label class="kryss">
                     <input
@@ -405,20 +407,44 @@ pub fn Betalningspanel(action: String, stäng: String, v: BetalningsVy) -> impl 
             ev.prevent_default();
         }
     };
+    let (rubrik, läge, till, knapp) = if återbetalning {
+        // Åt andra hållet: kunden får pengar från betalkontot, leverantören betalar in.
+        let (vem, konto) = match v.reskontra {
+            Reskontra::Kund => ("Kunden har", "Från konto"),
+            Reskontra::Leverantör => ("Företaget har", "Till konto"),
+        };
+        (
+            "Återbetala tillgodohavande",
+            format!("{vem} tillgodo {} kr", kr(-v.återstår)),
+            konto,
+            "Återbetala",
+        )
+    } else {
+        (
+            "Registrera betalning",
+            format!(
+                "Återstår {} kr · förfallodag {}",
+                kr(v.återstår),
+                v.förfallodag
+            ),
+            konto_etikett,
+            "Registrera betalning",
+        )
+    };
     view! {
         <section class="panel betalningspanel" aria-labelledby="betalning-rubrik">
             <header class="panelhuvud">
-                <h3 id="betalning-rubrik">"Registrera betalning"</h3>
+                <h3 id="betalning-rubrik">{rubrik}</h3>
                 <a class="knapp knapp-diskret" href=stäng>
                     "Avbryt"
                 </a>
             </header>
-            <p class="diskret">
-                {format!("Återstår {} kr · förfallodag {}", kr(v.återstår), v.förfallodag)}
-            </p>
+            <p class="diskret">{läge}</p>
             {valuta}
             {fel}
             <form method="post" action=action novalidate>
+                {återbetalning
+                    .then(|| view! { <input type="hidden" name="aterbetalning" value="1" /> })}
                 <div class="falt-grupp">
                     <div>
                         <label for="betaldag">"Betaldag"</label>
@@ -446,7 +472,7 @@ pub fn Betalningspanel(action: String, stäng: String, v: BetalningsVy) -> impl 
                         {spärr_vid(Fält::Belopp)}
                     </div>
                     <div>
-                        <label for="konto">{konto_etikett}</label>
+                        <label for="konto">{till}</label>
                         <select
                             id="konto"
                             name="konto"
@@ -470,7 +496,7 @@ pub fn Betalningspanel(action: String, stäng: String, v: BetalningsVy) -> impl 
                         on:click=registrera
                         disabled=move || hydrerad.get() && !spärrar.with(Vec::is_empty)
                     >
-                        "Registrera betalning"
+                        {knapp}
                     </button>
                 </p>
             </form>
@@ -592,6 +618,7 @@ pub(crate) mod server {
         let post = betalning::reskontrapost(&b.db, aktör, företag, faktura).await?;
         let m = kundfakturans_märke(
             post.total,
+            post.krediterat,
             post.återstår,
             post.kundförlust,
             post.förfallodag,
@@ -645,7 +672,11 @@ pub(crate) mod server {
         };
         let fel = b.värde("fel");
         match panel {
-            Some("betalning") if post.återstår > 0 => {
+            // #140: Återbetala… är samma panel med ett tillgodohavande.
+            Some(p @ ("betalning" | "aterbetala"))
+                if (p == "betalning" && post.återstår > 0)
+                    || (p == "aterbetala" && post.återstår < 0) =>
+            {
                 let f = betalning::förutsättningar(&b.db, aktör, företag, faktura).await?;
                 let konton = kontoplan::konton(&b.db, aktör, företag).await?;
                 let tillbaka = fel.as_deref() == Some("betalning");
@@ -800,15 +831,18 @@ pub(crate) mod server {
         fält: &Fält,
     ) -> Response {
         let formulär = ur_fält(|namn| värde(fält, namn));
+        // #140: panelen Återbetala… skickar med att det är en återbetalning.
+        let (panel, notis) = match värde(fält, "aterbetalning").as_deref() {
+            Some("1") => ("aterbetala", "aterbetald=1"),
+            _ => ("betalning", "betald=1"),
+        };
         match betalning::registrera(db, klocka, &inloggad.aktör, företag, mål.faktura, &formulär)
             .await
         {
-            Ok(_) => Redirect::to(&format!("{}&betald=1", mål.här)).into_response(),
-            Err(BetalningFel::Spärrat(_) | BetalningFel::Verifikat(_)) => tillbaka(
-                &mål.här,
-                fält,
-                &[("panel", "betalning"), ("fel", "betalning")],
-            ),
+            Ok(_) => Redirect::to(&format!("{}&{notis}", mål.här)).into_response(),
+            Err(BetalningFel::Spärrat(_) | BetalningFel::Verifikat(_)) => {
+                tillbaka(&mål.här, fält, &[("panel", panel), ("fel", "betalning")])
+            }
             Err(BetalningFel::FinnsInte) => (mål.finns_inte)(),
             Err(e) => betalningsfel(e),
         }
