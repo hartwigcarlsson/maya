@@ -8,6 +8,11 @@
 //! betalningen finns kvar och visar rättelsen (R2), och betalningen kan registreras om. Det som
 //! återstår och statusen räknas fram ur betalningarna och lagras inte.
 //!
+//! Det som återstår är fakturans total minus de utfärdade kreditfakturorna (#140) och
+//! betalningarna. Är det negativt har kunden ett tillgodohavande, och en betalning är då en
+//! *återbetalning* åt andra hållet (1510 mot betalkontot), loggad som `återbetalning`. En
+//! kreditfaktura räknas av mot sitt original och betalas inte själv.
+//!
 //! Betalningen hör till en [`Faktura`]: en kundfaktura nu. Leverantörsfakturorna (#147) lägger
 //! till sin variant; tabellen har redan kolumnen.
 
@@ -15,7 +20,9 @@ use std::fmt;
 use std::str::FromStr;
 
 use jiff::civil::Date;
-use maya_domain::betalning::{Förutsättningar, NyBetalning, Reskontra, Spärr, beskrivning};
+use maya_domain::betalning::{
+    Förutsättningar, NyBetalning, Reskontra, Spärr, beskrivning, återbetalningens_beskrivning,
+};
 use maya_domain::kontoplan::Kontonummer;
 use serde_json::json;
 use sqlx::SqliteConnection;
@@ -171,6 +178,8 @@ pub struct Betalningspost {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Reskontrapost {
     pub total: i64,
+    /// Det som utfärdade kreditfakturor har krediterat, i öre och positivt (#140).
+    pub krediterat: i64,
     pub återstår: i64,
     pub förfallodag: Date,
     pub betalningar: Vec<Betalningspost>,
@@ -202,7 +211,7 @@ async fn läs_fakturan(
         Faktura::Kund(id) => {
             sqlx::query_as(
                 "SELECT nummer, kunduppgifter ->> '$.namn', total, forfallodag FROM kundfaktura
-                 WHERE id = ? AND foretag_id = ? AND status <> 'utkast'",
+                 WHERE id = ? AND foretag_id = ? AND status <> 'utkast' AND krediterar IS NULL",
             )
             .bind(id.0)
             .bind(företag.0)
@@ -232,6 +241,23 @@ async fn betalt_i(conn: &mut SqliteConnection, faktura: Faktura) -> Result<i64, 
     .await
 }
 
+/// Det som krediterats av fakturan, i öre och positivt (#140).
+async fn krediterat_i(conn: &mut SqliteConnection, faktura: Faktura) -> Result<i64, sqlx::Error> {
+    match faktura {
+        Faktura::Kund(id) => crate::kundfaktura::krediterat_i(conn, id).await,
+    }
+}
+
+/// Det som återstår av fakturan med totalen `total`: totalen minus krediteringarna och
+/// betalningarna. Negativt är ett tillgodohavande.
+async fn återstår_i(
+    conn: &mut SqliteConnection,
+    faktura: Faktura,
+    total: i64,
+) -> Result<i64, sqlx::Error> {
+    Ok(total - krediterat_i(&mut *conn, faktura).await? - betalt_i(&mut *conn, faktura).await?)
+}
+
 /// Det som betalningspanelen prövas mot: fakturans reskontra, det som återstår, kontona och
 /// räkenskapsåren.
 pub async fn förutsättningar(
@@ -251,7 +277,7 @@ async fn läs_förutsättningar(
     faktura: Faktura,
 ) -> Result<Förutsättningar, BetalningFel> {
     let fakturan = läs_fakturan(&mut *conn, företag, faktura).await?;
-    let återstår = fakturan.total - betalt_i(&mut *conn, faktura).await?;
+    let återstår = återstår_i(&mut *conn, faktura, fakturan.total).await?;
     let v = verifikat::läs_förutsättningar(&mut *conn, företag).await?;
     Ok(Förutsättningar {
         reskontra: faktura.reskontra(),
@@ -277,13 +303,21 @@ pub async fn registrera(
     let fakturan = läs_fakturan(ärende.conn(), företag, faktura).await?;
     let f = läs_förutsättningar(ärende.conn(), företag, faktura).await?;
     let b = formulär.kontrollera(&f).map_err(BetalningFel::Spärrat)?;
+    // En betalning åt andra hållet återbetalar ett tillgodohavande (#140).
+    let (text, händelse) = if b.belopp < 0 {
+        (
+            återbetalningens_beskrivning(&fakturan.referens(faktura)),
+            Händelse::Återbetalning,
+        )
+    } else {
+        (
+            beskrivning(&fakturan.referens(faktura)),
+            Händelse::BetalningRegistrerad,
+        )
+    };
     let bokfört = verifikat::bokför_i_ärende(
         &mut ärende,
-        &verifikat::formulär_av(
-            b.betaldag,
-            &beskrivning(&fakturan.referens(faktura)),
-            &b.kontering(),
-        ),
+        &verifikat::formulär_av(b.betaldag, &text, &b.kontering()),
         &[],
     )
     .await?;
@@ -324,9 +358,7 @@ pub async fn registrera(
                 "verifikat": { "id": bokfört.id.0, "nummer": bokfört.nummer.to_string() },
     });
     post[faktura.nyckel()] = json!(faktura.id());
-    ärende
-        .logga(Händelse::BetalningRegistrerad, &fakturan.nummer, post)
-        .await?;
+    ärende.logga(händelse, &fakturan.nummer, post).await?;
     ärende.slutför().await?;
     Ok(Registrerad {
         id: BetalningsId(id),
@@ -389,7 +421,7 @@ pub async fn rätta(
     .bind(av)
     .execute(ärende.conn())
     .await?;
-    let återstår = fakturan.total - betalt_i(ärende.conn(), faktura).await?;
+    let återstår = återstår_i(ärende.conn(), faktura, fakturan.total).await?;
     let verifikatnummer = verifikat::länk(ärende.conn(), Some(verifikat_id))
         .await?
         .and_then(|l| l.nummer)
@@ -445,7 +477,8 @@ pub async fn reskontrapost(
     let mut tx = db.pool().begin().await?;
     atkomst::kräv(&mut tx, aktör, företag, Handling::LäsaFöretag).await?;
     let fakturan = läs_fakturan(&mut tx, företag, faktura).await?;
-    let återstår = fakturan.total - betalt_i(&mut tx, faktura).await?;
+    let krediterat = krediterat_i(&mut tx, faktura).await?;
+    let återstår = återstår_i(&mut tx, faktura, fakturan.total).await?;
     type Rad = (
         i64,
         String,
@@ -529,6 +562,7 @@ pub async fn reskontrapost(
     }
     Ok(Reskontrapost {
         total: fakturan.total,
+        krediterat,
         återstår,
         förfallodag: fakturan.förfallodag,
         betalningar,
@@ -541,8 +575,8 @@ pub(crate) async fn fakturan_för_verifikat(
     conn: &mut SqliteConnection,
     verifikat: VerifikatId,
 ) -> Result<Option<(Flöde, i64, String)>, DatabasFel> {
-    let rad: Option<(i64, i64, String)> = sqlx::query_as(
-        "SELECT k.id, k.nummer, k.kunduppgifter ->> '$.namn'
+    let rad: Option<(i64, i64, String, bool)> = sqlx::query_as(
+        "SELECT k.id, k.nummer, k.kunduppgifter ->> '$.namn', b.belopp < 0
          FROM betalning b JOIN kundfaktura k ON k.id = b.kundfaktura_id
          WHERE b.verifikat_id = ?1
             OR b.id IN (SELECT betalning_id FROM betalningsrattelse WHERE verifikat_id = ?1)",
@@ -550,11 +584,12 @@ pub(crate) async fn fakturan_för_verifikat(
     .bind(verifikat.0)
     .fetch_optional(conn)
     .await?;
-    Ok(rad.map(|(id, nummer, kund)| {
-        (
-            Flöde::Kundfaktura,
-            id,
-            format!("betalningen av kundfaktura {nummer} till {kund}"),
-        )
+    Ok(rad.map(|(id, nummer, kund, återbetalning)| {
+        let text = if återbetalning {
+            format!("återbetalningen på kundfaktura {nummer} till {kund}")
+        } else {
+            format!("betalningen av kundfaktura {nummer} till {kund}")
+        };
+        (Flöde::Kundfaktura, id, text)
     }))
 }

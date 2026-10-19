@@ -58,3 +58,18 @@ fn sätten_att_lämna_en_faktura_har_koder_och_namn() {
     }
     assert_eq!(Lämningssätt::från_kod("fax"), None);
 }
+
+// #140 Kreditfakturor
+#[test]
+fn en_kreditfaktura_skickas_med_eget_ämne_och_meddelande() {
+    use maya_domain::utskick::{kreditmeddelande, kreditämne};
+    assert_eq!(
+        kreditämne(8, "Exempel AB"),
+        "Kreditfaktura 8 från Exempel AB"
+    );
+    assert_eq!(
+        kreditmeddelande(8, -40_000, 7, "Exempel AB"),
+        "Hej!\n\nHär kommer kreditfaktura 8 på -400,00 kr, som krediterar faktura 7. \
+         Kreditfakturan är bifogad som PDF.\n\nVänliga hälsningar\nExempel AB"
+    );
+}

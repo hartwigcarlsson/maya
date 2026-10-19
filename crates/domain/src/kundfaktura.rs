@@ -667,9 +667,13 @@ impl NyKundfaktura {
     }
 
     /// Radernas netto, momsen per sats och totalen, med de rader som går att räkna, som om
-    /// företaget är momsregistrerat. Formuläret använder [`NyKundfaktura::beräkna_med`].
+    /// företaget är momsregistrerat (en kreditfaktura med originalets momsläge). Formuläret
+    /// använder [`NyKundfaktura::beräkna_med`].
     pub fn beräkna(&self) -> Beräkning {
-        self.beräkna_med(self.omvänt_momsläge())
+        self.beräkna_med(match &self.krediterar {
+            Some(h) => h.momsläge,
+            None => self.omvänt_momsläge(),
+        })
     }
 
     /// Som [`NyKundfaktura::beräkna`] med momsläget `läge`.

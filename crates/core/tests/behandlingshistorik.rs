@@ -510,6 +510,38 @@ async fn fakturaändringar(db: &Databas, anna: &Aktör, id: FöretagsId, tid: &s
     maya_core::betalning::rätta(db, &k, anna, id, betalning.id, "2026-03-01", "fel belopp")
         .await
         .unwrap();
+    // #140 Kreditfakturor: en delbetald faktura krediteras helt, och tillgodohavandet återbetalas.
+    let krediterad =
+        testhjalp::utfärdad_kundfaktura(db, anna, id, "Kreditkund AB", "2026-03-01").await;
+    let betala = |belopp: &str| maya_domain::betalning::NyBetalning {
+        betaldag: "2026-03-01".into(),
+        belopp: belopp.into(),
+        konto: "1930".into(),
+        öresutjämning: false,
+    };
+    let faktura = maya_core::betalning::Faktura::Kund(krediterad.id);
+    maya_core::betalning::registrera(db, &k, anna, id, faktura, &betala("100"))
+        .await
+        .unwrap();
+    let kredit = maya_core::kundfaktura::kreditera(
+        db,
+        &k,
+        anna,
+        id,
+        krediterad.id,
+        &maya_domain::kreditfaktura::NyKreditering {
+            hela: true,
+            antal: Vec::new(),
+        },
+    )
+    .await
+    .unwrap();
+    maya_core::kundfaktura::utfärda(db, &k, anna, id, kredit)
+        .await
+        .unwrap();
+    maya_core::betalning::registrera(db, &k, anna, id, faktura, &betala("100"))
+        .await
+        .unwrap();
 }
 
 #[tokio::test]

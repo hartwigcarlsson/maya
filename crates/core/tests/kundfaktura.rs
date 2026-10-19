@@ -575,7 +575,12 @@ async fn varje_spärr_vid_utfärdande_stoppar_utfärdandet_och_ändrar_ingenting
             .unwrap()
             .is_empty()
     );
-    let dokumenterade: BTreeSet<&str> = UTFÄRDANDESPÄRRAR.iter().map(|(k, _)| *k).collect();
+    // Kreditfakturornas spärrar kräver ett utfärdat original och prövas i tests/kreditfaktura.rs.
+    let dokumenterade: BTreeSet<&str> = UTFÄRDANDESPÄRRAR
+        .iter()
+        .map(|(k, _)| *k)
+        .filter(|k| !["summa_inte_negativ", "kredit_overstiger"].contains(k))
+        .collect();
     assert_eq!(alla, dokumenterade);
 }
 

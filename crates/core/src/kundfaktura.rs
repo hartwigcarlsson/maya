@@ -11,6 +11,11 @@
 //! En ny kund som läggs upp på utkastet ("+ Ny kund…", #137) har status `ny` och syns inte i
 //! kundregistret. Den blir verklig i utfärdandets transaktion och raderas, med Maya som aktör,
 //! när inget utkast längre hänvisar till den.
+//!
+//! En *kreditfaktura* (#140) är en kundfaktura i samma tabell och serie, med en hänvisning till
+//! originalet: [`kreditera`] skapar utkastet ur ett utfärdat original, och [`utfärda`] utfärdar
+//! det som en faktura. Hänvisningen, originalets momsläge och kund och det som finns kvar att
+//! kreditera läses ur databasen, aldrig ur formuläret.
 
 use std::fmt;
 use std::str::FromStr;
@@ -20,6 +25,7 @@ use jiff::civil::Date;
 use maya_domain::faktura::{Antal, Momsrad, Momssats, Rabatt, momsrader};
 use maya_domain::foretag::Bokföringsmetod;
 use maya_domain::kontoplan::Kontonummer;
+use maya_domain::kreditfaktura::{Hänvisning, Kreditspärr, NyKreditering};
 use maya_domain::kund::OmvändSkattskyldighet;
 use maya_domain::kundfaktura::{
     Fakturakund, Fakturarad, Förutsättningar, Momsläge, NyKundfaktura, Spärr, Säljare, Utfärdbar,
@@ -93,6 +99,9 @@ pub enum KundfakturaFel {
     /// #149.
     #[error("kundfakturor under kontantmetoden går inte att utfärda ännu")]
     Kontantmetoden,
+    /// Valet i panelen Kreditfaktura… klarar inte spärrarna (#140).
+    #[error("kreditfakturan kan inte skapas")]
+    Kreditering(Vec<Kreditspärr>),
     #[error(transparent)]
     Pdf(#[from] maya_pdf::PdfFel),
     #[error(transparent)]
@@ -158,8 +167,23 @@ pub struct Kundfakturarad {
     pub total: i64,
     /// Kunden är ny och läggs i registret när fakturan utfärdas (#137).
     pub ny_kund: bool,
-    /// Det som återstår att betala i öre (#139); för ett utkast totalen.
+    /// Det som återstår att betala i öre (#139); för ett utkast totalen. En kreditfaktura
+    /// räknas av mot originalet och har 0 kvar (#140); negativt är ett tillgodohavande.
     pub återstår: i64,
+    /// Originalets nummer när fakturan är en kreditfaktura (#140).
+    pub krediterar: Option<u64>,
+    /// Det som utfärdade kreditfakturor har krediterat av fakturan, i öre och positivt (#140).
+    pub krediterat: i64,
+}
+
+/// En utfärdad kreditfaktura på originalets dokument (#140).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Kreditlänk {
+    pub id: KundfakturaId,
+    pub nummer: u64,
+    pub fakturadatum: Date,
+    /// Kreditfakturans total, negativ.
+    pub total: i64,
 }
 
 /// Den arkiverade PDF:en, som aldrig skrivs om.
@@ -192,6 +216,8 @@ pub struct Utfärdning {
     pub total: i64,
     /// Momsläget som fakturan utfärdades med.
     pub momsläge: Momsläge,
+    /// Originalet när fakturan är en kreditfaktura (#140).
+    pub krediterar: Option<Hänvisning>,
     /// Utfärdandets verifikat.
     pub verifikat: verifikat::Länk,
     pub pdf: ArkiveradPdf,
@@ -212,6 +238,8 @@ pub struct Kundfaktura {
     pub skapad: Signatur,
     /// Posterna i behandlingshistoriken som rör fakturan, i ordning.
     pub historik: Vec<Historikpost>,
+    /// De utfärdade kreditfakturorna som krediterar fakturan, i nummerordning (#140).
+    pub krediteras_av: Vec<Kreditlänk>,
 }
 
 /// Det som spärrarna prövas mot, för formuläret och förhandsvisningen.
@@ -336,9 +364,19 @@ pub async fn spara_utkast(
 ) -> Result<KundfakturaId, KundfakturaFel> {
     let mut ärende =
         Ärende::börja(db, klocka, aktör, företag, Handling::HanteraFakturautkast).await?;
+    let mut formulär = formulär.clone();
     if let Some(id) = utkast {
         kräv_utkast(&mut ärende, id).await?;
+        // Ett kreditutkast behåller originalets hänvisning, kund och momsläge (#140).
+        if let Some(h) = utkastets_hänvisning(ärende.conn(), företag, id).await? {
+            formulär.kund = h.kund.id.to_string();
+            formulär.ny_kund = Default::default();
+            formulär.omvänd_skattskyldighet = h.momsläge.omvänd().kod().to_string();
+            formulär.startnummer = String::new();
+            formulär.krediterar = Some(h);
+        }
     }
+    let formulär = &formulär;
     let mut u = formulär.som_utkast().map_err(KundfakturaFel::Spärrat)?;
     // Utan fri momssats (omvänd skattskyldighet, eller ett företag som inte är
     // momsregistrerat på fakturadatumet) sparas varje rad med 0 %.
@@ -433,24 +471,7 @@ pub async fn spara_utkast(
             .await?,
         ),
     };
-    for (i, r) in u.rader.iter().enumerate() {
-        sqlx::query(
-            "INSERT INTO kundfakturarad
-                 (faktura_id, radnr, beskrivning, antal, enhet, a_pris, rabatt, momssats, konto)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        )
-        .bind(id.0)
-        .bind(i as i64 + 1)
-        .bind(&r.beskrivning)
-        .bind(r.antal.map(Antal::hundradelar))
-        .bind(&r.enhet)
-        .bind(r.à_pris)
-        .bind(r.rabatt.hundradelar())
-        .bind(i64::from(r.momssats.procent()))
-        .bind(r.konto.map(|k| i64::from(k.get())))
-        .execute(ärende.conn())
-        .await?;
-    }
+    skriv_rader(ärende.conn(), id, &u.rader).await?;
     kund::rensa_nya_i(&mut ärende).await?;
     ärende.slutför().await?;
     Ok(id)
@@ -646,11 +667,11 @@ pub async fn utfärda(
     .bind(id.0)
     .execute(ärende.conn())
     .await?;
-    ärende
-        .logga(
-            Händelse::KundfakturaUtfärdad,
-            &u.nummer.to_string(),
-            json!({
+    let händelse = match u.krediterar {
+        Some(_) => Händelse::KreditfakturaUtfärdad,
+        None => Händelse::KundfakturaUtfärdad,
+    };
+    let mut post = json!({
                 "kundfaktura": id.0,
                 "nummer": u.nummer,
                 "referens": u.referens,
@@ -666,9 +687,13 @@ pub async fn utfärda(
                     "filnamn": pdf.filnamn,
                     "sha256": arkiverad.sha256,
                 },
-            }),
-        )
-        .await?;
+    });
+    // #140: kreditfakturans post syns också i originalets historik.
+    if let Some(h) = &u.krediterar {
+        post["krediterar"] = json!(h.faktura);
+        post["krediterar_nummer"] = json!(h.nummer);
+    }
+    ärende.logga(händelse, &u.nummer.to_string(), post).await?;
     ärende.slutför().await?;
     Ok(Utfärdad {
         id,
@@ -737,7 +762,10 @@ async fn skriv_pdf(
         utkast,
     });
     Ok(Pdf {
-        filnamn: format!("Kundfaktura_{}.pdf", u.nummer),
+        filnamn: match u.krediterar {
+            Some(_) => format!("Kreditfaktura_{}.pdf", u.nummer),
+            None => format!("Kundfaktura_{}.pdf", u.nummer),
+        },
         innehåll: maya_pdf::skriv(&dokument, &sidfot)?,
     })
 }
@@ -795,7 +823,7 @@ type LagradRad = (
 
 /// Det sparade utkastet (eller den utfärdade fakturans fält) som det lagrades.
 async fn läs_utkast(conn: &mut SqliteConnection, id: KundfakturaId) -> Result<Utkast, DatabasFel> {
-    let (företag, kund, fakturadatum, leveransdatum, förfallodag, er_referens, omvänd): (
+    type Huvud = (
         i64,
         Option<i64>,
         Option<String>,
@@ -803,9 +831,11 @@ async fn läs_utkast(conn: &mut SqliteConnection, id: KundfakturaId) -> Result<U
         Option<String>,
         String,
         String,
-    ) = sqlx::query_as(
+        Option<i64>,
+    );
+    let (företag, kund, fakturadatum, leveransdatum, förfallodag, er_referens, omvänd, original): Huvud = sqlx::query_as(
         "SELECT foretag_id, kund_id, fakturadatum, leveransdatum, forfallodag, er_referens,
-                omvand_skattskyldighet
+                omvand_skattskyldighet, krediterar
          FROM kundfaktura WHERE id = ?",
     )
     .bind(id.0)
@@ -852,7 +882,14 @@ async fn läs_utkast(conn: &mut SqliteConnection, id: KundfakturaId) -> Result<U
                 })
             })
             .collect::<Result<_, DatabasFel>>()?,
-        krediterar: None,
+        krediterar: match original {
+            Some(o) => Some(
+                hänvisning_i(&mut *conn, FöretagsId(företag), o)
+                    .await?
+                    .ok_or_else(|| korrupt("krediterar"))?,
+            ),
+            None => None,
+        },
     })
 }
 
@@ -910,16 +947,26 @@ async fn lista_i(
         Option<i64>,
         bool,
         Option<i64>,
+        Option<i64>,
+        i64,
     );
-    // Det som återstår: totalen minus betalningarna i reskontran (#139), samma regel som
-    // `betalning::reskontrapost`.
+    // Det som återstår: totalen minus krediteringarna (#140) och betalningarna i reskontran
+    // (#139), samma regel som `betalning::reskontrapost`. En kreditfaktura räknas av mot
+    // originalet och har inget kvar.
     let rader: Vec<Rad> = sqlx::query_as(
         "SELECT f.id, f.status, f.nummer,
                 coalesce(f.kunduppgifter ->> '$.namn', k.namn),
                 f.fakturadatum, f.forfallodag, f.total, coalesce(k.status = 'ny', 0),
-                f.total - coalesce((SELECT sum(b.belopp + b.oresutjamning)
-                                    FROM betalning_i_reskontran b
-                                    WHERE b.kundfaktura_id = f.id), 0)
+                CASE WHEN f.krediterar IS NOT NULL THEN 0 ELSE
+                    f.total - coalesce((SELECT sum(b.belopp + b.oresutjamning)
+                                        FROM betalning_i_reskontran b
+                                        WHERE b.kundfaktura_id = f.id), 0)
+                            + coalesce((SELECT sum(c.total) FROM kundfaktura c
+                                        WHERE c.krediterar = f.id AND c.status <> 'utkast'), 0)
+                END,
+                (SELECT o.nummer FROM kundfaktura o WHERE o.id = f.krediterar),
+                -coalesce((SELECT sum(c.total) FROM kundfaktura c
+                           WHERE c.krediterar = f.id AND c.status <> 'utkast'), 0)
          FROM kundfaktura f LEFT JOIN kund k ON k.id = f.kund_id
          WHERE f.foretag_id = ?1 AND (?2 IS NULL OR f.kund_id = ?2)
          ORDER BY f.status = 'utkast' DESC, f.nummer DESC, f.id DESC",
@@ -929,7 +976,19 @@ async fn lista_i(
     .fetch_all(&mut *conn)
     .await?;
     let mut lista = Vec::new();
-    for (id, status, nummer, kund, fakturadatum, förfallodag, total, ny_kund, återstår) in rader
+    for (
+        id,
+        status,
+        nummer,
+        kund,
+        fakturadatum,
+        förfallodag,
+        total,
+        ny_kund,
+        återstår,
+        krediterar,
+        krediterat,
+    ) in rader
     {
         let status = Status::från_kod(&status)
             .ok_or_else(|| DatabasFel::Korrupt("kundfaktura.status".into()))?;
@@ -952,7 +1011,13 @@ async fn lista_i(
             förfallodag: förfallodag.as_deref().map(datum).transpose()?,
             total,
             ny_kund,
-            återstår: återstår.unwrap_or(total),
+            // Ett kreditutkast räknas inte av mot originalet förrän det är utfärdat.
+            återstår: match (status, krediterar) {
+                (Status::Utkast, _) => total,
+                _ => återstår.unwrap_or(total),
+            },
+            krediterar: krediterar.map(i64::unsigned_abs),
+            krediterat,
         });
     }
     Ok(lista)
@@ -1014,10 +1079,15 @@ pub async fn kundfakturan(
         None => kundens_namn(&mut tx, kund_id).await?,
     };
     let mut historik = Vec::new();
-    for post in behandlingshistorik::läs_om(&mut tx, företag, "kundfaktura", id.0).await? {
+    // #140: kreditfakturornas utfärdande syns också i originalets historik.
+    let poster =
+        behandlingshistorik::läs_om_någon(&mut tx, företag, ["kundfaktura", "krediterar"], id.0)
+            .await?;
+    for post in poster {
         let namn = verifikat::namn(&mut tx, &post.aktör).await?;
         historik.push(Historikpost { post, namn });
     }
+    let krediteras_av = krediteringar(&mut tx, id).await?;
     Ok(Kundfaktura {
         id,
         status,
@@ -1026,6 +1096,7 @@ pub async fn kundfakturan(
         utfärdad: utfärdning,
         skapad: signatur(&skapad, &skapad_kanal, skapad_av, skapad_namn)?,
         historik,
+        krediteras_av,
     })
 }
 
@@ -1079,47 +1150,25 @@ async fn läs_utfärdning(
     .fetch_one(&mut *conn)
     .await?;
     // En faktura utfärdad före #136 har momsregistrerat NULL och utfärdades med moms.
-    let (omvänd, momsregistrerat): (String, Option<bool>) = sqlx::query_as(
-        "SELECT omvand_skattskyldighet, momsregistrerat FROM kundfaktura WHERE id = ?",
+    type Moms = (String, Option<bool>, i64, Option<i64>);
+    let (omvänd, momsregistrerat, företag, original): Moms = sqlx::query_as(
+        "SELECT omvand_skattskyldighet, momsregistrerat, foretag_id, krediterar
+         FROM kundfaktura WHERE id = ?",
     )
     .bind(id.0)
     .fetch_one(&mut *conn)
     .await?;
-    let momsläge = match momsregistrerat {
-        Some(false) => Momsläge::UtanMoms,
-        _ => Momsläge::av(
-            OmvändSkattskyldighet::från_kod(&omvänd)
-                .ok_or_else(|| korrupt("omvand_skattskyldighet"))?,
+    let momsläge =
+        momsläge(&omvänd, momsregistrerat).ok_or_else(|| korrupt("omvand_skattskyldighet"))?;
+    let krediterar = match original {
+        Some(o) => Some(
+            hänvisning_i(&mut *conn, FöretagsId(företag), o)
+                .await?
+                .ok_or_else(|| korrupt("krediterar"))?,
         ),
+        None => None,
     };
-    type UtfärdadRad = (String, i64, String, i64, i64, i64, i64, i64);
-    let rader: Vec<UtfärdadRad> = sqlx::query_as(
-        "SELECT beskrivning, antal, enhet, a_pris, rabatt, momssats, konto, netto
-         FROM kundfakturarad WHERE faktura_id = ? ORDER BY radnr",
-    )
-    .bind(id.0)
-    .fetch_all(&mut *conn)
-    .await?;
-    let rader = rader
-        .into_iter()
-        .map(
-            |(beskrivning, antal, enhet, à_pris, rabatt, sats, konto, netto)| {
-                Ok(Fakturarad {
-                    beskrivning,
-                    antal: Antal::från_hundradelar(antal),
-                    enhet,
-                    à_pris,
-                    rabatt: Rabatt::från_hundradelar(rabatt).ok_or_else(|| korrupt("rabatt"))?,
-                    momssats: u8::try_from(sats)
-                        .ok()
-                        .and_then(Momssats::från_procent)
-                        .ok_or_else(|| korrupt("momssats"))?,
-                    konto: kontonummer(konto)?,
-                    netto,
-                })
-            },
-        )
-        .collect::<Result<Vec<_>, DatabasFel>>()?;
+    let rader = läs_utfärdade_rader(&mut *conn, id).await?;
     let (filnamn, sha256, storlek, arkiverad): (String, String, i64, String) =
         sqlx::query_as("SELECT filnamn, sha256, storlek, uppladdad FROM underlag WHERE id = ?")
             .bind(underlag_id)
@@ -1144,6 +1193,7 @@ async fn läs_utfärdning(
         moms,
         total,
         momsläge,
+        krediterar,
         verifikat,
         pdf: ArkiveradPdf {
             underlag: UnderlagId(underlag_id),
@@ -1162,8 +1212,8 @@ pub(crate) async fn fakturan_för_verifikat(
     conn: &mut SqliteConnection,
     verifikat: VerifikatId,
 ) -> Result<Option<(i64, String)>, DatabasFel> {
-    let rad: Option<(i64, i64, String)> = sqlx::query_as(
-        "SELECT id, nummer, kunduppgifter ->> '$.namn' FROM kundfaktura
+    let rad: Option<(i64, i64, String, bool)> = sqlx::query_as(
+        "SELECT id, nummer, kunduppgifter ->> '$.namn', krediterar IS NOT NULL FROM kundfaktura
          WHERE status <> 'utkast' AND (verifikat_id = ?1 OR id IN (
              SELECT faktura_id FROM kundfaktura_kontering
              WHERE rattelse_id = ?1 OR verifikat_id = ?1))",
@@ -1171,7 +1221,247 @@ pub(crate) async fn fakturan_för_verifikat(
     .bind(verifikat.0)
     .fetch_optional(conn)
     .await?;
-    Ok(rad.map(|(id, nummer, kund)| (id, format!("kundfaktura {nummer} till {kund}"))))
+    Ok(rad.map(|(id, nummer, kund, kredit)| {
+        let sort = if kredit {
+            "kreditfaktura"
+        } else {
+            "kundfaktura"
+        };
+        (id, format!("{sort} {nummer} till {kund}"))
+    }))
+}
+
+/// Momsläget som en utfärdad faktura bär: utan moms när företaget inte var momsregistrerat,
+/// annars efter den omvända skattskyldigheten. En faktura utfärdad före #136 har
+/// `momsregistrerat` NULL och utfärdades med moms.
+fn momsläge(omvänd: &str, momsregistrerat: Option<bool>) -> Option<Momsläge> {
+    match momsregistrerat {
+        Some(false) => Some(Momsläge::UtanMoms),
+        _ => OmvändSkattskyldighet::från_kod(omvänd).map(Momsläge::av),
+    }
+}
+
+/// Skriver utkastets rader i ordning.
+async fn skriv_rader(
+    conn: &mut SqliteConnection,
+    id: KundfakturaId,
+    rader: &[Utkastrad],
+) -> Result<(), sqlx::Error> {
+    for (i, r) in rader.iter().enumerate() {
+        sqlx::query(
+            "INSERT INTO kundfakturarad
+                 (faktura_id, radnr, beskrivning, antal, enhet, a_pris, rabatt, momssats, konto)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        )
+        .bind(id.0)
+        .bind(i as i64 + 1)
+        .bind(&r.beskrivning)
+        .bind(r.antal.map(Antal::hundradelar))
+        .bind(&r.enhet)
+        .bind(r.à_pris)
+        .bind(r.rabatt.hundradelar())
+        .bind(i64::from(r.momssats.procent()))
+        .bind(r.konto.map(|k| i64::from(k.get())))
+        .execute(&mut *conn)
+        .await?;
+    }
+    Ok(())
+}
+
+// #140 Kreditfakturor
+
+/// Det som utfärdade kreditfakturor har krediterat av fakturan `faktura`, i öre och positivt.
+pub(crate) async fn krediterat_i(
+    conn: &mut SqliteConnection,
+    faktura: KundfakturaId,
+) -> Result<i64, sqlx::Error> {
+    sqlx::query_scalar(
+        "SELECT -coalesce(sum(total), 0) FROM kundfaktura
+         WHERE krediterar = ? AND status <> 'utkast'",
+    )
+    .bind(faktura.0)
+    .fetch_one(conn)
+    .await
+}
+
+/// Hänvisningen till originalet `original`, om det är en utfärdad faktura i företaget som inte
+/// själv är en kreditfaktura: numret, datumet, momsläget, kunden som den kopierades in och det
+/// som finns kvar att kreditera.
+pub(crate) async fn hänvisning_i(
+    conn: &mut SqliteConnection,
+    företag: FöretagsId,
+    original: i64,
+) -> Result<Option<Hänvisning>, DatabasFel> {
+    type Rad = (i64, String, String, i64, String, Option<bool>);
+    let rad: Option<Rad> = sqlx::query_as(
+        "SELECT nummer, fakturadatum, kunduppgifter, total, omvand_skattskyldighet,
+                momsregistrerat
+         FROM kundfaktura
+         WHERE id = ? AND foretag_id = ? AND status <> 'utkast' AND krediterar IS NULL",
+    )
+    .bind(original)
+    .bind(företag.0)
+    .fetch_optional(&mut *conn)
+    .await?;
+    let Some((nummer, fakturadatum, kund, total, omvänd, momsregistrerat)) = rad else {
+        return Ok(None);
+    };
+    let korrupt = |vad: &str| DatabasFel::Korrupt(format!("kundfaktura {original}: {vad}"));
+    let krediterat = krediterat_i(&mut *conn, KundfakturaId(original)).await?;
+    Ok(Some(Hänvisning {
+        faktura: original,
+        nummer: nummer.unsigned_abs(),
+        fakturadatum,
+        momsläge: momsläge(&omvänd, momsregistrerat)
+            .ok_or_else(|| korrupt("omvand_skattskyldighet"))?,
+        kund: serde_json::from_str(&kund).map_err(|_| korrupt("kunduppgifter"))?,
+        total,
+        kvar: total - krediterat,
+    }))
+}
+
+/// Hänvisningen när utkastet `id` är en kreditfaktura.
+async fn utkastets_hänvisning(
+    conn: &mut SqliteConnection,
+    företag: FöretagsId,
+    id: KundfakturaId,
+) -> Result<Option<Hänvisning>, DatabasFel> {
+    let original: Option<i64> =
+        sqlx::query_scalar("SELECT krediterar FROM kundfaktura WHERE id = ?")
+            .bind(id.0)
+            .fetch_one(&mut *conn)
+            .await?;
+    match original {
+        Some(o) => Ok(Some(hänvisning_i(conn, företag, o).await?.ok_or_else(
+            || DatabasFel::Korrupt(format!("kundfaktura {}: krediterar", id.0)),
+        )?)),
+        None => Ok(None),
+    }
+}
+
+/// De utfärdade kreditfakturorna som krediterar `id`, i nummerordning.
+async fn krediteringar(
+    conn: &mut SqliteConnection,
+    id: KundfakturaId,
+) -> Result<Vec<Kreditlänk>, DatabasFel> {
+    let rader: Vec<(i64, i64, String, i64)> = sqlx::query_as(
+        "SELECT id, nummer, fakturadatum, total FROM kundfaktura
+         WHERE krediterar = ? AND status <> 'utkast' ORDER BY nummer",
+    )
+    .bind(id.0)
+    .fetch_all(&mut *conn)
+    .await?;
+    rader
+        .into_iter()
+        .map(|(id, nummer, fakturadatum, total)| {
+            Ok(Kreditlänk {
+                id: KundfakturaId(id),
+                nummer: nummer.unsigned_abs(),
+                fakturadatum: datum(&fakturadatum)?,
+                total,
+            })
+        })
+        .collect()
+}
+
+/// *Kreditfaktura…* (berättelse 37): skapar ett utkast till kreditfaktura för den utfärdade
+/// fakturan `original`, med hela fakturan eller antalet per rad i `kreditering`. Raderna får
+/// originalets beskrivning, à-pris, rabatt, momssats och det intäktskonto som gäller nu (efter
+/// en Rätta kontering, #142), med negativt antal. Utkastet dateras i dag och utfärdas med
+/// [`utfärda`]. En kreditfaktura kan inte själv krediteras.
+pub async fn kreditera(
+    db: &Databas,
+    klocka: &Klocka,
+    aktör: &Aktör,
+    företag: FöretagsId,
+    original: KundfakturaId,
+    kreditering: &NyKreditering,
+) -> Result<KundfakturaId, KundfakturaFel> {
+    let mut ärende =
+        Ärende::börja(db, klocka, aktör, företag, Handling::HanteraFakturautkast).await?;
+    let h = hänvisning_i(ärende.conn(), företag, original.0)
+        .await?
+        .ok_or(KundfakturaFel::FinnsInte)?;
+    let (leveransdatum, er_referens): (String, String) =
+        sqlx::query_as("SELECT leveransdatum, er_referens FROM kundfaktura WHERE id = ?")
+            .bind(original.0)
+            .fetch_one(ärende.conn())
+            .await?;
+    let gällande = crate::kontering::gällande_i(ärende.conn(), företag, original).await?;
+    let mut rader = läs_utfärdade_rader(ärende.conn(), original).await?;
+    for (rad, g) in rader.iter_mut().zip(&gällande.rader) {
+        rad.konto = g.konto;
+    }
+    let idag = maya_domain::tid::datum(ärende.nu);
+    let mut formulär = kreditering
+        .utkast(&h, &rader, idag)
+        .map_err(KundfakturaFel::Kreditering)?;
+    formulär.leveransdatum = leveransdatum;
+    formulär.er_referens = er_referens;
+    let u = formulär.som_utkast().map_err(KundfakturaFel::Spärrat)?;
+    let (nu, kanal, av) = (
+        ärende.nu.to_string(),
+        ärende.aktör.kanal.namn(),
+        ärende.aktör.användare.map(|a| a.0),
+    );
+    let id: i64 = sqlx::query_scalar(
+        "INSERT INTO kundfaktura
+             (foretag_id, status, kund_id, fakturadatum, leveransdatum, forfallodag,
+              er_referens, omvand_skattskyldighet, krediterar, skapad, skapad_kanal, skapad_av)
+         VALUES (?, 'utkast', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id",
+    )
+    .bind(företag.0)
+    .bind(h.kund.id)
+    .bind(u.fakturadatum.map(|d| d.to_string()))
+    .bind(&u.leveransdatum)
+    .bind(u.förfallodag.map(|d| d.to_string()))
+    .bind(&u.er_referens)
+    .bind(u.omvänd_skattskyldighet.kod())
+    .bind(original.0)
+    .bind(nu)
+    .bind(kanal)
+    .bind(av)
+    .fetch_one(ärende.conn())
+    .await?;
+    skriv_rader(ärende.conn(), KundfakturaId(id), &u.rader).await?;
+    ärende.slutför().await?;
+    Ok(KundfakturaId(id))
+}
+
+/// Raderna på en utfärdad faktura, med kontot som det utfärdades.
+async fn läs_utfärdade_rader(
+    conn: &mut SqliteConnection,
+    id: KundfakturaId,
+) -> Result<Vec<Fakturarad>, DatabasFel> {
+    let korrupt = |vad: &str| DatabasFel::Korrupt(format!("kundfaktura {}: {vad}", id.0));
+    type UtfärdadRad = (String, i64, String, i64, i64, i64, i64, i64);
+    let rader: Vec<UtfärdadRad> = sqlx::query_as(
+        "SELECT beskrivning, antal, enhet, a_pris, rabatt, momssats, konto, netto
+         FROM kundfakturarad WHERE faktura_id = ? ORDER BY radnr",
+    )
+    .bind(id.0)
+    .fetch_all(&mut *conn)
+    .await?;
+    rader
+        .into_iter()
+        .map(
+            |(beskrivning, antal, enhet, à_pris, rabatt, sats, konto, netto)| {
+                Ok(Fakturarad {
+                    beskrivning,
+                    antal: Antal::från_hundradelar(antal),
+                    enhet,
+                    à_pris,
+                    rabatt: Rabatt::från_hundradelar(rabatt).ok_or_else(|| korrupt("rabatt"))?,
+                    momssats: u8::try_from(sats)
+                        .ok()
+                        .and_then(Momssats::från_procent)
+                        .ok_or_else(|| korrupt("momssats"))?,
+                    konto: kontonummer(konto)?,
+                    netto,
+                })
+            },
+        )
+        .collect()
 }
 
 fn kontonummer(nummer: i64) -> Result<Kontonummer, DatabasFel> {

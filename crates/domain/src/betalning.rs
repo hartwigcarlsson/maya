@@ -175,6 +175,12 @@ pub fn beskrivning(faktura: &str) -> String {
     format!("Betalning av {faktura}")
 }
 
+/// Återbetalningens beskrivning med fakturan som referens: "Återbetalning av tillgodohavande på
+/// kundfaktura 1007, Kund AB".
+pub fn återbetalningens_beskrivning(faktura: &str) -> String {
+    format!("Återbetalning av tillgodohavande på {faktura}")
+}
+
 impl NyBetalning {
     /// Panelen när den öppnas: det som återstår (eller tillgodohavandet att återbetala),
     /// dagens datum och 1930.

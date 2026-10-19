@@ -46,12 +46,30 @@ impl Lämningssätt {
 /// Fakturamejlets ämnesrad. Radbrytningar i säljarens namn blir mellanslag, så att ämnet
 /// aldrig blir flera huvudrader.
 pub fn ämne(nummer: u64, säljare: &str) -> String {
-    let säljare: String = säljare
-        .split(|c: char| c.is_control())
+    format!("Faktura {nummer} från {}", en_rad(säljare))
+}
+
+fn en_rad(text: &str) -> String {
+    text.split(|c: char| c.is_control())
         .filter(|d| !d.is_empty())
         .collect::<Vec<_>>()
-        .join(" ");
-    format!("Faktura {nummer} från {säljare}")
+        .join(" ")
+}
+
+// #140 Kreditfakturor
+/// Ämnesraden för en kreditfaktura.
+pub fn kreditämne(nummer: u64, säljare: &str) -> String {
+    format!("Kreditfaktura {nummer} från {}", en_rad(säljare))
+}
+
+/// Meddelandet som förvals för en kreditfaktura: numret, beloppet och originalet. Företagets
+/// standardmeddelande gäller fakturor att betala och används inte.
+pub fn kreditmeddelande(nummer: u64, total_öre: i64, original: u64, säljare: &str) -> String {
+    format!(
+        "Hej!\n\nHär kommer kreditfaktura {nummer} på {} kr, som krediterar faktura {original}. \
+         Kreditfakturan är bifogad som PDF.\n\nVänliga hälsningar\n{säljare}",
+        Saldo::från_öre(total_öre)
+    )
 }
 
 /// Meddelandet som förvals i mejlet: företagets standardmeddelande, eller utan ett en kort text

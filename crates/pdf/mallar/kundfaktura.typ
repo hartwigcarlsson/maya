@@ -6,8 +6,10 @@
 #let f = data.dokument
 #let s = f.saljare
 #let k = f.kund
+// En kreditfaktura (#140) har rubriken Kreditfaktura och en hänvisning till originalet.
+#let rubrik = if f.kredit != none { "Kreditfaktura" } else { "Faktura" }
 
-#set document(title: "Faktura " + f.nummer, date: auto)
+#set document(title: rubrik + " " + f.nummer, date: auto)
 #set text(font: "Libertinus Serif", lang: "sv", region: "se", size: 10pt)
 #set page(
   paper: "a4",
@@ -53,7 +55,8 @@
     #s.adress.join(linebreak())
   ],
   [
-    #text(size: 22pt, weight: "bold")[Faktura #f.nummer]
+    #text(size: 22pt, weight: "bold")[#rubrik #f.nummer]
+    #if f.kredit != none [ \ #f.kredit.text]
   ],
 )
 
@@ -110,7 +113,7 @@
   ..if f.med_moms { ([Summa exklusive moms], [#f.netto]) } else { ([Summa], [#f.netto]) },
   ..if f.med_moms { f.momsrader.map(m => ([#m.text], [#m.moms])).flatten() } else { () },
   grid.hline(stroke: 0.5pt),
-  pad(top: 0.3em, text(size: 12pt, weight: "bold")[Att betala]),
+  pad(top: 0.3em, text(size: 12pt, weight: "bold")[#if f.kredit != none [Att få tillbaka] else [Att betala]]),
   pad(top: 0.3em, text(size: 12pt, weight: "bold")[#f.total kr]),
 ))
 
@@ -125,7 +128,10 @@
   width: 100%,
   inset: 8pt,
   stroke: 0.5pt + luma(160),
-  [
+  if f.kredit != none [
+    *Kredit* \
+    Beloppet räknas av mot faktura #f.kredit.nummer. Är fakturan redan betald betalar vi tillbaka det.
+  ] else [
     *Betalning* \
     Betala senast #f.forfallodag till
     #f.saljare.betalsatt.map(((sätt, nummer)) => [#sätt #nummer]).join(", ").

@@ -105,6 +105,9 @@ händelser! {
     // #139 Betalningar
     BetalningRegistrerad => "betalning registrerad",
     BetalningRättad => "betalning rättad",
+    // #140 Kreditfakturor
+    KreditfakturaUtfärdad => "kreditfaktura utfärdad",
+    Återbetalning => "återbetalning",
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -729,6 +732,27 @@ impl Post {
                 text.push_str(&format!(", {} kr återstår", kronor(&b["återstår_öre"])));
                 text
             }
+            // #140 Kreditfakturor
+            Händelse::KreditfakturaUtfärdad => format!(
+                "Kreditfaktura {} till ”{}” daterad {}, krediterar faktura {}, {} kr, bokförd som {}",
+                f("nummer"),
+                s(&b["kund"]["namn"]),
+                f("fakturadatum"),
+                f("krediterar_nummer"),
+                kronor(&b["summa_öre"]),
+                s(&b["verifikat"]["nummer"])
+            ),
+            Händelse::Återbetalning => format!(
+                "Återbetalning {} kr av tillgodohavandet på faktura {} till ”{}” den {} från {}, \
+                 bokförd som {}, {} kr återstår",
+                kronor(&b["summa_öre"]),
+                f("fakturanummer"),
+                f("motpart"),
+                f("betaldag"),
+                f("konto"),
+                s(&b["verifikat"]["nummer"]),
+                kronor(&b["återstår_öre"])
+            ),
         }
     }
 
@@ -824,6 +848,29 @@ pub(crate) async fn läs_om(
     )
     .bind(företag.0)
     .bind(format!("$.\"{nyckel}\""))
+    .bind(id)
+    .fetch_all(conn)
+    .await?;
+    poster(rader)
+}
+
+// #140: en kundfakturas poster och kreditfakturornas poster om den.
+/// Posterna vars beskrivning har `"<nyckel>": id` för någon av `nycklar`, i ordning.
+pub(crate) async fn läs_om_någon(
+    conn: &mut SqliteConnection,
+    företag: FöretagsId,
+    nycklar: [&str; 2],
+    id: i64,
+) -> Result<Vec<Post>, DatabasFel> {
+    let rader = sqlx::query_as(
+        "SELECT h.tid, h.kanal, h.anvandare_id, u.visningsnamn, h.typ, h.objekt, h.beskrivning
+         FROM behandlingshistorik h LEFT JOIN anvandare u ON u.id = h.anvandare_id
+         WHERE h.foretag_id = ?1 AND (h.beskrivning ->> ?2 = ?4 OR h.beskrivning ->> ?3 = ?4)
+         ORDER BY h.id",
+    )
+    .bind(företag.0)
+    .bind(format!("$.\"{}\"", nycklar[0]))
+    .bind(format!("$.\"{}\"", nycklar[1]))
     .bind(id)
     .fetch_all(conn)
     .await?;
