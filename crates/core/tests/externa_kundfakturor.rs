@@ -871,3 +871,34 @@ async fn en_ny_kund_som_inte_klarar_registrets_regler_spärrar_det_externa_utkas
     assert_eq!(spärrkoder(e), ["ny_kund"]);
     assert_eq!(registret(&db, &anna, id).await, ["Kund AB"]);
 }
+
+#[tokio::test]
+async fn en_upplåst_extern_faktura_behåller_sin_arkiverade_kund_och_registreras_om() {
+    // Fakturan registreras om med samma regler, också när kunden har arkiverats sedan.
+    let (db, anna, id, kund) = företag().await;
+    let f = registrerad(&db, &anna, id, kund).await;
+    extern_kundfaktura::rätta_registrering(&db, &klocka(), &anna, id, f, "fel belopp")
+        .await
+        .unwrap();
+    maya_core::kund::arkivera(&db, &klocka(), &anna, id, kund)
+        .await
+        .unwrap();
+
+    let förutsättningar = extern_kundfaktura::förutsättningar(&db, &anna, id, Some(f))
+        .await
+        .unwrap();
+    assert!(
+        förutsättningar
+            .kunder
+            .iter()
+            .any(|k| k.id.to_string() == kund.to_string()),
+        "fakturans kund går att välja"
+    );
+    extern_kundfaktura::registrera(&db, &klocka(), &anna, id, f, &formulär(kund, "F-17"))
+        .await
+        .unwrap();
+    assert_eq!(
+        listraden(&db, &anna, id, f).await.status,
+        Status::Registrerad
+    );
+}

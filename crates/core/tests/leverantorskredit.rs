@@ -706,3 +706,27 @@ async fn en_kreditfaktura_med_hänvisning_speglar_också_den_fiktiva_momsen() {
         ]
     );
 }
+
+#[tokio::test]
+async fn en_upplåst_faktura_behåller_sin_arkiverade_leverantör_och_registreras_om() {
+    // Fakturan registreras om med samma regler, också när leverantören har arkiverats sedan.
+    let db = Databas::tillfällig().await;
+    let (anna, id, l, f) = original(&db).await;
+    leverantorsfaktura::rätta_avskrift(&db, &klocka(), &anna, id, f, "Fel belopp")
+        .await
+        .unwrap();
+    maya_core::leverantor::arkivera(&db, &klocka(), &anna, id, l)
+        .await
+        .unwrap();
+
+    leverantorsfaktura::spara_utkast(&db, &klocka(), &anna, id, f, &avskrift(l, "1 500", "1 200"))
+        .await
+        .unwrap();
+    assert_eq!(fakturan(&db, &anna, id, f).await.leverantör, Some(l));
+    leverantorsfaktura::registrera(&db, &klocka(), &anna, id, f, &avskrift(l, "1 500", "1 200"))
+        .await
+        .unwrap();
+    let omregistrerad = fakturan(&db, &anna, id, f).await;
+    assert_eq!(omregistrerad.status, Status::Registrerad);
+    assert_eq!(omregistrerad.leverantör, Some(l));
+}

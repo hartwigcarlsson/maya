@@ -349,8 +349,10 @@ async fn spara_i(
             };
             Some(leverantor::spara_ny_i(ärende, ny, &l).await?)
         }
+        // En faktura behåller sin leverantör också när den har arkiverats sedan, så att en
+        // upplåst faktura registreras om med samma regler.
         text => match text.parse::<LeverantörsId>() {
-            Ok(l) if aktiv_leverantör(ärende.conn(), företag, l).await? => Some(l),
+            Ok(l) if vald_leverantör(ärende.conn(), företag, l, nuvarande).await? => Some(l),
             _ => None,
         },
     };
@@ -677,9 +679,15 @@ async fn läs_förutsättningar(
     let f = foretag::läs_företag(&mut *conn, företag).await?;
     let leverantörer: Vec<(i64, String, Option<i64>, String)> = sqlx::query_as(
         "SELECT id, namn, standardkonto, omvand_skattskyldighet FROM leverantor
-         WHERE foretag_id = ? AND status = 'aktiv' ORDER BY namn COLLATE NOCASE, id",
+         WHERE foretag_id = ?1
+           AND (status = 'aktiv'
+                OR status = 'arkiverad'
+                   AND id = (SELECT leverantor_id FROM leverantorsfaktura
+                             WHERE id = ?2 AND foretag_id = ?1))
+         ORDER BY namn COLLATE NOCASE, id",
     )
     .bind(företag.0)
+    .bind(utkast.map(|u| u.0))
     .fetch_all(&mut *conn)
     .await?;
     let registrerade: Vec<(i64, i64, String, String, i64)> = sqlx::query_as(
@@ -1225,17 +1233,21 @@ async fn kräv_utkast(
     }
 }
 
-async fn aktiv_leverantör(
+/// Om leverantören `id` kan väljas på en faktura som nu har `nuvarande`: en aktiv leverantör,
+/// eller fakturans egen som har arkiverats.
+async fn vald_leverantör(
     conn: &mut SqliteConnection,
     företag: FöretagsId,
     id: LeverantörsId,
+    nuvarande: Option<LeverantörsId>,
 ) -> Result<bool, sqlx::Error> {
     sqlx::query_scalar(
         "SELECT EXISTS (SELECT 1 FROM leverantor WHERE foretag_id = ? AND id = ?
-                        AND status = 'aktiv')",
+                        AND (status = 'aktiv' OR status = 'arkiverad' AND id IS ?))",
     )
     .bind(företag.0)
     .bind(id.0)
+    .bind(nuvarande.map(|l| l.0))
     .fetch_one(conn)
     .await
 }
