@@ -739,6 +739,191 @@ fn kundfaktura_betalas_i_dokumentet() {
     inga_sidfel(&tab);
 }
 
+/// #152 Att göra med fakturorna: en uppladdad leverantörsfaktura registreras från Att göra och
+/// står sedan som förfallen i tidslinjen med kopieringschipsen, och en förfallen kundfaktura
+/// betalas i sitt kort utan att fakturan öppnas. Betalningen av leverantörsfakturan från kortet
+/// kommer med #147.
+#[test]
+fn fakturor_registreras_och_betalas_från_att_göra() {
+    if !stod::sajten_finns() {
+        return;
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let port = ledig_port();
+    let bas = format!("http://localhost:{port}");
+    std::fs::write(
+        dir.path().join(".env"),
+        format!(
+            "MAYA_PUBLIC_URL={bas}\nMAYA_LISTEN=127.0.0.1:{port}\nMAYA_BACKUP_DIR={backup}\n\
+             MAYA_DATA_DIR={data}\n",
+            backup = dir.path().display(),
+            data = dir.path().join("data").display(),
+        ),
+    )
+    .unwrap();
+    let _server = Server::starta(dir.path(), port);
+    let browser = Browser::new(
+        LaunchOptions::default_builder()
+            .sandbox(false)
+            .idle_browser_timeout(Duration::from_secs(120))
+            .build()
+            .unwrap(),
+    )
+    .expect("röktestet kräver Chrome eller Chromium; ange sökvägen i CHROME");
+    let tab = browser.new_tab().unwrap();
+    tab.call_method(Page::AddScriptToEvaluateOnNewDocument {
+        source: SAMLA_FEL.to_string(),
+        world_name: None,
+        include_command_line_api: None,
+        run_immediately: None,
+    })
+    .unwrap();
+    tab.call_method(WebAuthn::Enable {
+        enable_ui: Some(false),
+    })
+    .unwrap();
+    autentiserare(&tab);
+    tab.navigate_to(&skapa_användare(dir.path(), &bas)).unwrap();
+    vänta_på_shimmen(&tab);
+    tab.wait_for_element("#namn")
+        .unwrap()
+        .type_into("Virtuell nyckel")
+        .unwrap();
+    klicka(&tab, "form[data-passkey='registrera'] button");
+    vänta_på_text(&tab, "Lägg till en passkey till");
+
+    // Företaget med fakturauppgifterna, leverantören och kunden, och en utfärdad kundfaktura
+    // på 11 875,00 kr som förföll 2026-04-09, med vanliga formulärposter.
+    let företaget = posta(
+        &tab,
+        "/foretag",
+        "orgnr=556036-0793&namn=Exempel+AB&start=2026-01-01&slut=2026-12-31\
+         &bokforingsmetod=faktura&momsperiod=kvartal",
+    );
+    let id = företaget.rsplit('/').next().unwrap().to_string();
+    posta(
+        &tab,
+        &format!("/foretag/{id}/installningar/uppgifter"),
+        "namn=Exempel+AB&gatuadress=Exempelgatan+1&postnummer=12345&postort=Exempelstad\
+         &epost=&telefon=&sate=Stockholm&momsregnr=SE556036079301&f_skatt=ja",
+    );
+    posta(
+        &tab,
+        &format!("/foretag/{id}/installningar/fakturauppgifter"),
+        "bankgiro=50501055",
+    );
+    posta(
+        &tab,
+        &format!("/foretag/{id}/leverantorer"),
+        "namn=Kontorsvaror+AB&land=SE&bankgiro=5050-1055&standardkonto=5410",
+    );
+    let kund = posta(
+        &tab,
+        &format!("/foretag/{id}/kunder"),
+        "namn=Kund+AB&identitet=&adress=Storgatan+1%0A111+22+Stockholm&epost=\
+         &momsregnr=&betalningsvillkor=30&omvand_skattskyldighet=ingen",
+    );
+    let k = kund
+        .split("k=")
+        .nth(1)
+        .unwrap()
+        .split('&')
+        .next()
+        .unwrap()
+        .to_string();
+    let granska = posta(
+        &tab,
+        &format!("/foretag/{id}/kundfakturor"),
+        &format!(
+            "kund={k}&fakturadatum=2026-03-10&leveransdatum=&forfallodag=&er_referens=\
+             &startnummer=&beskrivning_0=Konsulttimmar&antal_0=10&enhet_0=tim&a_pris_0=950\
+             &rabatt_0=&momssats_0=25&konto_0=3001&handling=granska"
+        ),
+    );
+    let f = granska
+        .split("f=")
+        .nth(1)
+        .unwrap()
+        .split('&')
+        .next()
+        .unwrap()
+        .to_string();
+    posta(&tab, &format!("/foretag/{id}/kundfakturor/{f}/utfarda"), "");
+
+    // Leverantörsfakturan laddas upp och registreras från Att göra.
+    let original = dir.path().join("faktura-8812.pdf");
+    std::fs::write(&original, KVITTO).unwrap();
+    tab.navigate_to(&format!("{företaget}/underlag")).unwrap();
+    vänta_på_hydreringen(&tab);
+    tab.wait_for_element("form.uppladdning input[type='file']")
+        .unwrap()
+        .set_input_files(&[original.to_str().unwrap()])
+        .unwrap();
+    klicka(&tab, "form.uppladdning button[type='submit']");
+    vänta_på_text(&tab, "faktura-8812.pdf");
+    klicka(&tab, "nav.flikar a:first-child");
+    vänta_på_text(&tab, "okopplat");
+    klicka(&tab, ".acard[id^='underlag-'] a.ah");
+    klicka(&tab, "form[action$='/leverantorsfaktura'] button");
+    vänta_på_text(&tab, "Ett utkast skapades med originalet kopplat.");
+    vänta_på_hydreringen(&tab);
+    välj(&tab, "#leverantorsfakturaformular #leverantor", "1");
+    fyll(&tab, "#leverantorsfakturaformular #fakturanummer", "8812");
+    fyll(
+        &tab,
+        "#leverantorsfakturaformular #fakturadatum",
+        "2026-03-14",
+    );
+    fyll(
+        &tab,
+        "#leverantorsfakturaformular #forfallodag",
+        "2026-04-13",
+    );
+    fyll(&tab, "#leverantorsfakturaformular #referens", "88120044711");
+    fyll(&tab, "#leverantorsfakturaformular #totalbelopp", "1 250");
+    fyll(&tab, "#leverantorsfakturaformular [name='netto_0']", "1000");
+    vänta_på_text(&tab, "Bokförs som V2 · 2026-03-14");
+    klicka(
+        &tab,
+        "#leverantorsfakturaformular button[value='registrera']:not([disabled])",
+    );
+    vänta_på_text(&tab, "Registrerad och bokförd som V2.");
+
+    // Att göra: båda fakturorna under Försenat och nyckeltalen för reskontrorna.
+    klicka(&tab, "nav.flikar a:first-child");
+    vänta_på_text(&tab, "Försenat");
+    vänta_på_text(&tab, "Kontorsvaror AB · 8812");
+    vänta_på_text(&tab, "Kundfordringar");
+    vänta_på_text(&tab, "varav förfallet 1 250,00 kr · 2440 ur bokföringen");
+    // Leverantörsfakturans kort fälls ut med kopieringschipsen.
+    klicka(&tab, ".acard[id^='leverantorsfaktura-'] a.ah");
+    tab.wait_for_element(".acard.open .chips button.copy")
+        .unwrap();
+    vänta_på_text(&tab, "88120044711");
+    inga_sidfel(&tab);
+
+    // Kundfakturans kort: betalningspanelen fälls ut i kortet och betalningen bokförs.
+    klicka(&tab, &format!("#kundfaktura-{f} a.ah"));
+    vänta_på_text(&tab, "Kontakta kunden själv.");
+    klicka(
+        &tab,
+        &format!("#kundfaktura-{f} a[href$='panel=betalning']"),
+    );
+    vänta_på_text(&tab, "Återstår 11 875,00 kr");
+    vänta_på_hydreringen(&tab);
+    fyll(&tab, "#betaldag", "2026-04-20");
+    klicka(&tab, ".betalningspanel button[type='submit']");
+    vänta_på_text(&tab, "Betalningen är bokförd som V3.");
+    vänta_på_text_borta(&tab, "Kund AB");
+    inga_sidfel(&tab);
+
+    // Betalningen är bokförd som från fakturan.
+    tab.navigate_to(&format!("{bas}/foretag/{id}/kundfakturor?f={f}"))
+        .unwrap();
+    vänta_på_text(&tab, "Betald");
+    inga_sidfel(&tab);
+}
+
 /// Väljer ett värde i en `<select>` som användaren skulle.
 fn välj(tab: &Tab, selektor: &str, värde: &str) {
     tab.wait_for_element(selektor)

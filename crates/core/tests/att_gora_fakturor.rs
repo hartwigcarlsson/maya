@@ -81,7 +81,7 @@ fn betalning(betaldag: &str, belopp: &str) -> NyBetalning {
         betaldag: betaldag.into(),
         belopp: belopp.into(),
         konto: "1930".into(),
-        öresutjämning: false,
+        ..Default::default()
     }
 }
 
