@@ -1,7 +1,7 @@
 //! Webben: Leptos med SSR och full hydrering. Server functions och sidor är tunna adaptrar mot
 //! `maya-core` (ADR 0003).
 
-// Formulären med många fält ger mycket djupa vytyper.
+// Formulären med många fält ger djupa vytyper.
 #![recursion_limit = "256"]
 
 pub mod app;
