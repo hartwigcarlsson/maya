@@ -247,6 +247,8 @@ pub struct Kundfakturadata {
     pub granskning: Option<GranskningVy>,
     /// Kundfordringarna: det som återstår på de utfärdade fakturorna (#139).
     pub kundfordringar: String,
+    /// Differensen mot 1510 i dag när reskontran avviker från huvudboken (#151).
+    pub avviker: Option<String>,
     // #143 Externa kundfakturor
     /// Den valda fakturan när den är extern.
     pub extern_faktura: Option<crate::externa_kundfakturor::ExternVy>,
@@ -583,9 +585,15 @@ pub(crate) mod server {
                 }
             })
             .collect();
+        // #151: avstämningen mot 1510 i dag.
+        let differens = maya_core::reskontra::reskontran(&b.db, aktör, företag, idag)
+            .await?
+            .kund
+            .differens;
         let mut data = Kundfakturadata {
             lista,
             kundfordringar: kr(kundfordringar),
+            avviker: (differens != 0).then(|| kr(differens)),
             ..Kundfakturadata::default()
         };
         // #143: en extern faktura visas med sitt original och sina egna handlingar.
@@ -1496,6 +1504,19 @@ fn kundfakturor_sida(data: Kundfakturadata, ny: bool) -> AnyView {
                         <p class="diskret kundfordringar">
                             {format!("Kundfordringar {} kr", data.kundfordringar)}
                         </p>
+                        {data
+                            .avviker
+                            .clone()
+                            .map(|d| {
+                                view! {
+                                    <p class="fel avviker" role="alert">
+                                        <a href=format!(
+                                            "{bas}{}",
+                                            crate::reskontra::SÖKVÄG,
+                                        )>{format!("Avviker från 1510 med {d} kr")}</a>
+                                    </p>
+                                }
+                            })}
                     </div>
                     <a class="knapp" href=format!("{lista}/ny")>
                         "Ny kundfaktura"

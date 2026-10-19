@@ -257,6 +257,8 @@ pub struct Leverantörsfakturadata {
     pub okopplade: Vec<UnderlagVy>,
     /// Leverantörsskulderna: det som återstår på de registrerade fakturorna (#147).
     pub leverantörsskulder: String,
+    /// Differensen mot 2440 i dag när reskontran avviker från huvudboken (#151).
+    pub avviker: Option<String>,
 }
 
 /// Datan för `/foretag/<id>/leverantorsfakturor` och `/foretag/<id>/leverantorsfakturor/ny`.
@@ -514,7 +516,13 @@ pub(crate) mod server {
             .filter(|r| r.status != Status::Utkast)
             .map(|r| r.återstår.max(0))
             .sum();
+        // #151: avstämningen mot 2440 i dag.
+        let differens = maya_core::reskontra::reskontran(db, aktör, företag, idag)
+            .await?
+            .leverantör
+            .differens;
         Ok(Leverantörsfakturadata {
+            avviker: (differens != 0).then(|| kr(differens)),
             idag: idag.to_string(),
             lista: lista
                 .iter()
@@ -1088,6 +1096,19 @@ fn leverantörsfakturasida(data: Leverantörsfakturadata, ny: bool) -> AnyView {
                         <p class="diskret leverantorsskulder">
                             {format!("Leverantörsskulder {} kr", data.leverantörsskulder)}
                         </p>
+                        {data
+                            .avviker
+                            .clone()
+                            .map(|d| {
+                                view! {
+                                    <p class="fel avviker" role="alert">
+                                        <a href=format!(
+                                            "{bas}{}",
+                                            crate::reskontra::SÖKVÄG,
+                                        )>{format!("Avviker från 2440 med {d} kr")}</a>
+                                    </p>
+                                }
+                            })}
                     </div>
                     <span>
                         <a class="knapp knapp-diskret leverantorsregister" href=leverantörsregistret(&bas)>

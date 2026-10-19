@@ -2901,3 +2901,28 @@ kbd {
 .sok-traffar a .badge {
   flex: none;
 }
+
+/* Reskontran per datum och avstämningen mot 1510 och 2440 (#151) */
+.reskontradel + .reskontradel {
+  margin-top: 1.5rem;
+}
+
+.avstamningen {
+  max-width: 28rem;
+}
+
+.avstamningen dd {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.avstamning.stammer {
+  color: var(--success);
+}
+
+.avstamning.avviker,
+.avstamning.avviker a,
+p.avviker a {
+  color: var(--destructive);
+  font-weight: 600;
+}

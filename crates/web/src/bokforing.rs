@@ -15,9 +15,11 @@ use crate::sidodata::sida;
 use crate::utskrift::Utskrift;
 
 /// Sidorna under Bokföring: sökväg under företaget och namn.
-const SIDOR: [(&str, &str); 3] = [
+const SIDOR: [(&str, &str); 4] = [
     ("/rapporter/grundbok", "Grundbok"),
     ("/rapporter/huvudbok", "Huvudbok"),
+    // #151
+    (crate::reskontra::SÖKVÄG, "Reskontran per datum"),
     ("/installningar/kontoplan", "Kontoplan"),
 ];
 
@@ -151,6 +153,11 @@ pub(crate) mod server {
     pub(crate) fn routes(state: BokföringsState) -> Router {
         Router::new()
             .route("/foretag/{id}/rapporter/{rapport}/{format}", get(exportera))
+            // #151
+            .route(
+                "/foretag/{id}/rapporter/reskontra/{format}",
+                get(crate::reskontra::server::exportera),
+            )
             .with_state(Arc::new(state))
     }
 

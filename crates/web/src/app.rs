@@ -23,6 +23,7 @@ use crate::kundfakturor::{KundfakturorSida, NyExternKundfakturaSida, NyKundfaktu
 use crate::leverantorer::{LeverantörerSida, NyLeverantörSida};
 use crate::leverantorsfakturor::{LeverantörsfakturorSida, NyLeverantörsfakturaSida};
 use crate::rapporter::{Balansräkning, Rapporter, Resultaträkning};
+use crate::reskontra::ReskontraSida;
 use crate::sidodata::per_adress;
 use crate::sok::SökSida;
 use crate::systemdokumentation::SystemdokumentationSida;
@@ -165,6 +166,12 @@ fn Innehåll() -> impl IntoView {
                 <Route
                     path=path!("foretag/:id/rapporter/huvudbok")
                     view=HuvudbokSida
+                    ssr=SsrMode::Async
+                />
+                // #151
+                <Route
+                    path=path!("foretag/:id/rapporter/reskontra")
+                    view=ReskontraSida
                     ssr=SsrMode::Async
                 />
                 <Route
