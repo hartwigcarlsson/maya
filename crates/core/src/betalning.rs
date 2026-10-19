@@ -349,8 +349,7 @@ pub async fn rätta(
     datum: &str,
     orsak: &str,
 ) -> Result<Rättad, BetalningFel> {
-    let mut ärende =
-        Ärende::börja(db, klocka, aktör, företag, Handling::RegistreraBetalning).await?;
+    let mut ärende = Ärende::börja(db, klocka, aktör, företag, Handling::RättaFlöde).await?;
     let rad: Option<(Option<i64>, i64, i64, i64, bool)> = sqlx::query_as(
         "SELECT kundfaktura_id, verifikat_id, belopp, oresutjamning,
                 EXISTS (SELECT 1 FROM betalningsrattelse r WHERE r.betalning_id = b.id)
@@ -370,6 +369,7 @@ pub async fn rätta(
         None => return Err(BetalningFel::IngenBetalning),
     };
     let fakturan = läs_fakturan(ärende.conn(), företag, faktura).await?;
+    let datum = rättelsedatum(datum)?;
     let rättelse = verifikat::rätta_i(&mut ärende, VerifikatId(verifikat_id), datum, orsak).await?;
     let (nu, kanal, av) = (
         ärende.nu.to_string(),
@@ -414,6 +414,25 @@ pub async fn rätta(
     Ok(Rättad {
         rättelse, återstår
     })
+}
+
+/// Rättelsens datum som användaren skrev det, med samma spärrar som ett verifikatdatum.
+fn rättelsedatum(text: &str) -> Result<Date, BetalningFel> {
+    let spärr = |kod: &'static str, text: &str| {
+        BetalningFel::Verifikat(VerifikatFel::Spärrat(vec![
+            maya_domain::verifikat::Spärr {
+                fält: maya_domain::verifikat::Fält::Datum,
+                kod,
+                text: text.into(),
+            },
+        ]))
+    };
+    match text.trim() {
+        "" => Err(spärr("datum_saknas", "Ange datum.")),
+        text => text
+            .parse()
+            .map_err(|_| spärr("datum_ogiltigt", "Skriv datumet som ÅÅÅÅ-MM-DD.")),
+    }
 }
 
 /// Fakturan i reskontran med det som återstår och varje betalning, också de rättade.

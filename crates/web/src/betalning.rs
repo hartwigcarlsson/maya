@@ -767,7 +767,7 @@ pub(crate) mod server {
         )
         .await
         {
-            Ok(_) => Redirect::to(&format!("{här}&rattad=1")).into_response(),
+            Ok(_) => Redirect::to(&format!("{här}&betalning_rattad=1")).into_response(),
             Err(BetalningFel::Verifikat(maya_core::verifikat::VerifikatFel::Spärrat(s))) => {
                 let text = s
                     .iter()

@@ -96,6 +96,12 @@ händelser! {
     // #135 Kundfakturor
     KundfakturaUtfärdad => "kundfaktura utfärdad",
     StartnummerÄndrat => "startnummer ändrat",
+    // #142 Rätta kontering
+    KonteringRättad => "kontering rättad",
+    // #138 Utskick
+    UtskickGjort => "utskick gjort",
+    UtskickMisslyckat => "utskick misslyckat",
+    UtskickLämnatPåAnnatSätt => "utskick lämnat på annat sätt",
     // #139 Betalningar
     BetalningRegistrerad => "betalning registrerad",
     BetalningRättad => "betalning rättad",
@@ -644,6 +650,47 @@ impl Post {
             }
             Händelse::StartnummerÄndrat => {
                 format!("Första fakturanummer: {} → {}", f("från"), f("till"))
+            }
+            // #142 Rätta kontering
+            Händelse::KonteringRättad => {
+                let rader = b["rader"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .map(|r| {
+                        format!(
+                            "rad {} från {} till {}",
+                            s(&r["rad"]),
+                            s(&r["från"]),
+                            s(&r["till"])
+                        )
+                    })
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                let mut text = format!(
+                    "Faktura {}: {} vänt av {} och bokförd som {}, {rader}",
+                    f("nummer"),
+                    s(&b["vänt"]["nummer"]),
+                    s(&b["rättelse"]["nummer"]),
+                    s(&b["verifikat"]["nummer"])
+                );
+                if !f("orsak").is_empty() {
+                    text.push_str(&format!(" ({})", f("orsak")));
+                }
+                text
+            }
+            // #138 Utskick
+            Händelse::UtskickGjort => {
+                format!("Faktura {} skickad till {}", f("nummer"), f("till"))
+            }
+            Händelse::UtskickMisslyckat => format!(
+                "Faktura {} kunde inte skickas till {}: {}",
+                f("nummer"),
+                f("till"),
+                f("fel")
+            ),
+            Händelse::UtskickLämnatPåAnnatSätt => {
+                format!("Faktura {} lämnad på annat sätt: {}", f("nummer"), f("hur"))
             }
             // #139 Betalningar
             Händelse::BetalningRegistrerad => {

@@ -21,6 +21,7 @@ use crate::assets;
 use crate::atkomst::server::{self as atkomst, ÅtkomstState};
 use crate::att_gora::server::{self as att_gora, AttGöraState};
 use crate::bokforing::server::{self as bokforing, BokföringsState};
+use crate::epost::SmtpEpost;
 use crate::fakturauppgifter::server::{self as fakturauppgifter, FakturauppgiftsState};
 use crate::foretag::server::{self as foretag, FöretagsState};
 use crate::ingaende_balans::server::{self as ingaende_balans, IngåendeBalansState};
@@ -33,6 +34,7 @@ use crate::leverantorer::server::{self as leverantorer, LeverantörsState};
 use crate::leverantorsfakturor::server::{self as leverantorsfakturor, LeverantörsfakturaState};
 use crate::rapporter::server::{self as rapporter, RapportState};
 use crate::underlag::server::{self as underlag, UnderlagState};
+use crate::utskick::server::{self as utskick, UtskickState};
 use crate::utskrift::server::{self as utskrift, UtskriftsState};
 use crate::verifikat::server::{self as verifikat, VerifikatState};
 
@@ -153,6 +155,13 @@ pub fn router(config: Arc<Config>, db: Databas) -> Router {
     let kundfakturorna = KundfakturaState {
         db: db.clone(),
         klocka: inloggning.klocka.clone(),
+        epost: SmtpEpost::ur(&config),
+    };
+    // #138 Utskick
+    let utskicken = UtskickState {
+        db: db.clone(),
+        klocka: inloggning.klocka.clone(),
+        epost: SmtpEpost::ur(&config),
     };
     let state = AppState { config, db };
 
@@ -328,6 +337,18 @@ pub fn router(config: Arc<Config>, db: Databas) -> Router {
         // #135 Kundfakturor
         .merge(
             kundfakturor::routes(kundfakturorna)
+                .layer(middleware::from_fn_with_state(
+                    inloggning.clone(),
+                    inloggning::identifiera,
+                ))
+                .layer(middleware::from_fn_with_state(
+                    inloggning.clone(),
+                    inloggning::kräv_eget_origin,
+                )),
+        )
+        // #138 Utskick
+        .merge(
+            utskick::routes(utskicken)
                 .layer(middleware::from_fn_with_state(
                     inloggning.clone(),
                     inloggning::identifiera,

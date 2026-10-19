@@ -433,7 +433,7 @@ async fn fakturaändringar(db: &Databas, anna: &Aktör, id: FöretagsId, tid: &s
     let utkast = kundfaktura::spara_utkast(db, &k, anna, id, None, &faktura)
         .await
         .unwrap();
-    kundfaktura::utfärda(db, &k, anna, id, utkast)
+    let utfärdad = kundfaktura::utfärda(db, &k, anna, id, utkast)
         .await
         .unwrap();
     let utkast = kundfaktura::spara_utkast(
@@ -452,6 +452,44 @@ async fn fakturaändringar(db: &Databas, anna: &Aktör, id: FöretagsId, tid: &s
     kundfaktura::radera_utkast(db, &k, anna, id, utkast)
         .await
         .unwrap();
+    // #142 Rätta kontering
+    maya_core::kontering::rätta(
+        db,
+        &k,
+        anna,
+        id,
+        utfärdad.id,
+        &maya_domain::kontering::NyKontering {
+            konton: vec!["3002".into()],
+            orsak: String::new(),
+        },
+    )
+    .await
+    .unwrap();
+    // #138 Utskick: ett som kommer fram, ett som avvisas och ett lämnat på annat sätt.
+    let f = testhjalp::utfärdad_kundfaktura(db, anna, id, "Mottagare AB", "2026-03-01").await;
+    let utskick = maya_core::utskick::NyttUtskick {
+        till: "ekonomi@kund.se".into(),
+        meddelande: "Hej".into(),
+    };
+    for låda in [
+        testhjalp::Brevlåda::ny(),
+        testhjalp::Brevlåda::som_avvisar("554 Avvisat"),
+    ] {
+        maya_core::utskick::skicka(db, &k, anna, id, f.id, &utskick, &låda)
+            .await
+            .unwrap();
+    }
+    maya_core::utskick::lämnad_på_annat_sätt(
+        db,
+        &k,
+        anna,
+        id,
+        f.id,
+        maya_domain::utskick::Lämningssätt::Post,
+    )
+    .await
+    .unwrap();
     // #139 Betalningar
     let betald = testhjalp::utfärdad_kundfaktura(db, anna, id, "Betalare AB", "2026-03-01").await;
     let betalning = maya_core::betalning::registrera(

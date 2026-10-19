@@ -388,3 +388,46 @@ pub async fn utfärdad_kundfaktura(
         .await
         .expect("fakturan utfärdas")
 }
+
+// #138 Utskick
+/// En brevlåda i stället för SMTP: sparar fakturamejlen, eller avvisar varje mejl med ett fel.
+#[derive(Debug, Clone, Default)]
+pub struct Brevlåda {
+    mejl: std::sync::Arc<std::sync::Mutex<Vec<crate::utskick::Fakturamejl>>>,
+    avvisar: Option<String>,
+}
+
+impl Brevlåda {
+    pub fn ny() -> Self {
+        Self::default()
+    }
+
+    /// En brevlåda som avvisar varje mejl med `fel`, som en SMTP-server som svarar 554.
+    pub fn som_avvisar(fel: &str) -> Self {
+        Brevlåda {
+            avvisar: Some(fel.into()),
+            ..Self::default()
+        }
+    }
+
+    /// Mejlen som kom fram.
+    pub fn mejl(&self) -> Vec<crate::utskick::Fakturamejl> {
+        self.mejl.lock().expect("brevlådan").clone()
+    }
+}
+
+impl crate::utskick::Epost for Brevlåda {
+    async fn skicka(
+        &self,
+        mejl: &crate::utskick::Fakturamejl,
+        _nu: jiff::Timestamp,
+    ) -> Result<(), String> {
+        match &self.avvisar {
+            Some(fel) => Err(fel.clone()),
+            None => {
+                self.mejl.lock().expect("brevlådan").push(mejl.clone());
+                Ok(())
+            }
+        }
+    }
+}

@@ -19,6 +19,7 @@ pub mod inloggning;
 pub mod installation;
 pub mod installationslogg;
 mod klocka;
+pub mod kontering;
 pub mod kontoplan;
 pub mod kontrollsumma;
 pub mod kund;
@@ -28,11 +29,12 @@ pub mod leverantorsfaktura;
 pub mod rapport;
 pub mod saldo;
 pub mod sie4;
-mod smtp;
+pub mod smtp;
 pub mod systemdokumentation;
 #[cfg(feature = "test-support")]
 pub mod testhjalp;
 pub mod underlag;
+pub mod utskick;
 pub mod utskrift;
 pub mod verifikat;
 

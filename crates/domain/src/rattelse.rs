@@ -99,6 +99,13 @@ impl Original {
         if let Some(faktura) = &self.flöde {
             return Err(Rättelsespärr::FrånFlöde(faktura.clone()));
         }
+        self.kan_rättas_i_flödet()
+    }
+
+    /// Om verifikatet kan rättas inifrån sitt fakturaflöde (Rätta kontering, avskrift,
+    /// registrering eller betalning): som [`Original::kan_rättas`], utan spärren mot verifikat
+    /// från ett flöde.
+    pub fn kan_rättas_i_flödet(&self) -> Result<(), Rättelsespärr> {
         if let Some(original) = &self.rättar {
             return Err(Rättelsespärr::ÄrRättelse(original.clone()));
         }
@@ -284,6 +291,34 @@ mod tests {
             spärr.to_string(),
             "Verifikatet bokfördes från leverantörsfaktura 8812 från Kontorsvaror AB. Rättas i \
              fakturan."
+        );
+    }
+
+    #[test]
+    fn i_fakturan_rättas_verifikatet_en_gång_och_aldrig_en_rättelse() {
+        let flöde = Some("kundfaktura 1 till Kund AB".to_string());
+        let från_flöde = Original {
+            flöde: flöde.clone(),
+            ..original()
+        };
+        assert_eq!(från_flöde.kan_rättas_i_flödet(), Ok(()));
+        let rättat = Original {
+            flöde: flöde.clone(),
+            rättad_av: Some("V6".into()),
+            ..original()
+        };
+        assert_eq!(
+            rättat.kan_rättas_i_flödet().unwrap_err().kod(),
+            "redan_rattat"
+        );
+        let rättelse = Original {
+            flöde,
+            rättar: Some("V4".into()),
+            ..original()
+        };
+        assert_eq!(
+            rättelse.kan_rättas_i_flödet().unwrap_err().kod(),
+            "ar_rattelse"
         );
     }
 }

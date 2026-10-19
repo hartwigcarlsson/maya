@@ -335,6 +335,16 @@ pub fn behandlingsregler() -> Vec<Block> {
                 .into(),
         ),
         kodtabell(crate::kundfaktura::UTFÄRDANDESPÄRRAR),
+        // #142 Rätta kontering
+        Block::Underrubrik("Spärrar när konteringen av en kundfaktura rättas".into()),
+        Block::Stycke(
+            "Rätta kontering väljer ett nytt intäktskonto per rad på en utfärdad kundfaktura. \
+             Utfärdandets verifikat vänds med en rättelse och ett nytt utfärdandeverifikat \
+             bokförs med dagens datum i samma transaktion, med samma fordran och moms och \
+             intäkterna på de nya kontona. Fakturan, numret och PDF:en ändras inte."
+                .into(),
+        ),
+        kodtabell(crate::kontering::KONTERINGSSPÄRRAR),
         // #139 Betalningar
         Block::Underrubrik("Spärrar vid betalning av faktura".into()),
         Block::Stycke(
