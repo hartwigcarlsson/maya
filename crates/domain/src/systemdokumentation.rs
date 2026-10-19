@@ -385,6 +385,21 @@ pub fn behandlingsregler() -> Vec<Block> {
                 .into(),
         ),
         kodtabell(crate::kreditfaktura::KREDITERINGSSPÄRRAR),
+        // #143 Externa kundfakturor
+        Block::Underrubrik("Spärrar när en extern kundfaktura registreras".into()),
+        Block::Stycke(
+            "En extern kundfaktura har skapats i ett annat system och registreras med sin PDF \
+             som underlag, kund, det andra systemets fakturanummer, fakturadatum, förfallodag \
+             och belopp per momssats och intäktskonto. Momsen räknas per momssats på summan av \
+             radernas belopp, och registreringen bokförs som ett utfärdande: 1510 i debet mot \
+             intäktskontona och utgående moms, daterat på fakturadatumet med PDF:en som \
+             underlag. Externa fakturor ingår inte i fakturaserien. En extern kreditfaktura \
+             registreras från originalets dokument med negativa belopp och en hänvisning. Rätta \
+             registrering vänder registreringens verifikat med en rättelse och låser upp \
+             fakturan med betalningarna kvar; den registreras om med samma spärrar."
+                .into(),
+        ),
+        kodtabell(crate::extern_kundfaktura::REGISTRERINGSSPÄRRAR),
     ]);
     block
 }

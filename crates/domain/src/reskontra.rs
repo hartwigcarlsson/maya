@@ -30,6 +30,13 @@ pub enum Märke {
     Tillgodo,
     /// Fakturan är en kreditfaktura, som räknas av mot originalet.
     Kreditfaktura,
+    // #148 Rätta avskrift
+    /// Leverantörsfakturans registrering är vänd med Rätta avskrift, och den registreras om.
+    Upplåst,
+    // #143 Externa kundfakturor
+    /// Kundfakturan har skapats i ett annat system och registrerats i Maya. Visas bredvid
+    /// statusen; en upplåst extern kundfaktura (Rätta registrering) får [`Märke::Upplåst`].
+    Extern,
 }
 
 impl Märke {
@@ -43,6 +50,8 @@ impl Märke {
             Märke::Krediterad => "Krediterad",
             Märke::Tillgodo => "Tillgodo",
             Märke::Kreditfaktura => "Kreditfaktura",
+            Märke::Upplåst => "Upplåst",
+            Märke::Extern => "Extern",
         }
     }
 
@@ -57,6 +66,8 @@ impl Märke {
             Märke::Krediterad => "krediterad",
             Märke::Tillgodo => "tillgodo",
             Märke::Kreditfaktura => "kreditfaktura",
+            Märke::Upplåst => "upplast",
+            Märke::Extern => "extern",
         }
     }
 }

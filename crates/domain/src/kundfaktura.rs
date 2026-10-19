@@ -524,23 +524,39 @@ impl Utfärdbar {
     /// kredit med radernas netto per konto (i radernas ordning) och utgående moms kredit per
     /// momssats. 0 % ger ingen momsrad.
     pub fn kontering(&self) -> Vec<verifikat::Rad> {
-        let mut rader = vec![rad(Kontonummer::konstant(KUNDFORDRINGAR), self.total)];
-        let mut intäkter: Vec<(Kontonummer, i64)> = Vec::new();
-        for r in &self.rader {
-            match intäkter.iter_mut().find(|(k, _)| *k == r.konto) {
-                Some((_, summa)) => *summa += r.netto,
-                None => intäkter.push((r.konto, r.netto)),
-            }
-        }
-        rader.extend(intäkter.into_iter().map(|(k, netto)| rad(k, -netto)));
-        rader.extend(
-            self.momsrader
-                .iter()
-                .filter_map(|m| Some(rad(m.sats.utgående_momskonto()?, -m.moms))),
-        );
-        rader.retain(|r| r.debet != Belopp::NOLL || r.kredit != Belopp::NOLL);
-        rader
+        fordringens_kontering(
+            self.total,
+            self.rader.iter().map(|r| (r.konto, r.netto)),
+            &self.momsrader,
+        )
     }
+}
+
+/// Konteringen när en kundfaktura utfärdas eller registreras under fakturametoden (Mayas egna
+/// och externa, #143): 1510 debet med `total`, intäktskontona kredit med radernas netto per
+/// konto (i radernas ordning) och utgående moms kredit per momssats. 0 % ger ingen momsrad, och
+/// en kreditfaktura med negativa belopp får samma rader åt andra hållet.
+pub(crate) fn fordringens_kontering(
+    total: i64,
+    rader: impl IntoIterator<Item = (Kontonummer, i64)>,
+    momsrader: &[Momsrad],
+) -> Vec<verifikat::Rad> {
+    let mut ut = vec![rad(Kontonummer::konstant(KUNDFORDRINGAR), total)];
+    let mut intäkter: Vec<(Kontonummer, i64)> = Vec::new();
+    for (konto, netto) in rader {
+        match intäkter.iter_mut().find(|(k, _)| *k == konto) {
+            Some((_, summa)) => *summa += netto,
+            None => intäkter.push((konto, netto)),
+        }
+    }
+    ut.extend(intäkter.into_iter().map(|(k, netto)| rad(k, -netto)));
+    ut.extend(
+        momsrader
+            .iter()
+            .filter_map(|m| Some(rad(m.sats.utgående_momskonto()?, -m.moms))),
+    );
+    ut.retain(|r| r.debet != Belopp::NOLL || r.kredit != Belopp::NOLL);
+    ut
 }
 
 /// En verifikatrad med `belopp` i debet om det är positivt och i kredit om det är negativt.
