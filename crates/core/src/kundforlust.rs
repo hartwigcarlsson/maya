@@ -1,5 +1,5 @@
-//! Kundförlust och återkallelse (#141): skriva av det som återstår av en utfärdad kundfaktura
-//! som en konstaterad kundförlust, och ta tillbaka avskrivningen, med verifikatet i samma
+//! Kundförlust och återkallelse (#141): skriva bort det som återstår av en utfärdad kundfaktura
+//! som en konstaterad kundförlust, och ta tillbaka förlusten, med verifikatet i samma
 //! transaktion som fakturahändelsen (ADR 0003, L5).
 //!
 //! Förlusten prövas med spärrarna i [`maya_domain::kundforlust`] mot det som återstår i
@@ -139,7 +139,7 @@ pub struct Kundförlustpost {
     pub skäl: Skäl,
     /// Skälet i text, t.ex. "Konkurs" eller "Annat: …".
     pub skälet: String,
-    /// Det som skrevs av, i öre.
+    /// Det som skrevs bort, i öre.
     pub belopp: i64,
     pub verifikat: Option<Länk>,
     pub bokförd: Signatur,
@@ -184,9 +184,9 @@ async fn läs_fakturan(
     })
 }
 
-/// Det som de gällande kundförlusterna har skrivit av fakturan, i öre: noll eller beloppet för
+/// Det som de gällande kundförlusterna har skrivit bort fakturan, i öre: noll eller beloppet för
 /// den enda förlust som inte är återkallad. Det som återstår räknas utan det.
-pub(crate) async fn avskrivet_i(
+pub(crate) async fn förlorat_i(
     conn: &mut SqliteConnection,
     faktura: KundfakturaId,
 ) -> Result<i64, sqlx::Error> {
@@ -220,7 +220,7 @@ async fn läs_förutsättningar(
 ) -> Result<Förutsättningar, KundförlustFel> {
     let återstår =
         betalning::återstår_i(&mut *conn, Faktura::Kund(faktura), fakturan.total).await?;
-    let kundförlust = avskrivet_i(&mut *conn, faktura).await? != 0;
+    let kundförlust = förlorat_i(&mut *conn, faktura).await? != 0;
     // Utfärdandet bokförs alltid under fakturametoden; kontantmetoden (#149) ger `None` här.
     let gällande = crate::kontering::gällande_i(&mut *conn, företag, faktura).await?;
     let utfärdandet = domänrader(&mut *conn, företag, gällande.verifikat).await?;

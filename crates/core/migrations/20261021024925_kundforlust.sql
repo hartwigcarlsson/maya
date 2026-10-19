@@ -1,5 +1,5 @@
--- Kundförlust och återkallelse (etapp 2, #141): fakturahändelserna som skriver av det som
--- återstår av en utfärdad kundfaktura, och som tar tillbaka avskrivningen.
+-- Kundförlust och återkallelse (etapp 2, #141): fakturahändelserna som skriver bort det som
+-- återstår av en utfärdad kundfaktura, och som tar tillbaka förlusten.
 --
 -- En konstaterad kundförlust har skäl (konkurs, ackord, utmätning utan resultat, eller annat
 -- med fritext) och datum och gäller det som återstår, `belopp`. När fordran är bokförd bokförs
@@ -23,7 +23,7 @@ CREATE TABLE kundforlust (
     skal TEXT NOT NULL CHECK (skal IN ('konkurs', 'ackord', 'utmatning', 'annat')),
     -- Beskrivningen när skälet är annat.
     annat TEXT NOT NULL DEFAULT '',
-    -- Det som återstod och skrevs av.
+    -- Det som återstod och skrevs bort.
     belopp INTEGER NOT NULL CHECK (belopp > 0),
     -- NULL när fordran inte är bokförd: förlusten är då bara en status.
     verifikat_id INTEGER UNIQUE REFERENCES verifikat (id),

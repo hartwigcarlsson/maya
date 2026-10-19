@@ -206,13 +206,13 @@ impl NyKundförlust {
             spärrar.push(Spärr::ny(
                 Fält::Fakturan,
                 "inget_aterstar",
-                "Inget återstår av fakturan att skriva av.",
+                "Inget återstår av fakturan att skriva bort.",
             ));
         } else if f.kundförlust {
             spärrar.push(Spärr::ny(
                 Fält::Fakturan,
                 "redan_kundforlust",
-                "Fakturan är redan avskriven som kundförlust.",
+                "Fakturan är redan bokförd som kundförlust.",
             ));
         }
 
@@ -300,45 +300,51 @@ impl Kundförlust {
         self.skäl.text(&self.annat)
     }
 
-    /// Förlustens kontering: 6351 med nettots andel, varje utgående momskonto med sin andel
-    /// och 1510 kredit med det som återstår. Tom när fordran inte är bokförd.
+    /// Förlustens kontering, se [`kontering`]. Tom när fordran inte är bokförd.
     pub fn kontering(&self) -> Vec<Rad> {
-        let Some(utfärdandet) = &self.utfärdandet else {
-            return Vec::new();
-        };
-        let momskonton: Vec<Kontonummer> = Momssats::ALLA
-            .iter()
-            .filter_map(|s| s.utgående_momskonto())
-            .collect();
-        // Vikterna: nettot (allt utom 1510 och momsen) först, sedan varje momskonto.
-        let mut konton: Vec<Kontonummer> = vec![Kontonummer::konstant(KUNDFÖRLUSTER)];
-        let mut vikter: Vec<i64> = vec![0];
-        for r in utfärdandet {
-            if r.konto.get() == KUNDFORDRINGAR {
-                continue;
-            }
-            let vikt = r.kredit.öre() - r.debet.öre();
-            if momskonton.contains(&r.konto) {
-                match konton.iter().position(|k| *k == r.konto) {
-                    Some(i) => vikter[i] += vikt,
-                    None => {
-                        konton.push(r.konto);
-                        vikter.push(vikt);
-                    }
-                }
-            } else {
-                vikter[0] += vikt;
-            }
-        }
-        let mut rader: Vec<Rad> = konton
-            .into_iter()
-            .zip(fördela(self.belopp, &vikter))
-            .map(|(konto, del)| rad(konto, del))
-            .collect();
-        rader.push(rad(Kontonummer::konstant(KUNDFORDRINGAR), -self.belopp));
-        rader.retain(|r| r.debet != Belopp::NOLL || r.kredit != Belopp::NOLL);
-        rader
+        self.utfärdandet
+            .as_deref()
+            .map(|u| kontering(self.belopp, u))
+            .unwrap_or_default()
     }
+}
+
+/// Konteringen av en kundförlust på `belopp` öre när fordran är bokförd med verifikatet
+/// `utfärdandet`: 6351 med nettots andel, varje utgående momskonto med sin andel och 1510
+/// kredit med beloppet.
+pub fn kontering(belopp: i64, utfärdandet: &[Rad]) -> Vec<Rad> {
+    let momskonton: Vec<Kontonummer> = Momssats::ALLA
+        .iter()
+        .filter_map(|s| s.utgående_momskonto())
+        .collect();
+    // Vikterna: nettot (allt utom 1510 och momsen) först, sedan varje momskonto.
+    let mut konton: Vec<Kontonummer> = vec![Kontonummer::konstant(KUNDFÖRLUSTER)];
+    let mut vikter: Vec<i64> = vec![0];
+    for r in utfärdandet {
+        if r.konto.get() == KUNDFORDRINGAR {
+            continue;
+        }
+        let vikt = r.kredit.öre() - r.debet.öre();
+        if momskonton.contains(&r.konto) {
+            match konton.iter().position(|k| *k == r.konto) {
+                Some(i) => vikter[i] += vikt,
+                None => {
+                    konton.push(r.konto);
+                    vikter.push(vikt);
+                }
+            }
+        } else {
+            vikter[0] += vikt;
+        }
+    }
+    let mut rader: Vec<Rad> = konton
+        .into_iter()
+        .zip(fördela(belopp, &vikter))
+        .map(|(konto, del)| rad(konto, del))
+        .collect();
+    rader.push(rad(Kontonummer::konstant(KUNDFORDRINGAR), -belopp));
+    rader.retain(|r| r.debet != Belopp::NOLL || r.kredit != Belopp::NOLL);
+    rader
 }
 
 /// Återkallelsens kontering: förlustverifikatets rader med debet och kredit bytta.

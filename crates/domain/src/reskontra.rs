@@ -3,7 +3,7 @@
 //!
 //! Märkena i etapp 2 är obetald, delbetald, förfallen och betald; krediterad och tillgodo
 //! kommer med kreditfakturorna (#140). Kundförlust (#141) är märket för en kundfaktura som en
-//! gällande kundförlust har skrivit av.
+//! gällande kundförlust har skrivit bort.
 
 use jiff::civil::Date;
 
@@ -20,7 +20,7 @@ pub enum Märke {
     Förfallen,
     /// Inget återstår.
     Betald,
-    /// En kundförlust som inte är återkallad har skrivit av det som återstod (#141).
+    /// En kundförlust som inte är återkallad har skrivit bort det som återstod (#141).
     Kundförlust,
 }
 

@@ -235,17 +235,17 @@ async fn betalt_i(conn: &mut SqliteConnection, faktura: Faktura) -> Result<i64, 
 }
 
 /// Det som återstår av fakturan med `total` öre: totalen minus betalningarna i reskontran och
-/// det som en gällande kundförlust har skrivit av (#141).
+/// det som en gällande kundförlust har skrivit bort (#141).
 pub(crate) async fn återstår_i(
     conn: &mut SqliteConnection,
     faktura: Faktura,
     total: i64,
 ) -> Result<i64, sqlx::Error> {
     let betalt = betalt_i(&mut *conn, faktura).await?;
-    let avskrivet = match faktura {
-        Faktura::Kund(id) => crate::kundforlust::avskrivet_i(&mut *conn, id).await?,
+    let förlorat = match faktura {
+        Faktura::Kund(id) => crate::kundforlust::förlorat_i(&mut *conn, id).await?,
     };
-    Ok(total - betalt - avskrivet)
+    Ok(total - betalt - förlorat)
 }
 
 /// Det som betalningspanelen prövas mot: fakturans reskontra, det som återstår, kontona och
@@ -544,7 +544,7 @@ pub async fn reskontrapost(
         });
     }
     let kundförlust = match faktura {
-        Faktura::Kund(id) => crate::kundforlust::avskrivet_i(&mut tx, id).await? != 0,
+        Faktura::Kund(id) => crate::kundforlust::förlorat_i(&mut tx, id).await? != 0,
     };
     Ok(Reskontrapost {
         total: fakturan.total,

@@ -211,6 +211,10 @@ _Avoid_: Betalningsmetod, betalkanal
 Ett mejl med en utfärdad kundfaktura som Maya skickade eller försökte skicka, eller en markering att fakturan lämnades på annat sätt (post, personligen, kundens portal); det loggas med tid, mottagare, vem och resultat och är inget tillstånd på fakturan.
 _Avoid_: Leverans, distribution, skickad (som status)
 
+**Kundförlust**:
+En konstaterad förlust på det som återstår av en utfärdad kundfaktura, med skäl (konkurs, ackord, utmätning utan resultat eller annat) och datum; när fordran är bokförd bokförs den på 6351 med utgående moms minskad proportionellt, och den kan återkallas med ett nytt verifikat så att fakturan kan betalas igen. En befarad kundförlust är ett manuellt verifikat och ingen kundförlust i Maya.
+_Avoid_: Avskrivning (det är anläggningstillgångar), osäker fordran, nedskrivning av kundfordran
+
 **Anställd**:
 En person som får lön eller styrelsearvode från ett företag, även en ägare; registreras per företag.
 _Avoid_: Personal, medarbetare, löntagare
