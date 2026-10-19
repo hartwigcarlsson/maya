@@ -75,3 +75,44 @@ fn förfallotexten_räknar_dagarna() {
         "förföll för 10 dagar sedan"
     );
 }
+
+// #140 Kreditfakturor
+
+#[test]
+fn en_krediterad_faktura_och_ett_tillgodohavande_får_egna_märken() {
+    use maya_domain::reskontra::märke_med_kredit;
+    let idag = date(2026, 10, 19);
+    let förfaller = date(2026, 10, 1);
+    // Hela krediterad, inget betalt: inget återstår och inget är förfallet.
+    assert_eq!(
+        märke_med_kredit(10_000, 10_000, 0, förfaller, idag),
+        Märke::Krediterad
+    );
+    // Betald och sedan krediterad: kunden har pengar tillgodo.
+    assert_eq!(
+        märke_med_kredit(10_000, 4_000, -4_000, förfaller, idag),
+        Märke::Tillgodo
+    );
+    // Tillgodohavandet återbetalt: fakturan är delkrediterad och betald.
+    assert_eq!(
+        märke_med_kredit(10_000, 4_000, 0, förfaller, idag),
+        Märke::Betald
+    );
+    // Delkrediterad och obetald: resten är obetald, inte delbetald.
+    assert_eq!(
+        märke_med_kredit(10_000, 4_000, 6_000, date(2026, 11, 1), idag),
+        Märke::Obetald
+    );
+    assert_eq!(
+        märke_med_kredit(10_000, 4_000, 1_000, date(2026, 11, 1), idag),
+        Märke::Delbetald
+    );
+    assert_eq!(
+        märke_med_kredit(10_000, 4_000, 6_000, förfaller, idag),
+        Märke::Förfallen
+    );
+    assert_eq!(märke(10_000, -1, förfaller, idag), Märke::Tillgodo);
+    assert_eq!(Märke::Tillgodo.namn(), "Tillgodo");
+    assert_eq!(Märke::Krediterad.kod(), "krediterad");
+    assert_eq!(Märke::Kreditfaktura.namn(), "Kreditfaktura");
+}
