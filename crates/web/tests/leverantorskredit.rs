@@ -139,14 +139,24 @@ async fn ladda_upp(db: &TillfälligDatabas, session: &str, bas: &str, namn: &str
 /// Ett företag med leverantören Kontorsvaror AB och dess registrerade faktura 8812 på
 /// 1 250,00 kr: sessionen, basen, leverantören och fakturan.
 async fn original(db: &TillfälligDatabas) -> (String, String, String, String) {
+    original_med_metod(db, "faktura").await
+}
+
+/// Som [`original`], med bokföringsmetoden `metod`.
+async fn original_med_metod(
+    db: &TillfälligDatabas,
+    metod: &str,
+) -> (String, String, String, String) {
     let session = inloggad(db).await;
     let bas = plats(
         &posta(
             db,
             &session,
             "/foretag",
-            "orgnr=556036-0793&namn=Exempel+AB&start=2026-01-01&slut=2026-12-31\
-             &bokforingsmetod=faktura&momsperiod=kvartal",
+            &format!(
+                "orgnr=556036-0793&namn=Exempel+AB&start=2026-01-01&slut=2026-12-31\
+                 &bokforingsmetod={metod}&momsperiod=kvartal"
+            ),
         )
         .await,
     );
@@ -343,4 +353,41 @@ async fn rätta_avskrift_låser_upp_fakturan_som_registreras_om_utan_total_under
     let dokument = efter(&dokument, "class=\"dokument\"");
     assert!(dokument.contains("1 000,00 kvar"), "{dokument}");
     assert!(dokument.contains("Rätta avskrift"), "{dokument}");
+}
+
+#[tokio::test]
+async fn under_kontantmetoden_heter_knappen_efter_det_som_krediten_bokför() {
+    // En kredit som ryms i det obetalda av ett obokfört original bokförs inte, så knappen heter
+    // Registrera; överstiger krediten det obetalda heter den Registrera och bokför.
+    let db = Databas::tillfällig().await;
+    let (session, bas, l, f) = original_med_metod(&db, "kontant").await;
+    let k = ladda_upp(&db, &session, &bas, "kredit").await;
+    posta(
+        &db,
+        &session,
+        &format!("{bas}/leverantorsfakturor/{k}"),
+        &format!(
+            "handling=utkast&leverantor={l}&fakturanummer=K-17&fakturadatum=2026-05-02\
+             &forfallodag=2026-05-02&referens=&totalbelopp=-500&originalvaluta=&krediterar={f}\
+             &konto_0=&netto_0=-400&momssats_0=25&moms_0="
+        ),
+    )
+    .await;
+    let utkast = hämta(&db, &session, &format!("{bas}/leverantorsfakturor?f={k}")).await;
+    let detalj = efter(&utkast, "med-underlag");
+    assert!(!detalj.contains("Registrera och bokför"), "{detalj}");
+    assert!(detalj.contains("Krediten bokförs inte"), "{detalj}");
+
+    // 1 000 kr betalt: 250 kr obetalt, så 250 kr av krediten bokförs.
+    posta(
+        &db,
+        &session,
+        &format!("{bas}/leverantorsfakturor/{f}/betalning"),
+        "betaldag=2026-04-13&belopp=1000&konto=1930",
+    )
+    .await;
+    let utkast = hämta(&db, &session, &format!("{bas}/leverantorsfakturor?f={k}")).await;
+    let detalj = efter(&utkast, "med-underlag");
+    assert!(detalj.contains("Registrera och bokför"), "{detalj}");
+    assert!(!detalj.contains("Krediten bokförs inte"), "{detalj}");
 }

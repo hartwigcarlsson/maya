@@ -616,6 +616,7 @@ fn original(omvänd: OmvändSkattskyldighet) -> Krediterbar {
                 moms: 1_200,
             },
         ],
+        ..Default::default()
     }
 }
 

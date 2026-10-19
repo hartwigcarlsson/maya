@@ -14,7 +14,7 @@
 use jiff::civil::Date;
 use maya_domain::faktura::{Momssats, momsrader};
 use maya_domain::foretag::{Bokföringsmetod, Momsperiod, gäller};
-use maya_domain::kontantmetoden::Obokförd;
+use maya_domain::kontantmetoden::{Kreditläge, Obokförd};
 use maya_domain::leverantor::OmvändSkattskyldighet;
 use maya_domain::leverantorsfaktura::{Rad, registreringens_kontering};
 use sqlx::SqliteConnection;
@@ -497,6 +497,41 @@ pub(crate) async fn underlaget_i(
     }
 }
 
+/// Originalets läge för en kreditfaktura som krediterar det: om fordran eller skulden är
+/// bokförd, om den väntar på årets T2-verifikat, det som återstår och det som var obetalt vid
+/// årets slut. En kredit i året av en faktura som väntar på T2 minskar också det som T2 tar med.
+pub(crate) async fn kreditläge_i(
+    conn: &mut SqliteConnection,
+    företag: FöretagsId,
+    original: Faktura,
+) -> Result<Kreditläge, DatabasFel> {
+    let total: Option<i64> = match original {
+        Faktura::Kund(id) => {
+            sqlx::query_scalar("SELECT total FROM kundfaktura WHERE id = ?")
+                .bind(id.0)
+                .fetch_one(&mut *conn)
+                .await?
+        }
+        Faktura::Leverantör(id) => {
+            sqlx::query_scalar("SELECT total FROM leverantorsfaktura WHERE id = ?")
+                .bind(id.0)
+                .fetch_one(&mut *conn)
+                .await?
+        }
+    };
+    let bokförd_efter = bokförd_efter_i(&mut *conn, företag, original).await?;
+    let vid_årets_slut = match bokförd_efter {
+        Some(slut) => obetalt_vid_årets_slut_i(&mut *conn, original, slut).await?,
+        None => 0,
+    };
+    Ok(Kreditläge {
+        bokförd: bokförd_i(&mut *conn, original).await?,
+        bokförd_efter,
+        obetalt: crate::betalning::återstår_i(&mut *conn, original, total.unwrap_or(0)).await?,
+        vid_årets_slut,
+    })
+}
+
 /// Konteringen för en kreditfaktura med totalen `total` (negativ) som krediterar `original`.
 /// `kontering` är kreditfakturans kontering under fakturametoden: utfärdandets, eller för en
 /// leverantörs kreditfaktura originalets registrering speglad i proportion till krediten
@@ -518,39 +553,16 @@ pub(crate) async fn kreditens_kontering(
     if bokförd_på_i(&mut *conn, företag, original, dag).await? {
         return Ok(Some(kontering));
     }
-    let (reskontrakonto, originalets_total): (_, Option<i64>) = match original {
-        Faktura::Kund(id) => (
-            maya_domain::betalning::Reskontra::Kund.konto(),
-            sqlx::query_scalar("SELECT total FROM kundfaktura WHERE id = ?")
-                .bind(id.0)
-                .fetch_one(&mut *conn)
-                .await?,
-        ),
-        Faktura::Leverantör(id) => (
-            maya_domain::betalning::Reskontra::Leverantör.konto(),
-            sqlx::query_scalar("SELECT total FROM leverantorsfaktura WHERE id = ?")
-                .bind(id.0)
-                .fetch_one(&mut *conn)
-                .await?,
-        ),
-    };
-    let obetalt =
-        crate::betalning::återstår_i(&mut *conn, original, originalets_total.unwrap_or(0)).await?;
-    // En kredit i året av en faktura som väntar på T2 minskar också det som T2 tar med.
-    let del = match bokförd_efter_i(&mut *conn, företag, original).await? {
-        Some(slut) if dag <= slut => {
-            let vid_årets_slut = obetalt_vid_årets_slut_i(&mut *conn, original, slut).await?;
-            maya_domain::kontantmetoden::kreditens_bokförda_del_före_t2(
-                -total,
-                obetalt,
-                vid_årets_slut,
-            )
-        }
-        _ => maya_domain::kontantmetoden::kreditens_bokförda_del(-total, obetalt),
-    };
+    let del = kreditläge_i(&mut *conn, företag, original)
+        .await?
+        .bokförd_del(-total, dag);
     if del == 0 {
         return Ok(None);
     }
+    let reskontrakonto = match original {
+        Faktura::Kund(_) => maya_domain::betalning::Reskontra::Kund.konto(),
+        Faktura::Leverantör(_) => maya_domain::betalning::Reskontra::Leverantör.konto(),
+    };
     let o = Obokförd::av(&kontering, reskontrakonto);
     // Delen har kreditfakturans tecken på reskontrakontot.
     Ok(Some(o.kontering(del * o.total().signum())))

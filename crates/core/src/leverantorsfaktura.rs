@@ -35,6 +35,7 @@ use std::str::FromStr;
 
 use jiff::civil::Date;
 use maya_domain::belopp::Saldo;
+use maya_domain::foretag::{Momsperiod, gäller};
 use maya_domain::kontoplan::Kontonummer;
 use maya_domain::leverantor::OmvändSkattskyldighet;
 use maya_domain::leverantorsfaktura::{
@@ -487,28 +488,14 @@ pub async fn registrera(
     // (#149).
     let original = r
         .krediterar
-        .as_deref()
-        .and_then(|k| k.parse().ok())
-        .map(|k| Faktura::Leverantör(LeverantörsfakturaId(k)));
+        .as_ref()
+        .and_then(|_| formulär.originalet(&förutsättningar));
     let (kontering, skulden_bokförs) = match original {
-        // Krediten speglar originalets registrering i proportion till krediten, också den
-        // fiktiva momsen, vilka rader kreditfakturan än skrevs av med.
+        // Krediten speglar originalets registrering i proportion till den del som bokförs, också
+        // den fiktiva momsen, vilka rader kreditfakturan än skrevs av med.
         Some(o) => {
-            let spegling = crate::fordran::underlaget_i(ärende.conn(), företag, o)
-                .await?
-                .spegling(-r.total);
-            (
-                crate::fordran::kreditens_kontering(
-                    ärende.conn(),
-                    företag,
-                    o,
-                    r.fakturadatum,
-                    r.total,
-                    spegling,
-                )
-                .await?,
-                false,
-            )
+            let rader = o.kreditens_kontering(-r.total, r.fakturadatum);
+            ((!rader.is_empty()).then_some(rader), false)
         }
         None if r.total < 0
             || crate::fordran::fakturametoden_på(ärende.conn(), företag, r.fakturadatum)
@@ -700,8 +687,9 @@ async fn läs_förutsättningar(
     .fetch_all(&mut *conn)
     .await?;
     // #148: fakturorna som en kreditfaktura kan hänvisa till, med raderna som registrerades.
-    let originalen: Vec<(i64, i64, String, i64, Option<String>)> = sqlx::query_as(
-        "SELECT id, leverantor_id, fakturanummer, total, omvand_skattskyldighet
+    type Original = (i64, i64, String, i64, Option<String>, Option<String>);
+    let originalen: Vec<Original> = sqlx::query_as(
+        "SELECT id, leverantor_id, fakturanummer, total, omvand_skattskyldighet, fakturadatum
          FROM leverantorsfaktura
          WHERE foretag_id = ? AND status = 'registrerad' AND krediterar IS NULL AND total > 0
            AND id IS NOT ?
@@ -712,7 +700,21 @@ async fn läs_förutsättningar(
     .fetch_all(&mut *conn)
     .await?;
     let mut krediterbara = Vec::new();
-    for (id, leverantör, nummer, total, omvänd) in originalen {
+    for (id, leverantör, nummer, total, omvänd, fakturadatum) in originalen {
+        // #149: det som avgör hur mycket av en kredit som bokförs, och registreringens moms.
+        let läge = crate::fordran::kreditläge_i(
+            &mut *conn,
+            företag,
+            Faktura::Leverantör(LeverantörsfakturaId(id)),
+        )
+        .await?;
+        let momsregistrerat = fakturadatum
+            .as_deref()
+            .map(datum)
+            .transpose()?
+            .and_then(|d| gäller(&f.momsperioder, d))
+            .or_else(|| f.momsperioder.first().map(|(_, m)| *m))
+            .is_none_or(|m| m != Momsperiod::EjMomsregistrerad);
         let rader: Vec<(i64, i64, i64, i64)> = sqlx::query_as(
             "SELECT konto, netto, momssats, moms FROM leverantorsfakturarad
              WHERE faktura_id = ? ORDER BY radnr",
@@ -745,6 +747,8 @@ async fn läs_förutsättningar(
                     })
                 })
                 .collect::<Result<_, DatabasFel>>()?,
+            momsregistrerat,
+            läge,
         });
     }
     // #148: det som redan har betalats eller krediterats av en upplåst faktura, så att den inte

@@ -32,6 +32,7 @@ use jiff::civil::Date;
 use crate::belopp::{Belopp, Saldo, formulärtext, tolka_med_tecken};
 use crate::fordelning::fördela;
 use crate::foretag::{Momsperiod, gäller};
+use crate::kontantmetoden::{Kreditläge, Obokförd};
 use crate::kontoplan::Kontonummer;
 use crate::leverantor::{self, NyLeverantör, OmvändSkattskyldighet};
 use crate::rakenskapsar::Räkenskapsår;
@@ -153,7 +154,7 @@ pub struct Registrerad {
 
 /// En registrerad faktura som en kreditfaktura från samma leverantör kan hänvisa till (#148):
 /// inte själv en kreditfaktura.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Krediterbar {
     pub id: String,
     pub leverantör: String,
@@ -163,6 +164,31 @@ pub struct Krediterbar {
     pub omvänd_skattskyldighet: OmvändSkattskyldighet,
     /// Raderna som registrerades.
     pub rader: Vec<Rad>,
+    /// Om företaget var momsregistrerat på fakturans fakturadatum.
+    pub momsregistrerat: bool,
+    /// Det som avgör hur mycket av en kredit som bokförs (#149).
+    pub läge: Kreditläge,
+}
+
+impl Krediterbar {
+    /// Konteringen för en kreditfaktura som krediterar `kredit` öre (positivt) av fakturan och
+    /// har fakturadatumet `dag`: registreringens verifikat med omvänt tecken och i proportion till
+    /// den del som bokförs ([`Kreditläge::bokförd_del`]), också den fiktiva momsen, och 2440
+    /// sist. Tom när inget bokförs (kontantmetoden, kredit av en obetald del).
+    pub fn kreditens_kontering(&self, kredit: i64, dag: Date) -> Vec<verifikat::Rad> {
+        match self.läge.bokförd_del(kredit, dag) {
+            0 => Vec::new(),
+            del => Obokförd::av(
+                &registreringens_kontering(
+                    &self.rader,
+                    self.momsregistrerat,
+                    self.omvänd_skattskyldighet,
+                ),
+                konto(LEVERANTÖRSSKULDER),
+            )
+            .spegling(del),
+        }
+    }
 }
 
 /// Det som spärrarna prövas mot, läst i samma transaktion som registreringen.
@@ -903,8 +929,18 @@ impl NyLeverantörsfaktura {
     }
 
     /// Konteringen så långt den går att räkna, för rutan "Bokförs som" medan användaren skriver.
-    /// Rader som inte går att tolka hoppas över.
+    /// Rader som inte går att tolka hoppas över. En kreditfaktura med hänvisning och ett
+    /// fakturadatum bokförs som originalets registrering ([`Krediterbar::kreditens_kontering`]),
+    /// och är tom när inget av krediten bokförs.
     pub fn förhandsvisning(&self, f: &Förutsättningar) -> Vec<verifikat::Rad> {
+        if let (Some(total), Some(o), Ok(dag)) = (
+            tolka_med_tecken(&self.totalbelopp),
+            self.originalet(f),
+            self.fakturadatum.trim().parse::<Date>(),
+        ) && total < 0
+        {
+            return o.kreditens_kontering(-total, dag);
+        }
         let standardkonto = self.standardkonto(f);
         let rader: Vec<Rad> = self
             .rader

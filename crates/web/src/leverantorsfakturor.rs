@@ -10,6 +10,7 @@ use leptos::prelude::*;
 use leptos_router::hooks::use_query_map;
 use maya_domain::belopp::{Saldo, tolka_med_tecken};
 use maya_domain::foretag::Momsperiod;
+use maya_domain::kontantmetoden::Kreditläge;
 use maya_domain::kontoplan::Kontonummer;
 use maya_domain::leverantor::{self, NyLeverantör, OmvändSkattskyldighet};
 use maya_domain::leverantorsfaktura::{
@@ -149,6 +150,22 @@ pub struct KrediterbarVy {
     pub omvänd: String,
     /// Konto, netto i öre, momssats och moms i öre.
     pub rader: Vec<(u16, i64, u8, i64)>,
+    // #149: det som avgör hur mycket av en kredit som bokförs.
+    /// Om företaget var momsregistrerat på fakturadatumet.
+    #[serde(default)]
+    pub momsregistrerat: bool,
+    /// Skulden är bokförd.
+    #[serde(default)]
+    pub bokförd: bool,
+    /// Årets slut, `ÅÅÅÅ-MM-DD`, när fakturan väntar på årets T2-verifikat; annars tomt.
+    #[serde(default)]
+    pub bokförd_efter: String,
+    /// Det som återstår, i öre.
+    #[serde(default)]
+    pub obetalt: i64,
+    /// Det som var obetalt vid årets slut, i öre.
+    #[serde(default)]
+    pub vid_årets_slut: i64,
 }
 
 impl FörutsättningarVy {
@@ -220,6 +237,13 @@ impl FörutsättningarVy {
                             })
                         })
                         .collect(),
+                    momsregistrerat: k.momsregistrerat,
+                    läge: Kreditläge {
+                        bokförd: k.bokförd,
+                        bokförd_efter: k.bokförd_efter.parse().ok(),
+                        obetalt: k.obetalt,
+                        vid_årets_slut: k.vid_årets_slut,
+                    },
                 })
                 .collect(),
             betalt: self.betalt,
@@ -637,6 +661,15 @@ pub(crate) mod server {
                             .iter()
                             .map(|r| (r.konto.get(), r.netto, r.momssats, r.moms))
                             .collect(),
+                        momsregistrerat: k.momsregistrerat,
+                        bokförd: k.läge.bokförd,
+                        bokförd_efter: k
+                            .läge
+                            .bokförd_efter
+                            .map(|d| d.to_string())
+                            .unwrap_or_default(),
+                        obetalt: k.läge.obetalt,
+                        vid_årets_slut: k.läge.vid_årets_slut,
                     })
                     .collect(),
                 betalt: förutsättningar.betalt,
@@ -1424,14 +1457,27 @@ fn Formulär(
         }
     };
     // #149: under kontantmetoden på fakturadatumet heter knappen Registrera.
+    let kredit_med_hänvisning = {
+        let fö = fö.clone();
+        Memo::new(move |_| {
+            faktura.with(|f| {
+                f.totalbelopp.trim().starts_with(['-', '−']) && f.originalet(&fö).is_some()
+            })
+        })
+    };
     let kontant = {
         let metoder = förutsättningar.bokföringsmetoder.clone();
         Memo::new(move |_| {
             faktura.with(|f| {
-                // En kreditfaktura utan hänvisning bokförs alltid, och en med hänvisning
-                // följer originalets skuld.
-                !f.totalbelopp.trim().starts_with(['-', '−'])
-                    && crate::betalning::kontantmetoden_på(&metoder, &f.fakturadatum)
+                // En kreditfaktura utan hänvisning bokförs alltid. En med hänvisning bokför det
+                // som förhandsvisningen visar: inget när krediten ryms i det obetalda av ett
+                // obokfört original.
+                if kredit_med_hänvisning.get() {
+                    kontering.with(Vec::is_empty)
+                } else {
+                    !f.totalbelopp.trim().starts_with(['-', '−'])
+                        && crate::betalning::kontantmetoden_på(&metoder, &f.fakturadatum)
+                }
             })
         })
     };
@@ -1744,6 +1790,16 @@ fn Formulär(
                     })
                     .collect_view()
             });
+            if kontant.get() && kredit_med_hänvisning.get() {
+                return view! {
+                    <h3>"Krediten bokförs inte"</h3>
+                    <p class="diskret">
+                        "Under kontantmetoden bokförs inte en kredit av det som är obetalt av \
+                         originalet. Den minskar det som återstår att betala."
+                    </p>
+                }
+                .into_any();
+            }
             if kontant.get() {
                 return view! {
                     <h3>"Bokförs vid betalningen"</h3>
