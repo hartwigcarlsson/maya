@@ -132,6 +132,7 @@ fn forsta_anvandaren_via_cli_lanken_och_inloggning_med_passkey() {
     vänta_på_text(&tab, "Andra nyckeln");
 
     // Logga ut och in igen med den andra nyckeln: e-post först, sedan passkey.
+    klicka(&tab, ".anvandarmeny summary");
     klicka_till_ny_sida(&tab, "form[action='/auth/utloggning'] button");
     vänta_på_text(&tab, "Logga in");
     vänta_på_shimmen(&tab);
@@ -143,6 +144,7 @@ fn forsta_anvandaren_via_cli_lanken_och_inloggning_med_passkey() {
     vänta_på_text(&tab, "Lägg upp ett företag");
 
     // Den första nyckeln kan tas bort, men inte den sista. Sidorna når man från användarmenyn.
+    klicka(&tab, ".anvandarmeny summary");
     tab.find_element("a[href='/passkeys']")
         .unwrap()
         .click()
@@ -156,6 +158,7 @@ fn forsta_anvandaren_via_cli_lanken_och_inloggning_med_passkey() {
     vänta_på_text(&tab, "Andra nyckeln");
 
     // Sessionslistan visar den här sessionen.
+    klicka(&tab, ".anvandarmeny summary");
     tab.find_element("a[href='/sessioner']")
         .unwrap()
         .click()

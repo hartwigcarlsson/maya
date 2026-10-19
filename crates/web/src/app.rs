@@ -79,6 +79,14 @@ addEventListener('blur',function(){var r=document.activeElement;\
 if(!ram(r)||!r.__laddad||Date.now()-r.__laddad>5000)return;r.__laddad=0;var lx=x,ly=y;\
 setTimeout(function(){r.blur();scrollTo(lx,ly)},0)})})()";
 
+/// Menyerna i toppmenyn (användarmenyn, företagsväljaren, Ny) stängs när man väljer något i dem
+/// eller klickar utanför dem. Toppmenyn ritas inte om när man byter sida, så en öppen meny
+/// skulle annars stå kvar öppen.
+const MENYERNA_STÄNGS: &str = "document.addEventListener('click',function(e){\
+document.querySelectorAll('header details[open]').forEach(function(d){\
+if(!d.contains(e.target)||(e.target.closest('a,button')&&!e.target.closest('summary')))\
+d.removeAttribute('open')})})";
+
 /// Dokumentet som servern renderar runt appen.
 pub fn shell(options: LeptosOptions) -> impl IntoView {
     view! {
@@ -92,6 +100,7 @@ pub fn shell(options: LeptosOptions) -> impl IntoView {
                 <script>{TEMA_FÖRE_RITNING}</script>
                 <script>{SNABBTANGENT_SÖK}</script>
                 <script>{RAMEN_TAR_INTE_FOKUS}</script>
+                <script>{MENYERNA_STÄNGS}</script>
                 <script src="/auth/webauthn.js" defer></script>
                 <HydrationScripts options />
                 <MetaTags />
@@ -109,25 +118,34 @@ pub fn App() -> impl IntoView {
     let läge = läge();
     provide_context(läge.clone());
     provide_context(företagsval());
+    // Användarmenyn fälls ut under e-postadressen, så att toppmenyn får plats på en rad.
     let användarmeny = match läge {
-        Läge::Inloggad { visningsnamn } => Some(view! {
-            <span class="anvandare">{visningsnamn}</span>
-            <a class="knapp knapp-diskret" href="/passkeys">
-                "Passkeys"
-            </a>
-            <a class="knapp knapp-diskret" href="/sessioner">
-                "Sessioner"
-            </a>
-            <a class="knapp knapp-diskret" href="/installation">
-                "Installation"
-            </a>
-            <form method="post" action="/auth/utloggning">
-                <button class="knapp knapp-diskret" type="submit">
-                    "Logga ut"
-                </button>
-            </form>
-        }),
-        _ => None,
+        Läge::Inloggad { visningsnamn } => view! {
+            <details class="anvandarmeny">
+                <summary class="knapp knapp-diskret">{visningsnamn}</summary>
+                <ul>
+                    <li>
+                        <a href="/passkeys">"Passkeys"</a>
+                    </li>
+                    <li>
+                        <a href="/sessioner">"Sessioner"</a>
+                    </li>
+                    <li>
+                        <a href="/installation">"Installation"</a>
+                    </li>
+                    <li>
+                        <TemaVäxlare />
+                    </li>
+                    <li>
+                        <form method="post" action="/auth/utloggning">
+                            <button type="submit">"Logga ut"</button>
+                        </form>
+                    </li>
+                </ul>
+            </details>
+        }
+        .into_any(),
+        _ => view! { <TemaVäxlare /> }.into_any(),
     };
 
     view! {
@@ -139,10 +157,7 @@ pub fn App() -> impl IntoView {
                     "Maya"
                 </a>
                 <Toppmeny />
-                <div class="toppmeny-hoger">
-                    {användarmeny}
-                    <TemaVäxlare />
-                </div>
+                <div class="toppmeny-hoger">{användarmeny}</div>
             </header>
             <main>
                 <Innehåll />

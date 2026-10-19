@@ -111,6 +111,31 @@ async fn anvandarmenyn_har_passkeys_och_sessioner() {
 }
 
 #[tokio::test]
+async fn användarmenyn_fälls_ut_under_e_postadressen_så_att_toppmenyn_får_plats() {
+    let db = Databas::tillfällig().await;
+    let session = anna(&db).await;
+
+    let (_, body) = skicka(app(&db), get("/", &session)).await;
+
+    // Allt i användarmenyn ligger i en meny som fälls ut, inte på rad i toppmenyn.
+    let (_, meny) = body
+        .split_once(r#"<details class="anvandarmeny""#)
+        .unwrap_or_else(|| panic!("ingen användarmeny i {body}"));
+    let (meny, _) = meny.split_once("</details>").unwrap();
+    let (summary, innehåll) = meny.split_once("</summary>").unwrap();
+    assert!(summary.contains("anna@example.se"), "{summary}");
+    for del in [
+        r#"href="/passkeys""#,
+        r#"href="/sessioner""#,
+        r#"href="/installation""#,
+        r#"action="/auth/utloggning""#,
+        "Ljust/mörkt",
+    ] {
+        assert!(innehåll.contains(del), "{del} saknas i {innehåll}");
+    }
+}
+
+#[tokio::test]
 async fn passkeysidan_listar_passkeys_och_later_en_farsk_session_hantera_dem() {
     let db = Databas::tillfällig().await;
     let session = anna(&db).await;
