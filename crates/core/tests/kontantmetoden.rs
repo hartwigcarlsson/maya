@@ -182,6 +182,94 @@ async fn registreringen_av_en_extern_kundfaktura_bokförs_bara_under_fakturameto
     }
 }
 
+#[tokio::test]
+async fn en_ny_kund_från_det_externa_utkastet_blir_verklig_under_båda_metoderna() {
+    use maya_domain::extern_kundfaktura::{NyExternFaktura, NyExternRad};
+    for (metod, bokförd) in METODER {
+        let db = Databas::tillfällig().await;
+        let (anna, id) = testhjalp::fakturaföretag_med_metod(&db, metod).await;
+        testhjalp::kund(&db, &anna, id, "Kund AB").await;
+        let (f, _) = extern_kundfaktura::ladda_upp(
+            &db,
+            &klocka(),
+            &anna,
+            id,
+            (
+                "A-18.pdf",
+                "application/pdf",
+                b"%PDF-1.4 extern kundfaktura A-18",
+            ),
+        )
+        .await
+        .unwrap();
+        let utkast = NyExternFaktura {
+            kund: maya_domain::kundfaktura::NY.into(),
+            ny_kund: maya_domain::kund::NyKund {
+                namn: "Nya Kunden AB".into(),
+                betalningsvillkor: "10".into(),
+                ..Default::default()
+            },
+            fakturanummer: "A-18".into(),
+            fakturadatum: "2026-03-10".into(),
+            rader: vec![NyExternRad {
+                momssats: "25".into(),
+                konto: "3001".into(),
+                belopp: "10 000".into(),
+            }],
+            ..Default::default()
+        };
+        extern_kundfaktura::spara_utkast(&db, &klocka(), &anna, id, f, &utkast)
+            .await
+            .unwrap();
+        let formulär = extern_kundfaktura::fakturan(&db, &anna, id, f)
+            .await
+            .unwrap()
+            .unwrap()
+            .formulär;
+        let r = extern_kundfaktura::registrera(&db, &klocka(), &anna, id, f, &formulär)
+            .await
+            .unwrap();
+        assert_eq!(r.verifikat.is_some(), bokförd, "{metod}");
+
+        let kunder: Vec<String> = maya_core::kund::kunder(&db, &anna, id)
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|k| k.namn)
+            .collect();
+        assert_eq!(kunder, ["Kund AB", "Nya Kunden AB"], "{metod}");
+        let e = extern_kundfaktura::fakturan(&db, &anna, id, f)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(e.kund, "Nya Kunden AB", "{metod}");
+
+        // Betalningen bokförs enligt metoden även för den nya kundens faktura.
+        let b = betala(
+            &db,
+            &anna,
+            id,
+            Faktura::Kund(f),
+            &betalning("2026-03-20", "12 500"),
+        )
+        .await;
+        let väntat = if bokförd {
+            vec![(1510, 0, 1_250_000), (1930, 1_250_000, 0)]
+        } else {
+            vec![
+                (1930, 1_250_000, 0),
+                (2611, 0, 250_000),
+                (3001, 0, 1_000_000),
+            ]
+        };
+        assert_eq!(
+            rader(&db, &anna, id, b.verifikat.id).await,
+            väntat,
+            "{metod}"
+        );
+    }
+}
+
 // Betalning av kundfaktura
 
 #[tokio::test]
