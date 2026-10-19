@@ -374,3 +374,25 @@ fn behandlingsreglerna_beskriver_fakturaflödenas_regler() {
         }
     }
 }
+
+#[test]
+fn ändringsloggen_för_0_2_beskriver_de_nya_delsystemen_och_automatkonteringarna() {
+    let logg = ändringslogg();
+    let versioner: Vec<&str> = logg.iter().map(|r| r.version).collect();
+    assert_eq!(versioner, ["0.1", "0.2"]);
+    let text = logg[1].ändringar.join("\n");
+    for väntat in [
+        "Kundreskontra och leverantörsreskontra som delsystem",
+        "Automatkonteringarna för fakturaflödena",
+        "Fakturaserien",
+        "startnummer",
+        "1510",
+        "7960",
+        "4599",
+        "T2",
+        "Leverantörens standardkonto",
+        "Avstämningen",
+    ] {
+        assert!(text.contains(väntat), "saknar {väntat:?}:\n{text}");
+    }
+}

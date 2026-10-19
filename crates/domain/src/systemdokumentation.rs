@@ -561,21 +561,50 @@ pub struct Release {
 
 /// Ändringsloggen för behandlingsreglerna, äldst först (S6). En release som ändrar en regel
 /// lägger till sin rad här; ändringar per företag står i behandlingshistoriken.
-const ÄNDRINGSLOGG: &[Release] = &[Release {
-    version: "0.1",
-    ändringar: &[
-        "Första versionen av behandlingsreglerna.",
-        "Kontoplanen BAS 2026 och INK2-tabellen INK2_P1-231002_241119.",
-        "En verifikationsserie V per räkenskapsår, numrerad vid bokföringen.",
-        "Kontoplanens regler: konton raderas aldrig, nya BAS-konton läggs till som inaktiva, \
+const ÄNDRINGSLOGG: &[Release] = &[
+    Release {
+        version: "0.1",
+        ändringar: &[
+            "Första versionen av behandlingsreglerna.",
+            "Kontoplanen BAS 2026 och INK2-tabellen INK2_P1-231002_241119.",
+            "En verifikationsserie V per räkenskapsår, numrerad vid bokföringen.",
+            "Kontoplanens regler: konton raderas aldrig, nya BAS-konton läggs till som inaktiva, \
          och ett konto med saldo kan inte inaktiveras.",
-        "Ingående balans skrivs in för det första räkenskapsåret.",
-        "Spärrarna vid bokföring och rättelse.",
-        "Automatkonteringarna rättelse, registrera om och preliminär ingående balans.",
-        "50-dagarsvarningen och kontantfristen för utkast.",
-        "Flödets konto 2099 för preliminär ingående balans.",
-    ],
-}];
+            "Ingående balans skrivs in för det första räkenskapsåret.",
+            "Spärrarna vid bokföring och rättelse.",
+            "Automatkonteringarna rättelse, registrera om och preliminär ingående balans.",
+            "50-dagarsvarningen och kontantfristen för utkast.",
+            "Flödets konto 2099 för preliminär ingående balans.",
+        ],
+    },
+    Release {
+        version: "0.2",
+        ändringar: &[
+            "Kundreskontra och leverantörsreskontra som delsystem: kundfakturor, externa \
+         kundfakturor och leverantörsfakturor med betalningar, krediter och kundförluster, \
+         bokförda i samma huvudbok i samma transaktion som fakturahändelsen.",
+            "Automatkonteringarna för fakturaflödena: utfärda och registrera, betalning, \
+         kreditfaktura, återbetalning, kundförlust och återkallelse, öresutjämning, \
+         kursdifferens, Rätta kontering, avskrift, registrering och betalning, och \
+         T2-samlingsverifikatet, under fakturametoden och kontantmetoden.",
+            "Fakturaserien: en obruten serie per företag för kundfakturor och kreditfakturor, över \
+         räkenskapsåren, med ett startnummer som väljs före den första fakturan. Externa \
+         fakturor ingår inte.",
+            "Flödenas konton 1510, 1930, 2440, 2611, 2614, 2621, 2624, 2631, 2634, 2641, 2645, \
+         2647, 3001, 3002, 3003, 3004, 3231, 3308, 3740, 3960, 6351 och 7960, aktiva från \
+         början och aktiverade för befintliga företag.",
+            "Intäktskonto per momssats och proportionell fördelning vid kontantmetoden, delkredit, \
+         kundförlust och T2.",
+            "Leverantörens standardkonto som automatkontering, med varje ändring loggad.",
+            "Spärrarna vid utfärdande, registrering, betalning, kreditering, kundförlust och Rätta \
+         kontering, och spärrarna som håller reskontran i takt med 1510 och 2440.",
+            "Under kontantmetoden ett T2-utkast vid årets slut, som Maya skapar och en användare \
+         bokför.",
+            "Avstämningen av reskontrorna mot 1510 och 2440 och reskontran per datum.",
+            "Omvänd skattskyldighet bokförs utan justeringsparet mot 4599, som läggs till i 0.3.",
+        ],
+    },
+];
 
 /// Ändringsloggen för behandlingsreglerna, äldst först.
 pub fn ändringslogg() -> &'static [Release] {
