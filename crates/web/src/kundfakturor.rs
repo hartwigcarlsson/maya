@@ -18,9 +18,10 @@ use maya_domain::belopp::Saldo;
 use maya_domain::faktura::Momssats;
 use maya_domain::foretag::Momsperiod;
 use maya_domain::kontoplan::Kontonummer;
+use maya_domain::kund::OmvändSkattskyldighet;
 use maya_domain::kundfaktura::{
-    Fakturakund, Fält, Förutsättningar, NyFakturarad, NyKundfaktura, Radfält, Spärr, Säljare,
-    intäktskonto,
+    Fakturakund, Fält, Förutsättningar, Momsläge, NyFakturarad, NyKundfaktura, Radfält, Spärr,
+    Säljare,
 };
 use maya_domain::rakenskapsar::Räkenskapsår;
 use serde::{Deserialize, Serialize};
@@ -164,6 +165,10 @@ pub struct FakturaVy {
     pub netto: String,
     pub moms: String,
     pub total: String,
+    /// Den omvända skattskyldighetens namn och fakturans text om den, eller `None`.
+    pub omvänd: Option<(String, String)>,
+    /// Företaget var inte momsregistrerat: ingen moms och inget momsreg-nr.
+    pub utan_moms: bool,
     /// Verifikatets id och nummer.
     pub verifikat: (String, String),
     pub pdf: PdfVy,
@@ -499,6 +504,11 @@ pub(crate) mod server {
             netto: kr(u.netto),
             moms: kr(u.moms),
             total: kr(u.total),
+            omvänd: u
+                .momsläge
+                .fakturatext()
+                .map(|text| (u.momsläge.omvänd().namn().to_string(), text.to_string())),
+            utan_moms: u.momsläge == Momsläge::UtanMoms,
             verifikat: (
                 u.verifikat.id.to_string(),
                 u.verifikat
@@ -989,11 +999,16 @@ fn FakturaFormulär(
     let lista = kundfakturorna(&bas);
     let mut start = start;
     // En tom rad sist, så att det går att lägga till en rad också utan JavaScript.
+    let förutsättningar = f.domän();
     if start.rader.last().is_none_or(|r| !r.tom()) {
         start.rader.push(NyFakturarad::default());
     }
+    // Tomma rader får momslägets förval.
+    let läge_från_start = start.momsläge(&förutsättningar);
+    for r in start.rader.iter_mut().filter(|r| r.tom()) {
+        *r = NyFakturarad::för(läge_från_start);
+    }
     let faktura = RwSignal::new(start.clone());
-    let förutsättningar = f.domän();
     let spärrar = {
         let förutsättningar = förutsättningar.clone();
         Memo::new(move |_| {
@@ -1004,7 +1019,26 @@ fn FakturaFormulär(
         let förutsättningar = förutsättningar.clone();
         Memo::new(move |_| faktura.with(|f| f.kontrollera(&förutsättningar).ok()))
     };
-    let beräkning = Memo::new(move |_| faktura.with(NyKundfaktura::beräkna));
+    let läge = {
+        let förutsättningar = förutsättningar.clone();
+        Memo::new(move |_| faktura.with(|f| f.momsläge(&förutsättningar)))
+    };
+    let beräkning = Memo::new(move |_| faktura.with(|f| f.beräkna_med(läge.get())));
+    // Ändringar som kan byta momsläge (fakturadatumet, kunden, den omvända
+    // skattskyldigheten) anpassar raderna till det nya läget.
+    let förutsättningar_kvar = StoredValue::new(förutsättningar.clone());
+    let ändra = move |ändring: &dyn Fn(&mut NyKundfaktura)| {
+        förutsättningar_kvar.with_value(|ff| {
+            faktura.update(|f| {
+                let före = f.momsläge(ff);
+                ändring(f);
+                let efter = f.momsläge(ff);
+                if före != efter {
+                    f.byt_momsläge(före, efter);
+                }
+            })
+        })
+    };
     let hydrerad = RwSignal::new(false);
     Effect::new(move |_| hydrerad.set(true));
     let visa = RwSignal::new(use_query_map().with_untracked(|q| q.get("visa").is_some()));
@@ -1155,7 +1189,8 @@ fn FakturaFormulär(
     };
 
     let antal_rader = Memo::new(move |_| faktura.with(|f| f.rader.len()));
-    let lägg_till_rad = move |_| faktura.update(|f| f.rader.push(NyFakturarad::default()));
+    let lägg_till_rad =
+        move |_| faktura.update(|f| f.rader.push(NyFakturarad::för(läge.get_untracked())));
     let rader = {
         let spärr_vid = spärr_vid.clone();
         move || {
@@ -1181,32 +1216,40 @@ fn FakturaFormulär(
                             />
                         }
                     };
-                    let sats = fält("momssats");
-                    let satser = Momssats::ALLA
-                        .into_iter()
-                        .map(|s| {
-                            let p = s.procent().to_string();
-                            view! {
-                                <option value=p.clone() selected=p == sats>
-                                    {s.to_string()}
-                                </option>
-                            }
-                        })
-                        .collect_view();
+                    // Utan fri momssats (omvänd skattskyldighet eller inte momsregistrerat)
+                    // finns bara 0 %.
+                    let satser = move || {
+                        let fri = läge.get().fri_momssats();
+                        let sats = faktura.with_untracked(|f| f.rader[i].momssats.clone());
+                        Momssats::ALLA
+                            .into_iter()
+                            .filter(|s| fri || *s == Momssats::Noll)
+                            .map(|s| {
+                                let p = s.procent().to_string();
+                                view! {
+                                    <option value=p.clone() selected=p == sats>
+                                        {s.to_string()}
+                                    </option>
+                                }
+                            })
+                            .collect_view()
+                    };
                     let byt_sats = move |ev: leptos::ev::Event| {
                         let ny = event_target_value(&ev);
+                        let läge = läge.get_untracked();
                         faktura.update(|f| {
                             let r = &mut f.rader[i];
                             // Kontot följer momssatsen så länge det är satsens konto.
-                            let förra = Momssats::tolka(&r.momssats).map(|s| intäktskonto(s).to_string());
+                            let förra = Momssats::tolka(&r.momssats).map(|s| läge.intäktskonto(s).to_string());
                             if (förra.as_deref() == Some(r.konto.trim()) || r.konto.trim().is_empty())
                                 && let Some(s) = Momssats::tolka(&ny)
                             {
-                                r.konto = intäktskonto(s).to_string();
+                                r.konto = läge.intäktskonto(s).to_string();
                             }
                             r.momssats = ny;
                         });
                     };
+                    let sats_värde = move || faktura.with(|f| f.rader[i].momssats.clone());
                     let konto = move || faktura.with(|f| f.rader[i].konto.clone());
                     let belopp = move || {
                         beräkning.with(|b| b.rader.get(i).copied().flatten().map(kr).unwrap_or_default())
@@ -1231,7 +1274,12 @@ fn FakturaFormulär(
                                 {spärr_vid(Fält::Rad(i, Radfält::Rabatt))}
                             </td>
                             <td>
-                                <select name=format!("momssats_{i}") aria-label="Moms" on:change=byt_sats>
+                                <select
+                                    name=format!("momssats_{i}")
+                                    aria-label="Moms"
+                                    prop:value=sats_värde
+                                    on:change=byt_sats
+                                >
                                     {satser}
                                 </select>
                                 {spärr_vid(Fält::Rad(i, Radfält::Momssats))}
@@ -1243,6 +1291,7 @@ fn FakturaFormulär(
                                     inputmode="numeric"
                                     list="intaktskonton"
                                     aria-label="Konto"
+                                    value=fält("konto")
                                     prop:value=konto
                                     on:input=move |ev| {
                                         faktura.update(|f| f.rader[i].konto = event_target_value(&ev))
@@ -1258,10 +1307,12 @@ fn FakturaFormulär(
         }
     };
     let summor = move || {
+        let fri = läge.get().fri_momssats();
         beräkning.with(|b| {
             let moms = b
                 .momsrader
                 .iter()
+                .filter(|_| fri)
                 .map(|m| {
                     view! {
                         <tr>
@@ -1300,6 +1351,8 @@ fn FakturaFormulär(
                         }
                     })
                     .collect_view();
+                let not =
+                    momslägets_text(u.momsläge).map(|text| view! { <p class="diskret">{text}</p> });
                 view! {
                     <div class="kont">
                         <h3>{format!("Bokförs som verifikat · {}", u.fakturadatum)}</h3>
@@ -1313,10 +1366,52 @@ fn FakturaFormulär(
                             </thead>
                             <tbody>{rader}</tbody>
                         </table>
+                        {not}
                     </div>
                 }
             })
         })
+    };
+    let vald_omvänd = start.omvänd_skattskyldighet.clone();
+    let omvända = OmvändSkattskyldighet::ALLA
+        .into_iter()
+        .map(|o| {
+            view! {
+                <option value=o.kod() selected=o.kod() == vald_omvänd.trim()>
+                    {o.namn()}
+                </option>
+            }
+        })
+        .collect_view();
+    let utan_moms = move || läge.get() == Momsläge::UtanMoms;
+    let omvänd_fält = view! {
+        <div>
+            <label for="omvand_skattskyldighet">"Omvänd skattskyldighet"</label>
+            <select
+                id="omvand_skattskyldighet"
+                name="omvand_skattskyldighet"
+                disabled=utan_moms
+                prop:value=move || faktura.with(|f| f.omvänd_skattskyldighet.clone())
+                on:change=move |ev| {
+                    let ny = event_target_value(&ev);
+                    ändra(&|f| f.omvänd_skattskyldighet = ny.clone());
+                }
+            >
+                {omvända}
+            </select>
+            {spärr_vid(Fält::OmvändSkattskyldighet)}
+            {move || {
+                utan_moms()
+                    .then(|| {
+                        view! {
+                            <p class="diskret">
+                                "Företaget är inte momsregistrerat på fakturadatumet: fakturan får \
+                                 ingen moms och inget momsreg-nr."
+                            </p>
+                        }
+                    })
+            }}
+        </div>
     };
     let intäktskonton = f
         .intäktskonton
@@ -1366,7 +1461,7 @@ fn FakturaFormulär(
         move || {
             visa.get().then(|| {
                 view! {
-                    <Papper faktura=faktura beräkning=beräkning säljare=säljare.clone() kunder=kunder.clone() />
+                    <Papper faktura=faktura beräkning=beräkning läge=läge säljare=säljare.clone() kunder=kunder.clone() />
                 }
             })
         }
@@ -1398,7 +1493,11 @@ fn FakturaFormulär(
                         <select
                             id="kund"
                             name="kund"
-                            on:change=move |ev| faktura.update(|f| f.kund = event_target_value(&ev))
+                            on:change=move |ev| {
+                                let kund = event_target_value(&ev);
+                                förutsättningar_kvar
+                                    .with_value(|ff| faktura.update(|f| f.välj_kund(&kund, ff)));
+                            }
                         >
                             <option value="">"Välj kund…"</option>
                             {kundval}
@@ -1418,7 +1517,10 @@ fn FakturaFormulär(
                             name="fakturadatum"
                             type="date"
                             value=värde(|f| f.fakturadatum.clone())
-                            on:input=move |ev| faktura.update(|f| f.fakturadatum = event_target_value(&ev))
+                            on:input=move |ev| {
+                                let datum = event_target_value(&ev);
+                                ändra(&|f| f.fakturadatum = datum.clone());
+                            }
                         />
                         {spärr_vid(Fält::Fakturadatum)}
                     </div>
@@ -1464,6 +1566,7 @@ fn FakturaFormulär(
                             on:input=move |ev| faktura.update(|f| f.er_referens = event_target_value(&ev))
                         />
                     </div>
+                    {omvänd_fält}
                     {nummerfält}
                 </div>
                 <datalist id="intaktskonton">{intäktskonton}</datalist>
@@ -1519,11 +1622,28 @@ fn FakturaFormulär(
     }
 }
 
+/// Vad momsläget betyder för konteringen, under "Bokförs som".
+fn momslägets_text(läge: Momsläge) -> Option<String> {
+    match läge {
+        Momsläge::Moms => None,
+        Momsläge::Bygg | Momsläge::EuTjänst => Some(format!(
+            "Omvänd skattskyldighet ({}): ingen moms på fakturan, intäkten på {}.",
+            läge.omvänd().namn(),
+            läge.intäktskonto(Momssats::Noll)
+        )),
+        Momsläge::UtanMoms => Some(
+            "Företaget är inte momsregistrerat: ingen moms och inget momsreg-nr på fakturan."
+                .to_string(),
+        ),
+    }
+}
+
 /// Förhandsvisningen av fakturan som den blir, ritad ur formuläret medan användaren skriver.
 #[component]
 fn Papper(
     faktura: RwSignal<NyKundfaktura>,
     beräkning: Memo<maya_domain::kundfaktura::Beräkning>,
+    läge: Memo<Momsläge>,
     säljare: Säljare,
     kunder: Vec<Fakturakund>,
 ) -> impl IntoView {
@@ -1538,13 +1658,24 @@ fn Papper(
                 .lines()
                 .map(|r| view! { <span class="adressrad">{r.to_string()}</span> })
                 .collect_view();
+            // Vid omvänd skattskyldighet har fakturan köparens momsreg-nr.
+            let momsregnr = (läge.get().fakturatext().is_some() && !k.momsregnr.is_empty()).then(
+                || view! { <span class="adressrad">{format!("Momsreg.nr {}", k.momsregnr)}</span> },
+            );
             view! {
                 <p>
                     <strong>{k.namn.clone()}</strong>
                     {adress}
+                    {momsregnr}
                 </p>
             }
         })
+    };
+    let omvänd_text = move || {
+        läge
+            .get()
+            .fakturatext()
+            .map(|t| view! { <p class="papper-omvand">{t}</p> })
     };
     let rader = move || {
         faktura.with(|f| {
@@ -1597,6 +1728,7 @@ fn Papper(
                 <tbody>{rader}</tbody>
             </table>
             <p class="papper-summa">"Att betala " {total} " kr"</p>
+            {omvänd_text}
             <p class="diskret">{betalsätt}</p>
             <p class="diskret">"Uppdateras medan du skriver."</p>
         </aside>
@@ -1680,6 +1812,30 @@ fn Fakturadokument(bas: String, d: FakturaVy) -> impl IntoView {
         })
         .collect_view();
     let (verifikat_id, verifikat_nummer) = d.verifikat.clone();
+    let köparens_momsregnr = (d.omvänd.is_some() && !d.kund.momsregnr.is_empty()).then(
+        || view! { <span class="adressrad">{format!("Momsreg.nr {}", d.kund.momsregnr)}</span> },
+    );
+    let momsläget = match (&d.omvänd, d.utan_moms) {
+        (Some((namn, _)), _) => Some(
+            view! {
+                <dt>"Omvänd skattskyldighet"</dt>
+                <dd>{namn.clone()}</dd>
+            }
+            .into_any(),
+        ),
+        (None, true) => Some(
+            view! {
+                <dt>"Moms"</dt>
+                <dd>"Ingen, företaget är inte momsregistrerat"</dd>
+            }
+            .into_any(),
+        ),
+        (None, false) => None,
+    };
+    let omvänd_text = d
+        .omvänd
+        .as_ref()
+        .map(|(_, text)| view! { <p class="papper-omvand">{text.clone()}</p> });
     view! {
         <div class="fakturaformular-ram" class:med-forhandsvisning=visa>
             {förhandsvisning}
@@ -1698,7 +1854,8 @@ fn Fakturadokument(bas: String, d: FakturaVy) -> impl IntoView {
                 </header>
                 <dl class="metadata">
                     <dt>"Kund"</dt>
-                    <dd>{adress}</dd>
+                    <dd>{adress} {köparens_momsregnr}</dd>
+                    {momsläget}
                     <dt>"Fakturadatum"</dt>
                     <dd>{d.fakturadatum.clone()}</dd>
                     <dt>"Förfallodag"</dt>
@@ -1741,6 +1898,7 @@ fn Fakturadokument(bas: String, d: FakturaVy) -> impl IntoView {
                         </tr>
                     </tfoot>
                 </table>
+                {omvänd_text}
                 <section class="arkiverad-pdf">
                     <h3>"PDF"</h3>
                     <dl class="metadata">
