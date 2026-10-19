@@ -10,6 +10,7 @@ pub mod betalsatt;
 pub mod csv;
 pub mod drift;
 pub mod epost;
+pub mod extern_kundfaktura;
 pub mod faktura;
 pub mod fakturauppgifter;
 pub mod fordelning;

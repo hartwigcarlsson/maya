@@ -13,6 +13,7 @@ pub mod config;
 mod databas;
 pub mod drift;
 pub mod export;
+pub mod extern_kundfaktura;
 pub mod fakturauppgifter;
 pub mod foretag;
 pub mod inloggning;

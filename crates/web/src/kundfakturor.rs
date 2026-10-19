@@ -68,6 +68,8 @@ pub struct ListVy {
     pub grupp: Option<Grupp>,
     /// "förfaller om 5 dagar" för en faktura med något kvar att betala.
     pub förfallotext: String,
+    /// Fakturan har skapats i ett annat system (#143).
+    pub extern_faktura: bool,
 }
 
 /// Det som formuläret prövas mot, i webbläsaren med samma regler som på servern.
@@ -241,6 +243,11 @@ pub struct Kundfakturadata {
     pub granskning: Option<GranskningVy>,
     /// Kundfordringarna: det som återstår på de utfärdade fakturorna (#139).
     pub kundfordringar: String,
+    // #143 Externa kundfakturor
+    /// Den valda fakturan när den är extern.
+    pub extern_faktura: Option<crate::externa_kundfakturor::ExternVy>,
+    /// Sidan Ny → Extern faktura.
+    pub extern_ny: bool,
 }
 
 /// Datan för `/foretag/<id>/kundfakturor` och `/foretag/<id>/kundfakturor/ny`.
@@ -278,7 +285,9 @@ fn feltext(kod: &str) -> Option<&'static str> {
         // #140 Kreditfakturor
         "kreditering" => "Kreditfakturan kunde inte skapas.",
         kod => {
-            return crate::betalning::feltext(kod).or_else(|| crate::kundforlust::feltext(kod));
+            return crate::betalning::feltext(kod)
+                .or_else(|| crate::kundforlust::feltext(kod))
+                .or_else(|| crate::externa_kundfakturor::feltext(kod));
         }
     })
 }
@@ -491,26 +500,35 @@ pub(crate) mod server {
             )
             // #140 Kreditfakturor
             .route("/foretag/{id}/kundfakturor/{f}/kreditera", post(kreditera))
-            .with_state(Arc::new(state))
+            .with_state(Arc::new(state.clone()))
+            // #143 Externa kundfakturor
+            .merge(crate::externa_kundfakturor::server::routes(
+                state.db,
+                state.klocka,
+            ))
     }
 
     /// Hämtar det som Kundfakturor visar. Utan åtkomst blir datan tom.
     pub(crate) async fn kundfakturadata(b: &Sidbegäran) -> Result<Kundfakturadata, ServerFnError> {
-        let (företag, ny) = match b.delar().as_slice() {
-            ["foretag", id, "kundfakturor"] => (id.parse::<FöretagsId>().ok(), false),
-            ["foretag", id, "kundfakturor", "ny"] => (id.parse::<FöretagsId>().ok(), true),
-            _ => (None, false),
+        let (företag, ny, extern_ny) = match b.delar().as_slice() {
+            ["foretag", id, "kundfakturor"] => (id.parse::<FöretagsId>().ok(), false, false),
+            ["foretag", id, "kundfakturor", "ny"] => (id.parse::<FöretagsId>().ok(), true, false),
+            // #143 Ny → Extern faktura
+            ["foretag", id, "kundfakturor", "extern", "ny"] => {
+                (id.parse::<FöretagsId>().ok(), false, true)
+            }
+            _ => (None, false, false),
         };
         let Some(företag) = företag else {
             return Ok(Kundfakturadata::default());
         };
-        let valt = if ny {
+        let valt = if ny || extern_ny {
             None
         } else {
             b.värde("f").and_then(|f| f.parse::<KundfakturaId>().ok())
         };
         match hämta(b, företag, ny, valt).await {
-            Ok(data) => Ok(data),
+            Ok(data) => Ok(Kundfakturadata { extern_ny, ..data }),
             Err(KundfakturaFel::Åtkomst(
                 ÅtkomstFel::IngenÅtkomst | ÅtkomstFel::KanalenFårInte,
             )) => Ok(Kundfakturadata::default()),
@@ -529,27 +547,31 @@ pub(crate) mod server {
         let rader = kundfaktura::lista(&b.db, aktör, företag).await?;
         let kundfordringar: i64 = rader
             .iter()
-            .filter(|f| f.status != Status::Utkast)
+            .filter(|f| f.status.i_reskontran())
             .map(|f| f.återstår.max(0))
             .sum();
         let lista = rader
             .into_iter()
             .map(|f| {
-                let utfärdad = f.förfallodag.filter(|_| f.status != Status::Utkast);
+                // #143: en upplåst extern faktura står bland utkasten tills den registreras om.
+                let utfärdad = f.förfallodag.filter(|_| f.status.i_reskontran());
                 ListVy {
                     id: f.id.to_string(),
                     utkast: f.status == Status::Utkast,
-                    nummer: f.nummer.map(|n| n.to_string()).unwrap_or_default(),
+                    extern_faktura: f.är_extern,
+                    nummer: f.fakturanummer.clone(),
                     kund: f.kund.clone(),
                     fakturadatum: f.fakturadatum.map(|d| d.to_string()).unwrap_or_default(),
                     förfallodag: f.förfallodag.map(|d| d.to_string()).unwrap_or_default(),
                     total: kr(f.total),
                     ny_kund: f.ny_kund,
                     återstår: kr(f.återstår),
-                    märke: utfärdad.map(|d| {
-                        let m = märke_för(&f, d, idag);
-                        (m.kod().to_string(), m.namn().to_string())
-                    }),
+                    märke: match (f.status, utfärdad) {
+                        (Status::Upplåst, _) => Some(maya_domain::reskontra::Märke::Upplåst),
+                        (_, Some(d)) => Some(märke_för(&f, d, idag)),
+                        _ => None,
+                    }
+                    .map(|m| (m.kod().to_string(), m.namn().to_string())),
                     grupp: Some(match utfärdad {
                         Some(d) => maya_domain::reskontra::grupp(f.återstår, d, idag),
                         None => Grupp::Utkast,
@@ -566,6 +588,16 @@ pub(crate) mod server {
             kundfordringar: kr(kundfordringar),
             ..Kundfakturadata::default()
         };
+        // #143: en extern faktura visas med sitt original och sina egna handlingar.
+        if let Some(f) = valt
+            && let Some(ext) =
+                maya_core::extern_kundfaktura::fakturan(&b.db, aktör, företag, f).await?
+        {
+            data.valt = Some(f.to_string());
+            data.extern_faktura =
+                Some(crate::externa_kundfakturor::server::extern_vy(b, företag, &ext).await?);
+            return Ok(data);
+        }
         let faktura = match valt {
             Some(f) => match kundfaktura::kundfakturan(&b.db, aktör, företag, f).await {
                 Ok(faktura) => Some(faktura),
@@ -1197,6 +1229,14 @@ pub fn NyKundfakturaSida() -> impl IntoView {
     sida(hämta_kundfakturadata, |data| kundfakturor_sida(data, true))
 }
 
+/// Kundfakturor med uppladdningen av en ny extern kundfaktura (#143).
+#[component]
+pub fn NyExternKundfakturaSida() -> impl IntoView {
+    sida(hämta_kundfakturadata, |data| {
+        kundfakturor_sida(data, false)
+    })
+}
+
 fn kundfakturor_sida(data: Kundfakturadata, ny: bool) -> AnyView {
     if !inloggad() {
         return view! { <LoggaIn /> }.into_any();
@@ -1249,10 +1289,37 @@ fn kundfakturor_sida(data: Kundfakturadata, ny: bool) -> AnyView {
             "aterbetald",
             "Återbetalningen registrerades och verifikatet bokfördes.",
         ),
+        // #143 Externa kundfakturor
+        (
+            "uppladdat",
+            "Ett utkast skapades med PDF:en kopplad. Skriv av fakturan.",
+        ),
+        (
+            "extern_kreditutkast",
+            "Kreditfakturans utkast skapades med PDF:en kopplad. Skriv av den med negativa belopp.",
+        ),
     ]
     .into_iter()
     .find(|(namn, _)| fråga(namn).is_some())
-    .map(|(_, text)| view! { <p class="notis" role="status">{text}</p> });
+    .map(|(_, text)| text.to_string())
+    // #143: registreringen och Rätta registrering säger vilket verifikat det blev.
+    .or_else(|| {
+        fråga("registrerad").map(|v| format!("Fakturan registrerades och bokfördes som {v}."))
+    })
+    .or_else(|| {
+        fråga("registrering_rattad").map(|v| {
+            if v == "1" {
+                "Registreringen rättades. Fakturan är upplåst; skriv av den och registrera om."
+                    .to_string()
+            } else {
+                format!(
+                    "Registreringen rättades med {v}, och fakturan är upplåst; skriv av den och \
+                     registrera om."
+                )
+            }
+        })
+    })
+    .map(|text| view! { <p class="notis" role="status">{text}</p> });
     let fel = fråga("fel")
         .and_then(|k| feltext(&k))
         .map(|text| view! { <p class="fel" role="alert">{text}</p> });
@@ -1260,6 +1327,15 @@ fn kundfakturor_sida(data: Kundfakturadata, ny: bool) -> AnyView {
     let tillbakaskickat = fråga("form").as_deref() == Some("kundfaktura");
     let från_adressen = || ur_fält(|namn| fråga(namn));
     let detalj = match (&data.utkast, &data.dokument, &data.förutsättningar) {
+        // #143 Externa kundfakturor
+        _ if data.extern_ny => {
+            view! { <crate::externa_kundfakturor::NyExternFakturaFormulär bas=bas.clone() /> }
+                .into_any()
+        }
+        _ if data.extern_faktura.is_some() => {
+            let d = data.extern_faktura.clone().unwrap_or_default();
+            view! { <crate::externa_kundfakturor::ExternFaktura bas=bas.clone() d=d /> }.into_any()
+        }
         (_, _, Some(f)) if ny => {
             let start = if tillbakaskickat {
                 från_adressen()
@@ -1322,6 +1398,13 @@ fn kundfakturor_sida(data: Kundfakturadata, ny: bool) -> AnyView {
         } else {
             f.kund.clone()
         };
+        // #143
+        let extern_märke = f.extern_faktura.then(|| {
+            view! {
+                " "
+                <Märke kod="extern".to_string() namn="Extern".to_string() />
+            }
+        });
         // #137
         let ny = f.ny_kund.then(|| {
             view! {
@@ -1349,7 +1432,7 @@ fn kundfakturor_sida(data: Kundfakturadata, ny: bool) -> AnyView {
                         <span>{nummer} " " {kund} {ny}</span>
                         <span class="belopp">{belopp}</span>
                     </span>
-                    <span class="diskret">{märke} " " {datum}</span>
+                    <span class="diskret">{märke} {extern_märke} " " {datum}</span>
                 </a>
             </li>
         }

@@ -241,8 +241,10 @@ async fn läs_fakturan(
     let rad: Option<(String, String, i64, String, String, bool)> =
         match faktura {
             Faktura::Kund(id) => sqlx::query_as(
-                "SELECT CAST(nummer AS TEXT), kunduppgifter ->> '$.namn', total, forfallodag, '',
-                        1
+                // #143: en extern faktura har det andra systemets nummer, och en upplåst
+                // betalas inte förrän den är registrerad igen.
+                "SELECT coalesce(CAST(nummer AS TEXT), fakturanummer), kunduppgifter ->> '$.namn',
+                        total, forfallodag, '', status IN ('utfardad', 'registrerad')
                  FROM kundfaktura
                  WHERE id = ? AND foretag_id = ? AND status <> 'utkast' AND krediterar IS NULL",
             )
@@ -681,8 +683,9 @@ pub(crate) async fn fakturan_för_verifikat(
     conn: &mut SqliteConnection,
     verifikat: VerifikatId,
 ) -> Result<Option<(Flöde, i64, String)>, DatabasFel> {
-    let rad: Option<(i64, i64, String, bool)> = sqlx::query_as(
-        "SELECT k.id, k.nummer, k.kunduppgifter ->> '$.namn', b.belopp < 0
+    let rad: Option<(i64, String, String, bool)> = sqlx::query_as(
+        "SELECT k.id, coalesce(CAST(k.nummer AS TEXT), k.fakturanummer),
+                k.kunduppgifter ->> '$.namn', b.belopp < 0
          FROM betalning b JOIN kundfaktura k ON k.id = b.kundfaktura_id
          WHERE b.verifikat_id = ?1
             OR b.id IN (SELECT betalning_id FROM betalningsrattelse WHERE verifikat_id = ?1)",

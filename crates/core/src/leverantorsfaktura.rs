@@ -229,7 +229,8 @@ pub async fn skapa_utkast(
         "SELECT EXISTS (
              SELECT 1 FROM underlag u WHERE u.foretag_id = ? AND u.id = ?
                AND NOT EXISTS (SELECT 1 FROM underlagskoppling k WHERE k.underlag_id = u.id)
-               AND NOT EXISTS (SELECT 1 FROM leverantorsfaktura f WHERE f.underlag_id = u.id))",
+               AND NOT EXISTS (SELECT 1 FROM leverantorsfaktura f WHERE f.underlag_id = u.id)
+               AND NOT EXISTS (SELECT 1 FROM kundfaktura f WHERE f.underlag_id = u.id))",
     )
     .bind(företag.0)
     .bind(underlag.0)

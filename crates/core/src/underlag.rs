@@ -107,6 +107,8 @@ pub struct Underlag {
     pub dubbletter: Vec<Dubblett>,
     /// Leverantörsfakturan som underlaget är original till (#145).
     pub leverantörsfaktura: Option<LeverantörsfakturaId>,
+    /// Den externa kundfakturan som underlaget är original till (#143).
+    pub kundfaktura: Option<crate::kundfaktura::KundfakturaId>,
 }
 
 impl Underlag {
@@ -114,13 +116,17 @@ impl Underlag {
     /// en leverantörsfaktura, kan tas bort. Ett utkasts original tas bort genom att utkastet
     /// raderas först.
     pub fn kan_tas_bort(&self) -> bool {
-        self.kopplingar.iter().all(|k| k.nummer.is_none()) && self.leverantörsfaktura.is_none()
+        self.kopplingar.iter().all(|k| k.nummer.is_none())
+            && self.leverantörsfaktura.is_none()
+            && self.kundfaktura.is_none()
     }
 
     /// Ett *okopplat underlag*: inte kopplat till något verifikat och inte original till en
-    /// leverantörsfaktura.
+    /// leverantörsfaktura eller en extern kundfaktura.
     pub fn okopplat(&self) -> bool {
-        self.kopplingar.is_empty() && self.leverantörsfaktura.is_none()
+        self.kopplingar.is_empty()
+            && self.leverantörsfaktura.is_none()
+            && self.kundfaktura.is_none()
     }
 }
 
@@ -336,7 +342,7 @@ pub async fn ta_bort(
     else {
         return Err(UnderlagFel::FinnsInte);
     };
-    if u.leverantörsfaktura.is_some() {
+    if u.leverantörsfaktura.is_some() || u.kundfaktura.is_some() {
         return Err(UnderlagFel::HörTillFaktura);
     }
     if !u.kan_tas_bort() {
@@ -454,6 +460,7 @@ struct UnderlagRad {
     uppladdad_av: Option<i64>,
     uppladdad_namn: Option<String>,
     leverantorsfaktura: Option<i64>,
+    kundfaktura: Option<i64>,
 }
 
 #[derive(sqlx::FromRow)]
@@ -478,7 +485,9 @@ async fn läs(
         "SELECT u.id, u.filnamn, u.mime, u.storlek, u.sha256, u.uppladdad, u.uppladdad_kanal,
                 u.uppladdad_av, a.visningsnamn AS uppladdad_namn,
                 (SELECT f.id FROM leverantorsfaktura f WHERE f.underlag_id = u.id)
-                    AS leverantorsfaktura
+                    AS leverantorsfaktura,
+                (SELECT f.id FROM kundfaktura f WHERE f.underlag_id = u.id AND f.extern = 1)
+                    AS kundfaktura
          FROM underlag u LEFT JOIN anvandare a ON a.id = u.uppladdad_av
          WHERE u.foretag_id = ?1 AND (?2 IS NULL OR u.id = ?2)
          ORDER BY u.uppladdad, u.id",
@@ -522,6 +531,7 @@ async fn läs(
             Ok(Underlag {
                 id: UnderlagId(u.id),
                 leverantörsfaktura: u.leverantorsfaktura.map(LeverantörsfakturaId),
+                kundfaktura: u.kundfaktura.map(crate::kundfaktura::KundfakturaId),
                 kopplingar: kopplingar
                     .iter()
                     .filter(|k| k.underlag_id == u.id)

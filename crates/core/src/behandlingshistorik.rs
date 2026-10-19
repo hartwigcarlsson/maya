@@ -114,6 +114,9 @@ händelser! {
     // #148 Kreditfaktura från leverantör och Rätta avskrift
     KreditfakturaRegistrerad => "kreditfaktura registrerad",
     AvskriftRättad => "avskrift rättad",
+    // #143 Externa kundfakturor (KreditfakturaRegistrerad ovan gäller också externa)
+    ExternKundfakturaRegistrerad => "extern kundfaktura registrerad",
+    RegistreringRättad => "registrering rättad",
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -803,11 +806,15 @@ impl Post {
                 kronor(&b["återstår_öre"])
             ),
             // #148 Kreditfaktura från leverantör och Rätta avskrift
+            // Gemensam för leverantörens kreditfakturor (#148) och externa (#143).
             Händelse::KreditfakturaRegistrerad => {
+                let (riktning, motpart) = match b["leverantörsnamn"].as_str() {
+                    Some(namn) => ("från", namn.to_string()),
+                    None => ("till", f("kundnamn")),
+                };
                 let mut text = format!(
-                    "Kreditfaktura {} från ”{}” daterad {}, {} kr",
+                    "Kreditfaktura {} {riktning} ”{motpart}” daterad {}, {} kr",
                     f("fakturanummer"),
-                    f("leverantörsnamn"),
                     f("fakturadatum"),
                     kronor(&b["summa_öre"])
                 );
@@ -816,8 +823,16 @@ impl Post {
                         ", krediterar faktura {}",
                         s(&b["krediterar"]["fakturanummer"])
                     ));
+                } else if !f("krediterar_nummer").is_empty() {
+                    text.push_str(&format!(", krediterar faktura {}", f("krediterar_nummer")));
                 }
-                text.push_str(&format!(", bokförd som {}", f("nummer")));
+                match &b["verifikat"] {
+                    Value::Object(v) => text.push_str(&format!(
+                        ", bokförd som {}",
+                        s(v.get("nummer").unwrap_or(&Value::Null))
+                    )),
+                    _ => text.push_str(&format!(", bokförd som {}", f("nummer"))),
+                }
                 text
             }
             Händelse::AvskriftRättad => {
@@ -825,6 +840,45 @@ impl Post {
                     "Avskriften av faktura {} från ”{}”",
                     f("fakturanummer"),
                     f("leverantörsnamn")
+                );
+                if b["rättelse"].is_object() {
+                    text.push_str(&format!(
+                        " rättad med {} av {}",
+                        s(&b["rättelse"]["nummer"]),
+                        s(&b["verifikat"]["nummer"])
+                    ));
+                } else {
+                    text.push_str(" rättad");
+                }
+                if !f("orsak").is_empty() {
+                    text.push_str(&format!(", {}", f("orsak")));
+                }
+                text.push_str(", fakturan är upplåst");
+                text
+            }
+            // #143 Externa kundfakturor
+            Händelse::ExternKundfakturaRegistrerad => {
+                let mut text = format!(
+                    "Extern faktura {} till ”{}” daterad {}, förfaller {}, {} kr",
+                    f("fakturanummer"),
+                    f("kundnamn"),
+                    f("fakturadatum"),
+                    f("förfallodag"),
+                    kronor(&b["summa_öre"])
+                );
+                if b["verifikat"].is_object() {
+                    text.push_str(&format!(", bokförd som {}", s(&b["verifikat"]["nummer"])));
+                }
+                if b["omregistrerad"].as_bool() == Some(true) {
+                    text.push_str(", registrerad om");
+                }
+                text
+            }
+            Händelse::RegistreringRättad => {
+                let mut text = format!(
+                    "Registreringen av faktura {} till ”{}”",
+                    f("fakturanummer"),
+                    f("kundnamn")
                 );
                 if b["rättelse"].is_object() {
                     text.push_str(&format!(

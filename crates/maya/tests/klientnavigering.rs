@@ -343,6 +343,47 @@ fn menylankarna_navigerar_pa_klienten_och_sidorna_visar_sina_data() {
         .value;
     assert_eq!(samma_sida, Some(true.into()), "en länk laddade om sidan");
     assert_eq!(fel(&tab), Vec::<String>::new());
+
+    // #143 Externa kundfakturor: Ny → Extern faktura och ett uppladdat utkast med originalet
+    // bredvid formuläret, i routern.
+    let externt = tab
+        .evaluate(
+            &format!(
+                "(() => {{ const f = new FormData(); \
+                 f.append('fil', new Blob(['%PDF-1.4'], {{type: 'application/pdf'}}), 'F-17.pdf'); \
+                 return fetch('/foretag/{id}/kundfakturor/extern', {{method: 'POST', body: f}}) \
+                 .then(r => r.ok ? r.url : Promise.reject(r.status + ' ' + r.url)); }})()"
+            ),
+            true,
+        )
+        .unwrap()
+        .value
+        .and_then(|v| v.as_str().map(str::to_string))
+        .unwrap_or_default();
+    assert!(externt.contains("uppladdat=1"), "{externt}");
+    let e = externt
+        .split("f=")
+        .nth(1)
+        .unwrap()
+        .split('&')
+        .next()
+        .unwrap()
+        .to_string();
+    tab.navigate_to(&format!("{bas}/foretag/{id}")).unwrap();
+    vänta_på_hydreringen(&tab);
+    tab.evaluate("window.__samma_sida = true", false).unwrap();
+    klicka(&tab, "details.ny-meny summary");
+    klicka(&tab, "details.ny-meny a[href$='/kundfakturor/extern/ny']");
+    vänta_på_text(&tab, "Ny extern kundfaktura");
+    klicka(&tab, &format!(".verifikatlista a[href$='?f={e}']"));
+    vänta_på_text(&tab, "Extern kundfaktura");
+    vänta_på_förhandsvisningen(&tab);
+    let samma_sida = tab
+        .evaluate("window.__samma_sida === true", false)
+        .unwrap()
+        .value;
+    assert_eq!(samma_sida, Some(true.into()), "en länk laddade om sidan");
+    assert_eq!(fel(&tab), Vec::<String>::new());
 }
 
 /// Postar ett formulär från sidan (samma origin, sessionscookien följer med) och ger adressen

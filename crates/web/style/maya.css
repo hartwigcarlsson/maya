@@ -2867,3 +2867,10 @@ kbd {
 .hanvisning-val select {
   max-width: 24em;
 }
+
+/* Externa kundfakturor (#143) */
+.badge-extern {
+  background: transparent;
+  color: var(--muted-foreground);
+  border: 1px dashed var(--border);
+}

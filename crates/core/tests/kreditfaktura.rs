@@ -158,7 +158,7 @@ async fn hel_kredit_får_nästa_nummer_och_vänder_utfärdandets_kontering() {
     // Listan: kreditfakturan räknas av mot originalet och har inget kvar att betala.
     let lista = kundfaktura::lista(&db, &anna, id).await.unwrap();
     let rad = |i: KundfakturaId| lista.iter().find(|r| r.id == i).unwrap();
-    assert_eq!(rad(k.id).krediterar, Some(f.nummer));
+    assert_eq!(rad(k.id).krediterar, Some(f.nummer.to_string()));
     assert_eq!((rad(k.id).total, rad(k.id).återstår), (-TOTAL, 0));
     assert_eq!((rad(f.id).krediterat, rad(f.id).återstår), (TOTAL, 0));
 }

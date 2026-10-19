@@ -238,6 +238,10 @@ pub fn Toppmeny() -> impl IntoView {
                     <li>
                         <a href=format!("{bas}/kundfakturor/ny")>"Kundfaktura"</a>
                     </li>
+                    // #143
+                    <li>
+                        <a href=format!("{bas}/kundfakturor/extern/ny")>"Extern faktura"</a>
+                    </li>
                     // #145
                     <li>
                         <a href=format!("{bas}/leverantorsfakturor/ny")>"Leverantörsfaktura"</a>

@@ -619,6 +619,44 @@ async fn fakturaändringar(db: &Databas, anna: &Aktör, id: FöretagsId, tid: &s
     maya_core::leverantorsfaktura::rätta_avskrift(db, &senare, anna, id, original, "fel datum")
         .await
         .unwrap();
+    // #143 Externa kundfakturor: en registrerad, en extern kreditfaktura och en rättad
+    // registrering.
+    let extern_kund = testhjalp::kund(db, anna, id, "Extern kund AB").await;
+    let externa = testhjalp::registrerad_extern_kundfaktura(db, anna, id, extern_kund, "E-1").await;
+    let externt_original =
+        testhjalp::registrerad_extern_kundfaktura(db, anna, id, extern_kund, "E-2").await;
+    let kredit = maya_core::extern_kundfaktura::kreditera(
+        db,
+        &k,
+        anna,
+        id,
+        externt_original,
+        ("K-1.pdf", "application/pdf", b"%PDF-1.4 K-1"),
+    )
+    .await
+    .unwrap();
+    maya_core::extern_kundfaktura::registrera(
+        db,
+        &k,
+        anna,
+        id,
+        kredit,
+        &maya_domain::extern_kundfaktura::NyExternFaktura {
+            fakturanummer: "K-1".into(),
+            fakturadatum: "2026-03-20".into(),
+            rader: vec![maya_domain::extern_kundfaktura::NyExternRad {
+                momssats: "25".into(),
+                konto: "3001".into(),
+                belopp: "-100".into(),
+            }],
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
+    maya_core::extern_kundfaktura::rätta_registrering(db, &senare, anna, id, externa, "")
+        .await
+        .unwrap();
 }
 
 #[tokio::test]

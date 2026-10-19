@@ -214,28 +214,30 @@ pub(crate) mod server {
             let kr = |öre: i64| maya_domain::belopp::Saldo::från_öre(öre).to_string();
             let obetalt: i64 = fakturor
                 .iter()
-                .filter(|f| f.status != Status::Utkast)
+                .filter(|f| f.status.i_reskontran())
                 .map(|f| f.återstår.max(0))
                 .sum();
             let tillgodo: i64 = fakturor
                 .iter()
-                .filter(|f| f.status != Status::Utkast)
+                .filter(|f| f.status.i_reskontran())
                 .map(|f| (-f.återstår).max(0))
                 .sum();
             let fakturor = fakturor
                 .iter()
                 .map(|f| KundensFakturaVy {
                     id: f.id.to_string(),
-                    nummer: f.nummer.map(|n| n.to_string()).unwrap_or_default(),
+                    // #143: en extern faktura har det andra systemets nummer.
+                    nummer: f.fakturanummer.clone(),
                     fakturadatum: f.fakturadatum.map(|d| d.to_string()).unwrap_or_default(),
                     förfallodag: f.förfallodag.map(|d| d.to_string()).unwrap_or_default(),
                     total: kr(f.total),
                     återstår: kr(f.återstår),
                     märke: match (f.status, f.förfallodag) {
-                        (Status::Utfärdad, Some(d)) => {
+                        (Status::Utfärdad | Status::Registrerad, Some(d)) => {
                             let m = crate::kundfakturor::server::märke_för(f, d, idag);
                             (m.kod().into(), m.namn().into())
                         }
+                        (Status::Upplåst, _) => ("upplast".into(), "Upplåst".into()),
                         _ => ("utkast".into(), "Utkast".into()),
                     },
                 })

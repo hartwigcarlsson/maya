@@ -514,3 +514,52 @@ pub async fn utfärdad_kreditfaktura(
         .await
         .expect("kreditfakturan utfärdas")
 }
+
+// #143 Externa kundfakturor
+/// En registrerad extern kundfaktura `nummer` till kunden `kund`: 10 000 kr på 3001 med 25 %
+/// moms, 12 500,00 kr, fakturerad 2026-03-10 och förfallen 2026-04-09.
+pub async fn registrerad_extern_kundfaktura(
+    db: &Databas,
+    aktör: &Aktör,
+    företag: FöretagsId,
+    kund: crate::kund::KundId,
+    nummer: &str,
+) -> crate::kundfaktura::KundfakturaId {
+    use crate::extern_kundfaktura;
+    let klocka = Klocka::system();
+    let innehåll = format!("%PDF-1.4 extern kundfaktura {nummer}");
+    let (id, _) = extern_kundfaktura::ladda_upp(
+        db,
+        &klocka,
+        aktör,
+        företag,
+        (
+            &format!("{nummer}.pdf"),
+            "application/pdf",
+            innehåll.as_bytes(),
+        ),
+    )
+    .await
+    .expect("originalet laddas upp");
+    extern_kundfaktura::registrera(
+        db,
+        &klocka,
+        aktör,
+        företag,
+        id,
+        &maya_domain::extern_kundfaktura::NyExternFaktura {
+            kund: kund.to_string(),
+            fakturanummer: nummer.into(),
+            fakturadatum: "2026-03-10".into(),
+            förfallodag: "2026-04-09".into(),
+            rader: vec![maya_domain::extern_kundfaktura::NyExternRad {
+                momssats: "25".into(),
+                konto: "3001".into(),
+                belopp: "10 000".into(),
+            }],
+        },
+    )
+    .await
+    .expect("den externa fakturan registreras");
+    id
+}
