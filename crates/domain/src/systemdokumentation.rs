@@ -313,6 +313,16 @@ pub fn behandlingsregler() -> Vec<Block> {
                 ])
                 .collect(),
         ),
+        // #145 Leverantörsfakturor
+        Block::Underrubrik("Spärrar vid registrering av leverantörsfaktura".into()),
+        Block::Stycke(
+            "Formuläret och servern prövar samma spärrar. En leverantörsfaktura som inte klarar \
+             dem kan sparas som utkast men inte registreras. En annan registrerad faktura från \
+             samma leverantör med samma belopp och fakturadatum men ett annat nummer ger en \
+             varning som inte spärrar. Leverantörens standardkonto fyller rader utan konto."
+                .into(),
+        ),
+        kodtabell(crate::leverantorsfaktura::REGISTRERINGSSPÄRRAR),
         // #135 Kundfakturor
         Block::Underrubrik("Spärrar vid utfärdande av kundfaktura".into()),
         Block::Stycke(

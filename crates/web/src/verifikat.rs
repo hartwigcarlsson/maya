@@ -81,8 +81,8 @@ pub struct DokumentVy {
     pub inte_rättbart: Option<String>,
     /// Det som Rätta… behöver, när verifikatet kan rättas.
     pub rättelse: Option<RättelseVy>,
-    /// Fakturan som verifikatet bokfördes från: adressen och fakturan i text.
-    pub faktura: Option<(String, String)>,
+    /// Fakturan som verifikatet bokfördes från: sidans adress (utan företagets bas) och text.
+    pub flöde: Option<(String, String)>,
 }
 
 /// En länk till ett annat verifikat, med vem som bokförde det och när.
@@ -131,8 +131,6 @@ impl RättelseVy {
                 .collect::<Option<_>>()?,
             rättad_av: None,
             rättar: None,
-            // Bara ett verifikat som kan rättas har en RättelseVy, och det kommer inte från
-            // ett flöde.
             flöde: None,
         })
     }
@@ -383,19 +381,20 @@ pub(crate) mod server {
                 }
                 None => None,
             };
-            let faktura = v.flöde.as_ref().map(|f| match f.sort {
-                verifikat::Flöde::Kundfaktura => (
-                    format!("/foretag/{företag}/kundfakturor?f={}", f.id),
-                    f.text.clone(),
-                ),
-            });
             dokument = Some(DokumentVy {
-                faktura,
                 rättar: v.rättar.as_ref().map(länk),
                 rättad_av: v.rättad_av.as_ref().map(länk),
                 kopia_av: v.kopia_av.as_ref().map(länk),
                 inte_rättbart,
                 rättelse,
+                flöde: v.flöde.as_ref().map(|f| match f.flöde {
+                    verifikat::Flöde::Leverantörsfaktura => {
+                        (format!("/leverantorsfakturor?f={}", f.id), f.text.clone())
+                    }
+                    verifikat::Flöde::Kundfaktura => {
+                        (format!("/kundfakturor?f={}", f.id), f.text.clone())
+                    }
+                }),
                 id: v.id.to_string(),
                 pdf: (
                     format!("/foretag/{företag}/verifikat/{}/pdf", v.id),
@@ -441,7 +440,7 @@ pub(crate) mod server {
         };
         let okopplade = alla_underlag
             .iter()
-            .filter(|u| u.kopplingar.is_empty())
+            .filter(|u| u.okopplat())
             .map(vy)
             .collect();
         let utkast = dokument.as_ref().is_some_and(|d| d.nummer.is_none());
@@ -1385,13 +1384,11 @@ fn Dokument(bas: String, d: DokumentVy, okopplade: Vec<UnderlagVy>) -> impl Into
         .inte_rättbart
         .clone()
         .map(|text| view! { <p class="notis">{text}</p> });
-    let faktura = d.faktura.clone().map(|(href, text)| {
+    let flöde = d.flöde.clone().map(|(href, text)| {
         view! {
             <dt>"Bokfört från"</dt>
             <dd>
-                <a class="fakturalank" href=href>
-                    {text}
-                </a>
+                <a href=format!("{bas}{href}")>{text}</a>
             </dd>
         }
     });
@@ -1438,10 +1435,10 @@ fn Dokument(bas: String, d: DokumentVy, okopplade: Vec<UnderlagVy>) -> impl Into
                 {bokförd}
                 <dt>"Skapat"</dt>
                 <dd>"av " {skapad_namn} " via " {skapad_kanal}</dd>
-                {faktura}
                 {rättad}
                 {rättar}
                 {ersätter}
+                {flöde}
             </dl>
             <table class="rader">
                 <thead>

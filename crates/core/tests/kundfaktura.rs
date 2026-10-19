@@ -204,7 +204,7 @@ async fn utfärdandet_numrerar_arkiverar_pdf_en_bokför_och_loggar_i_en_transakt
     assert_eq!(v.underlag[0].sha256, u.pdf.sha256);
     // Verifikatet länkar till fakturan.
     let flöde = v.flöde.as_ref().unwrap();
-    assert_eq!(flöde.sort, Flöde::Kundfaktura);
+    assert_eq!(flöde.flöde, Flöde::Kundfaktura);
     assert_eq!(flöde.id.to_string(), f.to_string());
     assert_eq!(flöde.text, "kundfaktura 1 till Kund AB");
 

@@ -18,6 +18,7 @@ pub mod kontourval;
 pub mod kund;
 pub mod kundfaktura;
 pub mod leverantor;
+pub mod leverantorsfaktura;
 pub mod luhn;
 pub mod orgnr;
 pub mod rakenskapsar;

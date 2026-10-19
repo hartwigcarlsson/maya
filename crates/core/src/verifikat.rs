@@ -138,22 +138,6 @@ pub struct Länk {
     pub bokförd: Option<Signatur>,
 }
 
-/// Flödet som ett verifikat bokfördes från.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Flöde {
-    Kundfaktura,
-}
-
-/// Länken från ett verifikat till fakturan som det bokfördes från (story 73).
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Flödeslänk {
-    pub sort: Flöde,
-    /// Fakturans id i sin tabell.
-    pub id: i64,
-    /// Fakturan i text, t.ex. "kundfaktura 1007 till Kund AB".
-    pub text: String,
-}
-
 /// Ett verifikat med rader och historik.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Verifikat {
@@ -181,8 +165,27 @@ pub struct Verifikat {
     pub underlag: Vec<VerifikatetsUnderlag>,
     /// Posterna i behandlingshistoriken som rör verifikatet, i ordning.
     pub historik: Vec<Historikpost>,
-    /// Fakturan som verifikatet bokfördes från, om det kommer från ett av Mayas flöden.
+    /// Fakturan som verifikatet bokfördes från, när det kommer från ett av Mayas flöden.
     pub flöde: Option<Flödeslänk>,
+}
+
+/// Fakturaflödet som ett verifikat kommer ifrån.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Flöde {
+    /// Registreringen av en leverantörsfaktura (#145).
+    Leverantörsfaktura,
+    /// Utfärdandet av en kundfaktura (#135).
+    Kundfaktura,
+}
+
+/// En länk från ett verifikat till fakturan som det bokfördes från.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Flödeslänk {
+    pub flöde: Flöde,
+    /// Fakturans id i sitt flöde.
+    pub id: i64,
+    /// Fakturan i text, t.ex. "leverantörsfaktura 8812 från Kontorsvaror AB".
+    pub text: String,
 }
 
 impl Verifikat {
@@ -269,7 +272,7 @@ pub async fn förutsättningar(
     Ok(läs_förutsättningar(&mut tx, företag).await?)
 }
 
-async fn läs_förutsättningar(
+pub(crate) async fn läs_förutsättningar(
     conn: &mut SqliteConnection,
     företag: FöretagsId,
 ) -> Result<Förutsättningar, DatabasFel> {
@@ -293,6 +296,34 @@ async fn läs_förutsättningar(
             .map(|(start, slut)| Ok(Räkenskapsår::befintligt(datum(start)?, datum(slut)?)))
             .collect::<Result<_, DatabasFel>>()?,
     })
+}
+
+/// Nästa nummer i V-serien för varje räkenskapsår, för förhandsvisningen "Bokförs som V9" i
+/// fakturaflödena. Numret tilldelas först vid bokföringen och kan hinna tas av någon annan.
+pub async fn nästa_nummer(
+    db: &Databas,
+    aktör: &Aktör,
+    företag: FöretagsId,
+) -> Result<Vec<(Räkenskapsår, Verifikationsnummer)>, ÅtkomstFel> {
+    let mut tx = db.pool().begin().await?;
+    atkomst::kräv(&mut tx, aktör, företag, Handling::LäsaFöretag).await?;
+    let rader: Vec<(String, String, i64)> = sqlx::query_as(
+        "SELECT r.start, r.slut,
+                coalesce((SELECT max(nummer) FROM verifikat v WHERE v.rakenskapsar_id = r.id), 0) + 1
+         FROM rakenskapsar r WHERE r.foretag_id = ? ORDER BY r.start",
+    )
+    .bind(företag.0)
+    .fetch_all(&mut *tx)
+    .await?;
+    Ok(rader
+        .into_iter()
+        .map(|(start, slut, nästa)| {
+            Ok((
+                Räkenskapsår::befintligt(datum(&start)?, datum(&slut)?),
+                verifikationsnummer(nästa)?,
+            ))
+        })
+        .collect::<Result<_, DatabasFel>>()?)
 }
 
 /// Registrerar och bokför ett verifikat i ett steg: prövar spärrarna, skapar räkenskapsåret
@@ -343,28 +374,29 @@ pub async fn bokför_utkast(
     bokför_i(ärende, Some(utkast), formulär, None).await
 }
 
-/// Bokför i ärendet och sparar. `underlag` är `None` när kopplingarna ska lämnas som de är.
+/// Bokför i ärendet och committar. `underlag` är `None` när kopplingarna ska lämnas som de är.
 async fn bokför_i(
     mut ärende: Ärende,
     utkast: Option<VerifikatId>,
     formulär: &NyttVerifikat,
     underlag: Option<&[UnderlagId]>,
 ) -> Result<Bokfört, VerifikatFel> {
-    let bokfört = bokför_utan_att_spara(&mut ärende, utkast, formulär, underlag).await?;
+    let bokfört = bokför_utan_att_slutföra(&mut ärende, utkast, formulär, underlag).await?;
     ärende.slutför().await?;
     Ok(bokfört)
 }
 
-/// Bokför ett nytt verifikat ur formuläret i ärendet, med exakt underlagen i `underlag`
-/// kopplade, utan att spara: samma spärrar, år, nummer och loggning som [`bokför`]. Flödena
-/// (fakturor, betalningar) bokför sitt verifikat så, i samma transaktion som sin egen
-/// händelse, och sparar ärendet själva. Verifikatets källa är `manuell`.
+/// Bokför ett nytt verifikat inne i ärendet utan att committa, för fakturaflödena: fakturans
+/// händelse och dess verifikat skapas i samma transaktion, så att reskontran och huvudboken
+/// aldrig går isär. Raderna prövas med samma spärrar som ett manuellt verifikat, underlagen
+/// kopplas före numreringen (inte som komplettering) och bokföringen loggas. Den som anropar
+/// slutför ärendet.
 pub(crate) async fn bokför_i_ärende(
     ärende: &mut Ärende,
     formulär: &NyttVerifikat,
     underlag: &[UnderlagId],
 ) -> Result<Bokfört, VerifikatFel> {
-    bokför_utan_att_spara(ärende, None, formulär, Some(underlag)).await
+    bokför_utan_att_slutföra(ärende, None, formulär, Some(underlag)).await
 }
 
 /// Formuläret för ett verifikat med kontrollerade rader, t.ex. ett flödes kontering, så att
@@ -396,7 +428,7 @@ pub(crate) fn formulär_av(
     }
 }
 
-async fn bokför_utan_att_spara(
+async fn bokför_utan_att_slutföra(
     ärende: &mut Ärende,
     utkast: Option<VerifikatId>,
     formulär: &NyttVerifikat,
@@ -1049,6 +1081,7 @@ async fn läs_verifikat(
         })
         .collect::<Result<Vec<_>, DatabasFel>>()?;
     let underlag = underlag::verifikatets(&mut *tx, id).await?;
+    let flöde = flödeslänk(&mut *tx, id).await?;
     let mut historik = Vec::new();
     for post in behandlingshistorik::läs_om_verifikat(&mut *tx, företag, id.0).await? {
         let namn = namn(&mut *tx, &post.aktör).await?;
@@ -1088,19 +1121,36 @@ async fn läs_verifikat(
         bokförd,
         underlag,
         historik,
-        flöde: flödeslänk(tx, id).await?,
+        flöde,
     }))
 }
 
-/// Fakturan som verifikatet bokfördes från. Varje flöde lägger till sin fråga här.
+/// Fakturan som verifikatet bokfördes från, om det kommer från ett av fakturaflödena. Varje
+/// flöde som bokför lägger till sin tabell här.
 async fn flödeslänk(
     conn: &mut SqliteConnection,
     id: VerifikatId,
 ) -> Result<Option<Flödeslänk>, DatabasFel> {
+    // #145 Leverantörsfakturor
+    let leverantörsfaktura: Option<(i64, String, String)> = sqlx::query_as(
+        "SELECT f.id, f.fakturanummer, l.namn FROM leverantorsfaktura f
+         JOIN leverantor l ON l.id = f.leverantor_id WHERE f.verifikat_id = ?",
+    )
+    .bind(id.0)
+    .fetch_optional(&mut *conn)
+    .await?;
+    if let Some((id, nummer, namn)) = leverantörsfaktura {
+        return Ok(Some(Flödeslänk {
+            flöde: Flöde::Leverantörsfaktura,
+            id,
+            text: format!("leverantörsfaktura {nummer} från {namn}"),
+        }));
+    }
+    // #135 Kundfakturor
     Ok(crate::kundfaktura::fakturan_för_verifikat(conn, id)
         .await?
         .map(|(id, text)| Flödeslänk {
-            sort: Flöde::Kundfaktura,
+            flöde: Flöde::Kundfaktura,
             id,
             text,
         }))

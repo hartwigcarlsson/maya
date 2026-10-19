@@ -2315,6 +2315,126 @@ kbd {
   display: block;
 }
 
+/* Leverantörsfakturor (#145): originalet till vänster, formuläret till höger, det streckade
+   kortet för en ny leverantör och rutan "Bokförs som". */
+.ny-meny {
+  position: relative;
+}
+
+.ny-meny summary {
+  list-style: none;
+  font-weight: 500;
+}
+
+.ny-meny ul {
+  position: absolute;
+  z-index: 10;
+  min-width: 12rem;
+  margin: 4px 0 0;
+  padding: 4px;
+  list-style: none;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--card);
+  color: var(--card-foreground);
+}
+
+.ny-meny a {
+  display: block;
+  padding: 4px 8px;
+  border-radius: var(--radius);
+  text-decoration: none;
+}
+
+.ny-meny a:hover {
+  background: var(--accent);
+}
+
+.lf-grupp {
+  margin: 1rem 0 0.25rem;
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--muted-foreground);
+}
+
+.lf-formular {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  min-width: 0;
+}
+
+.lf-formular p {
+  margin: 0;
+}
+
+.lf-formular label {
+  display: block;
+  margin-bottom: 4px;
+}
+
+.lf-formular input,
+.lf-formular select {
+  width: 100%;
+  height: var(--control-height);
+  padding: 0 8px;
+  border: 1px solid var(--input);
+  border-radius: var(--radius);
+  background: var(--background);
+  color: var(--foreground);
+  font: inherit;
+}
+
+.lf-formular .fel {
+  margin: 4px 0 0;
+  color: var(--destructive);
+}
+
+.lf-rutnat {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(11rem, 1fr));
+  gap: 0.75rem;
+}
+
+.kort-streckat {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.75rem;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius);
+}
+
+.kort-streckat.dold {
+  display: none;
+}
+
+.bokfors-som {
+  padding: 0.75rem;
+  border-radius: var(--radius);
+  background: var(--muted);
+}
+
+.bokfors-som h3 {
+  margin: 0 0 0.5rem;
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--muted-foreground);
+}
+
+.diff-ok {
+  color: var(--success);
+}
+
+.diff-bad {
+  color: var(--destructive);
+}
+
+.badge-ny {
+  border: 1px dashed var(--primary);
+  background: color-mix(in oklch, var(--primary) 12%, transparent);
+}
+
 /* Kundfakturor (#135): formuläret med förhandsvisningen som spalt vid behov, Granska och
    utfärda, rutan "Bokförs som" och den utfärdade fakturans dokument. Papperet är alltid ljust:
    det är kundens exemplar. */
@@ -2397,14 +2517,6 @@ kbd {
   font-weight: 600;
   letter-spacing: 0.04em;
   text-transform: uppercase;
-  color: var(--muted-foreground);
-}
-
-kbd {
-  padding: 0 4px;
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  font: 11px ui-monospace, monospace;
   color: var(--muted-foreground);
 }
 

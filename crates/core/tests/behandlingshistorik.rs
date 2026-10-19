@@ -346,6 +346,46 @@ async fn fakturaändringar(db: &Databas, anna: &Aktör, id: FöretagsId, tid: &s
     .unwrap();
     kund::arkivera(db, &k, anna, id, kund_ab).await.unwrap();
     kund::radera(db, &k, anna, id, kund_ab).await.unwrap();
+    // #145 Leverantörsfakturor: en registrerad och ett raderat utkast.
+    let l = leverantor::skapa(
+        db,
+        &k,
+        anna,
+        id,
+        &NyLeverantör {
+            namn: "Tryckeriet AB".into(),
+            ..NyLeverantör::default()
+        },
+    )
+    .await
+    .unwrap();
+    let fil = ("faktura.pdf", "application/pdf", &b"%PDF-1.4"[..]);
+    let (f, _) = maya_core::leverantorsfaktura::ladda_upp(db, &k, anna, id, fil)
+        .await
+        .unwrap();
+    let faktura = maya_domain::leverantorsfaktura::NyLeverantörsfaktura {
+        leverantör: l.to_string(),
+        fakturanummer: "8812".into(),
+        fakturadatum: "2026-02-27".into(),
+        förfallodag: "2026-03-29".into(),
+        totalbelopp: "125".into(),
+        rader: vec![maya_domain::leverantorsfaktura::NyRad {
+            konto: "5410".into(),
+            netto: "100".into(),
+            momssats: "25".into(),
+            moms: String::new(),
+        }],
+        ..Default::default()
+    };
+    maya_core::leverantorsfaktura::registrera(db, &k, anna, id, f, &faktura)
+        .await
+        .unwrap();
+    let (f, _) = maya_core::leverantorsfaktura::ladda_upp(db, &k, anna, id, fil)
+        .await
+        .unwrap();
+    maya_core::leverantorsfaktura::radera_utkast(db, &k, anna, id, f)
+        .await
+        .unwrap();
     // #135 Kundfakturor
     foretag::ändra_uppgifter(
         db,

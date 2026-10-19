@@ -30,6 +30,8 @@ pub struct UnderlagVy {
     pub komplettering: Option<(String, String)>,
     /// Verifikaten underlaget är kopplat till: id och nummer, eller `None` för ett utkast.
     pub kopplingar: Vec<(String, Option<String>)>,
+    /// Leverantörsfakturan som underlaget är original till (#145).
+    pub leverantörsfaktura: Option<String>,
     pub kan_tas_bort: bool,
     /// Andra underlag i företaget med samma innehåll: filnamn och när de laddades upp.
     pub dubbletter: Vec<(String, String)>,
@@ -57,6 +59,9 @@ pub fn feltext(kod: &str) -> Option<&'static str> {
         "for_stort" => "Ett underlag får vara högst 25 MB.",
         "ingen_fil" => "Välj en fil att ladda upp.",
         "hor_till_bokfort" => "Underlaget hör till ett bokfört verifikat och kan inte tas bort.",
+        "hor_till_faktura" => {
+            "Underlaget är original till en leverantörsfaktura. Radera utkastet först."
+        }
         "okant_underlag" => "Underlaget finns inte i företaget.",
         "redan_kopplat" => "Underlaget är redan kopplat till verifikatet.",
         _ => return None,
@@ -270,6 +275,7 @@ pub(crate) mod server {
                 .map(|k| (k.verifikat.to_string(), k.nummer.map(|n| n.to_string())))
                 .collect(),
             kan_tas_bort: u.kan_tas_bort(),
+            leverantörsfaktura: u.leverantörsfaktura.map(|f| f.to_string()),
             dubbletter: u
                 .dubbletter
                 .iter()
@@ -293,6 +299,7 @@ pub(crate) mod server {
                 .then(|| (tid(u.kopplad.tid), u.kopplad.namn.clone())),
             kopplingar: Vec::new(),
             kan_tas_bort: false,
+            leverantörsfaktura: None,
             dubbletter: Vec::new(),
         }
     }
@@ -446,6 +453,9 @@ pub(crate) mod server {
             Ok(()) => Redirect::to(&format!("{sida}?borttaget=1")).into_response(),
             Err(UnderlagFel::HörTillBokfört) => {
                 Redirect::to(&format!("{sida}?u={u}&fel=hor_till_bokfort")).into_response()
+            }
+            Err(UnderlagFel::HörTillFaktura) => {
+                Redirect::to(&format!("{sida}?u={u}&fel=hor_till_faktura")).into_response()
             }
             Err(e) => underlagsfel(e),
         }
@@ -655,7 +665,14 @@ fn ValtUnderlag(bas: String, u: UnderlagVy, ta_bort: bool, dubblett: bool) -> im
             </p>
         }
     });
-    let kopplingar = if u.kopplingar.is_empty() {
+    let kopplingar = if let Some(f) = &u.leverantörsfaktura {
+        view! {
+            <dd>
+                <a href=format!("{bas}/leverantorsfakturor?f={f}")>"Leverantörsfaktura"</a>
+            </dd>
+        }
+        .into_any()
+    } else if u.kopplingar.is_empty() {
         view! { <dd>"Okopplat"</dd> }.into_any()
     } else {
         u.kopplingar
@@ -673,7 +690,14 @@ fn ValtUnderlag(bas: String, u: UnderlagVy, ta_bort: bool, dubblett: bool) -> im
             .collect_view()
             .into_any()
     };
-    let åtgärd = if !u.kan_tas_bort {
+    let åtgärd = if u.leverantörsfaktura.is_some() {
+        view! {
+            <p class="diskret">
+                "Underlaget är original till en leverantörsfaktura och kan inte tas bort."
+            </p>
+        }
+        .into_any()
+    } else if !u.kan_tas_bort {
         view! {
             <p class="diskret">
                 "Underlaget hör till ett bokfört verifikat och kan inte tas bort."

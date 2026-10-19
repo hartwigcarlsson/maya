@@ -23,6 +23,7 @@ pub mod kontrollsumma;
 pub mod kund;
 pub mod kundfaktura;
 pub mod leverantor;
+pub mod leverantorsfaktura;
 pub mod rapport;
 pub mod saldo;
 pub mod sie4;

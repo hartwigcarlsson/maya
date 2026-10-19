@@ -158,32 +158,6 @@ BEGIN
     SELECT RAISE(ABORT, 'startnumret går inte att ändra efter första utfärdandet');
 END;
 
--- En utfärdad kundfaktura är räkenskapsinformation: ett företag med en sådan raderas inte (A1).
--- Triggrarna från 20261019100000_radering_av_foretag.sql byggs om med det villkoret.
-DROP TRIGGER foretag_radering_kraver_utan_rakenskapsinformation;
-
-CREATE TRIGGER foretag_radering_kraver_utan_rakenskapsinformation
-BEFORE INSERT ON foretag_radering
-WHEN EXISTS (SELECT 1 FROM verifikat WHERE foretag_id = NEW.foretag_id AND bokford IS NOT NULL)
-  OR EXISTS (SELECT 1 FROM underlag WHERE foretag_id = NEW.foretag_id)
-  OR EXISTS (SELECT 1 FROM ingaende_balans b JOIN rakenskapsar r ON r.id = b.rakenskapsar_id
-             WHERE r.foretag_id = NEW.foretag_id)
-  OR EXISTS (SELECT 1 FROM kundfaktura
-             WHERE foretag_id = NEW.foretag_id AND status <> 'utkast')
-BEGIN
-    SELECT RAISE(ABORT, 'ett företag med räkenskapsinformation går inte att radera');
-END;
-
-DROP TRIGGER foretag_raderas_inte;
-
-CREATE TRIGGER foretag_raderas_inte
-BEFORE DELETE ON foretag
-WHEN NOT EXISTS (SELECT 1 FROM foretag_radering WHERE foretag_id = OLD.id)
-  OR EXISTS (SELECT 1 FROM verifikat WHERE foretag_id = OLD.id AND bokford IS NOT NULL)
-  OR EXISTS (SELECT 1 FROM underlag WHERE foretag_id = OLD.id)
-  OR EXISTS (SELECT 1 FROM ingaende_balans b JOIN rakenskapsar r ON r.id = b.rakenskapsar_id
-             WHERE r.foretag_id = OLD.id)
-  OR EXISTS (SELECT 1 FROM kundfaktura WHERE foretag_id = OLD.id AND status <> 'utkast')
-BEGIN
-    SELECT RAISE(ABORT, 'ett företag raderas bara utan räkenskapsinformation, genom Maya');
-END;
+-- Att en utfärdad kundfaktura spärrar raderingen av företaget står i
+-- 20261020014590_radering_med_kundfakturor.sql, efter leverantörsfakturornas ombyggnad av samma
+-- triggrar.

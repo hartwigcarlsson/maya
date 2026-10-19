@@ -19,6 +19,7 @@ pub mod kontoplan;
 pub mod kunder;
 pub mod kundfakturor;
 pub mod leverantorer;
+pub mod leverantorsfakturor;
 pub mod rapporter;
 pub mod sidodata;
 pub mod sok;
