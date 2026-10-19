@@ -42,6 +42,7 @@ fn förutsättningar() -> Förutsättningar {
             omvänd_skattskyldighet: OmvändSkattskyldighet::Ingen,
         }],
         registrerade: Vec::new(),
+        ..Förutsättningar::default()
     }
 }
 
@@ -266,7 +267,7 @@ fn samma_leverantör_och_nummer_spärrar_med_ett_suffix() {
             leverantör: "7".into(),
             fakturanummer: nummer.into(),
             fakturadatum: date(2026, 2, 1),
-            total: Belopp::från_öre(5_000),
+            total: 5_000,
         });
     }
     let spärrar = faktura().kontrollera(&fö).unwrap_err();
@@ -291,7 +292,7 @@ fn samma_leverantör_belopp_och_datum_med_annat_nummer_varnar() {
         leverantör: "7".into(),
         fakturanummer: "8811".into(),
         fakturadatum: date(2026, 3, 14),
-        total: Belopp::från_öre(125_000),
+        total: 125_000,
     });
     let varningar = faktura().varningar(&fö);
     assert_eq!(varningar.len(), 1);
@@ -309,7 +310,7 @@ fn ogiltiga_belopp_och_momssatser_spärrar() {
     let mut f = faktura();
     f.rader[0].netto = "tusen".into();
     f.rader[0].momssats = "20".into();
-    f.totalbelopp = "-5".into();
+    f.totalbelopp = "fem".into();
     let koder = koder(&f, &förutsättningar());
     for kod in ["netto_ogiltigt", "momssats_ogiltig", "total_ogiltig"] {
         assert!(koder.contains(&kod), "{kod} saknas i {koder:?}");
@@ -329,7 +330,7 @@ fn varje_spärrkod_är_dokumenterad() {
         leverantör: "7".into(),
         fakturanummer: "8812".into(),
         fakturadatum: date(2026, 1, 1),
-        total: Belopp::NOLL,
+        total: 0,
     });
     let fall: Vec<NyLeverantörsfaktura> = vec![
         NyLeverantörsfaktura::default(),
@@ -374,11 +375,21 @@ fn varje_spärrkod_är_dokumenterad() {
             förfallodag: "2026-12-31".into(),
             ..faktura()
         },
+        // #148: en hänvisning som inte finns, på en faktura som inte är negativ.
+        NyLeverantörsfaktura {
+            krediterar: "4".into(),
+            ..faktura()
+        },
     ];
     let mut utan_standardkonto = förutsättningar();
     utan_standardkonto.leverantörer[0].standardkonto = None;
+    // #148: en upplåst faktura som redan är betald med mer än totalen.
+    let betald = Förutsättningar {
+        betalt: 1_000_000,
+        ..förutsättningar()
+    };
     for f in &fall {
-        for fö in [&fö, &utan_standardkonto] {
+        for fö in [&fö, &utan_standardkonto, &betald] {
             sedda.extend(
                 f.kontrollera(fö)
                     .err()
@@ -566,4 +577,258 @@ fn förhandsvisningen_visar_den_fiktiva_momsen() {
         .map(|r| (r.konto.get(), r.debet.öre(), r.kredit.öre()))
         .collect();
     assert_eq!(rader, kontering(&f, &förutsättningar()));
+}
+
+// #148 Kreditfaktura från leverantör och Rätta avskrift
+
+use maya_domain::leverantorsfaktura::{Krediterbar, Rad};
+
+/// En kreditfaktura på 250 kr: negativ total och negativa rader.
+fn kredit() -> NyLeverantörsfaktura {
+    NyLeverantörsfaktura {
+        fakturanummer: "K-17".into(),
+        totalbelopp: "-250".into(),
+        rader: vec![rad("5410", "-200", "25")],
+        ..faktura()
+    }
+}
+
+/// Originalet som kan krediteras: 1 000 kr på 5410 med 25 % och 100 kr på 6110 med 12 %.
+fn original(omvänd: OmvändSkattskyldighet) -> Krediterbar {
+    let fiktiv = omvänd != OmvändSkattskyldighet::Ingen;
+    Krediterbar {
+        id: "3".into(),
+        leverantör: "7".into(),
+        fakturanummer: "8812".into(),
+        total: if fiktiv { 110_000 } else { 136_200 },
+        omvänd_skattskyldighet: omvänd,
+        rader: vec![
+            Rad {
+                konto: nr(5410),
+                netto: 100_000,
+                momssats: 25,
+                moms: 25_000,
+            },
+            Rad {
+                konto: nr(6110),
+                netto: 10_000,
+                momssats: 12,
+                moms: 1_200,
+            },
+        ],
+    }
+}
+
+fn med_original(omvänd: OmvändSkattskyldighet) -> Förutsättningar {
+    Förutsättningar {
+        krediterbara: vec![original(omvänd)],
+        ..förutsättningar()
+    }
+}
+
+#[test]
+fn en_kreditfaktura_bokför_2440_i_debet_mot_kostnaden_och_momsen_i_kredit() {
+    assert_eq!(
+        kontering(&kredit(), &förutsättningar()),
+        [(5410, 0, 20_000), (2641, 0, 5_000), (2440, 25_000, 0)]
+    );
+    // Momsen på ett negativt netto avrundas som på det positiva: 0,50 × 25 % = 0,13.
+    let mut f = kredit();
+    f.totalbelopp = "-0,63".into();
+    f.rader[0].netto = "-0,50".into();
+    assert_eq!(
+        kontering(&f, &förutsättningar()),
+        [(5410, 0, 50), (2641, 0, 13), (2440, 63, 0)]
+    );
+}
+
+#[test]
+fn en_kreditfaktura_med_omvänd_skattskyldighet_vänder_också_den_fiktiva_momsen() {
+    let f = NyLeverantörsfaktura {
+        omvänd_skattskyldighet: "eu_tjanst".into(),
+        totalbelopp: "-1 100".into(),
+        rader: vec![rad("5410", "-1000", "25"), rad("6110", "-100", "12")],
+        ..kredit()
+    };
+    assert_eq!(
+        kontering(&f, &förutsättningar()),
+        [
+            (5410, 0, 100_000),
+            (6110, 0, 10_000),
+            (2645, 0, 26_200),
+            (2440, 110_000, 0),
+            (2614, 25_000, 0),
+            (2624, 1_200, 0),
+        ]
+    );
+}
+
+#[test]
+fn raderna_har_samma_tecken_som_totalen() {
+    let mut f = kredit();
+    f.rader[0].netto = "200".into();
+    assert!(koder(&f, &förutsättningar()).contains(&"netto_ogiltigt"));
+    let mut f = faktura();
+    f.rader[0].netto = "-1000".into();
+    assert!(koder(&f, &förutsättningar()).contains(&"netto_ogiltigt"));
+    let mut f = kredit();
+    f.rader[0].moms = "50".into();
+    assert!(koder(&f, &förutsättningar()).contains(&"moms_ogiltig"));
+}
+
+#[test]
+fn hänvisningen_är_en_registrerad_faktura_från_samma_leverantör() {
+    let fö = med_original(OmvändSkattskyldighet::Ingen);
+    let f = NyLeverantörsfaktura {
+        krediterar: "3".into(),
+        ..kredit()
+    };
+    assert_eq!(f.kontrollera(&fö).unwrap().krediterar.as_deref(), Some("3"));
+    let annan = NyLeverantörsfaktura {
+        krediterar: "4".into(),
+        ..kredit()
+    };
+    assert_eq!(koder(&annan, &fö), ["krediterar_okand"]);
+    let mut annan_leverantör = med_original(OmvändSkattskyldighet::Ingen);
+    annan_leverantör.krediterbara[0].leverantör = "8".into();
+    assert_eq!(koder(&f, &annan_leverantör), ["krediterar_okand"]);
+    // Utan hänvisning är kreditfakturan fristående.
+    assert_eq!(kredit().kontrollera(&fö).unwrap().krediterar, None);
+    // En faktura med hänvisning är en kreditfaktura.
+    let positiv = NyLeverantörsfaktura {
+        krediterar: "3".into(),
+        ..faktura()
+    };
+    assert_eq!(koder(&positiv, &fö), ["kredit_inte_negativ"]);
+}
+
+#[test]
+fn hel_kredit_konteras_som_originalet_med_omvänt_tecken() {
+    let fö = med_original(OmvändSkattskyldighet::Ingen);
+    let f = NyLeverantörsfaktura {
+        krediterar: "3".into(),
+        totalbelopp: "-1 362".into(),
+        rader: Vec::new(),
+        ..kredit()
+    }
+    .kontera_som_originalet(&fö)
+    .unwrap();
+    assert_eq!(f.omvänd_skattskyldighet, "ingen");
+    assert_eq!(
+        f.rader,
+        [
+            NyRad {
+                moms: "-250".into(),
+                ..rad("5410", "-1000", "25")
+            },
+            NyRad {
+                moms: "-12".into(),
+                ..rad("6110", "-100", "12")
+            },
+        ]
+    );
+    assert_eq!(
+        kontering(&f, &fö),
+        [
+            (5410, 0, 100_000),
+            (6110, 0, 10_000),
+            (2641, 0, 26_200),
+            (2440, 136_200, 0)
+        ]
+    );
+}
+
+#[test]
+fn delkredit_fördelas_proportionellt_på_originalets_rader_och_moms() {
+    let fö = med_original(OmvändSkattskyldighet::Ingen);
+    // 100 kr av 1 362: 5410 får 91,78 (73,42 netto och 18,36 moms), 6110 får 8,22 (7,34 och
+    // 0,88); största resten får öret som fattas.
+    let f = NyLeverantörsfaktura {
+        krediterar: "3".into(),
+        totalbelopp: "-100".into(),
+        ..kredit()
+    }
+    .kontera_som_originalet(&fö)
+    .unwrap();
+    assert_eq!(
+        f.rader,
+        [
+            NyRad {
+                moms: "-18,36".into(),
+                ..rad("5410", "-73,42", "25")
+            },
+            NyRad {
+                moms: "-0,88".into(),
+                ..rad("6110", "-7,34", "12")
+            },
+        ]
+    );
+    assert!(f.kontrollera(&fö).is_ok());
+    // Utan negativ total eller utan hänvisning finns inget att fördela.
+    assert_eq!(kredit().kontera_som_originalet(&fö), None);
+    assert_eq!(
+        NyLeverantörsfaktura {
+            krediterar: "3".into(),
+            ..faktura()
+        }
+        .kontera_som_originalet(&fö),
+        None
+    );
+}
+
+#[test]
+fn delkredit_med_omvänd_skattskyldighet_fördelar_nettot_och_den_fiktiva_momsen() {
+    let fö = med_original(OmvändSkattskyldighet::EuTjänst);
+    // Halva originalet: 550 kr netto och 131 kr fiktiv moms.
+    let f = NyLeverantörsfaktura {
+        krediterar: "3".into(),
+        totalbelopp: "-550".into(),
+        ..kredit()
+    }
+    .kontera_som_originalet(&fö)
+    .unwrap();
+    assert_eq!(f.omvänd_skattskyldighet, "eu_tjanst");
+    assert_eq!(
+        kontering(&f, &fö),
+        [
+            (5410, 0, 50_000),
+            (6110, 0, 5_000),
+            (2645, 0, 13_100),
+            (2440, 55_000, 0),
+            (2614, 12_500, 0),
+            (2624, 600, 0),
+        ]
+    );
+}
+
+#[test]
+fn en_upplåst_faktura_kan_inte_få_en_total_under_det_som_redan_betalats() {
+    let fö = Förutsättningar {
+        betalt: 50_000,
+        ..förutsättningar()
+    };
+    let mut f = faktura();
+    f.totalbelopp = "400".into();
+    f.rader[0].netto = "320".into();
+    let spärrar = f.kontrollera(&fö).unwrap_err();
+    assert_eq!(spärrar.len(), 1, "{spärrar:?}");
+    assert_eq!(spärrar[0].kod, "under_betalt");
+    assert_eq!(spärrar[0].fält, Fält::Totalbelopp);
+    assert_eq!(
+        spärrar[0].text,
+        "Totalen är under det som redan har betalats, 500,00 kr."
+    );
+    f.totalbelopp = "500".into();
+    f.rader[0].netto = "400".into();
+    assert!(f.kontrollera(&fö).is_ok());
+    // En kreditfaktura som har fått en återbetalning kan inte bli mindre än den.
+    let fö = Förutsättningar {
+        betalt: -10_000,
+        ..förutsättningar()
+    };
+    let mut k = kredit();
+    k.totalbelopp = "-50".into();
+    k.rader[0].netto = "-40".into();
+    assert_eq!(koder(&k, &fö), ["under_betalt"]);
+    assert!(kredit().kontrollera(&fö).is_ok());
 }

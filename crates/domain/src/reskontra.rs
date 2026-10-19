@@ -30,6 +30,9 @@ pub enum Märke {
     Tillgodo,
     /// Fakturan är en kreditfaktura, som räknas av mot originalet.
     Kreditfaktura,
+    // #148 Rätta avskrift
+    /// Leverantörsfakturans registrering är vänd med Rätta avskrift, och den registreras om.
+    Upplåst,
 }
 
 impl Märke {
@@ -43,6 +46,7 @@ impl Märke {
             Märke::Krediterad => "Krediterad",
             Märke::Tillgodo => "Tillgodo",
             Märke::Kreditfaktura => "Kreditfaktura",
+            Märke::Upplåst => "Upplåst",
         }
     }
 
@@ -57,6 +61,7 @@ impl Märke {
             Märke::Krediterad => "krediterad",
             Märke::Tillgodo => "tillgodo",
             Märke::Kreditfaktura => "kreditfaktura",
+            Märke::Upplåst => "upplast",
         }
     }
 }
@@ -104,6 +109,21 @@ pub fn kundfakturans_märke(
     } else {
         märke(total - krediterat, återstår, förfallodag, idag)
     }
+}
+
+// #148 Kreditfaktura från leverantör
+/// Märket för en registrerad leverantörsfaktura med `total` öre som kreditfakturor har
+/// krediterat `krediterat` öre av (positivt), varav `återstår` öre är obetalt: samma regler som
+/// [`kundfakturans_märke`] utan kundförlust. En kreditfaktura med hänvisning och en upplåst
+/// faktura får [`Märke::Kreditfaktura`] och [`Märke::Upplåst`] av anroparen.
+pub fn leverantörsfakturans_märke(
+    total: i64,
+    krediterat: i64,
+    återstår: i64,
+    förfallodag: Date,
+    idag: Date,
+) -> Märke {
+    kundfakturans_märke(total, krediterat, återstår, false, förfallodag, idag)
 }
 
 /// Grupperna i listan, i den ordning de visas.

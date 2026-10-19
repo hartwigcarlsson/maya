@@ -485,3 +485,76 @@ async fn fakturaflödenas_konton_aktiveras_i_befintliga_företag_och_aktiveringe
     assert_eq!(post.aktör, Aktör::maya());
     db.stäng().await;
 }
+
+// #148 Kreditfaktura från leverantör och Rätta avskrift
+#[tokio::test]
+async fn leverantörsfakturorna_byggs_om_med_sina_rader_och_är_låsta_efteråt() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("maya.db");
+    let gammal = Migreringar::före("20261021141441").migrator().await;
+    let db = Databas::öppna_som(&path, VERSION, &gammal, None)
+        .await
+        .unwrap();
+    let (anna, företag) = testhjalp::företag(&db).await;
+    testhjalp::leverantör(&db, &anna, företag, "Kontorsvaror AB").await;
+    underlag::ladda_upp(
+        &db,
+        &Klocka::system(),
+        &anna,
+        företag,
+        "faktura.pdf",
+        "",
+        b"%PDF f",
+    )
+    .await
+    .unwrap();
+    // En registrerad faktura och ett utkast som de såg ut före ombyggnaden.
+    testhjalp::kör_sql(
+        &db,
+        "INSERT INTO leverantorsfaktura
+             (foretag_id, status, underlag_id, leverantor_id, fakturanummer, fakturadatum,
+              forfallodag, total, skapad, skapad_kanal, registrerad, registrerad_kanal,
+              omvand_skattskyldighet)
+         SELECT 1, 'utkast', u.id, l.id, '8812', '2026-03-14', '2026-04-13', 125000,
+                '2026-03-14T09:00:00Z', 'webb', '2026-03-14T09:00:00Z', 'webb', 'ingen'
+         FROM underlag u, leverantor l;
+         INSERT INTO leverantorsfakturarad (faktura_id, radnr, konto, netto, momssats, moms)
+         VALUES (1, 1, 5410, 100000, 25, 25000);
+         UPDATE leverantorsfaktura SET status = 'registrerad' WHERE id = 1;
+         INSERT INTO leverantorsfaktura (foretag_id, status, underlag_id, skapad, skapad_kanal)
+         SELECT 1, 'utkast', id, '2026-03-15T09:00:00Z', 'webb' FROM underlag;",
+    )
+    .await
+    .unwrap();
+    db.stäng().await;
+
+    let ny = Migreringar::nya(&[]).migrator().await;
+    let db = Databas::öppna_som(&path, VERSION, &ny, None).await.unwrap();
+    let lista = maya_core::leverantorsfaktura::lista(&db, &anna, företag)
+        .await
+        .unwrap();
+    assert_eq!(lista.len(), 2);
+    let registrerad = lista.iter().find(|r| r.fakturanummer == "8812").unwrap();
+    assert_eq!(
+        (registrerad.total, registrerad.återstår),
+        (Some(125_000), 125_000)
+    );
+    let fakturan = maya_core::leverantorsfaktura::fakturan(&db, &anna, företag, registrerad.id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(fakturan.formulär.rader[0].netto, "1 000,00");
+    // Den registrerade fakturan är lika låst som före ombyggnaden.
+    let fel = testhjalp::kör_sql(&db, "UPDATE leverantorsfakturarad SET netto = 1")
+        .await
+        .unwrap_err();
+    assert!(fel.to_string().contains("går inte att ändra"), "{fel}");
+    let fel = testhjalp::kör_sql(
+        &db,
+        "UPDATE leverantorsfaktura SET total = 1 WHERE status = 'registrerad'",
+    )
+    .await
+    .unwrap_err();
+    assert!(fel.to_string().contains("går inte att ändra"), "{fel}");
+    db.stäng().await;
+}

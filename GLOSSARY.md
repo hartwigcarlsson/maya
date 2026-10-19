@@ -227,6 +227,10 @@ _Avoid_: Kreditsaldo, överskott, negativ fordran
 En betalning åt andra hållet av ett tillgodohavande: för en kund 1510 mot betalkontot, för en leverantör betalkontot mot 2440.
 _Avoid_: Utbetalning (som term), retur, kreditering
 
+**Upplåst**:
+En registrerad leverantörsfaktura eller extern kundfaktura vars registrering har vänts med Rätta avskrift eller Rätta registrering; den skrivs av igen med betalningarna kvar och registreras om med samma regler, men raderas inte.
+_Avoid_: Olåst, öppnad, återkallad
+
 **Anställd**:
 En person som får lön eller styrelsearvode från ett företag, även en ägare; registreras per företag.
 _Avoid_: Personal, medarbetare, löntagare

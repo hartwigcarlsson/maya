@@ -2856,3 +2856,14 @@ kbd {
 .hanvisning {
   font-weight: 600;
 }
+
+/* Kreditfaktura från leverantör och Rätta avskrift (#148): märket upplåst, hänvisningen i
+   formuläret och panelen Rätta avskrift…. */
+.badge-upplast {
+  border: 1px dashed var(--primary);
+  color: var(--primary);
+}
+
+.hanvisning-val select {
+  max-width: 24em;
+}

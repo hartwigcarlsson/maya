@@ -14,12 +14,23 @@
 //! bygg) och som utgående moms på 2614/2624/2634 efter momssats. Leverantörens förval föreslås
 //! när fakturan inte har något val. Ett företag som inte är momsregistrerat kan inte välja
 //! omvänd skattskyldighet. Justeringsparet mot 4599 kommer i etapp 3.
+//!
+//! **Kreditfaktura från leverantören** (#148): en faktura med negativt totalbelopp och rader med
+//! samma tecken, med en frivillig hänvisning till originalet (en registrerad faktura från samma
+//! leverantör). Konteringen är registreringens med omvänt tecken, också den fiktiva momsen: 2440
+//! i debet mot kostnad och moms i kredit. Med en hänvisning kan raderna fyllas i ur originalets
+//! rader, proportionellt vid delkredit ([`NyLeverantörsfaktura::kontera_som_originalet`]).
+//!
+//! **Upplåst** (#148, Rätta avskrift): en registrerad faktura vars registrering är vänd. Den
+//! registreras om med samma regler, och totalen får inte bli mindre än det som redan har
+//! betalats ([`Förutsättningar::betalt`]).
 
 use std::fmt;
 
 use jiff::civil::Date;
 
-use crate::belopp::Belopp;
+use crate::belopp::{Belopp, Saldo, formulärtext, tolka_med_tecken};
+use crate::fordelning::fördela;
 use crate::foretag::{Momsperiod, gäller};
 use crate::kontoplan::Kontonummer;
 use crate::leverantor::{self, NyLeverantör, OmvändSkattskyldighet};
@@ -69,6 +80,13 @@ pub fn moms(netto: Belopp, sats: u8) -> Belopp {
     Belopp::från_öre(i64::try_from((öre + 50) / 100).unwrap_or(i64::MAX))
 }
 
+/// Momsen på `netto` öre med satsen `sats` procent, avrundad till närmaste öre; ett negativt
+/// netto (en kreditfaktura) avrundas som det positiva, med omvänt tecken.
+pub fn moms_med_tecken(netto: i64, sats: u8) -> i64 {
+    let m = moms(Belopp::från_öre(netto.abs()), sats).öre();
+    if netto < 0 { -m } else { m }
+}
+
 /// En rad i formuläret, som text. Ett tomt momsbelopp räknas ur nettot och momssatsen.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct NyRad {
@@ -108,6 +126,8 @@ pub struct NyLeverantörsfaktura {
     /// Originalvaluta och originalbelopp i fritext, t.ex. `EUR 54,00`.
     pub originalvaluta: String,
     pub rader: Vec<NyRad>,
+    /// Id:t för originalet som en kreditfaktura krediterar (#148), eller tomt.
+    pub krediterar: String,
 }
 
 /// En leverantör som formuläret kan välja.
@@ -127,7 +147,22 @@ pub struct Registrerad {
     pub leverantör: String,
     pub fakturanummer: String,
     pub fakturadatum: Date,
-    pub total: Belopp,
+    /// I öre; negativt för en kreditfaktura.
+    pub total: i64,
+}
+
+/// En registrerad faktura som en kreditfaktura från samma leverantör kan hänvisa till (#148):
+/// inte själv en kreditfaktura.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Krediterbar {
+    pub id: String,
+    pub leverantör: String,
+    pub fakturanummer: String,
+    /// I öre.
+    pub total: i64,
+    pub omvänd_skattskyldighet: OmvändSkattskyldighet,
+    /// Raderna som registrerades.
+    pub rader: Vec<Rad>,
 }
 
 /// Det som spärrarna prövas mot, läst i samma transaktion som registreringen.
@@ -142,6 +177,11 @@ pub struct Förutsättningar {
     pub leverantörer: Vec<Leverantörsval>,
     /// Företagets andra registrerade leverantörsfakturor.
     pub registrerade: Vec<Registrerad>,
+    /// Fakturorna som en kreditfaktura kan hänvisa till (#148).
+    pub krediterbara: Vec<Krediterbar>,
+    /// Det som redan har betalats av en upplåst faktura, i öre (#148): betalningarna i
+    /// reskontran. Noll för ett utkast.
+    pub betalt: i64,
 }
 
 impl Förutsättningar {
@@ -177,6 +217,8 @@ pub enum Fält {
     Förfallodag,
     Totalbelopp,
     OmvändSkattskyldighet,
+    /// Hänvisningen till originalet (#148).
+    Krediterar,
     /// Raderna som helhet: inga rader, eller summan mot totalen.
     Rader,
     Konto(usize),
@@ -260,12 +302,25 @@ pub const REGISTRERINGSSPÄRRAR: &[(&str, &str)] = &[
     ("total_saknas", "Totalbeloppet krävs."),
     (
         "total_ogiltig",
-        "Totalbeloppet är i kronor, inte negativt och har högst två decimaler.",
+        "Totalbeloppet är i kronor och har högst två decimaler; negativt för en kreditfaktura.",
+    ),
+    (
+        "under_betalt",
+        "En upplåst faktura får ingen total under det som redan har betalats.",
     ),
     (
         "omvand_ogiltig",
         "Omvänd skattskyldighet är ingen, EU-tjänst, EU-vara, bygg eller tjänst från land \
          utanför EU.",
+    ),
+    (
+        "krediterar_okand",
+        "En kreditfaktura hänvisar till en registrerad faktura från samma leverantör, som inte \
+         själv är en kreditfaktura.",
+    ),
+    (
+        "kredit_inte_negativ",
+        "En faktura med hänvisning till ett original är en kreditfaktura med negativ total.",
     ),
     (
         "omvand_ej_momsregistrerad",
@@ -285,12 +340,12 @@ pub const REGISTRERINGSSPÄRRAR: &[(&str, &str)] = &[
     ("netto_saknas", "Varje rad har ett nettobelopp."),
     (
         "netto_ogiltigt",
-        "Nettot är i kronor, inte negativt och har högst två decimaler.",
+        "Nettot är i kronor, har högst två decimaler och samma tecken som totalbeloppet.",
     ),
     ("momssats_ogiltig", "Momssatsen är 25, 12, 6 eller 0 %."),
     (
         "moms_ogiltig",
-        "Momsbeloppet är i kronor, inte negativt och har högst två decimaler.",
+        "Momsbeloppet är i kronor, har högst två decimaler och samma tecken som totalbeloppet.",
     ),
     (
         "summerar_inte",
@@ -303,10 +358,11 @@ pub const REGISTRERINGSSPÄRRAR: &[(&str, &str)] = &[
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Rad {
     pub konto: Kontonummer,
-    pub netto: Belopp,
+    /// I öre; negativt på en kreditfaktura.
+    pub netto: i64,
     pub momssats: u8,
-    /// Momsbeloppet: det beräknade eller det som skrevs över.
-    pub moms: Belopp,
+    /// Momsbeloppet i öre: det beräknade eller det som skrevs över.
+    pub moms: i64,
 }
 
 /// En leverantörsfaktura som klarar alla spärrar.
@@ -320,10 +376,13 @@ pub struct Registrerbar {
     pub fakturadatum: Date,
     pub förfallodag: Date,
     pub referens: String,
-    pub total: Belopp,
+    /// I öre; negativt för en kreditfaktura.
+    pub total: i64,
     pub originalvaluta: String,
     pub omvänd_skattskyldighet: OmvändSkattskyldighet,
     pub rader: Vec<Rad>,
+    /// Originalets id när fakturan är en kreditfaktura med hänvisning (#148).
+    pub krediterar: Option<String>,
     /// Om företaget är momsregistrerat på fakturadatumet.
     pub momsregistrerat: bool,
     pub räkenskapsår: Årsval,
@@ -347,6 +406,17 @@ fn konto(nr: u16) -> Kontonummer {
     Kontonummer::new(nr).expect("ett kontonummer i klass 1–8")
 }
 
+/// En verifikatrad med `öre` i debet, eller i kredit när det är negativt. En kreditfaktura får
+/// på så sätt registreringens kontering med debet och kredit bytta.
+fn verifikatrad(konto: Kontonummer, öre: i64) -> verifikat::Rad {
+    verifikat::Rad {
+        konto,
+        debet: Belopp::från_öre(öre.max(0)),
+        kredit: Belopp::från_öre((-öre).max(0)),
+        text: None,
+    }
+}
+
 fn kontering(
     rader: &[Rad],
     momsregistrerat: bool,
@@ -360,36 +430,21 @@ fn kontering(
     let mut total = 0;
     for r in rader {
         let kostnad = if momsregistrerat {
-            moms += r.moms.öre();
-            r.netto.öre()
+            moms += r.moms;
+            r.netto
         } else {
-            r.netto.öre() + r.moms.öre()
+            r.netto + r.moms
         };
-        total += r.netto.öre() + r.moms.öre();
+        total += r.netto + r.moms;
         if kostnad != 0 {
-            ut.push(verifikat::Rad {
-                konto: r.konto,
-                debet: Belopp::från_öre(kostnad),
-                kredit: Belopp::NOLL,
-                text: None,
-            });
+            ut.push(verifikatrad(r.konto, kostnad));
         }
     }
     if moms != 0 {
-        ut.push(verifikat::Rad {
-            konto: konto(INGÅENDE_MOMS),
-            debet: Belopp::från_öre(moms),
-            kredit: Belopp::NOLL,
-            text: None,
-        });
+        ut.push(verifikatrad(konto(INGÅENDE_MOMS), moms));
     }
     if total != 0 {
-        ut.push(verifikat::Rad {
-            konto: konto(LEVERANTÖRSSKULDER),
-            debet: Belopp::NOLL,
-            kredit: Belopp::från_öre(total),
-            text: None,
-        });
+        ut.push(verifikatrad(konto(LEVERANTÖRSSKULDER), -total));
     }
     ut
 }
@@ -398,28 +453,16 @@ fn kontering(
 /// momsen på `ingående` i debet, 2440 nettot och den fiktiva utgående momsen per momssats i
 /// kredit. En rad med 0 % ger ingen fiktiv moms.
 fn omvänd_kontering(rader: &[Rad], ingående: u16) -> Vec<verifikat::Rad> {
-    let debet = |nr: Kontonummer, öre: i64| verifikat::Rad {
-        konto: nr,
-        debet: Belopp::från_öre(öre),
-        kredit: Belopp::NOLL,
-        text: None,
-    };
-    let kredit = |nr: Kontonummer, öre: i64| verifikat::Rad {
-        konto: nr,
-        debet: Belopp::NOLL,
-        kredit: Belopp::från_öre(öre),
-        text: None,
-    };
     let mut ut: Vec<verifikat::Rad> = rader
         .iter()
-        .filter(|r| r.netto != Belopp::NOLL)
-        .map(|r| debet(r.konto, r.netto.öre()))
+        .filter(|r| r.netto != 0)
+        .map(|r| verifikatrad(r.konto, r.netto))
         .collect();
     let fiktiv = |sats: u8| -> i64 {
         rader
             .iter()
             .filter(|r| r.momssats == sats)
-            .map(|r| r.moms.öre())
+            .map(|r| r.moms)
             .sum()
     };
     let utgående: Vec<(u16, i64)> = MOMSSATSER
@@ -429,13 +472,17 @@ fn omvänd_kontering(rader: &[Rad], ingående: u16) -> Vec<verifikat::Rad> {
         .collect();
     let moms: i64 = utgående.iter().map(|(_, öre)| öre).sum();
     if moms != 0 {
-        ut.push(debet(konto(ingående), moms));
+        ut.push(verifikatrad(konto(ingående), moms));
     }
-    let total: i64 = rader.iter().map(|r| r.netto.öre()).sum();
+    let total: i64 = rader.iter().map(|r| r.netto).sum();
     if total != 0 {
-        ut.push(kredit(konto(LEVERANTÖRSSKULDER), total));
+        ut.push(verifikatrad(konto(LEVERANTÖRSSKULDER), -total));
     }
-    ut.extend(utgående.into_iter().map(|(nr, öre)| kredit(konto(nr), öre)));
+    ut.extend(
+        utgående
+            .into_iter()
+            .map(|(nr, öre)| verifikatrad(konto(nr), -öre)),
+    );
     ut
 }
 
@@ -443,10 +490,11 @@ fn omvänd_kontering(rader: &[Rad], ingående: u16) -> Vec<verifikat::Rad> {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Utkastrad {
     pub konto: Option<Kontonummer>,
-    pub netto: Option<Belopp>,
+    /// I öre.
+    pub netto: Option<i64>,
     pub momssats: u8,
-    /// `None`: räknas ur nettot.
-    pub moms: Option<Belopp>,
+    /// I öre; `None`: räknas ur nettot.
+    pub moms: Option<i64>,
 }
 
 /// Ett utkast som går att spara.
@@ -456,11 +504,14 @@ pub struct SparbartUtkast {
     pub fakturadatum: Option<Date>,
     pub förfallodag: Option<Date>,
     pub referens: String,
-    pub total: Option<Belopp>,
+    /// I öre.
+    pub total: Option<i64>,
     /// Det som valdes på fakturan; inget när leverantörens förval gäller.
     pub omvänd_skattskyldighet: Option<OmvändSkattskyldighet>,
     pub originalvaluta: String,
     pub rader: Vec<Utkastrad>,
+    /// Originalets id, för en kreditfaktura med hänvisning (#148).
+    pub krediterar: Option<i64>,
 }
 
 fn spärr(fält: Fält, kod: &'static str, text: impl ToString) -> Spärr {
@@ -484,13 +535,14 @@ fn tolka_datum(
         .ok()
 }
 
+/// Ett belopp i öre med tecken; en kreditfaktura har negativa belopp (#148).
 fn tolka_belopp(
     text: &str,
     fält: Fält,
     ogiltigt: &'static str,
     spärrar: &mut Vec<Spärr>,
-) -> Option<Belopp> {
-    Belopp::tolka(text.trim())
+) -> Option<i64> {
+    tolka_med_tecken(text)
         .ok_or_else(|| {
             spärrar.push(spärr(
                 fält,
@@ -644,6 +696,22 @@ impl NyLeverantörsfaktura {
                 &mut spärrar,
             )
         };
+        // #148: en upplåst faktura får ingen total under det som redan har betalats, åt något
+        // håll: en kreditfaktura med en återbetalning blir inte mindre än den.
+        if let Some(t) = total
+            && ((f.betalt > 0 && t < f.betalt) || (f.betalt < 0 && t > f.betalt))
+        {
+            spärrar.push(spärr(
+                Fält::Totalbelopp,
+                "under_betalt",
+                format!(
+                    "Totalen är under det som redan har betalats, {} kr.",
+                    Saldo::från_öre(f.betalt)
+                ),
+            ));
+        }
+        let kredit = total.is_some_and(|t| t < 0);
+        let krediterar = self.kontrollera_hänvisning(f, total, &mut spärrar);
 
         let vald = self.vald_omvänd(&mut spärrar);
         let momsregistrerat = fakturadatum.is_none_or(|d| f.momsregistrerat(d));
@@ -686,12 +754,14 @@ impl NyLeverantörsfaktura {
                 None
             } else {
                 tolka_belopp(&r.netto, Fält::Netto(*i), "netto_ogiltigt", &mut radspärrar)
+                    .and_then(|n| med_tecken(n, kredit, Fält::Netto(*i), &mut radspärrar))
             };
             let sats = tolka_sats(&r.momssats, *i, &mut radspärrar);
             let moms_ = match (r.moms.trim(), netto, sats) {
-                ("", Some(n), Some(s)) => Some(moms(n, s)),
+                ("", Some(n), Some(s)) => Some(moms_med_tecken(n, s)),
                 ("", _, _) => None,
-                (text, _, _) => tolka_belopp(text, Fält::Moms(*i), "moms_ogiltig", &mut radspärrar),
+                (text, _, _) => tolka_belopp(text, Fält::Moms(*i), "moms_ogiltig", &mut radspärrar)
+                    .and_then(|m| med_tecken(m, kredit, Fält::Moms(*i), &mut radspärrar)),
             };
             if let (Some(konto), Some(netto), Some(momssats), Some(moms)) =
                 (konto, netto, sats, moms_)
@@ -711,10 +781,10 @@ impl NyLeverantörsfaktura {
         {
             let summa: i64 = rader
                 .iter()
-                .map(|r| r.netto.öre() + if fiktiv.is_some() { 0 } else { r.moms.öre() })
+                .map(|r| r.netto + if fiktiv.is_some() { 0 } else { r.moms })
                 .sum();
-            if summa != total.öre() {
-                let differens = Belopp::från_öre((summa - total.öre()).abs());
+            if summa != total {
+                let differens = Belopp::från_öre((summa - total).abs());
                 let vad = if fiktiv.is_some() {
                     "Raderna"
                 } else {
@@ -724,14 +794,15 @@ impl NyLeverantörsfaktura {
                     Fält::Rader,
                     "summerar_inte",
                     format!(
-                        "{vad} blir {} kr, totalen är {total} kr. Differens {differens}.",
-                        Belopp::från_öre(summa)
+                        "{vad} blir {} kr, totalen är {} kr. Differens {differens}.",
+                        Saldo::från_öre(summa),
+                        Saldo::från_öre(total)
                     ),
                 ));
             }
         }
 
-        let med_moms = |r: &&Rad| r.moms != Belopp::NOLL;
+        let med_moms = |r: &&Rad| r.moms != 0;
         let mut behövs = vec![LEVERANTÖRSSKULDER];
         match fiktiv {
             Some(ingående) => {
@@ -751,7 +822,7 @@ impl NyLeverantörsfaktura {
                         .flatten()
                 }));
             }
-            None if momsregistrerat && rader.iter().any(|r| r.moms != Belopp::NOLL) => {
+            None if momsregistrerat && rader.iter().any(|r| r.moms != 0) => {
                 behövs.push(INGÅENDE_MOMS);
             }
             None => {}
@@ -787,6 +858,7 @@ impl NyLeverantörsfaktura {
                     originalvaluta: self.originalvaluta.trim().to_string(),
                     omvänd_skattskyldighet: omvänd,
                     rader,
+                    krediterar,
                     momsregistrerat,
                     räkenskapsår,
                 })
@@ -800,7 +872,7 @@ impl NyLeverantörsfaktura {
     pub fn varningar(&self, f: &Förutsättningar) -> Vec<Varning> {
         let (Ok(datum), Some(total)) = (
             self.fakturadatum.trim().parse::<Date>(),
-            Belopp::tolka(self.totalbelopp.trim()),
+            tolka_med_tecken(&self.totalbelopp),
         ) else {
             return Vec::new();
         };
@@ -838,11 +910,11 @@ impl NyLeverantörsfaktura {
                     "" => standardkonto?,
                     text => text.parse().ok()?,
                 };
-                let netto = Belopp::tolka(r.netto.trim())?;
+                let netto = tolka_med_tecken(&r.netto)?;
                 let sats = tolka_sats(&r.momssats, 0, &mut Vec::new())?;
                 let moms_ = match r.moms.trim() {
-                    "" => moms(netto, sats),
-                    text => Belopp::tolka(text)?,
+                    "" => moms_med_tecken(netto, sats),
+                    text => tolka_med_tecken(text)?,
                 };
                 Some(Rad {
                     konto,
@@ -941,6 +1013,20 @@ impl NyLeverantörsfaktura {
             &mut spärrar,
         );
         let omvänd_skattskyldighet = self.vald_omvänd(&mut spärrar);
+        let krediterar = match self.krediterar.trim() {
+            "" => None,
+            text => {
+                let id = text.parse::<i64>().ok();
+                if id.is_none() {
+                    spärrar.push(spärr(
+                        Fält::Krediterar,
+                        "krediterar_okand",
+                        "Välj fakturan som krediteras.",
+                    ));
+                }
+                id
+            }
+        };
         let mut rader = Vec::new();
         for (i, r) in self.rader.iter().enumerate().filter(|(_, r)| !r.tom()) {
             let konto = match r.konto.trim() {
@@ -979,6 +1065,105 @@ impl NyLeverantörsfaktura {
             omvänd_skattskyldighet,
             originalvaluta: self.originalvaluta.trim().to_string(),
             rader,
+            krediterar,
+        })
+    }
+
+    /// Prövar hänvisningen till originalet (#148): den finns bland de krediterbara fakturorna
+    /// från samma leverantör, och fakturan är då en kreditfaktura med negativ total.
+    fn kontrollera_hänvisning(
+        &self,
+        f: &Förutsättningar,
+        total: Option<i64>,
+        spärrar: &mut Vec<Spärr>,
+    ) -> Option<String> {
+        let id = self.krediterar.trim();
+        if id.is_empty() {
+            return None;
+        }
+        if total.is_some_and(|t| t >= 0) {
+            spärrar.push(spärr(
+                Fält::Krediterar,
+                "kredit_inte_negativ",
+                "En kreditfaktura har en negativ total. Ta bort hänvisningen eller skriv totalen \
+                 med minus.",
+            ));
+        }
+        match self.originalet(f) {
+            Some(o) => Some(o.id.clone()),
+            None => {
+                spärrar.push(spärr(
+                    Fält::Krediterar,
+                    "krediterar_okand",
+                    "Fakturan som krediteras är inte en registrerad faktura från leverantören.",
+                ));
+                None
+            }
+        }
+    }
+
+    /// Originalet som hänvisningen pekar på, från samma leverantör.
+    pub fn originalet<'a>(&self, f: &'a Förutsättningar) -> Option<&'a Krediterbar> {
+        f.krediterbara
+            .iter()
+            .find(|k| k.id == self.krediterar.trim() && k.leverantör == self.leverantör.trim())
+    }
+
+    /// Raderna ur originalet (#148), för en kreditfaktura med hänvisning och negativ total:
+    /// totalen fördelas på originalets rader i proportion till deras andel av originalets total,
+    /// och varje rads del på netto och moms på samma sätt, avrundat så att summan stämmer exakt
+    /// ([`fördela`]). Vid omvänd skattskyldighet är totalen nettot, och den fiktiva momsen
+    /// fördelas i samma proportion. Fakturan får originalets omvända skattskyldighet. `None`
+    /// utan hänvisning, utan original eller utan negativ total.
+    pub fn kontera_som_originalet(&self, f: &Förutsättningar) -> Option<NyLeverantörsfaktura> {
+        let kredit = tolka_med_tecken(&self.totalbelopp).filter(|t| *t < 0)?;
+        let o = self.originalet(f)?;
+        if o.total <= 0 || o.rader.is_empty() {
+            return None;
+        }
+        let fiktiv = fiktiv_ingående_moms(o.omvänd_skattskyldighet).is_some();
+        let (netto, moms): (Vec<i64>, Vec<i64>) = if fiktiv {
+            let nettovikter: Vec<i64> = o.rader.iter().map(|r| r.netto).collect();
+            let momsvikter: Vec<i64> = o.rader.iter().map(|r| r.moms).collect();
+            // Den fiktiva momsen ingår inte i totalen: krediten av den är originalets fiktiva
+            // moms gånger krediten delad med originalets netto, avrundad till närmaste öre.
+            let summa_moms: i64 = momsvikter.iter().sum();
+            let täljare = i128::from(kredit.abs()) * i128::from(summa_moms) * 2;
+            let nämnare = i128::from(o.total) * 2;
+            let moms_kredit = -i64::try_from((täljare + nämnare / 2) / nämnare).unwrap_or(0);
+            (
+                fördela(kredit, &nettovikter),
+                fördela(moms_kredit, &momsvikter),
+            )
+        } else {
+            let radtotaler = fördela(
+                kredit,
+                &o.rader.iter().map(|r| r.netto + r.moms).collect::<Vec<_>>(),
+            );
+            o.rader
+                .iter()
+                .zip(radtotaler)
+                .map(|(r, t)| {
+                    let delar = fördela(t, &[r.netto, r.moms]);
+                    (delar[0], delar[1])
+                })
+                .unzip()
+        };
+        let rader = o
+            .rader
+            .iter()
+            .zip(netto.into_iter().zip(moms))
+            .map(|(r, (n, m))| NyRad {
+                konto: r.konto.get().to_string(),
+                netto: formulärtext(n),
+                momssats: r.momssats.to_string(),
+                moms: formulärtext(m),
+            })
+            .collect();
+        Some(NyLeverantörsfaktura {
+            omvänd_skattskyldighet: o.omvänd_skattskyldighet.kod().to_string(),
+            rader,
+            ..self.clone()
         })
     }
 
@@ -1016,6 +1201,28 @@ impl NyLeverantörsfaktura {
             .find(|n| !tagna.contains(&n.to_lowercase()))
             .expect("ett ledigt suffix")
     }
+}
+
+/// `öre` om det har samma tecken som fakturan (negativt eller noll på en kreditfaktura, annars
+/// noll eller positivt), annars en spärr med fältets kod.
+fn med_tecken(öre: i64, kredit: bool, fält: Fält, spärrar: &mut Vec<Spärr>) -> Option<i64> {
+    if (kredit && öre > 0) || (!kredit && öre < 0) {
+        let kod = match fält {
+            Fält::Moms(_) => "moms_ogiltig",
+            _ => "netto_ogiltigt",
+        };
+        spärrar.push(spärr(
+            fält,
+            kod,
+            if kredit {
+                "En kreditfaktura har negativa belopp på raderna."
+            } else {
+                "Beloppet är negativt men totalen är det inte. En kreditfaktura har negativ total."
+            },
+        ));
+        return None;
+    }
+    Some(öre)
 }
 
 fn kontrollera_konto(
