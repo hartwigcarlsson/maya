@@ -1,5 +1,5 @@
-//! Sökningen i ⌘K och sökfältet: vad en fråga träffar. Servern prövar verifikaten och
-//! webbläsaren sidorna och handlingarna med samma regler.
+//! Sökningen i ⌘K och sökfältet: vad en fråga träffar. Servern prövar verifikaten, fakturorna,
+//! kunderna och leverantörerna och webbläsaren sidorna och handlingarna med samma regler.
 
 use jiff::civil::Date;
 
@@ -10,6 +10,8 @@ use crate::belopp::Belopp;
 /// en månad (`2026-03-14`, `2026-03`). Den träffar det som någon av läsningarna träffar.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Fråga {
+    /// Hela frågan med gemener, för fakturanumret.
+    text: String,
     ord: Vec<String>,
     nummer: Option<u32>,
     belopp: Option<Belopp>,
@@ -28,6 +30,19 @@ pub struct Sökbart<'a> {
     pub belopp: Vec<Belopp>,
 }
 
+/// Det i en kundfaktura eller leverantörsfaktura som en fråga prövas mot (story 76).
+#[derive(Debug, Clone, Default)]
+pub struct Fakturasökbart<'a> {
+    /// Numret som fakturan visar; tomt för ett utkast utan nummer.
+    pub nummer: &'a str,
+    /// Fakturadatum och förfallodag.
+    pub datum: Vec<Date>,
+    /// Kundens eller leverantörens namn.
+    pub texter: Vec<&'a str>,
+    /// Totalen och det som återstår, utan tecken: en kreditfaktura hittas på sitt belopp.
+    pub belopp: Vec<Belopp>,
+}
+
 impl Fråga {
     /// `None` när frågan är tom.
     pub fn tolka(text: &str) -> Option<Fråga> {
@@ -42,6 +57,7 @@ impl Fråga {
             .flatten();
         let datum = är_datum_eller_månad(text).then(|| text.to_string());
         Some(Fråga {
+            text: text.to_lowercase(),
             ord,
             nummer,
             belopp: Belopp::tolka(text),
@@ -63,6 +79,20 @@ impl Fråga {
             _ => false,
         };
         nummer || belopp || datum || self.träffar_text(&v.texter.join("\n"))
+    }
+
+    /// En faktura träffas av hela sitt nummer (utan hänsyn till versaler), ett av sina belopp,
+    /// sitt fakturadatum eller sin förfallodag (dag eller månad), eller kundens eller
+    /// leverantörens namn.
+    pub fn träffar_faktura(&self, f: &Fakturasökbart<'_>) -> bool {
+        let nummer = !f.nummer.is_empty() && f.nummer.to_lowercase() == self.text;
+        let belopp = self.belopp.is_some_and(|b| f.belopp.contains(&b));
+        let datum = self.datum.as_ref().is_some_and(|fråga| {
+            f.datum
+                .iter()
+                .any(|d| d.to_string().starts_with(fråga.as_str()))
+        });
+        nummer || belopp || datum || self.träffar_text(&f.texter.join("\n"))
     }
 }
 
