@@ -46,6 +46,9 @@ pub struct ExternFörutsättningarVy {
     pub upptagna: Vec<String>,
     pub krediterar: Option<Krediterar>,
     pub betalt: i64,
+    /// Bokföringsmetodens historik: från vilket datum och metodens kod (#149).
+    #[serde(default)]
+    pub bokföringsmetoder: Vec<(String, String)>,
 }
 
 impl ExternFörutsättningarVy {
@@ -118,10 +121,6 @@ pub fn feltext(kod: &str) -> Option<&'static str> {
     Some(match kod {
         "extern_utkast" => "Utkastet kunde inte sparas. Rätta det som är markerat.",
         "extern_sparrat" => "Fakturan kan inte registreras än. Rätta det som är markerat.",
-        "extern_kontant" => {
-            "Under kontantmetoden registreras externa kundfakturor i en senare version av Maya. \
-             Fakturan är kvar som utkast."
-        }
         "extern_finns_inte" => "Utkastet finns inte längre, eller är redan registrerat.",
         "extern_ingen_fil" => "Välj fakturans PDF att ladda upp.",
         "extern_for_stort" => "Ett underlag får vara högst 25 MB.",
@@ -314,6 +313,12 @@ pub(crate) mod server {
                     upptagna: fö.upptagna.clone(),
                     krediterar: fö.krediterar.clone(),
                     betalt: fö.betalt,
+                    bokföringsmetoder: maya_core::foretag::företaget(db, aktör, företag)
+                        .await?
+                        .bokföringsmetoder
+                        .iter()
+                        .map(|(d, m)| (d.to_string(), m.kod().to_string()))
+                        .collect(),
                 })
             }
             _ => None,
@@ -526,10 +531,14 @@ pub(crate) mod server {
             )
             .await
             {
-                Ok(r) => Redirect::to(&format!("{dokumentet}&registrerad={}", r.verifikat.nummer))
-                    .into_response(),
+                // #149: under kontantmetoden bokförs registreringen inte.
+                Ok(r) => Redirect::to(&format!(
+                    "{dokumentet}&registrerad={}",
+                    r.verifikat
+                        .map_or_else(|| "0".to_string(), |v| v.nummer.to_string())
+                ))
+                .into_response(),
                 Err(ExternFel::Spärrat(_)) => tillbaka(&dokumentet, &fält, "extern_sparrat"),
-                Err(ExternFel::Kontantmetoden) => tillbaka(&dokumentet, &fält, "extern_kontant"),
                 Err(e) => fel(e, &sida),
             }
         } else {
@@ -802,10 +811,27 @@ fn Formulär(
             })
         }
     };
-    let registrera_text = move || match spärrar.with(Vec::len) {
-        0 => "Registrera och bokför".to_string(),
-        1 => "Registrera och bokför · 1 problem kvar".to_string(),
-        n => format!("Registrera och bokför · {n} problem kvar"),
+    // #149: under kontantmetoden på fakturadatumet heter knappen Registrera. En kreditfaktura
+    // följer originalets fordran.
+    let kontant = {
+        let metoder = f.bokföringsmetoder.clone();
+        let kredit = f.krediterar.is_some();
+        Memo::new(move |_| {
+            !kredit
+                && faktura.with(|x| crate::betalning::kontantmetoden_på(&metoder, &x.fakturadatum))
+        })
+    };
+    let registrera_text = move || {
+        let knapp = if kontant.get() {
+            "Registrera"
+        } else {
+            "Registrera och bokför"
+        };
+        match spärrar.with(Vec::len) {
+            0 => knapp.to_string(),
+            1 => format!("{knapp} · 1 problem kvar"),
+            n => format!("{knapp} · {n} problem kvar"),
+        }
     };
     let textfält = move |namn: &'static str,
                          etikett: &'static str,
@@ -1008,6 +1034,16 @@ fn Formulär(
                 })
                 .collect_view()
         });
+        if kontant.get() {
+            return view! {
+                <h3>"Bokförs vid betalningen"</h3>
+                <p class="diskret">
+                    "Under kontantmetoden bokförs inget när fakturan registreras. \
+                     Betalningen bokför intäkten och momsen."
+                </p>
+            }
+            .into_any();
+        }
         view! {
             <h3>"Bokförs som verifikat på fakturadatumet"</h3>
             <table class="rader">
@@ -1021,6 +1057,7 @@ fn Formulär(
                 <tbody>{rader}</tbody>
             </table>
         }
+        .into_any()
     };
     let lista = format!("{bas}/kundfakturor");
     let upplåst = d.status == "upplast";

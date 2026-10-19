@@ -332,6 +332,14 @@ impl Post {
             Momsperiod::från_kod(&s(kod)).map_or_else(|| s(kod), |m| m.namn().to_lowercase())
         };
         let kronor = |öre: &Value| Saldo::från_öre(öre.as_i64().unwrap_or_default()).to_string();
+        // #149: ", bokförd som V1", eller att inget bokfördes under kontantmetoden.
+        let bokförd_som = |nummer: String| {
+            if nummer.is_empty() {
+                ", inte bokförd (kontantmetoden)".to_string()
+            } else {
+                format!(", bokförd som {nummer}")
+            }
+        };
         let Some(händelse) = Händelse::från_namn(&self.typ) else {
             return fält_som_text(b);
         };
@@ -628,22 +636,22 @@ impl Post {
             }
             // #145 Leverantörsfakturor
             Händelse::LeverantörsfakturaRegistrerad => format!(
-                "Faktura {} från ”{}” daterad {}, förfaller {}, bokförd som {}",
+                "Faktura {} från ”{}” daterad {}, förfaller {}{}",
                 f("fakturanummer"),
                 f("leverantörsnamn"),
                 f("fakturadatum"),
                 f("förfallodag"),
-                f("nummer")
+                bokförd_som(f("nummer"))
             ),
             // #135 Kundfakturor
             Händelse::KundfakturaUtfärdad => format!(
-                "Faktura {} till ”{}” daterad {}, förfaller {}, {} kr, bokförd som {}",
+                "Faktura {} till ”{}” daterad {}, förfaller {}, {} kr{}",
                 f("nummer"),
                 s(&b["kund"]["namn"]),
                 f("fakturadatum"),
                 f("förfallodag"),
                 kronor(&b["summa_öre"]),
-                s(&b["verifikat"]["nummer"])
+                bokförd_som(s(&b["verifikat"]["nummer"]))
             ),
             Händelse::FakturautkastRaderat => {
                 // Gemensam för kund- och leverantörsfakturor (#135, #145).
@@ -786,13 +794,13 @@ impl Post {
             }
             // #140 Kreditfakturor
             Händelse::KreditfakturaUtfärdad => format!(
-                "Kreditfaktura {} till ”{}” daterad {}, krediterar faktura {}, {} kr, bokförd som {}",
+                "Kreditfaktura {} till ”{}” daterad {}, krediterar faktura {}, {} kr{}",
                 f("nummer"),
                 s(&b["kund"]["namn"]),
                 f("fakturadatum"),
                 f("krediterar_nummer"),
                 kronor(&b["summa_öre"]),
-                s(&b["verifikat"]["nummer"])
+                bokförd_som(s(&b["verifikat"]["nummer"]))
             ),
             Händelse::Återbetalning => format!(
                 "Återbetalning {} kr av tillgodohavandet på faktura {} till ”{}” den {} från {}, \
@@ -827,11 +835,10 @@ impl Post {
                     text.push_str(&format!(", krediterar faktura {}", f("krediterar_nummer")));
                 }
                 match &b["verifikat"] {
-                    Value::Object(v) => text.push_str(&format!(
-                        ", bokförd som {}",
-                        s(v.get("nummer").unwrap_or(&Value::Null))
-                    )),
-                    _ => text.push_str(&format!(", bokförd som {}", f("nummer"))),
+                    Value::Object(v) => {
+                        text.push_str(&bokförd_som(s(v.get("nummer").unwrap_or(&Value::Null))))
+                    }
+                    _ => text.push_str(&bokförd_som(f("nummer"))),
                 }
                 text
             }
@@ -866,9 +873,7 @@ impl Post {
                     f("förfallodag"),
                     kronor(&b["summa_öre"])
                 );
-                if b["verifikat"].is_object() {
-                    text.push_str(&format!(", bokförd som {}", s(&b["verifikat"]["nummer"])));
-                }
+                text.push_str(&bokförd_som(s(&b["verifikat"]["nummer"])));
                 if b["omregistrerad"].as_bool() == Some(true) {
                     text.push_str(", registrerad om");
                 }

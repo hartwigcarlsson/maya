@@ -58,7 +58,8 @@ pub async fn kontering(
     let mut tx = db.pool().begin().await?;
     atkomst::kräv(&mut tx, aktör, företag, Handling::LäsaFöretag).await?;
     let gällande = gällande_i(&mut tx, företag, faktura).await?;
-    let verifikat = verifikat::länk(&mut tx, Some(gällande.verifikat.0))
+    let utfärdandet = gällande.verifikat.ok_or(VerifikatFel::IngetVerifikat)?;
+    let verifikat = verifikat::länk(&mut tx, Some(utfärdandet.0))
         .await?
         .ok_or_else(|| DatabasFel::Korrupt("kundfakturans verifikat".into()))?;
     let rader: Vec<(i64, i64, String)> = sqlx::query_as(
@@ -99,6 +100,8 @@ pub async fn rätta(
 ) -> Result<KonteringRättad, KundfakturaFel> {
     let mut ärende = Ärende::börja(db, klocka, aktör, företag, Handling::RättaFlöde).await?;
     let gällande = gällande_i(ärende.conn(), företag, faktura).await?;
+    // Rätta kontering finns bara när utfärdandet har ett verifikat (#149).
+    let utfärdandet = gällande.verifikat.ok_or(VerifikatFel::IngetVerifikat)?;
     let konton = verifikat::läs_förutsättningar(ärende.conn(), företag)
         .await?
         .konton;
@@ -107,15 +110,14 @@ pub async fn rätta(
         .map_err(KundfakturaFel::Spärrat)?;
 
     let idag = maya_domain::tid::datum(ärende.nu);
-    let original = verifikat::läs_verifikat(ärende.conn(), företag, gällande.verifikat)
+    let original = verifikat::läs_verifikat(ärende.conn(), företag, utfärdandet)
         .await?
         .ok_or(VerifikatFel::IngetVerifikat)?;
     let (Some(original_nummer), Some(nuvarande)) = (original.nummer, original.som_original())
     else {
         return Err(VerifikatFel::IngetVerifikat.into());
     };
-    let rättelse =
-        verifikat::rätta_i(&mut ärende, gällande.verifikat, idag, &formulär.orsak).await?;
+    let rättelse = verifikat::rätta_i(&mut ärende, utfärdandet, idag, &formulär.orsak).await?;
     let bokfört = verifikat::bokför_i_ärende(
         &mut ärende,
         &verifikat::formulär_av(
@@ -145,6 +147,14 @@ pub async fn rätta(
     .bind(kanal)
     .bind(av)
     .fetch_one(ärende.conn())
+    .await?;
+    // Det nya verifikatet bokför fakturans fordran (#149).
+    crate::fordran::bokför_i(
+        ärende.conn(),
+        företag,
+        crate::betalning::Faktura::Kund(faktura),
+        bokfört.id,
+    )
     .await?;
     for (i, konto) in nya.iter().enumerate() {
         sqlx::query(
@@ -193,8 +203,9 @@ pub async fn rätta(
 /// Det som är bokfört för en utfärdad kundfaktura nu.
 pub(crate) struct Gällande {
     pub nummer: u64,
-    /// Det gällande utfärdandeverifikatet.
-    pub verifikat: VerifikatId,
+    /// Det gällande utfärdandeverifikatet; `None` när utfärdandet inte bokfördes
+    /// (kontantmetoden, #149).
+    pub verifikat: Option<VerifikatId>,
     pub rader: Vec<Intäktsrad>,
     /// Den arkiverade PDF:en.
     pub pdf: UnderlagId,
@@ -219,9 +230,7 @@ pub(crate) async fn gällande_i(
     .fetch_optional(&mut *conn)
     .await?;
     let (status, nummer, utfärdandet, pdf) = huvud.ok_or(KundfakturaFel::FinnsInte)?;
-    let (Some(nummer), Some(utfärdandet), Some(pdf), true) =
-        (nummer, utfärdandet, pdf, status != "utkast")
-    else {
+    let (Some(nummer), Some(pdf), true) = (nummer, pdf, status != "utkast") else {
         return Err(VerifikatFel::IngetVerifikat.into());
     };
     let senaste: Option<(i64, i64)> = sqlx::query_as(
@@ -253,7 +262,7 @@ pub(crate) async fn gällande_i(
         .collect::<Result<_, DatabasFel>>()?;
     Ok(Gällande {
         nummer: nummer.unsigned_abs(),
-        verifikat: VerifikatId(senaste.map_or(utfärdandet, |(_, v)| v)),
+        verifikat: senaste.map(|(_, v)| v).or(utfärdandet).map(VerifikatId),
         rader,
         pdf: UnderlagId(pdf),
     })

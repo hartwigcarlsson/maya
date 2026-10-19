@@ -394,7 +394,7 @@ impl Registrerbar {
     /// Vid omvänd skattskyldighet är momsen fiktiv: 2645 (2647 för bygg) i debet och
     /// 2614/2624/2634 efter momssats i kredit, efter 2440.
     pub fn kontering(&self) -> Vec<verifikat::Rad> {
-        kontering(
+        registreringens_kontering(
             &self.rader,
             self.momsregistrerat,
             self.omvänd_skattskyldighet,
@@ -417,7 +417,10 @@ fn verifikatrad(konto: Kontonummer, öre: i64) -> verifikat::Rad {
     }
 }
 
-fn kontering(
+/// Registreringens kontering under fakturametoden för de registrerade raderna, som
+/// [`Registrerbar::kontering`]: också underlaget för en betalning eller kredit när skulden inte
+/// är bokförd (kontantmetoden, #149).
+pub fn registreringens_kontering(
     rader: &[Rad],
     momsregistrerat: bool,
     omvänd: OmvändSkattskyldighet,
@@ -934,7 +937,7 @@ impl NyLeverantörsfaktura {
         } else {
             OmvändSkattskyldighet::Ingen
         };
-        kontering(&rader, momsregistrerat, omvänd)
+        registreringens_kontering(&rader, momsregistrerat, omvänd)
     }
 
     /// Den omvända skattskyldighet som fakturan har: den som valdes, eller leverantörens förval

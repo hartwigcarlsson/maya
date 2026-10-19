@@ -600,6 +600,9 @@ pub async fn radera(
         .await?;
     for sql in [
         "INSERT INTO foretag_radering (foretag_id) VALUES (?1)",
+        // #149 Bokförda fordringar och skulder (bara på utfärdade och registrerade fakturor,
+        // så inga rader här).
+        "DELETE FROM bokford_reskontrapost WHERE foretag_id = ?1",
         // #148 Rätta avskrift (bara på registrerade fakturor, så inga rader här).
         "DELETE FROM leverantorsfaktura_avskrift WHERE foretag_id = ?1",
         // #145 Leverantörsfakturautkast (en registrerad faktura är räkenskapsinformation).

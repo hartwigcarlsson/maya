@@ -170,7 +170,10 @@ async fn utfärdandet_numrerar_arkiverar_pdf_en_bokför_och_loggar_i_en_transakt
     assert_eq!(u.säljare.bankgiro, "5050-1055");
     assert_eq!(u.förfallodag.to_string(), "2026-04-09");
     assert_eq!(u.total, 1_229_900);
-    assert_eq!(u.verifikat.nummer.unwrap().to_string(), "V1");
+    assert_eq!(
+        u.verifikat.as_ref().unwrap().nummer.unwrap().to_string(),
+        "V1"
+    );
     assert_eq!(u.utfärdad.aktör, anna);
     assert_eq!(u.pdf.filnamn, "Kundfaktura_1.pdf");
     assert_eq!(u.pdf.sha256.len(), 64);
@@ -178,7 +181,7 @@ async fn utfärdandet_numrerar_arkiverar_pdf_en_bokför_och_loggar_i_en_transakt
 
     // Verifikatet följer automatkonteringen: 1510 mot intäkt per rad och moms per sats,
     // daterat på fakturadatumet, med PDF:en som underlag (VF5) och motparten i texten (VF2).
-    let v = verifikat::verifikatet(&db, &anna, id, utfärdad.verifikat.id)
+    let v = verifikat::verifikatet(&db, &anna, id, utfärdad.verifikat.as_ref().unwrap().id)
         .await
         .unwrap()
         .unwrap();
@@ -246,7 +249,7 @@ async fn ett_verifikat_från_en_kundfaktura_rättas_i_fakturan_och_inte_med_rät
     let (anna, id) = testhjalp::fakturaföretag(&db).await;
     let u = testhjalp::utfärdad_kundfaktura(&db, &anna, id, "Kund AB", "2026-03-10").await;
 
-    let v = verifikat::verifikatet(&db, &anna, id, u.verifikat.id)
+    let v = verifikat::verifikatet(&db, &anna, id, u.verifikat.as_ref().unwrap().id)
         .await
         .unwrap()
         .unwrap();
@@ -258,7 +261,7 @@ async fn ett_verifikat_från_en_kundfaktura_rättas_i_fakturan_och_inte_med_rät
         &klocka(),
         &anna,
         id,
-        u.verifikat.id,
+        u.verifikat.as_ref().unwrap().id,
         "2026-10-18",
         "",
         Rättelseval::BaraRättelse,
@@ -695,7 +698,7 @@ async fn schemat_avvisar_ett_nummer_som_inte_är_nästa_i_serien() {
 }
 
 #[tokio::test]
-async fn under_kontantmetoden_utfärdas_ingen_faktura_ännu() {
+async fn under_kontantmetoden_utfärdas_fakturan_utan_verifikat() {
     let db = Databas::tillfällig().await;
     let (anna, id) = testhjalp::fakturaföretag(&db).await;
     let byte = maya_domain::foretag::Byte {
@@ -709,10 +712,11 @@ async fn under_kontantmetoden_utfärdas_ingen_faktura_ännu() {
     let mut f = faktura(k);
     f.fakturadatum = "2027-02-10".into();
     let f = utkast(&db, &anna, id, &f).await;
-    assert!(matches!(
-        kundfaktura::utfärda(&db, &klocka(), &anna, id, f).await,
-        Err(KundfakturaFel::Kontantmetoden)
-    ));
+    // #149: fakturan utfärdas och numreras, men fordran bokförs först vid betalningen.
+    let u = kundfaktura::utfärda(&db, &klocka(), &anna, id, f)
+        .await
+        .unwrap();
+    assert_eq!((u.nummer, u.verifikat), (1, None));
 }
 
 #[tokio::test]

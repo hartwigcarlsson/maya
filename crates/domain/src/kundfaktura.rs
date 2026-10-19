@@ -536,7 +536,7 @@ impl Utfärdbar {
 /// och externa, #143): 1510 debet med `total`, intäktskontona kredit med radernas netto per
 /// konto (i radernas ordning) och utgående moms kredit per momssats. 0 % ger ingen momsrad, och
 /// en kreditfaktura med negativa belopp får samma rader åt andra hållet.
-pub(crate) fn fordringens_kontering(
+pub fn fordringens_kontering(
     total: i64,
     rader: impl IntoIterator<Item = (Kontonummer, i64)>,
     momsrader: &[Momsrad],

@@ -130,6 +130,9 @@ pub struct FörutsättningarVy {
     pub krediterbara: Vec<KrediterbarVy>,
     /// Det som redan har betalats av en upplåst faktura, i öre (#148).
     pub betalt: i64,
+    /// Bokföringsmetodens historik: från vilket datum och metodens kod (#149).
+    #[serde(default)]
+    pub bokföringsmetoder: Vec<(String, String)>,
 }
 
 /// En faktura som en kreditfaktura kan hänvisa till, med raderna som registrerades (#148).
@@ -360,10 +363,6 @@ fn feltext(kod: &str) -> Option<&'static str> {
     Some(match kod {
         "sparrat" => "Fakturan kunde inte registreras. Rätta det som är markerat.",
         "utkast" => "Utkastet kunde inte sparas. Rätta det som är markerat.",
-        "kontantmetoden" => {
-            "Fakturadatumet har kontantmetoden. Leverantörsfakturor under kontantmetoden \
-             registreras i en senare version."
-        }
         "inte_okopplat" => "Underlaget är redan kopplat eller original till en annan faktura.",
         "inget_utkast" => "Utkastet finns inte längre, eller är redan registrerat.",
         "for_stort" => "Ett underlag får vara högst 25 MB.",
@@ -574,6 +573,12 @@ pub(crate) mod server {
                     .collect(),
                 momsperioder: förutsättningar
                     .momsperioder
+                    .iter()
+                    .map(|(d, m)| (d.to_string(), m.kod().to_string()))
+                    .collect(),
+                bokföringsmetoder: maya_core::foretag::företaget(&b.db, aktör, företag)
+                    .await?
+                    .bokföringsmetoder
                     .iter()
                     .map(|(d, m)| (d.to_string(), m.kod().to_string()))
                     .collect(),
@@ -878,10 +883,14 @@ pub(crate) mod server {
             match leverantorsfaktura::registrera(&state.db, &state.klocka, aktör, företag, f, &ny)
                 .await
             {
-                Ok(r) => Redirect::to(&format!("{dokumentet}&registrerad={}", r.verifikat.nummer))
-                    .into_response(),
+                // #149: under kontantmetoden bokförs registreringen inte.
+                Ok(r) => Redirect::to(&format!(
+                    "{dokumentet}&registrerad={}",
+                    r.verifikat
+                        .map_or_else(|| "0".to_string(), |v| v.nummer.to_string())
+                ))
+                .into_response(),
                 Err(FakturaFel::Spärrat(_)) => tillbaka(&dokumentet, &fält, "sparrat"),
-                Err(FakturaFel::Kontantmetoden) => tillbaka(&dokumentet, &fält, "kontantmetoden"),
                 Err(e) => fakturafel(e, &sida),
             }
         } else {
@@ -997,7 +1006,11 @@ fn leverantörsfakturasida(data: Leverantörsfakturadata, ny: bool) -> AnyView {
     };
     let fråga = |namn: &str| use_query_map().with_untracked(|q| q.get(namn));
     let notis = if let Some(nummer) = fråga("registrerad") {
-        Some(format!("Registrerad och bokförd som {nummer}."))
+        Some(if nummer == "0" {
+            "Registrerad. Under kontantmetoden bokförs fakturan när den betalas.".to_string()
+        } else {
+            format!("Registrerad och bokförd som {nummer}.")
+        })
     } else if fråga("sparat").is_some() {
         Some("Utkastet sparades.".into())
     } else if fråga("betald").is_some() {
@@ -1374,10 +1387,29 @@ fn Formulär(
             }
         }
     };
-    let registrera_text = move || match spärrar.with(Vec::len) {
-        0 => "Registrera och bokför".to_string(),
-        1 => "Registrera och bokför · 1 problem kvar".to_string(),
-        n => format!("Registrera och bokför · {n} problem kvar"),
+    // #149: under kontantmetoden på fakturadatumet heter knappen Registrera.
+    let kontant = {
+        let metoder = förutsättningar.bokföringsmetoder.clone();
+        Memo::new(move |_| {
+            faktura.with(|f| {
+                // En kreditfaktura utan hänvisning bokförs alltid, och en med hänvisning
+                // följer originalets skuld.
+                !f.totalbelopp.trim().starts_with(['-', '−'])
+                    && crate::betalning::kontantmetoden_på(&metoder, &f.fakturadatum)
+            })
+        })
+    };
+    let registrera_text = move || {
+        let knapp = if kontant.get() {
+            "Registrera"
+        } else {
+            "Registrera och bokför"
+        };
+        match spärrar.with(Vec::len) {
+            0 => knapp.to_string(),
+            1 => format!("{knapp} · 1 problem kvar"),
+            n => format!("{knapp} · {n} problem kvar"),
+        }
     };
     let värde = move |f: fn(&NyLeverantörsfaktura) -> String| faktura.with_untracked(f);
     let textfält = {
@@ -1676,6 +1708,16 @@ fn Formulär(
                     })
                     .collect_view()
             });
+            if kontant.get() {
+                return view! {
+                    <h3>"Bokförs vid betalningen"</h3>
+                    <p class="diskret">
+                        "Under kontantmetoden bokförs inget när fakturan registreras. \
+                         Betalningen bokför kostnaden och momsen."
+                    </p>
+                }
+                .into_any();
+            }
             view! {
                 <h3>{rubrik}</h3>
                 <table class="rader">
@@ -1690,6 +1732,7 @@ fn Formulär(
                     <tbody>{rader}</tbody>
                 </table>
             }
+            .into_any()
         }
     };
     let varningslista = move || {

@@ -224,20 +224,24 @@ async fn läs_förutsättningar(
     let återstår =
         betalning::återstår_i(&mut *conn, Faktura::Kund(faktura), fakturan.total).await?;
     let kundförlust = förlorat_i(&mut *conn, faktura).await? != 0;
-    // Utfärdandet bokförs alltid under fakturametoden; kontantmetoden (#149) ger `None` här.
+    // En fordran som inte är bokförd (kontantmetoden, #149) ger bara status: inget verifikat.
     // #143: en extern fakturas fordran bokfördes av registreringen.
-    let bokföringen =
-        match crate::extern_kundfaktura::registreringens_verifikat_i(&mut *conn, företag, faktura)
-            .await?
+    let utfärdandet = if crate::fordran::bokförd_i(&mut *conn, Faktura::Kund(faktura)).await? {
+        let bokföringen = match crate::extern_kundfaktura::registreringens_verifikat_i(
+            &mut *conn, företag, faktura,
+        )
+        .await?
         {
             Some(v) => v,
-            None => {
-                crate::kontering::gällande_i(&mut *conn, företag, faktura)
-                    .await?
-                    .verifikat
-            }
+            None => crate::kontering::gällande_i(&mut *conn, företag, faktura)
+                .await?
+                .verifikat
+                .ok_or(VerifikatFel::IngetVerifikat)?,
         };
-    let utfärdandet = domänrader(&mut *conn, företag, bokföringen).await?;
+        Some(domänrader(&mut *conn, företag, bokföringen).await?)
+    } else {
+        None
+    };
     let räkenskapsår = verifikat::läs_förutsättningar(&mut *conn, företag)
         .await?
         .räkenskapsår;
@@ -245,7 +249,7 @@ async fn läs_förutsättningar(
         återstår,
         fakturadatum: fakturan.fakturadatum,
         kundförlust,
-        utfärdandet: Some(utfärdandet),
+        utfärdandet,
         räkenskapsår,
     })
 }

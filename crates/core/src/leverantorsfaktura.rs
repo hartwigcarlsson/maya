@@ -11,8 +11,8 @@
 //! *Registrera och bokför* prövar spärrarna i `maya_domain::leverantorsfaktura` och bokför
 //! kostnaden per rad, 2641 och 2440 daterat på fakturadatumet med originalet som underlag (VF5),
 //! i samma transaktion som fakturan låses (L1). Verifikatet länkar till fakturan, och fakturan
-//! till verifikatet. Kontantmetoden kommer i #149; tills dess registreras ingen faktura vars
-//! fakturadatum har kontantmetoden.
+//! till verifikatet. Under kontantmetoden på fakturadatumet bokförs inget (*Registrera*, #149):
+//! skulden är inte bokförd, och betalningen bokför kostnaden och momsen.
 //!
 //! Omvänd skattskyldighet (#146) sparas i utkastet när användaren väljer den; annars föreslås
 //! leverantörens förval. Registreringen sparar det som bokfördes, och bokför den fiktiva momsen
@@ -35,7 +35,6 @@ use std::str::FromStr;
 
 use jiff::civil::Date;
 use maya_domain::belopp::Saldo;
-use maya_domain::foretag::{Bokföringsmetod, gäller};
 use maya_domain::kontoplan::Kontonummer;
 use maya_domain::leverantor::OmvändSkattskyldighet;
 use maya_domain::leverantorsfaktura::{
@@ -49,6 +48,7 @@ use sqlx::SqliteConnection;
 use crate::aktor::{Aktör, Handling};
 use crate::atkomst::{self, Ärende, ÅtkomstFel};
 use crate::behandlingshistorik::{self, Händelse, Post};
+use crate::betalning::Faktura;
 use crate::foretag::{self, FöretagsId, datum};
 use crate::leverantor::{self, LeverantörsId};
 use crate::underlag::{self, UnderlagFel, UnderlagId, Uppladdat};
@@ -95,9 +95,6 @@ pub enum FakturaFel {
     /// Underlaget finns inte i företaget, eller hör redan till ett verifikat eller en faktura.
     #[error("underlaget finns inte eller är inte okopplat")]
     InteOkopplat,
-    /// Registrering under kontantmetoden kommer i #149.
-    #[error("fakturadatumet har kontantmetoden, som leverantörsfakturorna inte stöder än")]
-    Kontantmetoden,
     /// Rätta avskrift gäller en registrerad faktura i företaget (#148).
     #[error("fakturan är inte registrerad")]
     InteRegistrerad,
@@ -395,7 +392,8 @@ async fn spara_i(
 /// Resultatet av en registrering.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Registrerat {
-    pub verifikat: Bokfört,
+    /// Registreringens verifikat; `None` när inget bokfördes (kontantmetoden, #149).
+    pub verifikat: Option<Bokfört>,
 }
 
 /// Registrerar och bokför utkastet med innehållet i formuläret, i en transaktion: prövar
@@ -415,14 +413,6 @@ pub async fn registrera(
     let r = formulär
         .kontrollera(&förutsättningar)
         .map_err(FakturaFel::Spärrat)?;
-    let metoder = foretag::läs_företag(ärende.conn(), företag)
-        .await?
-        .bokföringsmetoder;
-    if gäller(&metoder, r.fakturadatum).or(metoder.first().map(|(_, m)| *m))
-        != Some(Bokföringsmetod::Faktura)
-    {
-        return Err(FakturaFel::Kontantmetoden);
-    }
     // Det som registreras sparas först i utkastet, med de spärrar som gäller för det.
     spara_i(&mut ärende, id, formulär).await?;
     let leverantör = LeverantörsId(
@@ -486,14 +476,55 @@ pub async fn registrera(
             })
             .collect(),
     };
-    let bokfört = verifikat::bokför_i_ärende(&mut ärende, &verifikatformulär, &[underlag]).await?;
+    // Under fakturametoden på fakturadatumet bokför registreringen skulden; en kreditfaktura med
+    // hänvisning följer originalets skuld, och en utan hänvisning bokförs alltid (#149).
+    let original = r
+        .krediterar
+        .as_deref()
+        .and_then(|k| k.parse().ok())
+        .map(|k| Faktura::Leverantör(LeverantörsfakturaId(k)));
+    let (kontering, skulden_bokförs) = match original {
+        Some(o) => (
+            crate::fordran::kreditens_kontering(ärende.conn(), o, r.total, r.kontering()).await?,
+            false,
+        ),
+        None if r.total < 0
+            || crate::fordran::fakturametoden_på(ärende.conn(), företag, r.fakturadatum)
+                .await? =>
+        {
+            (Some(r.kontering()), true)
+        }
+        None => (None, false),
+    };
+    let bokfört = match kontering {
+        Some(rader) => Some(
+            verifikat::bokför_i_ärende(
+                &mut ärende,
+                &NyttVerifikat {
+                    rader: rader
+                        .iter()
+                        .map(|rad| NyVerifikatrad {
+                            konto: rad.konto.get().to_string(),
+                            debet: rad.debet.eller_tomt(),
+                            kredit: rad.kredit.eller_tomt(),
+                            text: String::new(),
+                        })
+                        .collect(),
+                    ..verifikatformulär
+                },
+                &[underlag],
+            )
+            .await?,
+        ),
+        None => None,
+    };
     let (aktör_, nu) = (ärende.aktör, ärende.nu);
     sqlx::query(
         "UPDATE leverantorsfaktura SET status = 'registrerad', verifikat_id = ?, registrerad = ?,
              registrerad_kanal = ?, registrerad_av = ?, omvand_skattskyldighet = ?
          WHERE id = ? AND status IN ('utkast', 'upplast')",
     )
-    .bind(bokfört.id.0)
+    .bind(bokfört.map(|b| b.id.0))
     .bind(nu.to_string())
     .bind(aktör_.kanal.namn())
     .bind(aktör_.användare.map(|a| a.0))
@@ -501,6 +532,9 @@ pub async fn registrera(
     .bind(id.0)
     .execute(ärende.conn())
     .await?;
+    if let (Some(b), true) = (bokfört, skulden_bokförs) {
+        crate::fordran::bokför_i(ärende.conn(), företag, Faktura::Leverantör(id), b.id).await?;
+    }
     let filnamn: (String, String) =
         sqlx::query_as("SELECT filnamn, sha256 FROM underlag WHERE id = ?")
             .bind(underlag.0)
@@ -540,8 +574,8 @@ pub async fn registrera(
                 "summa_öre": r.total,
                 "krediterar": krediterar,
                 "omregistrerad": status == Status::Upplåst,
-                "verifikat": bokfört.id.0,
-                "nummer": bokfört.nummer.to_string(),
+                "verifikat": bokfört.map(|b| b.id.0),
+                "nummer": bokfört.map(|b| b.nummer.to_string()),
                 "underlag": { "underlag": underlag.0, "filnamn": filnamn.0, "sha256": filnamn.1 },
             }),
         )

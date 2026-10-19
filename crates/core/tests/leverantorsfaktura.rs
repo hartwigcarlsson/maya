@@ -171,9 +171,9 @@ async fn registreringen_bokför_kostnad_och_moms_mot_2440_på_fakturadatumet_med
         .await
         .unwrap();
 
-    assert_eq!(r.verifikat.nummer.to_string(), "V1");
+    assert_eq!(r.verifikat.as_ref().unwrap().nummer.to_string(), "V1");
     assert_eq!(
-        rader(&db, &anna, id, r.verifikat.id).await,
+        rader(&db, &anna, id, r.verifikat.as_ref().unwrap().id).await,
         [
             (5410, 100_000, 0),
             (6250, 10_000, 0),
@@ -181,7 +181,7 @@ async fn registreringen_bokför_kostnad_och_moms_mot_2440_på_fakturadatumet_med
             (2440, 0, 136_200)
         ]
     );
-    let v = verifikat::verifikatet(&db, &anna, id, r.verifikat.id)
+    let v = verifikat::verifikatet(&db, &anna, id, r.verifikat.as_ref().unwrap().id)
         .await
         .unwrap()
         .unwrap();
@@ -200,7 +200,10 @@ async fn registreringen_bokför_kostnad_och_moms_mot_2440_på_fakturadatumet_med
         .unwrap()
         .unwrap();
     assert_eq!(faktura.status, Status::Registrerad);
-    assert_eq!(faktura.verifikat.unwrap().0, r.verifikat.id);
+    assert_eq!(
+        faktura.verifikat.unwrap().0,
+        r.verifikat.as_ref().unwrap().id
+    );
     assert!(faktura.registrerad.is_some());
     // Den beräknade momsen står på raderna, och standardkontot på raden utan konto.
     assert_eq!(faktura.formulär.rader[0].konto, "5410");
@@ -248,13 +251,13 @@ async fn ett_företag_utan_momsregistrering_bokför_momsen_på_kostnadskontot() 
         .await
         .unwrap();
     assert_eq!(
-        rader(&db, &anna, id, r.verifikat.id).await,
+        rader(&db, &anna, id, r.verifikat.as_ref().unwrap().id).await,
         [(5410, 125_000, 0), (6250, 11_200, 0), (2440, 0, 136_200)]
     );
 }
 
 #[tokio::test]
-async fn kontantmetoden_registreras_inte_än() {
+async fn under_kontantmetoden_registreras_fakturan_utan_verifikat() {
     let db = Databas::tillfällig().await;
     let anna = testhjalp::användare(&db, "anna@example.se").await;
     let id = foretag::lägg_upp(
@@ -277,11 +280,11 @@ async fn kontantmetoden_registreras_inte_än() {
     let f = leverantorsfaktura::skapa_utkast(&db, &klocka(), &anna, id, u)
         .await
         .unwrap();
-    assert!(matches!(
-        leverantorsfaktura::registrera(&db, &klocka(), &anna, id, f, &formulär(&l.to_string()))
-            .await,
-        Err(FakturaFel::Kontantmetoden)
-    ));
+    // #149: fakturan registreras, men skulden bokförs först vid betalningen.
+    let r = leverantorsfaktura::registrera(&db, &klocka(), &anna, id, f, &formulär(&l.to_string()))
+        .await
+        .unwrap();
+    assert_eq!(r.verifikat, None);
 }
 
 #[tokio::test]
@@ -420,7 +423,7 @@ async fn en_ny_leverantör_från_utkastet_blir_verklig_vid_registreringen() {
         .await
         .unwrap();
     assert_eq!(
-        rader(&db, &anna, id, r.verifikat.id).await[0],
+        rader(&db, &anna, id, r.verifikat.as_ref().unwrap().id).await[0],
         (5410, 100_000, 0)
     );
     assert_eq!(
@@ -522,7 +525,7 @@ async fn ett_verifikat_från_en_leverantörsfaktura_rättas_inte_som_ett_manuell
         &klocka(),
         &anna,
         id,
-        r.verifikat.id,
+        r.verifikat.as_ref().unwrap().id,
         "2026-10-19",
         "",
         verifikat::Rättelseval::BaraRättelse,
@@ -602,7 +605,7 @@ async fn varje_variant_av_omvänd_skattskyldighet_bokför_fiktiv_moms_enligt_tab
                 .await
                 .unwrap_or_else(|e| panic!("{kod}: {e:?}"));
         assert_eq!(
-            rader(&db, &anna, id, r.verifikat.id).await,
+            rader(&db, &anna, id, r.verifikat.as_ref().unwrap().id).await,
             [
                 (5410, 100_000, 0),
                 (6250, 10_000, 0),
@@ -681,7 +684,7 @@ async fn leverantörens_förval_föreslås_på_utkastet_och_bokförs() {
         .await
         .unwrap();
     assert_eq!(
-        rader(&db, &anna, id, r.verifikat.id).await[2],
+        rader(&db, &anna, id, r.verifikat.as_ref().unwrap().id).await[2],
         (2647, 26_200, 0)
     );
     let registrerad = leverantorsfaktura::fakturan(&db, &anna, id, f)

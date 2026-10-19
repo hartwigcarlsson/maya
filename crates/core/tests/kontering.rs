@@ -122,7 +122,10 @@ async fn rättelsen_och_det_nya_verifikatet_bokförs_med_dagens_datum_och_länka
     // Rättelsen vänder utfärdandets verifikat enligt etapp 1 (R1, R2).
     let rättelse = läs(&db, &anna, id, r.rättelse.id).await;
     assert_eq!(rättelse.källa, Källa::Rättelse);
-    assert_eq!(rättelse.rättar.as_ref().unwrap().id, u.verifikat.id);
+    assert_eq!(
+        rättelse.rättar.as_ref().unwrap().id,
+        u.verifikat.as_ref().unwrap().id
+    );
     assert_eq!(rättelse.datum.unwrap().to_string(), "2026-10-18");
     assert_eq!(rättelse.beskrivning, "Rättelse av V1, fel momssats");
     assert_eq!(
@@ -135,7 +138,7 @@ async fn rättelsen_och_det_nya_verifikatet_bokförs_med_dagens_datum_och_länka
             (2631, 2_400, 0),
         ]
     );
-    let original = läs(&db, &anna, id, u.verifikat.id).await;
+    let original = läs(&db, &anna, id, u.verifikat.as_ref().unwrap().id).await;
     assert_eq!(original.rättad_av.unwrap().id, r.rättelse.id);
 
     // Det nya utfärdandeverifikatet: samma fordran och moms, intäkterna på de nya kontona,
@@ -209,7 +212,7 @@ async fn konteringen_visar_det_gällande_verifikatet_och_kontona_per_rad() {
     let (anna, id, u) = utfärdad(&db).await;
 
     let k = kontering::kontering(&db, &anna, id, u.id).await.unwrap();
-    assert_eq!(k.verifikat.id, u.verifikat.id);
+    assert_eq!(k.verifikat.id, u.verifikat.as_ref().unwrap().id);
     let konton: Vec<u16> = k.rader.iter().map(|r| r.konto.get()).collect();
     assert_eq!(konton, [3001, 3003]);
     assert_eq!(k.rader[0].beskrivning, "Konsulttimmar");
@@ -356,7 +359,7 @@ async fn när_rättelsen_spärras_bokförs_varken_den_eller_det_nya_verifikatet(
         "{fel:?}"
     );
     assert_eq!(antal_verifikat(&db, &anna, id).await, före);
-    let original = läs(&db, &anna, id, u.verifikat.id).await;
+    let original = läs(&db, &anna, id, u.verifikat.as_ref().unwrap().id).await;
     assert!(original.rättad_av.is_none());
     let poster = behandlingshistorik::läs(&db, &anna, id).await.unwrap();
     assert!(poster.iter().all(|p| p.typ != "kontering rättad"));

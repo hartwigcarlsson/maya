@@ -22,7 +22,6 @@ use maya_domain::extern_kundfaktura::{
     Förutsättningar, Krediterar, NyExternFaktura, Spärr, Utkast, Utkastrad,
 };
 use maya_domain::faktura::Momssats;
-use maya_domain::foretag::Bokföringsmetod;
 use maya_domain::kund::OmvändSkattskyldighet;
 use maya_domain::kundfaktura::Fakturakund;
 use serde_json::json;
@@ -31,9 +30,11 @@ use sqlx::SqliteConnection;
 use crate::aktor::{Aktör, Handling};
 use crate::atkomst::{self, Ärende, ÅtkomstFel};
 use crate::behandlingshistorik::{self, Händelse};
+use crate::betalning::Faktura;
+use crate::fordran;
 use crate::foretag::{self, FöretagsId, datum};
 use crate::kund::{self, KundId};
-use crate::kundfaktura::{KundfakturaId, Status, bokföringsmetod, kontonummer, ny_kund_på};
+use crate::kundfaktura::{KundfakturaId, Status, kontonummer, ny_kund_på};
 use crate::underlag::{self, UnderlagFel, UnderlagId, Uppladdat};
 use crate::verifikat::{self, Bokfört, Historikpost, Signatur, VerifikatFel, VerifikatId};
 use crate::{Databas, DatabasFel, Klocka};
@@ -52,10 +53,6 @@ pub enum ExternFel {
     /// Fakturan är inte registrerad, så den kan inte rättas eller krediteras.
     #[error("fakturan är inte registrerad")]
     InteRegistrerad,
-    /// Kontantmetoden på fakturadatumet: registreringen bokförs inte, och det flödet kommer i
-    /// #149.
-    #[error("externa kundfakturor under kontantmetoden går inte att registrera ännu")]
-    Kontantmetoden,
     /// Rätta registrering spärras när en kundförlust gäller fakturan: återkalla den först.
     #[error("en kundförlust gäller fakturan")]
     HarKundförlust,
@@ -106,7 +103,8 @@ impl From<VerifikatFel> for ExternFel {
 /// Resultatet av en registrering.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Registrerat {
-    pub verifikat: Bokfört,
+    /// Registreringens verifikat; `None` när inget bokfördes (kontantmetoden, #149).
+    pub verifikat: Option<Bokfört>,
 }
 
 /// Resultatet av Rätta registrering.
@@ -382,7 +380,8 @@ pub async fn radera_utkast(
 /// Registrerar och bokför utkastet, eller den upplåsta fakturan, med innehållet i formuläret i
 /// en transaktion: prövar spärrarna, sparar det som registreras, bokför registreringens
 /// verifikat daterat på fakturadatumet med originalet som underlag, låser fakturan och loggar
-/// registreringen. Under kontantmetoden på fakturadatumet registreras fakturan inte än (#149).
+/// registreringen. Under kontantmetoden på fakturadatumet bokförs inget (#149); en
+/// kreditfaktura följer originalets fordran ([`crate::fordran`]).
 pub async fn registrera(
     db: &Databas,
     klocka: &Klocka,
@@ -397,10 +396,6 @@ pub async fn registrera(
     let mut r = formulär
         .kontrollera(&förutsättningar)
         .map_err(ExternFel::Spärrat)?;
-    if bokföringsmetod(ärende.conn(), företag, r.fakturadatum).await? != Bokföringsmetod::Faktura
-    {
-        return Err(ExternFel::Kontantmetoden);
-    }
     let status = spara_i(&mut ärende, id, formulär).await?;
     // En ny kund från utkastet blir verklig i samma transaktion, och fakturan får dess id.
     if let Some(ny) = &r.ny_kund {
@@ -435,12 +430,35 @@ pub async fn registrera(
         .execute(ärende.conn())
         .await?;
     }
-    let bokfört = verifikat::bokför_i_ärende(
-        &mut ärende,
-        &verifikat::formulär_av(r.fakturadatum, &r.beskrivning(), &r.kontering()),
-        &[underlag],
-    )
-    .await?;
+    // Under fakturametoden på fakturadatumet bokför registreringen fordran; en kreditfaktura
+    // följer originalets fordran (#149).
+    let (kontering, fordran_bokförs) = match &r.krediterar {
+        None if fordran::fakturametoden_på(ärende.conn(), företag, r.fakturadatum).await? => {
+            (Some(r.kontering()), true)
+        }
+        None => (None, false),
+        Some(k) => (
+            fordran::kreditens_kontering(
+                ärende.conn(),
+                Faktura::Kund(KundfakturaId(k.faktura)),
+                r.total,
+                r.kontering(),
+            )
+            .await?,
+            false,
+        ),
+    };
+    let bokfört = match kontering {
+        Some(rader) => Some(
+            verifikat::bokför_i_ärende(
+                &mut ärende,
+                &verifikat::formulär_av(r.fakturadatum, &r.beskrivning(), &rader),
+                &[underlag],
+            )
+            .await?,
+        ),
+        None => None,
+    };
     let momsregistrerat = förutsättningar.momsregistrerat(r.fakturadatum);
     let (aktör_, nu) = (ärende.aktör, ärende.nu);
     sqlx::query(
@@ -459,13 +477,16 @@ pub async fn registrera(
     .bind(r.moms)
     .bind(r.total)
     .bind(momsregistrerat)
-    .bind(bokfört.id.0)
+    .bind(bokfört.map(|b| b.id.0))
     .bind(nu.to_string())
     .bind(aktör_.kanal.namn())
     .bind(aktör_.användare.map(|a| a.0))
     .bind(id.0)
     .execute(ärende.conn())
     .await?;
+    if let (Some(b), true) = (bokfört, fordran_bokförs) {
+        fordran::bokför_i(ärende.conn(), företag, Faktura::Kund(id), b.id).await?;
+    }
     let (filnamn, sha256): (String, String) =
         sqlx::query_as("SELECT filnamn, sha256 FROM underlag WHERE id = ?")
             .bind(underlag.0)
@@ -486,7 +507,7 @@ pub async fn registrera(
         "moms_öre": r.moms,
         "summa_öre": r.total,
         "omregistrerad": status == Status::Upplåst,
-        "verifikat": { "id": bokfört.id.0, "nummer": bokfört.nummer.to_string() },
+        "verifikat": bokfört.map(|b| json!({ "id": b.id.0, "nummer": b.nummer.to_string() })),
         "underlag": { "underlag": underlag.0, "filnamn": filnamn, "sha256": sha256 },
     });
     // Kreditfakturans post syns också i originalets historik.
@@ -1012,9 +1033,7 @@ pub(crate) async fn registreringens_verifikat_i(
     match rad {
         None => Ok(None),
         Some(Some(v)) => Ok(Some(VerifikatId(v))),
-        Some(None) => Err(DatabasFel::Korrupt(format!(
-            "kundfaktura {}: registreringens verifikat",
-            id.0
-        ))),
+        // #149: registreringen bokförde ingen fordran.
+        Some(None) => Ok(None),
     }
 }

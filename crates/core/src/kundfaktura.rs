@@ -23,7 +23,6 @@ use std::str::FromStr;
 use jiff::Timestamp;
 use jiff::civil::Date;
 use maya_domain::faktura::{Antal, Momsrad, Momssats, Rabatt, momsrader};
-use maya_domain::foretag::Bokföringsmetod;
 use maya_domain::kontoplan::Kontonummer;
 use maya_domain::kreditfaktura::{Hänvisning, Kreditspärr, NyKreditering};
 use maya_domain::kund::OmvändSkattskyldighet;
@@ -37,6 +36,8 @@ use sqlx::SqliteConnection;
 use crate::aktor::{Aktör, Handling};
 use crate::atkomst::{self, Ärende, ÅtkomstFel};
 use crate::behandlingshistorik::{self, Händelse};
+use crate::betalning::Faktura;
+use crate::fordran;
 use crate::foretag::{self, FöretagsId, datum};
 use crate::kund::{self, KundId};
 use crate::underlag::{self, UnderlagFel, UnderlagId};
@@ -108,10 +109,6 @@ pub enum KundfakturaFel {
     /// Startnumret väljs bara innan företaget har utfärdat sin första faktura.
     #[error("startnumret kan inte ändras efter första utfärdandet")]
     StartnummerLåst,
-    /// Kontantmetoden på fakturadatumet: utfärdandet bokförs inte, och det flödet kommer i
-    /// #149.
-    #[error("kundfakturor under kontantmetoden går inte att utfärda ännu")]
-    Kontantmetoden,
     /// Valet i panelen Kreditfaktura… klarar inte spärrarna (#140).
     #[error("kreditfakturan kan inte skapas")]
     Kreditering(Vec<Kreditspärr>),
@@ -161,7 +158,8 @@ pub struct Utfärdad {
     pub id: KundfakturaId,
     /// Numret i fakturaserien.
     pub nummer: u64,
-    pub verifikat: Bokfört,
+    /// Utfärdandets verifikat; `None` när inget bokfördes (kontantmetoden, #149).
+    pub verifikat: Option<Bokfört>,
     /// Den arkiverade PDF:en.
     pub underlag: UnderlagId,
 }
@@ -239,8 +237,8 @@ pub struct Utfärdning {
     pub momsläge: Momsläge,
     /// Originalet när fakturan är en kreditfaktura (#140).
     pub krediterar: Option<Hänvisning>,
-    /// Utfärdandets verifikat.
-    pub verifikat: verifikat::Länk,
+    /// Utfärdandets verifikat; `None` när inget bokfördes (kontantmetoden, #149).
+    pub verifikat: Option<verifikat::Länk>,
     pub pdf: ArkiveradPdf,
     pub utfärdad: Signatur,
 }
@@ -598,8 +596,10 @@ pub async fn radera_utkast(
 
 /// Utfärdar utkastet: nästa nummer i fakturaserien, kund- och företagsuppgifterna inkopierade,
 /// PDF:en skriven och arkiverad som underlag, verifikatet bokfört med PDF:en som underlag och
-/// utfärdandet loggat, i en transaktion. Under kontantmetoden på fakturadatumet utfärdas
-/// fakturan inte än (#149).
+/// utfärdandet loggat, i en transaktion. Under kontantmetoden på fakturadatumet bokförs inget
+/// (#149): fordran är inte bokförd, och betalningen bokför intäkten och momsen. En kreditfaktura
+/// speglar originalet när originalets fordran är bokförd, och bokför annars bara den del som
+/// överstiger det som var obetalt av originalet.
 pub async fn utfärda(
     db: &Databas,
     klocka: &Klocka,
@@ -610,10 +610,6 @@ pub async fn utfärda(
     let mut ärende = Ärende::börja(db, klocka, aktör, företag, Handling::UtfärdaFaktura).await?;
     kräv_utkast(&mut ärende, id).await?;
     let (mut u, säljare) = utfärdbar(ärende.conn(), företag, id).await?;
-    if bokföringsmetod(ärende.conn(), företag, u.fakturadatum).await? != Bokföringsmetod::Faktura
-    {
-        return Err(KundfakturaFel::Kontantmetoden);
-    }
     // En ny kund från utkastet blir verklig i samma transaktion, och fakturan får dess id.
     if let Some(ny) = &u.ny_kund {
         let kund_id = ny_kund_på(&mut ärende, id)
@@ -627,12 +623,18 @@ pub async fn utfärda(
     let pdf = skriv_pdf(&u, &säljare, logotyp, false, nu, ärende.conn(), &utfärdare).await?;
     let arkiverad =
         underlag::ladda_upp_i(&mut ärende, &pdf.filnamn, "application/pdf", &pdf.innehåll).await?;
-    let bokfört = verifikat::bokför_i_ärende(
-        &mut ärende,
-        &verifikat::formulär_av(u.fakturadatum, &u.beskrivning(), &u.kontering()),
-        &[arkiverad.id],
-    )
-    .await?;
+    let (kontering, fordran_bokförs) = bokföringen(ärende.conn(), företag, &u).await?;
+    let bokfört = match kontering {
+        Some(rader) => Some(
+            verifikat::bokför_i_ärende(
+                &mut ärende,
+                &verifikat::formulär_av(u.fakturadatum, &u.beskrivning(), &rader),
+                &[arkiverad.id],
+            )
+            .await?,
+        ),
+        None => None,
+    };
 
     // Raderna får sitt netto innan fakturan låses.
     for (i, r) in u.rader.iter().enumerate() {
@@ -681,13 +683,16 @@ pub async fn utfärda(
     .bind(u.momsläge.omvänd().kod())
     .bind(u.momsläge != Momsläge::UtanMoms)
     .bind(arkiverad.id.0)
-    .bind(bokfört.id.0)
+    .bind(bokfört.map(|b| b.id.0))
     .bind(nu)
     .bind(kanal)
     .bind(av)
     .bind(id.0)
     .execute(ärende.conn())
     .await?;
+    if let (Some(b), true) = (bokfört, fordran_bokförs) {
+        fordran::bokför_i(ärende.conn(), företag, Faktura::Kund(id), b.id).await?;
+    }
     let händelse = match u.krediterar {
         Some(_) => Händelse::KreditfakturaUtfärdad,
         None => Händelse::KundfakturaUtfärdad,
@@ -702,7 +707,7 @@ pub async fn utfärda(
                 "netto_öre": u.netto,
                 "moms_öre": u.moms,
                 "summa_öre": u.total,
-                "verifikat": { "id": bokfört.id.0, "nummer": bokfört.nummer.to_string() },
+                "verifikat": bokfört.map(|b| json!({ "id": b.id.0, "nummer": b.nummer.to_string() })),
                 "pdf": {
                     "underlag": arkiverad.id.0,
                     "filnamn": pdf.filnamn,
@@ -722,6 +727,52 @@ pub async fn utfärda(
         verifikat: bokfört,
         underlag: arkiverad.id,
     })
+}
+
+/// Utfärdandets kontering och om den bokför fakturans fordran (#149). Under fakturametoden på
+/// fakturadatumet bokförs 1510 mot intäkt och moms. En kreditfaktura följer originalets
+/// fordran: är den bokförd speglar krediten originalet, annars bokförs bara den del av krediten
+/// som överstiger det obetalda, mot 1510, och kreditfakturan bokför ingen egen fordran.
+async fn bokföringen(
+    conn: &mut SqliteConnection,
+    företag: FöretagsId,
+    u: &Utfärdbar,
+) -> Result<(Option<Vec<maya_domain::verifikat::Rad>>, bool), KundfakturaFel> {
+    let Some(h) = &u.krediterar else {
+        return Ok(
+            if fordran::fakturametoden_på(&mut *conn, företag, u.fakturadatum).await? {
+                (Some(u.kontering()), true)
+            } else {
+                (None, false)
+            },
+        );
+    };
+    let kontering = fordran::kreditens_kontering(
+        conn,
+        Faktura::Kund(KundfakturaId(h.faktura)),
+        u.total,
+        u.kontering(),
+    )
+    .await?;
+    Ok((kontering, false))
+}
+
+/// Det som utfärdandet av utkastet skulle bokföra nu, för dialogen Granska och utfärda: `None`
+/// när inget bokförs (kontantmetoden på fakturadatumet, eller en kredit som ryms i det
+/// obetalda av ett original vars fordran inte är bokförd, #149).
+pub async fn utfärdandets_kontering(
+    db: &Databas,
+    aktör: &Aktör,
+    företag: FöretagsId,
+    id: KundfakturaId,
+) -> Result<Option<Vec<maya_domain::verifikat::Rad>>, KundfakturaFel> {
+    let mut tx = db.pool().begin().await?;
+    atkomst::kräv(&mut tx, aktör, företag, Handling::LäsaFöretag).await?;
+    if status(&mut tx, företag, id).await? != Status::Utkast {
+        return Err(KundfakturaFel::IngetUtkast);
+    }
+    let (u, _) = utfärdbar(&mut tx, företag, id).await?;
+    Ok(bokföringen(&mut tx, företag, &u).await?.0)
 }
 
 /// PDF:en som utkastet skulle få om det utfärdades nu, med numret det skulle få, märkt
@@ -789,22 +840,6 @@ async fn skriv_pdf(
         },
         innehåll: maya_pdf::skriv(&dokument, &sidfot)?,
     })
-}
-
-/// Bokföringsmetoden på dagen: den senaste som gäller från dagen eller tidigare.
-pub(crate) async fn bokföringsmetod(
-    conn: &mut SqliteConnection,
-    företag: FöretagsId,
-    dag: Date,
-) -> Result<Bokföringsmetod, DatabasFel> {
-    let metoder = foretag::läs_företag(conn, företag).await?.bokföringsmetoder;
-    metoder
-        .iter()
-        .rev()
-        .find(|(från, _)| *från <= dag)
-        .or(metoder.first())
-        .map(|(_, metod)| *metod)
-        .ok_or_else(|| DatabasFel::Korrupt("bokforingsmetod".into()))
 }
 
 /// Att `id` är ett utkast i ärendets företag.
@@ -1218,10 +1253,10 @@ async fn läs_utfärdning(
             .bind(underlag_id)
             .fetch_one(&mut *conn)
             .await?;
-    let verifikat_id = verifikat_id.ok_or_else(|| korrupt("verifikat"))?;
-    let verifikat = verifikat::länk(&mut *conn, Some(verifikat_id))
-        .await?
-        .ok_or_else(|| korrupt("verifikat"))?;
+    let verifikat = verifikat::länk(&mut *conn, verifikat_id).await?;
+    if verifikat_id.is_some() && verifikat.is_none() {
+        return Err(korrupt("verifikat").into());
+    }
     Ok(Utfärdning {
         nummer: nummer.unsigned_abs(),
         referens,

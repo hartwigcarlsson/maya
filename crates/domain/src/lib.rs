@@ -16,6 +16,7 @@ pub mod fakturauppgifter;
 pub mod fordelning;
 pub mod foretag;
 pub mod ingaende_balans;
+pub mod kontantmetoden;
 pub mod kontering;
 pub mod kontoplan;
 pub mod kontourval;

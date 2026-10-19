@@ -32,6 +32,7 @@ fn förutsättningar(återstår: i64) -> Förutsättningar {
             date(2026, 12, 31),
         )],
         originalvaluta: false,
+        obokförd: None,
     }
 }
 
@@ -425,5 +426,104 @@ fn kursdifferens_kräver_en_avvikelse_och_går_inte_med_öresutjämning() {
     assert_eq!(
         koder(&båda, &i_valuta(1_000_000)),
         ["kursdifferens_och_oresutjamning"]
+    );
+}
+
+// #149 Kontantmetoden: fordran eller skulden är inte bokförd.
+
+/// Kundfakturan 12 500 kr (3001 netto 10 000 kr, 2611 2 500 kr) vars fordran inte är bokförd.
+fn obokförd_kundfaktura() -> maya_domain::kontantmetoden::Obokförd {
+    maya_domain::kontantmetoden::Obokförd::av(
+        &[
+            rad(1510, 1_250_000, 0),
+            rad(3001, 0, 1_000_000),
+            rad(2611, 0, 250_000),
+        ],
+        konto(1510),
+    )
+}
+
+#[test]
+fn betalning_när_fordran_inte_är_bokförd_bokför_intäkt_och_moms_proportionellt() {
+    let f = Förutsättningar {
+        obokförd: Some(obokförd_kundfaktura()),
+        ..förutsättningar(1_250_000)
+    };
+    let g = betalning("2026-11-02", "5000").kontrollera(&f).unwrap();
+    assert_eq!(g.återstår_efter, 750_000);
+    assert_eq!(
+        g.kontering(),
+        vec![
+            rad(1930, 500_000, 0),
+            rad(3001, 0, 400_000),
+            rad(2611, 0, 100_000)
+        ]
+    );
+}
+
+#[test]
+fn öresutjämningen_bokförs_inte_när_fordran_inte_är_bokförd() {
+    let f = Förutsättningar {
+        obokförd: Some(obokförd_kundfaktura()),
+        ..förutsättningar(1_250_000)
+    };
+    let b = NyBetalning {
+        öresutjämning: true,
+        ..betalning("2026-11-02", "12 490")
+    };
+    let g = b.kontrollera(&f).unwrap();
+    assert_eq!((g.öresutjämning, g.återstår_efter), (1_000, 0));
+    assert_eq!(
+        g.kontering(),
+        vec![
+            rad(1930, 1_249_000, 0),
+            rad(3001, 0, 999_200),
+            rad(2611, 0, 249_800)
+        ]
+    );
+}
+
+#[test]
+fn en_återbetalning_bokförs_mot_1510_också_när_fordran_inte_är_bokförd() {
+    let f = Förutsättningar {
+        obokförd: Some(obokförd_kundfaktura()),
+        ..förutsättningar(-40_000)
+    };
+    let g = betalning("2026-11-02", "400").kontrollera(&f).unwrap();
+    assert_eq!(
+        g.kontering(),
+        vec![rad(1930, 0, 40_000), rad(1510, 40_000, 0)]
+    );
+}
+
+#[test]
+fn betalning_när_skulden_inte_är_bokförd_bokför_kostnad_och_fiktiv_moms_med_kursdifferensen() {
+    // EU-tjänst 1 000 kr på 5410 med fiktiv moms 250 kr; betalningen 990 kr stänger 10 kr som
+    // kursvinst, och kostnaden är fakturans belopp i SEK.
+    let o = maya_domain::kontantmetoden::Obokförd::av(
+        &[
+            rad(5410, 100_000, 0),
+            rad(2645, 25_000, 0),
+            rad(2440, 0, 100_000),
+            rad(2614, 0, 25_000),
+        ],
+        konto(2440),
+    );
+    let f = Förutsättningar {
+        obokförd: Some(o),
+        ..i_valuta(100_000)
+    };
+    let g = med_kursdifferens("2026-11-02", "990")
+        .kontrollera(&f)
+        .unwrap();
+    assert_eq!(
+        g.kontering(),
+        vec![
+            rad(5410, 100_000, 0),
+            rad(2645, 25_000, 0),
+            rad(2614, 0, 25_000),
+            rad(1930, 0, 99_000),
+            rad(3960, 0, 1_000),
+        ]
     );
 }

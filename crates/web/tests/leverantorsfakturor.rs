@@ -413,3 +413,60 @@ async fn ett_företag_utan_momsregistrering_har_inget_val_för_omvänd_skattskyl
     assert!(body.contains("Registrera och bokför"), "{body}");
     assert!(!body.contains("name=\"omvand_skattskyldighet\""), "{body}");
 }
+
+// #149 Kontantmetoden
+#[tokio::test]
+async fn under_kontantmetoden_heter_knappen_registrera_och_inget_bokförs() {
+    let db = Databas::tillfällig().await;
+    let session = inloggad(&db).await;
+    let r = posta(
+        &db,
+        &session,
+        "/foretag",
+        "orgnr=556036-0793&namn=Exempel+AB&start=2026-01-01&slut=2026-12-31\
+         &bokforingsmetod=kontant&momsperiod=kvartal",
+    )
+    .await;
+    let bas = plats(&r);
+    let r = posta(
+        &db,
+        &session,
+        &format!("{bas}/leverantorer"),
+        "namn=Kontorsvaror+AB&land=SE&bankgiro=5050-1055&standardkonto=5410",
+    )
+    .await;
+    let l = parameter(&plats(&r), "l");
+    let adress = ladda_upp(
+        &db,
+        &session,
+        &format!("{bas}/leverantorsfakturor"),
+        "faktura.pdf",
+    )
+    .await;
+    let f = parameter(&adress, "f");
+    let (_, body) = hämta(&db, &session, &adress).await;
+    let detalj = &body[body.find("med-underlag").expect(&body)..];
+    assert!(!detalj.contains("Registrera och bokför"), "{detalj}");
+    assert!(detalj.contains("Registrera"), "{detalj}");
+    assert!(detalj.contains("Bokförs vid betalningen"), "{detalj}");
+
+    let r = posta(
+        &db,
+        &session,
+        &format!("{bas}/leverantorsfakturor/{f}"),
+        &format!("handling=registrera&{}", faktura(&l, "1250")),
+    )
+    .await;
+    let registrerad = plats(&r);
+    assert!(registrerad.contains("registrerad=0"), "{registrerad}");
+    let (_, body) = hämta(&db, &session, &registrerad).await;
+    assert!(
+        body.contains("Under kontantmetoden bokförs fakturan när den betalas."),
+        "{body}"
+    );
+    let (_, verifikat) = hämta(&db, &session, &format!("{bas}/verifikat")).await;
+    assert!(
+        !verifikat.contains("Leverantörsfaktura 8812"),
+        "{verifikat}"
+    );
+}

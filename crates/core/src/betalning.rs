@@ -82,7 +82,7 @@ impl Faktura {
 
     /// Värdena för `betalning.kundfaktura_id` och `betalning.leverantorsfaktura_id`: precis
     /// ett är satt.
-    fn kolumner(self) -> (Option<i64>, Option<i64>) {
+    pub(crate) fn kolumner(self) -> (Option<i64>, Option<i64>) {
         match self {
             Faktura::Kund(id) => (Some(id.0), None),
             Faktura::Leverantör(id) => (None, Some(id.0)),
@@ -205,6 +205,9 @@ pub struct Reskontrapost {
     pub betalningar: Vec<Betalningspost>,
     /// En kundförlust som inte är återkallad gäller fakturan (#141).
     pub kundförlust: bool,
+    /// Fakturans fordran eller skuld är bokförd på 1510 eller 2440 (#149); annars bokförs
+    /// betalningen mot intäkt eller kostnad och moms.
+    pub bokförd: bool,
 }
 
 /// Fakturan som betalningen gäller, läst i transaktionen.
@@ -357,12 +360,15 @@ async fn läs_förutsättningar(
         konton: v.konton,
         räkenskapsår: v.räkenskapsår,
         originalvaluta: !fakturan.originalvaluta.trim().is_empty(),
+        obokförd: crate::fordran::obokförd_i(&mut *conn, företag, faktura).await?,
     })
 }
 
 /// Registrerar en betalning av fakturan och bokför dess verifikat, daterat på betaldagen med
 /// fakturan som referens, i samma transaktion: betalkontot mot reskontrakontot, och en rest på
-/// högst 10 kr mot öresutjämning om användaren valde det. En överbetalning spärras.
+/// högst 10 kr mot öresutjämning om användaren valde det. När fakturans fordran eller skuld inte
+/// är bokförd (kontantmetoden, #149) bokförs betalningen mot intäkt eller kostnad och moms i
+/// proportion, och resten stängs utan verifikat. En överbetalning spärras.
 pub async fn registrera(
     db: &Databas,
     klocka: &Klocka,
@@ -666,7 +672,9 @@ pub async fn reskontrapost(
         Faktura::Kund(id) => crate::kundforlust::förlorat_i(&mut tx, id).await? != 0,
         Faktura::Leverantör(_) => false,
     };
+    let bokförd = crate::fordran::bokförd_i(&mut tx, faktura).await?;
     Ok(Reskontrapost {
+        bokförd,
         total: fakturan.total,
         krediterat,
         återstår,

@@ -606,3 +606,35 @@ async fn ombyggnaden_av_kundfakturorna_behåller_fakturorna_och_deras_rader() {
     assert_eq!(f.formulär.rader[0].beskrivning, "Konsulttimmar");
     db.stäng().await;
 }
+
+// #149 Kontantmetoden
+#[tokio::test]
+async fn fakturor_som_bokfördes_före_kontantmetoden_har_sin_fordran_och_skuld_bokförd() {
+    use maya_core::betalning::{self, Faktura};
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("maya.db");
+    let ny = Migreringar::nya(&[]).migrator().await;
+    let db = Databas::öppna_som(&path, VERSION, &ny, None).await.unwrap();
+    let (anna, företag) = testhjalp::fakturaföretag(&db).await;
+    let kund = testhjalp::utfärdad_kundfaktura(&db, &anna, företag, "Kund AB", "2026-03-10").await;
+    let l = testhjalp::leverantör(&db, &anna, företag, "Kontorsvaror AB").await;
+    let lev = testhjalp::registrerad_leverantörsfaktura(&db, &anna, företag, l, "8812", "").await;
+    // Som databasen var före #149: utan tabellen och utan migreringen.
+    for sql in [
+        "DROP VIEW reskontrapost_bokford",
+        "DROP TABLE bokford_reskontrapost",
+        "DELETE FROM _sqlx_migrations WHERE version = 20261021144900",
+    ] {
+        testhjalp::kör_sql(&db, sql).await.unwrap();
+    }
+    db.stäng().await;
+
+    let db = Databas::öppna_som(&path, VERSION, &ny, None).await.unwrap();
+    for f in [Faktura::Kund(kund.id), Faktura::Leverantör(lev)] {
+        let post = betalning::reskontrapost(&db, &anna, företag, f)
+            .await
+            .unwrap();
+        assert!(post.bokförd, "{f:?}");
+    }
+    db.stäng().await;
+}
