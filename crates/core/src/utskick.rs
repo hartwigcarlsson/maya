@@ -22,7 +22,7 @@ use crate::aktor::{Aktör, Handling};
 use crate::atkomst::{self, Ärende, ÅtkomstFel};
 use crate::behandlingshistorik::Händelse;
 use crate::foretag::{FöretagsId, datum};
-use crate::kundfaktura::{self, KundfakturaFel, KundfakturaId, Utfärdad};
+use crate::kundfaktura::{self, KundfakturaFel, KundfakturaId, Status, Utfärdad};
 use crate::smtp::Bilaga;
 use crate::verifikat::{Signatur, signatur};
 use crate::{Databas, DatabasFel, Klocka, fakturauppgifter};
@@ -212,7 +212,7 @@ async fn läs_fakturan(
         return Err(UtskickFel::FinnsInte);
     };
     // #143: bara Mayas egna fakturor utfärdas och skickas; en extern har status registrerad.
-    if status != "utfardad" {
+    if Status::från_kod(&status) != Some(Status::Utfärdad) {
         return Err(UtskickFel::InteUtfärdad);
     }
     let korrupt = |vad: &str| DatabasFel::Korrupt(format!("kundfaktura {}: {vad}", id.0));

@@ -86,8 +86,8 @@ pub type KonteringVy = (String, String, String, String);
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ExternVy {
     pub id: String,
-    /// `utkast`, `registrerad` eller `upplast`.
-    pub status: String,
+    /// Fakturans registrering är vänd med Rätta registrering, och den skrivs av igen.
+    pub upplåst: bool,
     pub original: UnderlagVy,
     pub formulär: NyExternFaktura,
     pub kund: String,
@@ -336,12 +336,7 @@ pub(crate) mod server {
         };
         Ok(ExternVy {
             id: f.id.to_string(),
-            status: match f.status {
-                Status::Utkast => "utkast",
-                Status::Upplåst => "upplast",
-                _ => "registrerad",
-            }
-            .into(),
+            upplåst: f.status == Status::Upplåst,
             original,
             formulär: f.formulär.clone(),
             kund: f.kund.clone(),
@@ -731,7 +726,7 @@ fn Avskrift(bas: String, d: ExternVy, f: ExternFörutsättningarVy) -> impl Into
     start.rader.resize(antal, NyExternRad::default());
     let lista = format!("{bas}/kundfakturor");
     let här = format!("{lista}?f={}", d.id);
-    let upplåst = d.status == "upplast";
+    let upplåst = d.upplåst;
     let dialog = (fråga("radera").is_some() && !upplåst).then(|| {
         view! {
             <section class="dialog" role="alertdialog" aria-labelledby="radera-rubrik">
@@ -1068,7 +1063,7 @@ fn Formulär(
         .into_any()
     };
     let lista = format!("{bas}/kundfakturor");
-    let upplåst = d.status == "upplast";
+    let upplåst = d.upplåst;
     let märke = if upplåst {
         view! { <Märke kod="upplast".to_string() namn="Upplåst".to_string() /> }.into_any()
     } else {

@@ -841,9 +841,10 @@ pub async fn lista(
     Ok(rader
         .into_iter()
         .map(|r| {
+            let status = status_(&r.status)?;
             Ok(Fakturarad {
                 id: LeverantörsfakturaId(r.id),
-                status: status_(&r.status)?,
+                status,
                 leverantörsnamn: r.namn.unwrap_or_default(),
                 ny_leverantör: r.lstatus.as_deref() == Some("ny"),
                 fakturanummer: r.fakturanummer,
@@ -852,7 +853,7 @@ pub async fn lista(
                 total: r.total,
                 återstår: r.aterstar.unwrap_or(r.total.unwrap_or_default()),
                 krediterat: r.krediterat.unwrap_or_default(),
-                kreditfaktura: r.krediterar.is_some() && r.status != "utkast",
+                kreditfaktura: r.krediterar.is_some() && status != Status::Utkast,
             })
         })
         .collect::<Result<_, DatabasFel>>()?)
