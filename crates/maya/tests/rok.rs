@@ -610,6 +610,135 @@ fn kundfaktura_skapas_granskas_och_utfärdas() {
     inga_sidfel(&tab);
 }
 
+/// Specens flöde för betalningar (#139): en utfärdad faktura får en delbetalning i panelen
+/// Registrera betalning, som visar resten och verifikatet medan användaren skriver, och
+/// dokumentet visar betalningen och det som återstår.
+#[test]
+fn kundfaktura_betalas_i_dokumentet() {
+    if !stod::sajten_finns() {
+        return;
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let port = ledig_port();
+    let bas = format!("http://localhost:{port}");
+    std::fs::write(
+        dir.path().join(".env"),
+        format!(
+            "MAYA_PUBLIC_URL={bas}\nMAYA_LISTEN=127.0.0.1:{port}\nMAYA_BACKUP_DIR={backup}\n\
+             MAYA_DATA_DIR={data}\n",
+            backup = dir.path().display(),
+            data = dir.path().join("data").display(),
+        ),
+    )
+    .unwrap();
+    let _server = Server::starta(dir.path(), port);
+    let browser = Browser::new(
+        LaunchOptions::default_builder()
+            .sandbox(false)
+            .idle_browser_timeout(Duration::from_secs(120))
+            .build()
+            .unwrap(),
+    )
+    .expect("röktestet kräver Chrome eller Chromium; ange sökvägen i CHROME");
+    let tab = browser.new_tab().unwrap();
+    tab.call_method(Page::AddScriptToEvaluateOnNewDocument {
+        source: SAMLA_FEL.to_string(),
+        world_name: None,
+        include_command_line_api: None,
+        run_immediately: None,
+    })
+    .unwrap();
+    tab.call_method(WebAuthn::Enable {
+        enable_ui: Some(false),
+    })
+    .unwrap();
+    autentiserare(&tab);
+    tab.navigate_to(&skapa_användare(dir.path(), &bas)).unwrap();
+    vänta_på_shimmen(&tab);
+    tab.wait_for_element("#namn")
+        .unwrap()
+        .type_into("Virtuell nyckel")
+        .unwrap();
+    klicka(&tab, "form[data-passkey='registrera'] button");
+    vänta_på_text(&tab, "Lägg till en passkey till");
+
+    // Företaget, kunden och en utfärdad faktura på 11 875,00 kr, med vanliga formulärposter.
+    let företaget = posta(
+        &tab,
+        "/foretag",
+        "orgnr=556036-0793&namn=Exempel+AB&start=2026-01-01&slut=2026-12-31\
+         &bokforingsmetod=faktura&momsperiod=kvartal",
+    );
+    let id = företaget.rsplit('/').next().unwrap().to_string();
+    posta(
+        &tab,
+        &format!("/foretag/{id}/installningar/uppgifter"),
+        "namn=Exempel+AB&gatuadress=Exempelgatan+1&postnummer=12345&postort=Exempelstad\
+         &epost=&telefon=&sate=Stockholm&momsregnr=SE556036079301&f_skatt=ja",
+    );
+    posta(
+        &tab,
+        &format!("/foretag/{id}/installningar/fakturauppgifter"),
+        "bankgiro=50501055",
+    );
+    let kund = posta(
+        &tab,
+        &format!("/foretag/{id}/kunder"),
+        "namn=Kund+AB&identitet=&adress=Storgatan+1%0A111+22+Stockholm&epost=\
+         &momsregnr=&betalningsvillkor=30&omvand_skattskyldighet=ingen",
+    );
+    let k = kund
+        .split("k=")
+        .nth(1)
+        .unwrap()
+        .split('&')
+        .next()
+        .unwrap()
+        .to_string();
+    let granska = posta(
+        &tab,
+        &format!("/foretag/{id}/kundfakturor"),
+        &format!(
+            "kund={k}&fakturadatum=2026-03-10&leveransdatum=&forfallodag=&er_referens=\
+             &startnummer=&beskrivning_0=Konsulttimmar&antal_0=10&enhet_0=tim&a_pris_0=950\
+             &rabatt_0=&momssats_0=25&konto_0=3001&handling=granska"
+        ),
+    );
+    let f = granska
+        .split("f=")
+        .nth(1)
+        .unwrap()
+        .split('&')
+        .next()
+        .unwrap()
+        .to_string();
+    posta(&tab, &format!("/foretag/{id}/kundfakturor/{f}/utfarda"), "");
+
+    // Dokumentet: förfallen och obetald. Registrera betalning öppnar panelen.
+    tab.navigate_to(&format!("{bas}/foretag/{id}/kundfakturor?f={f}"))
+        .unwrap();
+    vänta_på_hydreringen(&tab);
+    vänta_på_text(&tab, "Förfallen");
+    vänta_på_text(&tab, "Inga betalningar än.");
+    klicka(&tab, "a[href$='panel=betalning']");
+    vänta_på_text(&tab, "Återstår 11 875,00 kr");
+    vänta_på_hydreringen(&tab);
+    // En delbetalning: resten och verifikatet visas medan användaren skriver.
+    fyll(&tab, "#betaldag", "2026-04-01");
+    fyll(&tab, "#belopp", "5000");
+    vänta_på_text(&tab, "Delbetalning, 6 875,00 kr återstår.");
+    vänta_på_text(&tab, "5 000,00");
+    // En överbetalning spärras vid fältet.
+    fyll(&tab, "#belopp", "20000");
+    tab.wait_for_element("p[data-kod='overbetalning']").unwrap();
+    fyll(&tab, "#belopp", "5000");
+    klicka(&tab, ".betalningspanel button[type='submit']");
+    vänta_på_text(&tab, "Betalningen registrerades");
+    vänta_på_text(&tab, "Rätta betalning…");
+    vänta_på_text(&tab, "6 875,00 kvar");
+    inga_sidfel(&tab);
+}
+
 /// Väljer ett värde i en `<select>` som användaren skulle.
 fn välj(tab: &Tab, selektor: &str, värde: &str) {
     tab.wait_for_element(selektor)

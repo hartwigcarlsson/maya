@@ -1193,6 +1193,10 @@ async fn flödeslänk(
             text: format!("leverantörsfaktura {nummer} från {namn}"),
         }));
     }
+    // #139 Betalningar
+    if let Some((flöde, id, text)) = crate::betalning::fakturan_för_verifikat(conn, id).await? {
+        return Ok(Some(Flödeslänk { flöde, id, text }));
+    }
     // #135 Kundfakturor
     Ok(crate::kundfaktura::fakturan_för_verifikat(conn, id)
         .await?

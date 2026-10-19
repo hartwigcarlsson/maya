@@ -144,6 +144,9 @@ pub enum Handling {
     /// Skicka en utfärdad kundfaktura med e-post och markera den som lämnad på annat sätt
     /// (#138). Bara webben.
     SkickaFaktura,
+    /// Registrera en betalning av en faktura (#139); Rätta betalning är [`Handling::RättaFlöde`].
+    /// Bara webben.
+    RegistreraBetalning,
 }
 
 /// Kanalpolicyn: om `kanal` får utföra `handling`.
@@ -172,6 +175,7 @@ pub fn tillåter(kanal: Kanal, handling: Handling) -> bool {
         | Handling::RegistreraFaktura
         | Handling::UtfärdaFaktura
         | Handling::RättaFlöde
-        | Handling::SkickaFaktura => kanal == Kanal::Webb,
+        | Handling::SkickaFaktura
+        | Handling::RegistreraBetalning => kanal == Kanal::Webb,
     }
 }

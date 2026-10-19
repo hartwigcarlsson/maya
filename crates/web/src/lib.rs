@@ -8,6 +8,7 @@ pub mod app;
 pub mod atkomst;
 pub mod att_gora;
 pub mod behandlingshistorik;
+pub mod betalning;
 pub mod bokforing;
 pub mod fakturauppgifter;
 pub mod foretag;
