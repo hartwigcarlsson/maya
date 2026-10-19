@@ -14,6 +14,8 @@
 //! [`Obokförd`] är fakturans kontering under fakturametoden utan reskontrakontot, som andelarna
 //! räknas ur.
 
+use jiff::civil::Date;
+
 use crate::belopp::Saldo;
 use crate::fordelning::fördela;
 use crate::kontoplan::Kontonummer;
@@ -26,7 +28,7 @@ const FIKTIV_MOMS: [u16; 5] = [2645, 2647, 2614, 2624, 2634];
 /// Fakturans kontering när fordran eller skulden inte är bokförd: raderna som motsvarar
 /// reskontrakontot (intäkt eller kostnad och moms) och den fiktiva momsen, med belopp i öre,
 /// debet positivt.
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Obokförd {
     reskontrakonto: u16,
     /// Reskontrakontots belopp under fakturametoden: positivt för en kundfaktura, negativt
@@ -113,6 +115,55 @@ impl Obokförd {
         }
         ut.extend(self.andel(andel));
         ut
+    }
+
+    /// Konteringen för en kreditfaktura på `kredit` öre (positivt) som krediterar fakturan:
+    /// fakturans rader med omvänt tecken och i proportion till krediten, också den fiktiva
+    /// momsen, och reskontrakontot sist med krediten, som i fakturans eget verifikat.
+    pub fn spegling(&self, kredit: i64) -> Vec<verifikat::Rad> {
+        let andel = -kredit * self.total.signum();
+        let mut ut = self.andel(andel);
+        if andel != 0 {
+            ut.push(rad(self.reskontrakonto, andel));
+        }
+        ut
+    }
+}
+
+/// Originalets läge när en kreditfaktura krediterar det: det som avgör hur mycket av krediten
+/// som bokförs (#149, #150).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Kreditläge {
+    /// Originalets fordran eller skuld är bokförd.
+    pub bokförd: bool,
+    /// Slutet på originalets räkenskapsår när originalet väntar på årets T2-verifikat: en kredit
+    /// daterad efter det bokförs mot 1510 eller 2440.
+    pub bokförd_efter: Option<Date>,
+    /// Det som återstår av originalet före krediten, i öre.
+    pub obetalt: i64,
+    /// Det som var obetalt av originalet vid årets slut, när `bokförd_efter` är satt.
+    pub vid_årets_slut: i64,
+}
+
+impl Kreditläge {
+    /// Om originalets fordran eller skuld är bokförd för en kredit daterad `dag`: krediten
+    /// speglar då originalet för hela beloppet.
+    pub fn bokförd_på(&self, dag: Date) -> bool {
+        self.bokförd || self.bokförd_efter.is_some_and(|slut| dag > slut)
+    }
+
+    /// Den del av en kredit på `kredit` öre (positivt), daterad `dag`, som bokförs: hela när
+    /// originalet är bokfört ([`Kreditläge::bokförd_på`]), annars
+    /// [`kreditens_bokförda_del_före_t2`] när originalet väntar på årets T2-verifikat och
+    /// [`kreditens_bokförda_del`] annars. Noll när inget bokförs.
+    pub fn bokförd_del(&self, kredit: i64, dag: Date) -> i64 {
+        if self.bokförd_på(dag) {
+            return kredit;
+        }
+        match self.bokförd_efter {
+            Some(_) => kreditens_bokförda_del_före_t2(kredit, self.obetalt, self.vid_årets_slut),
+            None => kreditens_bokförda_del(kredit, self.obetalt),
+        }
     }
 }
 

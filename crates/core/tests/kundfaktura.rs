@@ -167,7 +167,7 @@ async fn utfärdandet_numrerar_arkiverar_pdf_en_bokför_och_loggar_i_en_transakt
     assert_eq!(u.nummer, 1);
     assert_eq!(u.referens, "1");
     assert_eq!(u.kund.namn, "Kund AB");
-    assert_eq!(u.säljare.bankgiro, "5050-1055");
+    assert_eq!(u.fakturaföretag.bankgiro, "5050-1055");
     assert_eq!(u.förfallodag.to_string(), "2026-04-09");
     assert_eq!(u.total, 1_229_900);
     assert_eq!(
@@ -464,7 +464,7 @@ async fn med_ocr_på_får_fakturan_en_ocr_referens() {
         .utfärdad
         .unwrap();
     assert_eq!(u.referens, "100768");
-    assert!(u.säljare.ocr);
+    assert!(u.fakturaföretag.ocr);
 }
 
 #[tokio::test]

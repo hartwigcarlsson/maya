@@ -14,7 +14,7 @@ fn kr(öre: i64) -> String {
 
 pub(crate) fn kundfaktura(k: &Kundfaktura) -> Value {
     let f = &k.faktura;
-    let s = &k.säljare;
+    let s = &k.fakturaföretag;
     let mut betalsätt = Vec::new();
     if !s.bankgiro.is_empty() {
         betalsätt.push(json!(["Bankgiro", s.bankgiro]));

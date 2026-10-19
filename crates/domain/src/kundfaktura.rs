@@ -226,10 +226,10 @@ pub struct Fakturakund {
     pub omvänd_skattskyldighet: OmvändSkattskyldighet,
 }
 
-/// Företagets uppgifter som fakturan kopierar in: säljaren enligt momslagen, F-skatt,
+/// Företagets uppgifter som fakturan kopierar in: de som momslagen kräver, F-skatt,
 /// betalsätten och om fakturorna har OCR-referens. Tom text betyder att uppgiften saknas.
 #[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub struct Säljare {
+pub struct Fakturaföretag {
     pub namn: String,
     /// `NNNNNN-NNNN`.
     pub orgnr: String,
@@ -247,7 +247,7 @@ pub struct Säljare {
     pub ocr: bool,
 }
 
-impl Säljare {
+impl Fakturaföretag {
     /// Om minst ett betalsätt finns: bankgiro, plusgiro eller IBAN med BIC.
     pub fn har_betalsätt(&self) -> bool {
         !self.bankgiro.is_empty()
@@ -261,7 +261,7 @@ impl Säljare {
 pub struct Förutsättningar {
     /// Kunderna som kan väljas: de aktiva i kundregistret.
     pub kunder: Vec<Fakturakund>,
-    pub säljare: Säljare,
+    pub fakturaföretag: Fakturaföretag,
     /// Kontona i kontoplanen och om de är aktiva.
     pub konton: Vec<(Kontonummer, bool)>,
     /// Räkenskapsåren i ordning.
@@ -498,10 +498,10 @@ pub struct Utfärdbar {
 }
 
 impl Utfärdbar {
-    /// Säljarens uppgifter som fakturan har dem: utan momsreg-nr när företaget inte är
+    /// Företagets uppgifter som fakturan har dem: utan momsreg-nr när företaget inte är
     /// momsregistrerat.
-    pub fn säljare_på_fakturan(&self, säljare: &Säljare) -> Säljare {
-        let mut s = säljare.clone();
+    pub fn företaget_på_fakturan(&self, fakturaföretag: &Fakturaföretag) -> Fakturaföretag {
+        let mut s = fakturaföretag.clone();
         if self.momsläge == Momsläge::UtanMoms {
             s.momsregnr.clear();
         }
@@ -827,7 +827,7 @@ impl NyKundfaktura {
                     moms,
                     total,
                     nummer,
-                    referens: if f.säljare.ocr {
+                    referens: if f.fakturaföretag.ocr {
                         faktura::ocr(nummer)
                     } else {
                         nummer.to_string()
@@ -1283,7 +1283,7 @@ fn kontrollera_säljaren(
     fakturadatum: Option<Date>,
     spärrar: &mut Vec<Spärr>,
 ) {
-    let s = &f.säljare;
+    let s = &f.fakturaföretag;
     let mut fel = |kod, text: &str| spärrar.push(Spärr::ny(Fält::Företag, kod, text));
     if [&s.gatuadress, &s.postnummer, &s.postort]
         .iter()

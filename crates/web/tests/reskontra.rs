@@ -192,3 +192,36 @@ async fn bara_inloggade_med_åtkomst_ser_reskontran() {
         assert_eq!(utan_åtkomst.status(), StatusCode::FORBIDDEN, "{annat}");
     }
 }
+
+#[tokio::test]
+async fn leverantörsfakturornas_rubrik_visar_differensen_mot_2440() {
+    // En registrerad leverantörsfaktura på 1 250 kr och ett manuellt verifikat på 2440 som inte
+    // hör till någon faktura: 2440 har 300 kr mer i skuld än reskontran.
+    let db = Databas::tillfällig().await;
+    let (anna, id) = testhjalp::fakturaföretag(&db).await;
+    let session = testhjalp::session(&db, &Klocka::system(), &anna).await;
+    let l = testhjalp::leverantör(&db, &anna, id, "Kontorsvaror AB").await;
+    testhjalp::registrerad_leverantörsfaktura(&db, &anna, id, l, "8812", "").await;
+    testhjalp::bokför(
+        &db,
+        &anna,
+        id,
+        "2026-03-20",
+        &[(5410, 30_000, 0), (2440, 0, 30_000)],
+    )
+    .await;
+    let bas = format!("/foretag/{id}");
+    let html = sida(&db, &session, &format!("{bas}/leverantorsfakturor")).await;
+    let rubrik = &html[html.find("Leverantörsskulder").expect(&html)..];
+    assert!(
+        rubrik.contains("Avviker från 2440 med -300,00 kr"),
+        "{rubrik}"
+    );
+    assert!(
+        rubrik.contains(&format!(r#"href="{bas}/rapporter/reskontra""#)),
+        "{rubrik}"
+    );
+    // Kundreskontran stämmer, så dess rubrik visar ingen differens.
+    let html = sida(&db, &session, &format!("{bas}/kundfakturor")).await;
+    assert!(!html.contains("Avviker från 1510"), "{html}");
+}

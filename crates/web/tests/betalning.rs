@@ -375,6 +375,11 @@ async fn listan_grupperas_och_rubriken_har_kundfordringarna() {
     let utkast = lista.find(">Utkast<").expect("Utkast");
     assert!(förfallna < utkast);
     assert!(lista.contains("förföll för"));
+    // Berättelse 70: gruppens summa av fordringarna står i rubriken.
+    assert!(
+        efter(&lista, ">Förfallna<").contains(" · 1 · 11 875,00 kr</span>"),
+        "{lista}"
+    );
 
     posta(
         &db,

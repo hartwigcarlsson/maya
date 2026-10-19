@@ -74,6 +74,13 @@ inherits = "release"
 opt-level = "z"
 panic = "abort"
 
+# WASM:en i debugläge (`cargo leptos build`) utan namnsektionen: den var 213 av 240 MB, och varje
+# flik i webbläsartesterna laddade ner och kompilerade allt, så hydreringen hann inte klart när
+# testerna körde parallellt. Panikmeddelandena har kvar fil och rad.
+[profile.wasm-dev]
+inherits = "dev"
+strip = "symbols"
+
 [[workspace.metadata.leptos]]
 name = "maya"
 bin-package = "maya"
@@ -85,6 +92,7 @@ assets-dir = "crates/web/public"
 lib-features = ["hydrate"]
 lib-default-features = false
 lib-profile-release = "wasm-release"
+lib-profile-dev = "wasm-dev"
 # I debugläge bygger cargo-leptos annars med `--cfg erase_components`, som ändrar SSR-markupen.
 # Ett vanligt `cargo build`/`cargo test` bygger om servern utan den, och då panikar WASM:en
 # vid hydreringen ("expected a marker node"). Samma flaggor överallt.

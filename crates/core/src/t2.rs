@@ -263,16 +263,8 @@ pub async fn bokför(
 /// skapas bara av jobbet ([`kör`]).
 pub(crate) async fn räkna_om_utkasten_i(ärende: &mut Ärende) -> Result<(), sqlx::Error> {
     let företag = ärende.företag;
-    // En databas som ännu inte har migrerats till #150 (bara i migreringstesterna, som skriver
-    // med äldre scheman) har inga T2-utkast.
-    let t2_finns: bool = sqlx::query_scalar(
-        "SELECT EXISTS (SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 't2')",
-    )
-    .fetch_one(ärende.conn())
-    .await?;
-    if !t2_finns {
-        return Ok(());
-    }
+    // Frågan är det billiga provet: ett företag utan T2-utkast som inte är bokförda får inga
+    // rader, och då görs inget mer.
     let utkast: Vec<(i64, i64, i64, String, String)> = sqlx::query_as(
         "SELECT t2.id, t2.verifikat_id, r.id, r.start, r.slut FROM t2
          JOIN rakenskapsar r ON r.id = t2.rakenskapsar_id

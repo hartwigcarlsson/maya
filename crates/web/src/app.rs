@@ -66,6 +66,19 @@ if(e.key!=='/'||e.ctrlKey||e.metaKey||e.altKey)return;var t=e.target;\
 if(t&&(t.isContentEditable||/^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName)))return;\
 var f=document.getElementById('kontosok');if(f){e.preventDefault();f.focus();f.select()}})";
 
+/// Webbläsarens PDF-visare i en ram tar fokus när den har laddat, och då rullar sidan till ramen
+/// (underlagets förhandsvisning bredvid ett formulär). Det fokus som en ram tar inom några
+/// sekunder efter att den laddat lämnas tillbaka, och sidan står kvar där den stod. Ett klick i
+/// ramen därefter fokuserar den som vanligt.
+const RAMEN_TAR_INTE_FOKUS: &str = "(function(){var x=scrollX,y=scrollY;\
+function ram(e){return e&&e.tagName==='IFRAME'}\
+addEventListener('scroll',function(){if(!ram(document.activeElement)){x=scrollX;y=scrollY}},\
+{passive:true});\
+document.addEventListener('load',function(e){if(ram(e.target))e.target.__laddad=Date.now()},true);\
+addEventListener('blur',function(){var r=document.activeElement;\
+if(!ram(r)||!r.__laddad||Date.now()-r.__laddad>5000)return;r.__laddad=0;var lx=x,ly=y;\
+setTimeout(function(){r.blur();scrollTo(lx,ly)},0)})})()";
+
 /// Dokumentet som servern renderar runt appen.
 pub fn shell(options: LeptosOptions) -> impl IntoView {
     view! {
@@ -78,6 +91,7 @@ pub fn shell(options: LeptosOptions) -> impl IntoView {
                 <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
                 <script>{TEMA_FÖRE_RITNING}</script>
                 <script>{SNABBTANGENT_SÖK}</script>
+                <script>{RAMEN_TAR_INTE_FOKUS}</script>
                 <script src="/auth/webauthn.js" defer></script>
                 <HydrationScripts options />
                 <MetaTags />

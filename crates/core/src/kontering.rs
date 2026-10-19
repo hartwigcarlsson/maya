@@ -14,7 +14,7 @@ use sqlx::SqliteConnection;
 use crate::aktor::{Aktör, Handling};
 use crate::atkomst::{self, Ärende};
 use crate::foretag::FöretagsId;
-use crate::kundfaktura::{KundfakturaFel, KundfakturaId};
+use crate::kundfaktura::{KundfakturaFel, KundfakturaId, Status};
 use crate::underlag::UnderlagId;
 use crate::verifikat::{self, Bokfört, Länk, VerifikatFel, VerifikatId};
 use crate::{Databas, DatabasFel, Klocka};
@@ -230,7 +230,8 @@ pub(crate) async fn gällande_i(
     .fetch_optional(&mut *conn)
     .await?;
     let (status, nummer, utfärdandet, pdf) = huvud.ok_or(KundfakturaFel::FinnsInte)?;
-    let (Some(nummer), Some(pdf), true) = (nummer, pdf, status != "utkast") else {
+    let utfärdad = Status::från_kod(&status).is_some_and(|s| s != Status::Utkast);
+    let (Some(nummer), Some(pdf), true) = (nummer, pdf, utfärdad) else {
         return Err(VerifikatFel::IngetVerifikat.into());
     };
     let senaste: Option<(i64, i64)> = sqlx::query_as(

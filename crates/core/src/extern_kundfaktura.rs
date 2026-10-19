@@ -463,7 +463,10 @@ pub async fn registrera(
             )
             .await?,
         ),
-        None => None,
+        None => {
+            verifikat::skapa_året_i(&mut ärende, r.räkenskapsår).await?;
+            None
+        }
     };
     let momsregistrerat = förutsättningar.momsregistrerat(r.fakturadatum);
     let (aktör_, nu) = (ärende.aktör, ärende.nu);
@@ -651,9 +654,14 @@ async fn läs_förutsättningar(
         "SELECT id, namn, identitet, adress, epost, momsregnr, betalningsvillkor,
                 omvand_skattskyldighet
          FROM kund
-         WHERE foretag_id = ? AND status = 'aktiv' ORDER BY namn COLLATE NOCASE, id",
+         WHERE foretag_id = ?1
+           AND (status = 'aktiv'
+                OR status = 'arkiverad'
+                   AND id = (SELECT kund_id FROM kundfaktura WHERE id = ?2 AND foretag_id = ?1))
+         ORDER BY namn COLLATE NOCASE, id",
     )
     .bind(företag.0)
+    .bind(id.map(|i| i.0))
     .fetch_all(&mut *conn)
     .await?;
     let konton: Vec<(i64, bool)> =

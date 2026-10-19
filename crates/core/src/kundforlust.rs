@@ -156,7 +156,6 @@ pub struct Kundförlustpost {
 struct Fakturan {
     nummer: String,
     kund: String,
-    total: i64,
     fakturadatum: Date,
 }
 
@@ -173,9 +172,9 @@ async fn läs_fakturan(
     faktura: KundfakturaId,
 ) -> Result<Fakturan, KundförlustFel> {
     // #143: en extern faktura har det andra systemets nummer; en upplåst skrivs inte av.
-    let rad: Option<(String, String, i64, String)> = sqlx::query_as(
+    let rad: Option<(String, String, String)> = sqlx::query_as(
         "SELECT coalesce(CAST(nummer AS TEXT), fakturanummer), kunduppgifter ->> '$.namn',
-                total, fakturadatum
+                fakturadatum
          FROM kundfaktura
          WHERE id = ? AND foretag_id = ? AND status IN ('utfardad', 'registrerad')",
     )
@@ -183,11 +182,10 @@ async fn läs_fakturan(
     .bind(företag.0)
     .fetch_optional(&mut *conn)
     .await?;
-    let (nummer, kund, total, fakturadatum) = rad.ok_or(KundförlustFel::FinnsInte)?;
+    let (nummer, kund, fakturadatum) = rad.ok_or(KundförlustFel::FinnsInte)?;
     Ok(Fakturan {
         nummer,
         kund,
-        total,
         fakturadatum: datum(&fakturadatum)?,
     })
 }
@@ -226,8 +224,7 @@ async fn läs_förutsättningar(
     faktura: KundfakturaId,
     fakturan: &Fakturan,
 ) -> Result<Förutsättningar, KundförlustFel> {
-    let återstår =
-        betalning::återstår_i(&mut *conn, Faktura::Kund(faktura), fakturan.total).await?;
+    let återstår = betalning::återstår_i(&mut *conn, Faktura::Kund(faktura)).await?;
     let kundförlust = förlorat_i(&mut *conn, faktura).await? != 0;
     // En fordran som inte är bokförd (kontantmetoden, #149) ger bara status: inget verifikat.
     // #143: en extern fakturas fordran bokfördes av registreringen.
@@ -467,8 +464,7 @@ pub async fn återkalla(
     {
         return Err(KundförlustFel::BokförtUtifrån);
     }
-    let återstår =
-        betalning::återstår_i(ärende.conn(), Faktura::Kund(faktura), fakturan.total).await?;
+    let återstår = betalning::återstår_i(ärende.conn(), Faktura::Kund(faktura)).await?;
     let förlustens_nummer = verifikat::länk(ärende.conn(), förlustens)
         .await?
         .and_then(|l| l.nummer)

@@ -22,7 +22,7 @@ use crate::aktor::{Aktör, Handling};
 use crate::atkomst::{self, Ärende, ÅtkomstFel};
 use crate::behandlingshistorik::Händelse;
 use crate::foretag::{FöretagsId, datum};
-use crate::kundfaktura::{self, KundfakturaFel, KundfakturaId, Utfärdad};
+use crate::kundfaktura::{self, KundfakturaFel, KundfakturaId, Status, Utfärdad};
 use crate::smtp::Bilaga;
 use crate::verifikat::{Signatur, signatur};
 use crate::{Databas, DatabasFel, Klocka, fakturauppgifter};
@@ -140,7 +140,7 @@ struct Fakturan {
     kopierad_epost: String,
     /// Kundens adress i kundregistret nu.
     registrets_epost: Option<String>,
-    säljare: String,
+    företagsnamn: String,
     pdf: Bilaga,
     /// Originalets nummer när fakturan är en kreditfaktura (#140).
     krediterar: Option<u64>,
@@ -149,8 +149,8 @@ struct Fakturan {
 impl Fakturan {
     fn ämne(&self) -> String {
         match self.krediterar {
-            Some(_) => kreditämne(self.nummer, &self.säljare),
-            None => ämne(self.nummer, &self.säljare),
+            Some(_) => kreditämne(self.nummer, &self.företagsnamn),
+            None => ämne(self.nummer, &self.företagsnamn),
         }
     }
 
@@ -202,7 +202,7 @@ async fn läs_fakturan(
         förfallodag,
         kopierad,
         registret,
-        säljare,
+        företagsnamn,
         filnamn,
         mime,
         pdf,
@@ -212,7 +212,7 @@ async fn läs_fakturan(
         return Err(UtskickFel::FinnsInte);
     };
     // #143: bara Mayas egna fakturor utfärdas och skickas; en extern har status registrerad.
-    if status != "utfardad" {
+    if Status::från_kod(&status) != Some(Status::Utfärdad) {
         return Err(UtskickFel::InteUtfärdad);
     }
     let korrupt = |vad: &str| DatabasFel::Korrupt(format!("kundfaktura {}: {vad}", id.0));
@@ -222,7 +222,7 @@ async fn läs_fakturan(
         förfallodag: datum(&förfallodag.ok_or_else(|| korrupt("förfallodag"))?)?,
         kopierad_epost: kopierad.unwrap_or_default(),
         registrets_epost: registret,
-        säljare: säljare.unwrap_or_default(),
+        företagsnamn: företagsnamn.unwrap_or_default(),
         pdf: Bilaga {
             filnamn: filnamn.ok_or_else(|| korrupt("pdf"))?,
             mime: mime.ok_or_else(|| korrupt("pdf"))?,
@@ -257,13 +257,13 @@ pub async fn förslag(
         kundregistret: f.kundens_adress(),
         svarsadress: uppgifter.svarsadress.clone(),
         meddelande: match f.krediterar {
-            Some(original) => kreditmeddelande(f.nummer, f.total, original, &f.säljare),
+            Some(original) => kreditmeddelande(f.nummer, f.total, original, &f.företagsnamn),
             None => förvalt_meddelande(
                 &uppgifter.standardmeddelande,
                 f.nummer,
                 f.total,
                 f.förfallodag,
-                &f.säljare,
+                &f.företagsnamn,
             ),
         },
         bilaga: f.pdf.filnamn,
@@ -297,7 +297,7 @@ pub async fn skicka<E: Epost>(
         let mejl = Fakturamejl {
             till,
             svara_till: (!svarsadress.is_empty()).then_some(svarsadress),
-            avsändarnamn: f.säljare.clone(),
+            avsändarnamn: f.företagsnamn.clone(),
             ämne: f.ämne(),
             text: utskick.meddelande.replace("\r\n", "\n"),
             bilaga: f.pdf,

@@ -324,6 +324,11 @@ async fn listan_grupperas_med_leverantörsskulderna_i_rubriken() {
     assert!(lista.contains("Leverantörsskulder 1 250,00 kr"), "{lista}");
     assert!(lista.contains(">Förfallna<"), "{lista}");
     assert!(lista.contains("badge-forfallen"));
+    // Berättelse 70: gruppens summa av skulderna står i rubriken.
+    assert!(
+        efter(&lista, ">Förfallna<").contains(" · 1 · 1 250,00 kr</span>"),
+        "{lista}"
+    );
 
     posta(
         &db,

@@ -21,8 +21,8 @@ use maya_domain::kontoplan::Kontonummer;
 use maya_domain::kreditfaktura::NyKreditering;
 use maya_domain::kund::{self, NyKund, OmvändSkattskyldighet};
 use maya_domain::kundfaktura::{
-    Fakturakund, Fält, Förutsättningar, Momsläge, NY, NyFakturarad, NyKundfaktura, Radfält, Spärr,
-    Säljare,
+    Fakturaföretag, Fakturakund, Fält, Förutsättningar, Momsläge, NY, NyFakturarad, NyKundfaktura,
+    Radfält, Spärr,
 };
 use maya_domain::rakenskapsar::Räkenskapsår;
 use maya_domain::reskontra::Grupp;
@@ -62,6 +62,8 @@ pub struct ListVy {
     // #139 Betalningar
     /// Det som återstår; för ett utkast totalen.
     pub återstår: String,
+    /// Det som återstår i öre, för gruppens summa i rubriken.
+    pub återstår_öre: i64,
     /// Märkets kod och namn för en utfärdad faktura.
     pub märke: Option<(String, String)>,
     /// Gruppen i listan.
@@ -76,7 +78,7 @@ pub struct ListVy {
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FörutsättningarVy {
     pub kunder: Vec<Fakturakund>,
-    pub säljare: Säljare,
+    pub fakturaföretag: Fakturaföretag,
     /// Kontona och om de är aktiva.
     pub konton: Vec<(u16, bool)>,
     /// Räkenskapsårens start och slut.
@@ -96,7 +98,7 @@ impl FörutsättningarVy {
         let datum = |d: &str| d.parse::<Date>().ok();
         Förutsättningar {
             kunder: self.kunder.clone(),
-            säljare: self.säljare.clone(),
+            fakturaföretag: self.fakturaföretag.clone(),
             konton: self
                 .konton
                 .iter()
@@ -568,12 +570,19 @@ pub(crate) mod server {
                     total: kr(f.total),
                     ny_kund: f.ny_kund,
                     återstår: kr(f.återstår),
+                    återstår_öre: f.återstår,
                     märke: match (f.status, utfärdad) {
                         (Status::Upplåst, _) => Some(maya_domain::reskontra::Märke::Upplåst),
                         (_, Some(d)) => Some(märke_för(&f, d, idag)),
                         _ => None,
                     }
-                    .map(|m| (m.kod().to_string(), m.namn().to_string())),
+                    .map(|m| {
+                        (
+                            m.kod().to_string(),
+                            m.namn_i(maya_domain::betalning::Reskontra::Kund)
+                                .to_string(),
+                        )
+                    }),
                     grupp: Some(match utfärdad {
                         Some(d) => maya_domain::reskontra::grupp(f.återstår, d, idag),
                         None => Grupp::Utkast,
@@ -764,7 +773,7 @@ pub(crate) mod server {
             }
             data.förutsättningar = Some(FörutsättningarVy {
                 kunder: förutsättningar.kunder.clone(),
-                säljare: förutsättningar.säljare.clone(),
+                fakturaföretag: förutsättningar.fakturaföretag.clone(),
                 konton: förutsättningar
                     .konton
                     .iter()
@@ -898,7 +907,7 @@ pub(crate) mod server {
                 .collect(),
             id: f.id.to_string(),
             nummer: u.nummer.to_string(),
-            referens: (u.referens.clone(), u.säljare.ocr),
+            referens: (u.referens.clone(), u.fakturaföretag.ocr),
             kund: u.kund.clone(),
             fakturadatum: u.fakturadatum.to_string(),
             förfallodag: u.förfallodag.to_string(),
@@ -1482,10 +1491,15 @@ fn kundfakturor_sida(data: Kundfakturadata, ny: bool) -> AnyView {
                 i_gruppen.sort_by(|a, b| a.förfallodag.cmp(&b.förfallodag));
             }
             let antal = i_gruppen.len();
+            // Berättelse 70: summan av fordringarna i rubriken.
+            let summa = kr(i_gruppen.iter().map(|f| f.återstår_öre).sum());
             let rader = i_gruppen.into_iter().map(rad).collect_view();
             Some(view! {
                 <li class="lista-grupp">
-                    <h2 class="per">{g.rubrik()} <span class="diskret">{format!(" · {antal}")}</span></h2>
+                    <h2 class="per">
+                        {g.rubrik()}
+                        <span class="diskret">{format!(" · {antal} · {summa} kr")}</span>
+                    </h2>
                     <ul class="verifikatlista">{rader}</ul>
                 </li>
             })
@@ -2174,7 +2188,7 @@ fn FakturaFormulär(
         visa.update(|v| *v = !*v);
     };
     let förhandsvisning = {
-        let säljare = f.säljare.clone();
+        let fakturaföretag = f.fakturaföretag.clone();
         let förutsättningar = förutsättningar.clone();
         move || {
             visa.get().then(|| {
@@ -2183,7 +2197,7 @@ fn FakturaFormulär(
                         faktura=faktura
                         beräkning=beräkning
                         läge=läge
-                        säljare=säljare.clone()
+                        fakturaföretag=fakturaföretag.clone()
                         förutsättningar=förutsättningar.clone()
                     />
                 }
@@ -2397,7 +2411,7 @@ fn Papper(
     faktura: RwSignal<NyKundfaktura>,
     beräkning: Memo<maya_domain::kundfaktura::Beräkning>,
     läge: Memo<Momsläge>,
-    säljare: Säljare,
+    fakturaföretag: Fakturaföretag,
     förutsättningar: Förutsättningar,
 ) -> impl IntoView {
     let kund = move || faktura.with(|f| f.kunden(&förutsättningar));
@@ -2452,9 +2466,9 @@ fn Papper(
     let datum = move || faktura.with(|f| f.fakturadatum.clone());
     let total = move || beräkning.with(|b| kr(b.total));
     let betalsätt = [
-        ("Bankgiro", säljare.bankgiro.clone()),
-        ("Plusgiro", säljare.plusgiro.clone()),
-        ("IBAN", säljare.iban.clone()),
+        ("Bankgiro", fakturaföretag.bankgiro.clone()),
+        ("Plusgiro", fakturaföretag.plusgiro.clone()),
+        ("IBAN", fakturaföretag.iban.clone()),
     ]
     .into_iter()
     .filter(|(_, v)| !v.is_empty())
@@ -2466,9 +2480,9 @@ fn Papper(
             <p class="papper-utkast">"UTKAST"</p>
             <header>
                 <p>
-                    <strong>{säljare.namn.clone()}</strong>
-                    <span class="adressrad">{säljare.gatuadress.clone()}</span>
-                    <span class="adressrad">{format!("{} {}", säljare.postnummer, säljare.postort)}</span>
+                    <strong>{fakturaföretag.namn.clone()}</strong>
+                    <span class="adressrad">{fakturaföretag.gatuadress.clone()}</span>
+                    <span class="adressrad">{format!("{} {}", fakturaföretag.postnummer, fakturaföretag.postort)}</span>
                 </p>
                 <h3>"Faktura"</h3>
             </header>

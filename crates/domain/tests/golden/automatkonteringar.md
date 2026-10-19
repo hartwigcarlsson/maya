@@ -4,7 +4,7 @@ Tabellen läggs till i tabellen från etapp 1 och återges ordagrant i Systemdok
 
 | Flöde | Debet | Kredit | Villkor |
 |---|---|---|---|
-| **Rättelse** av ett bokfört verifikat | för varje rad i originalet: samma konto med originalets kreditbelopp | för varje rad i originalet: samma konto med originalets debetbelopp | originalet är bokfört, inte rättat, inte en rättelse och inte från ett av Mayas flöden; radtexten följer med; rättelsen länkas till originalet; datum ≥ originalets datum och i en olåst period |
+| **Rättelse** av ett bokfört verifikat | för varje rad i originalet: samma konto med originalets kreditbelopp | för varje rad i originalet: samma konto med originalets debetbelopp | originalet är bokfört, inte rättat, inte en rättelse och inte från ett av Mayas flöden; radtexten följer med; rättelsen länkas till originalet; datum ≥ originalets datum och i en period som inte är låst |
 | **Registrera om** (inget bokförs) | utkast med originalets rader och underlag, märkt *kopia av* | | bara tillsammans med en rättelse; utkastet följer de vanliga spärrarna |
 | **Preliminär ingående balans** för år *n* (inget verifikat) | IB(*k*, *n*) = UB(*k*, *n*−1) för varje konto *k* i klass 1–2 | | år *n*−1 finns i Maya och är inte stängt; därtill IB(2099, *n*) = UB(2099, *n*−1) + Σ UB(*k*, *n*−1) över klass 3–8, alltså det resultat som inte är ombokat; räknas vid läsning och visas som preliminär |
 | **Utfärda** eller **registrera** kundfaktura | 1510 totalen | intäktskontot per rad netto; 2611/2621/2631 moms | fakturametoden; datum = fakturadatum; omvänd skattskyldighet och 0 % ger ingen momsrad |

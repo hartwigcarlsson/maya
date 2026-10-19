@@ -215,7 +215,8 @@ fn vanlig(leverantör: &str, nummer: &str, originalvaluta: &str) -> NyLeverantö
     )
 }
 
-/// En kreditfaktura på 500 kr (5410 400 kr och 100 kr moms) som hänvisar till `original`.
+/// En kreditfaktura på 500 kr som hänvisar till `original`, avskriven som 5410 500 kr utan moms:
+/// verifikatet speglar ändå registreringen, 5410 400 kr och 100 kr moms.
 fn leverantörskredit(leverantör: &str, original: LeverantörsfakturaId) -> NyLeverantörsfaktura {
     NyLeverantörsfaktura {
         fakturadatum: "2026-05-02".into(),
@@ -227,7 +228,7 @@ fn leverantörskredit(leverantör: &str, original: LeverantörsfakturaId) -> NyL
             "-500",
             "",
             "",
-            vec![rad("5410", "-400", "25")],
+            vec![rad("5410", "-500", "0")],
         )
     }
 }
@@ -803,14 +804,18 @@ async fn leverantörskrediter(fall: &mut Vec<Fall>) {
         )
         .await;
         let (_, k) = registrera(&db, &anna, id, leverantörskredit(&l, f)).await;
+        let kreditens = rader(&db, &anna, id, k.verifikat.unwrap().id).await;
+        // Registreringens debetrader i proportion: hela krediten när skulden är bokförd, annars
+        // de 250 kr som överstiger det obetalda.
+        let väntat = match metod {
+            "faktura" => vec![(2440, 50_000, 0), (2641, 0, 10_000), (5410, 0, 40_000)],
+            _ => vec![(2440, 25_000, 0), (2641, 0, 5_000), (5410, 0, 20_000)],
+        };
+        assert_eq!(kreditens, väntat, "{metod}");
         fall.push(
-            Fall::nytt(
-                "kreditfaktura från leverantör",
-                &[flöde],
-                rader(&db, &anna, id, k.verifikat.unwrap().id).await,
-            )
-            .kostnad(&[5410])
-            .original(registreringen),
+            Fall::nytt("kreditfaktura från leverantör", &[flöde], kreditens)
+                .kostnad(&[5410])
+                .original(registreringen),
         );
         let å = betala(
             &db,

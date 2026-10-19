@@ -50,6 +50,40 @@ impl Migreringar {
     }
 }
 
+/// Versionen som skapar tabellen `t2` (#150).
+const T2: &str = "20261021150000";
+
+/// En databas i `path` med Mayas migreringar före `version`, som en äldre Maya hade den.
+///
+/// Användningsfallen som testet skriver data med slutar i `Ärende::slutför`, som räknar om
+/// företagets T2-utkast (#150) och läser tabellen `t2`. Före T2-migreringen finns den inte, så
+/// en tom tabell står i dess ställe medan testet skriver; [`stäng_gammal`] tar bort den innan
+/// databasen migreras.
+async fn gammal(path: &Path, version: &str) -> Databas {
+    let migrator = Migreringar::före(version).migrator().await;
+    let db = Databas::öppna_som(path, VERSION, &migrator, None)
+        .await
+        .unwrap();
+    if version <= T2 {
+        testhjalp::kör_sql(
+            &db,
+            "CREATE TABLE t2 (id INTEGER PRIMARY KEY, foretag_id INTEGER,
+                              rakenskapsar_id INTEGER, verifikat_id INTEGER)",
+        )
+        .await
+        .unwrap();
+    }
+    db
+}
+
+/// Stänger en databas från [`gammal`], utan tabellen som stod i T2:s ställe.
+async fn stäng_gammal(db: Databas, version: &str) {
+    if version <= T2 {
+        testhjalp::kör_sql(&db, "DROP TABLE t2").await.unwrap();
+    }
+    db.stäng().await;
+}
+
 /// En installation med ett företag, två bokförda verifikat, ett utkast och underlag.
 struct Installation {
     _dir: tempfile::TempDir,
@@ -447,10 +481,7 @@ async fn en_binär_för_1_x_vägrar_en_databas_från_epok_0_och_rör_den_inte() 
 async fn fakturaflödenas_konton_aktiveras_i_befintliga_företag_och_aktiveringen_loggas() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("maya.db");
-    let gammal = Migreringar::före("20261020013500").migrator().await;
-    let db = Databas::öppna_som(&path, VERSION, &gammal, None)
-        .await
-        .unwrap();
+    let db = gammal(&path, "20261020013500").await;
     let (anna, företag) = testhjalp::företag(&db).await;
     // Före 0.2 var 1510 och 3740 inga flödeskonton och kunde vara inaktiva.
     testhjalp::kör_sql(
@@ -459,7 +490,7 @@ async fn fakturaflödenas_konton_aktiveras_i_befintliga_företag_och_aktiveringe
     )
     .await
     .unwrap();
-    db.stäng().await;
+    stäng_gammal(db, "20261020013500").await;
 
     let ny = Migreringar::nya(&[]).migrator().await;
     let db = Databas::öppna_som(&path, VERSION, &ny, None).await.unwrap();
@@ -491,10 +522,7 @@ async fn fakturaflödenas_konton_aktiveras_i_befintliga_företag_och_aktiveringe
 async fn leverantörsfakturorna_byggs_om_med_sina_rader_och_är_låsta_efteråt() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("maya.db");
-    let gammal = Migreringar::före("20261021141441").migrator().await;
-    let db = Databas::öppna_som(&path, VERSION, &gammal, None)
-        .await
-        .unwrap();
+    let db = gammal(&path, "20261021141441").await;
     let (anna, företag) = testhjalp::företag(&db).await;
     testhjalp::leverantör(&db, &anna, företag, "Kontorsvaror AB").await;
     underlag::ladda_upp(
@@ -526,7 +554,7 @@ async fn leverantörsfakturorna_byggs_om_med_sina_rader_och_är_låsta_efteråt(
     )
     .await
     .unwrap();
-    db.stäng().await;
+    stäng_gammal(db, "20261021141441").await;
 
     let ny = Migreringar::nya(&[]).migrator().await;
     let db = Databas::öppna_som(&path, VERSION, &ny, None).await.unwrap();
@@ -564,10 +592,7 @@ async fn leverantörsfakturorna_byggs_om_med_sina_rader_och_är_låsta_efteråt(
 async fn ombyggnaden_av_kundfakturorna_behåller_fakturorna_och_deras_rader() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("maya.db");
-    let gammal = Migreringar::före("20261021143143").migrator().await;
-    let db = Databas::öppna_som(&path, VERSION, &gammal, None)
-        .await
-        .unwrap();
+    let db = gammal(&path, "20261021143143").await;
     let (anna, företag) = testhjalp::fakturaföretag(&db).await;
     // Ett utkast som det gamla schemat lagrade det: 10 timmar à 950 kr med omvänd
     // skattskyldighet för bygg.
@@ -588,7 +613,7 @@ async fn ombyggnaden_av_kundfakturorna_behåller_fakturorna_och_deras_rader() {
     )
     .await
     .unwrap();
-    db.stäng().await;
+    stäng_gammal(db, "20261021143143").await;
 
     let ny = Migreringar::nya(&[]).migrator().await;
     let db = Databas::öppna_som(&path, VERSION, &ny, None).await.unwrap();

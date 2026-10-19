@@ -93,10 +93,7 @@ fn forsta_anvandaren_via_cli_lanken_och_inloggning_med_passkey() {
         .unwrap()
         .type_into("Virtuell nyckel")
         .unwrap();
-    tab.find_element("form[data-passkey='registrera'] button")
-        .unwrap()
-        .click()
-        .unwrap();
+    klicka_till_ny_sida(&tab, "form[data-passkey='registrera'] button");
     vänta_på_text(&tab, "Lägg till en passkey till");
 
     let kaka = tab
@@ -131,27 +128,18 @@ fn forsta_anvandaren_via_cli_lanken_och_inloggning_med_passkey() {
         .unwrap()
         .type_into("Andra nyckeln")
         .unwrap();
-    tab.find_element("form[data-passkey='lagg-till'] button")
-        .unwrap()
-        .click()
-        .unwrap();
+    klicka_till_ny_sida(&tab, "form[data-passkey='lagg-till'] button");
     vänta_på_text(&tab, "Andra nyckeln");
 
     // Logga ut och in igen med den andra nyckeln: e-post först, sedan passkey.
-    tab.find_element("form[action='/auth/utloggning'] button")
-        .unwrap()
-        .click()
-        .unwrap();
+    klicka_till_ny_sida(&tab, "form[action='/auth/utloggning'] button");
     vänta_på_text(&tab, "Logga in");
     vänta_på_shimmen(&tab);
     tab.wait_for_element("#epost")
         .unwrap()
         .type_into("anna@example.se")
         .unwrap();
-    tab.find_element("form[data-passkey='logga-in'] button")
-        .unwrap()
-        .click()
-        .unwrap();
+    klicka_till_ny_sida(&tab, "form[data-passkey='logga-in'] button");
     vänta_på_text(&tab, "Lägg upp ett företag");
 
     // Den första nyckeln kan tas bort, men inte den sista. Sidorna når man från användarmenyn.
@@ -1450,6 +1438,36 @@ fn skapa_användare(dir: &Path, bas: &str) -> String {
         .find(|ord| ord.starts_with(&format!("{bas}/registrera/")))
         .unwrap_or_else(|| panic!("ingen länk i {stdout}"))
         .to_string()
+}
+
+/// Klickar på `väljare`, en knapp som leder till en ny sida (ett formulär, eller JS-shimmen som
+/// byter sida när passkeyn är klar), och väntar tills den nya sidan har laddat klart med sina
+/// skript. Den gamla sidan märks först, så att det testet sedan letar efter inte kan hittas på
+/// den, eller försvinna med den mitt i ett klick.
+fn klicka_till_ny_sida(tab: &Tab, väljare: &str) {
+    tab.evaluate("document.documentElement.dataset.foraSida = ''", false)
+        .unwrap();
+    tab.wait_for_element(väljare).unwrap().click().unwrap();
+    let start = Instant::now();
+    loop {
+        let ny = tab
+            .evaluate(
+                "document.readyState === 'complete' \
+                 && !('foraSida' in document.documentElement.dataset)",
+                false,
+            )
+            .ok()
+            .and_then(|svar| svar.value);
+        if ny == Some(true.into()) {
+            return;
+        }
+        assert!(
+            start.elapsed() < VÄNTA,
+            "klicket på {väljare} ledde aldrig till en ny sida från {}",
+            tab.get_url()
+        );
+        std::thread::sleep(Duration::from_millis(100));
+    }
 }
 
 /// Väntar tills sidan har laddat och JS-shimmen tar emot formulären.

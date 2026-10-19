@@ -4,7 +4,7 @@
 //!
 //! Ett verifikat kan rättas högst en gång och en rättelse kan inte rättas. Rättelsens datum är
 //! tidigast originalets och prövas annars med samma spärrar som när ett verifikat bokförs.
-//! Periodlåsningen (R3) kommer i etapp 3: då ska datumet också ligga i en olåst period.
+//! Periodlåsningen (R3) kommer i etapp 3: då ska datumet också ligga i en period som inte är låst.
 
 use std::fmt;
 

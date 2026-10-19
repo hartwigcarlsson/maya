@@ -77,24 +77,7 @@ fn feltext(kod: &str) -> Option<&'static str> {
     })
 }
 
-/// Formulärets fält som de heter i formuläret, i ordning.
-pub(crate) const FÄLT: [&str; 13] = [
-    "namn",
-    "orgnr",
-    "gatuadress",
-    "postnummer",
-    "postort",
-    "land",
-    "momsregnr",
-    "bankgiro",
-    "plusgiro",
-    "iban",
-    "bic",
-    "standardkonto",
-    "omvand_skattskyldighet",
-];
-
-/// Formuläret ur fältens värden, med namnen i [`FÄLT`].
+/// Formuläret ur fältens värden, med namnen i [`server::FÄLT`].
 pub(crate) fn formulär(värde: impl Fn(&str) -> String) -> NyLeverantör {
     NyLeverantör {
         namn: värde("namn"),
@@ -150,9 +133,26 @@ pub(crate) mod server {
     };
     use maya_core::{Databas, Klocka, kontoplan};
 
-    use super::{FÄLT, HistorikVy, LeverantörVy, Leverantörsdata, formulär};
+    use super::{HistorikVy, LeverantörVy, Leverantörsdata, formulär};
     use crate::sidodata::{self, Sidbegäran};
     use crate::svar::{ingen_åtkomst, serverfel};
+
+    /// Formulärets fält som de heter i formuläret, i ordning.
+    pub(crate) const FÄLT: [&str; 13] = [
+        "namn",
+        "orgnr",
+        "gatuadress",
+        "postnummer",
+        "postort",
+        "land",
+        "momsregnr",
+        "bankgiro",
+        "plusgiro",
+        "iban",
+        "bic",
+        "standardkonto",
+        "omvand_skattskyldighet",
+    ];
 
     #[derive(Clone)]
     pub(crate) struct LeverantörsState {
@@ -374,9 +374,7 @@ pub(crate) mod server {
         };
         let dokumentet = format!("/foretag/{företag}/leverantorer?l={l}");
         match leverantor::arkivera(&state.db, &state.klocka, &inloggad.aktör, företag, l).await {
-            Ok(()) => {
-                Redirect::to(&format!("{dokumentet}&visa=arkiverade&arkiverad=1")).into_response()
-            }
+            Ok(()) => Redirect::to(&format!("{dokumentet}&visa=alla&arkiverad=1")).into_response(),
             Err(e) => svar(e, || Redirect::to(&dokumentet).into_response(), &dokumentet),
         }
     }
@@ -423,7 +421,8 @@ fn leverantörssida(data: Leverantörsdata, ny: bool) -> AnyView {
     };
     let fråga = |namn: &str| use_query_map().with_untracked(|q| q.get(namn));
     let visa = fråga("visa").unwrap_or_default();
-    let arkiverade = visa == "arkiverade";
+    // Som kundregistret: `visa=alla` tar med de arkiverade.
+    let alla = visa == "alla";
     let notis = if fråga("sparat").is_some() {
         Some("Sparat.")
     } else if fråga("arkiverad").is_some() {
@@ -437,21 +436,18 @@ fn leverantörssida(data: Leverantörsdata, ny: bool) -> AnyView {
     let fel = fråga("fel")
         .and_then(|k| feltext(&k))
         .map(|text| view! { <p class="fel" role="alert">{text}</p> });
-    let filter = [
-        ("", "Aktiva", !arkiverade),
-        ("?visa=arkiverade", "Arkiverade", arkiverade),
-    ]
-    .into_iter()
-    .map(|(q, namn, aktuellt)| {
-        view! {
-            <a href=format!("{bas}/leverantorer{q}") aria-current=aktuellt.then_some("page")>
-                {namn}
-            </a>
-        }
-    })
-    .collect_view();
+    let filter = [("", "Aktiva", !alla), ("?visa=alla", "Alla", alla)]
+        .into_iter()
+        .map(|(q, namn, aktuellt)| {
+            view! {
+                <a href=format!("{bas}/leverantorer{q}") aria-current=aktuellt.then_some("page")>
+                    {namn}
+                </a>
+            }
+        })
+        .collect_view();
     let valt_id = data.valt.as_ref().map(|l| l.id.clone());
-    let urval = if arkiverade { "&visa=arkiverade" } else { "" };
+    let urval = if alla { "&visa=alla" } else { "" };
     let rader = data
         .lista
         .iter()
@@ -478,7 +474,7 @@ fn leverantörssida(data: Leverantörsdata, ny: bool) -> AnyView {
     let tom = data.lista.is_empty().then(|| {
         view! {
             <p class="diskret">
-                {if arkiverade { "Inga arkiverade leverantörer." } else { "Inga leverantörer än." }}
+                {if alla { "Inga leverantörer än." } else { "Inga aktiva leverantörer." }}
             </p>
         }
     });

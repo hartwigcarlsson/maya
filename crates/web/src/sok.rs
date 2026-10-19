@@ -381,7 +381,7 @@ pub(crate) mod server {
                     format!(
                         "{bas}/leverantorer?l={}{}",
                         l.id,
-                        if arkiverad { "&visa=arkiverade" } else { "" }
+                        if arkiverad { "&visa=alla" } else { "" }
                     ),
                 )
             }

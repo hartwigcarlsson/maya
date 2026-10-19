@@ -616,6 +616,7 @@ fn original(omvänd: OmvändSkattskyldighet) -> Krediterbar {
                 moms: 1_200,
             },
         ],
+        ..Default::default()
     }
 }
 
@@ -816,7 +817,7 @@ fn en_upplåst_faktura_kan_inte_få_en_total_under_det_som_redan_betalats() {
     assert_eq!(spärrar[0].fält, Fält::Totalbelopp);
     assert_eq!(
         spärrar[0].text,
-        "Totalen är under det som redan har betalats, 500,00 kr."
+        "Totalen är under det som redan har betalats eller krediterats, 500,00 kr."
     );
     f.totalbelopp = "500".into();
     f.rader[0].netto = "400".into();

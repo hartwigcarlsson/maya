@@ -8,6 +8,7 @@
 use jiff::civil::Date;
 
 use crate::att_gora::dagar_mellan;
+use crate::betalning::Reskontra;
 
 /// En utfärdad eller registrerad fakturas status som märke.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -52,6 +53,15 @@ impl Märke {
             Märke::Kreditfaktura => "Kreditfaktura",
             Märke::Upplåst => "Upplåst",
             Märke::Extern => "Extern",
+        }
+    }
+
+    /// Märkets namn i `reskontra`: i kundreskontran är [`Märke::Tillgodo`] "Kunden har
+    /// tillgodo" (berättelse 71), i leverantörsreskontran "Tillgodo".
+    pub fn namn_i(self, reskontra: Reskontra) -> &'static str {
+        match (self, reskontra) {
+            (Märke::Tillgodo, Reskontra::Kund) => "Kunden har tillgodo",
+            (m, _) => m.namn(),
         }
     }
 
