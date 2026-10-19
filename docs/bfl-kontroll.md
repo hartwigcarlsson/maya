@@ -4,7 +4,7 @@ Krav som Bokföringslagen (SFS 1999:1078) och BFNAR 2013:2 ställer på Maya. Va
 
 Källhänvisningar och fullständig genomgång finns i forskningsrapporten [Vilka krav ställer BFL och BFNAR på ett bokföringssystem?](https://github.com/hartwigcarlsson/maya/blob/research/bfl-krav/docs/research/bfl-krav.md) ([#2](https://github.com/hartwigcarlsson/maya/issues/2)). Lagtexten gäller t.o.m. SFS 2024:342 och BFNAR 2024:1. Uppdatera listan när lagen eller de allmänna råden ändras.
 
-Inför varje release stäms etappens krav-id:n av mot koden och testerna: [0.1](bfl-avstamning-0.1.md).
+Inför varje release stäms etappens krav-id:n av mot koden och testerna: [0.1](bfl-avstamning-0.1.md), [0.2](bfl-avstamning-0.2.md).
 
 ## Så görs kontrollen
 

@@ -476,9 +476,9 @@ fn leverantorsfaktura_laddas_upp_och_registreras() {
     inga_sidfel(&tab);
 }
 
-/// Specens flöde för kundfakturor (#135): en kund finns, användaren skapar en faktura i
-/// formuläret, fäller ut förhandsvisningen med P, granskar och utfärdar, och den utfärdade
-/// fakturan visar sin arkiverade PDF.
+/// Specens flöde för kundfakturor (#135): användaren lägger upp en kund i kundregistret,
+/// skapar en faktura i formuläret, fäller ut förhandsvisningen med P, granskar och utfärdar,
+/// och den utfärdade fakturan visar sin arkiverade PDF. Betalningen är nästa röktest.
 #[test]
 fn kundfaktura_skapas_granskas_och_utfärdas() {
     if !stod::sajten_finns() {
@@ -547,12 +547,21 @@ fn kundfaktura_skapas_granskas_och_utfärdas() {
         &format!("/foretag/{id}/installningar/fakturauppgifter"),
         "bankgiro=50501055&ocr=ja",
     );
-    let kund = posta(
-        &tab,
-        &format!("/foretag/{id}/kunder"),
-        "namn=Kund+AB&identitet=&adress=Storgatan+1%0A111+22+Stockholm&epost=\
-         &momsregnr=&betalningsvillkor=30&omvand_skattskyldighet=ingen",
-    );
+
+    // Kunden läggs upp i kundregistret, som nås från fliken Kundfakturor.
+    tab.navigate_to(&format!("{bas}/foretag/{id}/kundfakturor"))
+        .unwrap();
+    klicka(&tab, ".verifikat-spalt a[href$='/kunder']");
+    vänta_på_text(&tab, "Kundregistret");
+    klicka(&tab, "a[href$='/kunder/ny']");
+    vänta_på_text(&tab, "Lägg upp kunden");
+    vänta_på_hydreringen(&tab);
+    fyll(&tab, "#namn", "Kund AB");
+    fyll(&tab, "#adress", "Storgatan 1\n111 22 Stockholm");
+    fyll(&tab, "#betalningsvillkor", "30");
+    klicka(&tab, "form.formular button[type='submit']");
+    vänta_på_text(&tab, "Kunden lades upp och loggades.");
+    let kund = tab.get_url();
     let k = kund
         .split("k=")
         .nth(1)

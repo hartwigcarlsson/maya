@@ -888,8 +888,8 @@ fn arkivplanen(f: &Företag, config: &Config) -> Avsnitt {
         stycke(
             "Maya förutsätter att databasen och alla backuper förvaras i Sverige (BFL 7:2). Den \
              som driftar servern ansvarar för det: att servern och backupmålet, även en kopia \
-             som flyttas offsite, finns i Sverige. Förvaring i ett annat land stöds inte i Maya \
-             0.1.",
+             som flyttas offsite, finns i Sverige. Förvaring i ett annat land stöds inte \
+             i Maya.",
         ),
         Block::Underrubrik("Driftens fritext".into()),
         stycke("Det Maya inte kan veta, ordagrant ur konfigurationen:"),
