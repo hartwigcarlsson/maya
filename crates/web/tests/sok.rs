@@ -360,7 +360,7 @@ async fn arkiverade_kunder_och_leverantörer_hittas_och_märks() {
     );
     assert!(
         träffar.contains(&format!(
-            r#"href="{}/leverantorer?l={}&amp;visa=arkiverade""#,
+            r#"href="{}/leverantorer?l={}&amp;visa=alla""#,
             f.bas, f.gammal_leverantör
         )),
         "{träffar}"

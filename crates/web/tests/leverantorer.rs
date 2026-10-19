@@ -207,7 +207,7 @@ async fn en_leverantör_ändras_i_sitt_dokument() {
 }
 
 #[tokio::test]
-async fn en_arkiverad_leverantör_visas_bara_bland_de_arkiverade() {
+async fn en_arkiverad_leverantör_visas_inte_bland_de_aktiva_men_bland_alla() {
     let db = Databas::tillfällig().await;
     let (session, bas) = företag(&db).await;
     let (_, l) = kontorsvaror(&db, &session, &bas).await;
@@ -229,16 +229,12 @@ async fn en_arkiverad_leverantör_visas_bara_bland_de_arkiverade() {
         .await,
     );
     let (_, aktiva) = hämta(&db, &session, &format!("{bas}/leverantorer")).await;
-    let (_, arkiverade) = hämta(
-        &db,
-        &session,
-        &format!("{bas}/leverantorer?visa=arkiverade"),
-    )
-    .await;
+    // Samma filter som kundregistret: `visa=alla` tar med de arkiverade.
+    let (_, alla) = hämta(&db, &session, &format!("{bas}/leverantorer?visa=alla")).await;
     let (_, dokument) = hämta(&db, &session, &efter).await;
 
     assert!(!del(&aktiva, r#"class="verifikatlista""#, "</ul>").contains("Kontorsvaror AB"));
-    assert!(del(&arkiverade, r#"class="verifikatlista""#, "</ul>").contains("Kontorsvaror AB"));
+    assert!(del(&alla, r#"class="verifikatlista""#, "</ul>").contains("Kontorsvaror AB"));
     assert!(del(&dokument, r#"class="dokument""#, "</article>").contains("Arkiverad"));
 }
 
