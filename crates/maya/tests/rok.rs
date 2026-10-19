@@ -1171,7 +1171,10 @@ fn fakturor_registreras_och_betalas_från_att_göra() {
     fyll(&tab, "#betaldag", "2026-04-20");
     klicka(&tab, ".betalningspanel button[type='submit']");
     vänta_på_text(&tab, "Betalningen är bokförd som V4.");
-    vänta_på_text_borta(&tab, "Kund AB");
+    // Kortet lämnar Försenat, men fakturan står kvar under Följ upp (#153) eftersom den inte
+    // är skickad.
+    vänta_på_element_borta(&tab, &format!("#kundfaktura-{f}"));
+    tab.wait_for_element(&format!("#utskick-{f}")).unwrap();
     inga_sidfel(&tab);
 
     // Betalningen är bokförd som från fakturan.
@@ -1561,6 +1564,24 @@ fn vänta_på_text_borta(tab: &Tab, text: &str) {
             start.elapsed() < VÄNTA,
             "\"{text}\" försvann aldrig:\n{innehåll}"
         );
+        std::thread::sleep(Duration::from_millis(100));
+    }
+}
+
+fn vänta_på_element_borta(tab: &Tab, selektor: &str) {
+    let skript = format!("document.querySelector({selektor:?}) === null");
+    let start = Instant::now();
+    loop {
+        let borta = tab
+            .evaluate(&skript, false)
+            .ok()
+            .and_then(|svar| svar.value)
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+        if borta {
+            return;
+        }
+        assert!(start.elapsed() < VÄNTA, "{selektor} försvann aldrig");
         std::thread::sleep(Duration::from_millis(100));
     }
 }
