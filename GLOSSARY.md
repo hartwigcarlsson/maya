@@ -215,6 +215,14 @@ _Avoid_: Leverans, distribution, skickad (som status)
 Skillnaden mellan det som återstår av en leverantörsfaktura i originalvaluta, registrerad i SEK, och det som betalades i SEK; den stängs i betalningens verifikat mot 3960 vid vinst och 7960 vid förlust, så att inget återstår.
 _Avoid_: Valutadifferens, kursavvikelse, valutajustering
 
+**Tillgodohavande**:
+Det som motparten har att få tillbaka när det som återstår av en faktura är negativt, till exempel när en betald faktura krediteras; det återbetalas som en betalning åt andra hållet och visas på fakturan och kunden.
+_Avoid_: Kreditsaldo, överskott, negativ fordran
+
+**Återbetalning**:
+En betalning åt andra hållet av ett tillgodohavande: för en kund 1510 mot betalkontot, för en leverantör betalkontot mot 2440.
+_Avoid_: Utbetalning (som term), retur, kreditering
+
 **Anställd**:
 En person som får lön eller styrelsearvode från ett företag, även en ägare; registreras per företag.
 _Avoid_: Personal, medarbetare, löntagare
