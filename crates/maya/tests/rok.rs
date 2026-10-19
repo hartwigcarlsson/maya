@@ -739,6 +739,139 @@ fn kundfaktura_betalas_i_dokumentet() {
     inga_sidfel(&tab);
 }
 
+/// Specens röktest för kreditfakturor (#140): Kreditfaktura… på en utfärdad faktura krediterar
+/// ett antal på raden, utkastet visar hänvisningen och verifikatet, och kreditfakturan utfärdas
+/// med nästa nummer och minskar det som återstår på originalet.
+#[test]
+fn kundfaktura_krediteras() {
+    if !stod::sajten_finns() {
+        return;
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let port = ledig_port();
+    let bas = format!("http://localhost:{port}");
+    std::fs::write(
+        dir.path().join(".env"),
+        format!(
+            "MAYA_PUBLIC_URL={bas}\nMAYA_LISTEN=127.0.0.1:{port}\nMAYA_BACKUP_DIR={backup}\n\
+             MAYA_DATA_DIR={data}\n",
+            backup = dir.path().display(),
+            data = dir.path().join("data").display(),
+        ),
+    )
+    .unwrap();
+    let _server = Server::starta(dir.path(), port);
+    let browser = Browser::new(
+        LaunchOptions::default_builder()
+            .sandbox(false)
+            .idle_browser_timeout(Duration::from_secs(120))
+            .build()
+            .unwrap(),
+    )
+    .expect("röktestet kräver Chrome eller Chromium; ange sökvägen i CHROME");
+    let tab = browser.new_tab().unwrap();
+    tab.call_method(Page::AddScriptToEvaluateOnNewDocument {
+        source: SAMLA_FEL.to_string(),
+        world_name: None,
+        include_command_line_api: None,
+        run_immediately: None,
+    })
+    .unwrap();
+    tab.call_method(WebAuthn::Enable {
+        enable_ui: Some(false),
+    })
+    .unwrap();
+    autentiserare(&tab);
+    tab.navigate_to(&skapa_användare(dir.path(), &bas)).unwrap();
+    vänta_på_shimmen(&tab);
+    tab.wait_for_element("#namn")
+        .unwrap()
+        .type_into("Virtuell nyckel")
+        .unwrap();
+    klicka(&tab, "form[data-passkey='registrera'] button");
+    vänta_på_text(&tab, "Lägg till en passkey till");
+
+    // Företaget, kunden och en utfärdad faktura 1 på 11 875,00 kr.
+    let företaget = posta(
+        &tab,
+        "/foretag",
+        "orgnr=556036-0793&namn=Exempel+AB&start=2026-01-01&slut=2026-12-31\
+         &bokforingsmetod=faktura&momsperiod=kvartal",
+    );
+    let id = företaget.rsplit('/').next().unwrap().to_string();
+    posta(
+        &tab,
+        &format!("/foretag/{id}/installningar/uppgifter"),
+        "namn=Exempel+AB&gatuadress=Exempelgatan+1&postnummer=12345&postort=Exempelstad\
+         &epost=&telefon=&sate=Stockholm&momsregnr=SE556036079301&f_skatt=ja",
+    );
+    posta(
+        &tab,
+        &format!("/foretag/{id}/installningar/fakturauppgifter"),
+        "bankgiro=50501055",
+    );
+    let kund = posta(
+        &tab,
+        &format!("/foretag/{id}/kunder"),
+        "namn=Kund+AB&identitet=&adress=Storgatan+1%0A111+22+Stockholm&epost=\
+         &momsregnr=&betalningsvillkor=30&omvand_skattskyldighet=ingen",
+    );
+    let k = kund
+        .split("k=")
+        .nth(1)
+        .unwrap()
+        .split('&')
+        .next()
+        .unwrap()
+        .to_string();
+    let granska = posta(
+        &tab,
+        &format!("/foretag/{id}/kundfakturor"),
+        &format!(
+            "kund={k}&fakturadatum=2026-03-10&leveransdatum=&forfallodag=&er_referens=\
+             &startnummer=&beskrivning_0=Konsulttimmar&antal_0=10&enhet_0=tim&a_pris_0=950\
+             &rabatt_0=&momssats_0=25&konto_0=3001&handling=granska"
+        ),
+    );
+    let f = granska
+        .split("f=")
+        .nth(1)
+        .unwrap()
+        .split('&')
+        .next()
+        .unwrap()
+        .to_string();
+    posta(&tab, &format!("/foretag/{id}/kundfakturor/{f}/utfarda"), "");
+
+    // Kreditfaktura… på dokumentet: 4 av 10 timmar.
+    tab.navigate_to(&format!("{bas}/foretag/{id}/kundfakturor?f={f}"))
+        .unwrap();
+    vänta_på_hydreringen(&tab);
+    klicka(&tab, "a[href$='panel=kreditera']");
+    vänta_på_text(&tab, "Kvar att kreditera 11 875,00 kr");
+    vänta_på_hydreringen(&tab);
+    klicka(&tab, ".panel.kreditera input[name='hela'][value='']");
+    fyll(&tab, ".panel.kreditera input[name='antal_0']", "4");
+    klicka(&tab, ".panel.kreditera button[type='submit']");
+    // Utkastet: hänvisningen, raden med negativt antal och verifikatet som speglar originalet.
+    vänta_på_text(&tab, "Kreditfakturans utkast skapades");
+    vänta_på_text(&tab, "Krediterar faktura 1 daterad 2026-03-10");
+    vänta_på_hydreringen(&tab);
+    vänta_på_text(&tab, "Att få tillbaka");
+    vänta_på_text(&tab, "3 800,00");
+    klicka(&tab, "button[value='granska']");
+    vänta_på_text(&tab, "När du utfärdar får fakturan nummer");
+    klicka(&tab, ".granska button[type='submit']");
+    vänta_på_text(&tab, "Fakturan utfärdades");
+    vänta_på_text(&tab, "Kreditfaktura 2");
+    // Originalet har det krediterade avdraget och länken till kreditfakturan.
+    tab.navigate_to(&format!("{bas}/foretag/{id}/kundfakturor?f={f}"))
+        .unwrap();
+    vänta_på_text(&tab, "Krediteras av");
+    vänta_på_text(&tab, "7 125,00 kvar");
+    inga_sidfel(&tab);
+}
+
 /// Specens flöde för leverantörsfakturor (#147): en registrerad faktura betalas i sitt dokument
 /// med betaluppgifterna synliga, och delbetalningen och verifikatet visas medan användaren skriver.
 #[test]
