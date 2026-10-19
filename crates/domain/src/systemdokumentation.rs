@@ -12,8 +12,11 @@ use serde::{Deserialize, Serialize};
 
 use crate::att_gora::VARNING_EFTER_DAGAR;
 use crate::automatkontering;
+use crate::faktura::Momssats;
 use crate::ingaende_balans::PRELIMINÄRT_RESULTAT;
 use crate::kontoplan::flödenas_konton;
+use crate::kundfaktura::{KUNDFORDRINGAR, Momsläge};
+use crate::leverantorsfaktura::LEVERANTÖRSSKULDER;
 use crate::verifikat::SPÄRRAR;
 
 /// Hela systemdokumentationen för ett företag.
@@ -313,8 +316,8 @@ pub fn behandlingsregler() -> Vec<Block> {
         Block::Stycke(
             "Formuläret, förhandsvisningen och servern prövar samma spärrar, och varje spärr \
              visas vid sitt fält med koden nedan. En kundfaktura som inte klarar dem kan sparas \
-             som utkast men inte utfärdas. Intäktskontot följer radens momssats (25 % 3001, \
-             12 % 3002, 6 % 3003, 0 % 3004) och kan ändras per rad till ett annat aktivt konto \
+             som utkast men inte utfärdas. Intäktskontot följer radens momssats (se \
+             Intäktskonto per momssats) och kan ändras per rad till ett annat aktivt konto \
              i klass 3. Momsen räknas per momssats på summan av radernas netto och avrundas \
              till öre."
                 .into(),
@@ -386,7 +389,166 @@ pub fn behandlingsregler() -> Vec<Block> {
         ),
         kodtabell(crate::extern_kundfaktura::REGISTRERINGSSPÄRRAR),
     ]);
+    // #155 Fakturaflödenas regler
+    block.extend(fakturaflödenas_regler());
     block
+}
+
+/// Intäktskontot som en kundfakturarad får som förval, per momssats och momsläge, ur
+/// [`Momsläge::intäktskonto`].
+fn intäktskontona() -> Block {
+    let mut rader: Vec<Tabellrad> = Momssats::ALLA
+        .into_iter()
+        .map(|sats| {
+            Tabellrad::Rad(vec![
+                sats.to_string().into(),
+                Momsläge::Moms.intäktskonto(sats).get().to_string().into(),
+            ])
+        })
+        .collect();
+    rader.extend(
+        [
+            ("Omvänd skattskyldighet, bygg", Momsläge::Bygg),
+            ("Omvänd skattskyldighet, EU-tjänst", Momsläge::EuTjänst),
+            ("Företaget är inte momsregistrerat", Momsläge::UtanMoms),
+        ]
+        .map(|(namn, läge)| {
+            Tabellrad::Rad(vec![
+                namn.into(),
+                läge.intäktskonto(Momssats::Noll).get().to_string().into(),
+            ])
+        }),
+    );
+    Block::Tabell(Tabell {
+        kolumner: vec!["Momssats".into(), "Intäktskonto".into()],
+        rader,
+    })
+}
+
+/// Reglerna för fakturaflödena som inte är automatkonteringar eller spärrtabeller (S2):
+/// intäktskontona, den proportionella fördelningen, registren, bokföringsmetoden, T2,
+/// statusen i reskontran och spärrarna som håller reskontran i takt med bokföringen.
+fn fakturaflödenas_regler() -> Vec<Block> {
+    let kundfordringar = KUNDFORDRINGAR;
+    let leverantörsskulder = LEVERANTÖRSSKULDER;
+    vec![
+        Block::Underrubrik("Intäktskonto per momssats".into()),
+        Block::Stycke(
+            "En rad på en kundfaktura får intäktskontot efter sin momssats och fakturans \
+             omvända skattskyldighet. Det kan ändras per rad till ett annat aktivt intäktskonto \
+             i klass 3, och Rätta kontering byter det på en utfärdad faktura."
+                .into(),
+        ),
+        intäktskontona(),
+        Block::Underrubrik("Proportionell fördelning".into()),
+        Block::Stycke(
+            "Under kontantmetoden, vid delkredit, kundförlust och T2 fördelas ett belopp på \
+             fakturans konton och momssatser i proportion till deras andel av fakturans total, \
+             avrundat till öre så att summan stämmer exakt. Avrundningen är största resten: \
+             varje del avrundas först nedåt, och de öre som fattas går till delarna med störst \
+             rest, vid lika rest till den som kommer först. Ett negativt belopp fördelas som det \
+             positiva med omvänt tecken. Varje del avviker mindre än ett öre från sin exakta \
+             andel. Den fiktiva momsen vid omvänd skattskyldighet ingår inte i totalen och \
+             fördelas som ett par som summerar till noll."
+                .into(),
+        ),
+        Block::Underrubrik("Leverantörens standardkonto".into()),
+        Block::Stycke(
+            "En leverantörs standardkonto är en automatkontering: det fyller rader utan konto när \
+             en leverantörsfaktura från leverantören skrivs av, och raden bokförs på det när \
+             fakturan registreras. Standardkontot är ett aktivt konto i kontoplanen. Varje \
+             ändring av det loggas i behandlingshistoriken som \"standardkonto ändrat\", också \
+             när leverantören läggs upp med ett. Leverantörens förvalda omvända \
+             skattskyldighet fylls i på samma sätt och kan ändras på fakturan."
+                .into(),
+        ),
+        Block::Underrubrik("Kunder och leverantörer".into()),
+        Block::Stycke(
+            "Kund- och leverantörsregistret håller motparterna. Kundens namn, identitet, adress \
+             och momsreg-nr kopieras in på fakturan när den utfärdas, och förfallodagen föreslås \
+             som fakturadatumet plus kundens betalningsvillkor; en senare ändring i registret \
+             ändrar inte en utfärdad faktura. Kundens förvalda omvända skattskyldighet fylls i \
+             på utkastet. En kund eller leverantör som läggs upp från ett utkast har statusen ny \
+             och hör till utkastet: den blir verklig när fakturan utfärdas eller registreras och \
+             raderas, med Maya som aktör och loggat, när inget utkast längre hänvisar till den. \
+             En kund eller leverantör med fakturor kan arkiveras men inte raderas, och \
+             arkiverade visas inte i väljarna. Varje ändring i registren loggas med från och \
+             till per fält."
+                .into(),
+        ),
+        Block::Underrubrik("Bokföringsmetoden och reskontrakontot".into()),
+        Block::Stycke(
+            format!(
+                "Varje faktura vet om dess fordran är bokförd på {kundfordringar} eller dess \
+                 skuld på {leverantörsskulder}. Under fakturametoden är den bokförd från \
+                 utfärdandet eller registreringen, under kontantmetoden från T2-verifikatet. \
+                 Betalning, kredit och kundförlust bokförs mot reskontrakontot när fordran eller \
+                 skulden är bokförd och annars mot intäkt eller kostnad och moms, enligt \
+                 automatkonteringarna. Bokföringsmetoden på fakturadatumet avgör om utfärdandet \
+                 eller registreringen bokförs, så ett byte av metod kräver ingen \
+                 övergångsbokning; ett byte gäller bara framåt och spärras från ett datum då \
+                 det redan finns utfärdade eller registrerade fakturor (fakturor_efter). En \
+                 kreditfaktura följer sitt original; en kreditfaktura från en leverantör utan \
+                 hänvisning till ett original räknas som bokförd. En betalning, kredit eller kundförlust \
+                 daterad efter räkenskapsårets slut på en faktura under kontantmetoden som var \
+                 obetald vid årets slut bokförs mot {kundfordringar} eller \
+                 {leverantörsskulder}, också innan T2-verifikatet är bokfört."
+            )
+            .into(),
+        ),
+        Block::Underrubrik("T2 under kontantmetoden".into()),
+        Block::Stycke(
+            "Dagen efter räkenskapsårets slut skapar Maya, som aktör, ett T2-utkast daterat på \
+             årets sista dag för ett företag med kontantmetoden. Det har det obetalda beloppet \
+             vid årets slut på varje kund- och leverantörsfaktura med fakturadatum i året vars \
+             fordran eller skuld inte är bokförd, fördelat proportionellt enligt \
+             automatkonteringarna. Utan obetalda fakturor skapas inget utkast. Utkastet räknas \
+             om varje gång en ändring sparas, och Maya raderar det när inget längre är obetalt. \
+             Det kan inte ändras eller raderas för hand. En användare bokför det, och då är \
+             fakturornas fordringar och skulder bokförda med T2-verifikatet, som vänds aldrig. \
+             Det kan inte bokföras medan en faktura från året är upplåst med Rätta registrering \
+             eller Rätta avskrift; fakturan registreras om först."
+                .into(),
+        ),
+        Block::Underrubrik("Status i reskontran".into()),
+        Block::Stycke(
+            "En fakturas status räknas fram ur dess total, krediteringar, betalningar och \
+             kundförluster, förfallodagen och dagens datum, och lagras inte: obetald, \
+             delbetald, betald, förfallen när något återstår efter förfallodagen, krediterad, \
+             tillgodo när motparten har betalat mer än det som återstår efter krediteringarna, \
+             och kundförlust. Att en kundfaktura har skickats är en loggad händelse och ingen \
+             status. En leverantörsfaktura eller extern kundfaktura vars registrering är vänd \
+             är upplåst tills den registreras om."
+                .into(),
+        ),
+        Block::Underrubrik("Spärrar som håller reskontran i takt med bokföringen".into()),
+        Block::Stycke(
+            format!(
+                "Utöver spärrtabellerna ovan spärrar Maya det som skulle få reskontran och \
+                 {kundfordringar} eller {leverantörsskulder} att gå isär:"
+            )
+            .into(),
+        ),
+        Block::Lista(vec![
+            "Rätta registrering och Rätta avskrift spärras när fakturan ingår i ett bokfört \
+             T2-verifikat, eftersom T2 aldrig vänds."
+                .into(),
+            "T2-utkastet bokförs inte medan en faktura från året är upplåst.".into(),
+            format!(
+                "Rätta betalning och Återkalla kundförlust spärras när något har bokförts på \
+                 {kundfordringar} eller {leverantörsskulder} utifrån betalningen eller förlusten, \
+                 till exempel en senare kredit som översteg det obetalda: rättelsen får bara \
+                 ändra fakturans del på kontot med det som dess eget verifikat bokförde där."
+            )
+            .into(),
+            "En återbetalning dateras inte före den dag då tillgodohavandet uppstod \
+             (aterbetalning_fore_tillgodo)."
+                .into(),
+            "Bokföringsmetoden byts inte från ett datum då det finns utfärdade eller \
+             registrerade fakturor (fakturor_efter)."
+                .into(),
+        ]),
+    ]
 }
 
 /// En release i ändringsloggen för behandlingsreglerna.
