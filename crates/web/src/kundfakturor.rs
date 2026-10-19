@@ -475,11 +475,10 @@ pub(crate) mod server {
                 let mut g = granskning(&u.formulär, &förutsättningar, &kontonamn);
                 // #138: kryssrutan bara med SMTP och en kund med e-postadress.
                 if b.config.smtp.is_some() {
-                    g.skicka_till = förutsättningar
-                        .kunder
-                        .iter()
-                        .find(|k| Some(k.id) == u.formulär.kund.trim().parse().ok())
-                        .map(|k| k.epost.clone())
+                    g.skicka_till = u
+                        .formulär
+                        .kunden(&förutsättningar)
+                        .map(|k| k.epost)
                         .unwrap_or_default();
                 }
                 data.granskning = Some(g);
