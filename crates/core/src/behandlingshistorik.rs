@@ -117,6 +117,9 @@ händelser! {
     // #143 Externa kundfakturor (KreditfakturaRegistrerad ovan gäller också externa)
     ExternKundfakturaRegistrerad => "extern kundfaktura registrerad",
     RegistreringRättad => "registrering rättad",
+    // #150 T2
+    T2UtkastSkapat => "T2-utkast skapat",
+    T2UtkastBokfört => "T2-utkast bokfört",
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -900,6 +903,20 @@ impl Post {
                 text.push_str(", fakturan är upplåst");
                 text
             }
+            // #150 T2
+            Händelse::T2UtkastSkapat => format!(
+                "Utkast daterat {} med {}, {} kr",
+                f("datum"),
+                fakturor(&b["fakturor"]),
+                kronor(&b["summa_öre"])
+            ),
+            Händelse::T2UtkastBokfört => format!(
+                "{} daterat {} med {}, {} kr; fordringarna och skulderna är bokförda",
+                f("nummer"),
+                f("datum"),
+                fakturor(&b["fakturor"]),
+                kronor(&b["summa_öre"])
+            ),
         }
     }
 
@@ -910,6 +927,14 @@ impl Post {
             (_, Some(namn)) => namn.clone(),
             (kanal, None) => kanal.namn().into(),
         }
+    }
+}
+
+/// #150: antalet obetalda fakturor i T2-utkastet, t.ex. "2 obetalda fakturor".
+fn fakturor(v: &Value) -> String {
+    match v.as_array().map_or(0, Vec::len) {
+        1 => "1 obetald faktura".into(),
+        n => format!("{n} obetalda fakturor"),
     }
 }
 

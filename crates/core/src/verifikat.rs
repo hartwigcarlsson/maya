@@ -80,6 +80,10 @@ pub enum VerifikatFel {
     /// Verifikatet kan inte rättas: det är redan rättat eller är en rättelse.
     #[error("{0}")]
     InteRättbart(Rättelsespärr),
+    /// Utkastet är årets T2-utkast (#150): Maya räknar om det, och det kan inte ändras,
+    /// raderas eller bokföras som ett vanligt utkast.
+    #[error("T2-utkastet räknas om av Maya och kan inte ändras eller raderas för hand")]
+    T2Utkast,
     #[error(transparent)]
     Åtkomst(#[from] ÅtkomstFel),
 }
@@ -167,6 +171,9 @@ pub struct Verifikat {
     pub historik: Vec<Historikpost>,
     /// Fakturan som verifikatet bokfördes från, när det kommer från ett av Mayas flöden.
     pub flöde: Option<Flödeslänk>,
+    /// Verifikatet är räkenskapsårets T2-verifikat (#150): ett utkast som Maya räknar om, eller
+    /// bokfört och då aldrig vänt.
+    pub t2: bool,
 }
 
 /// Fakturaflödet som ett verifikat kommer ifrån.
@@ -214,6 +221,7 @@ impl Verifikat {
             rättad_av: nummer(&self.rättad_av),
             rättar: nummer(&self.rättar),
             flöde: self.flöde.as_ref().map(|f| f.text.clone()),
+            t2: self.t2,
         })
     }
 }
@@ -848,22 +856,87 @@ pub async fn radera_utkast(
     Ok(())
 }
 
-/// Att `id` är ett utkast i ärendets företag.
+/// Att `id` är ett utkast i ärendets företag som går att ändra för hand: inte T2-utkastet
+/// (#150).
 async fn kräv_utkast(ärende: &mut Ärende, id: VerifikatId) -> Result<(), VerifikatFel> {
     let företag = ärende.företag;
-    let finns: bool = sqlx::query_scalar(
+    let (finns, t2): (bool, bool) = sqlx::query_as(
         "SELECT EXISTS (
-             SELECT 1 FROM verifikat WHERE id = ? AND foretag_id = ? AND bokford IS NULL)",
+                    SELECT 1 FROM verifikat WHERE id = ?1 AND foretag_id = ?2 AND bokford IS NULL),
+                EXISTS (SELECT 1 FROM t2 WHERE verifikat_id = ?1)",
     )
     .bind(id.0)
     .bind(företag.0)
     .fetch_one(ärende.conn())
     .await?;
-    if finns {
-        Ok(())
-    } else {
-        Err(VerifikatFel::IngetUtkast)
+    match (finns, t2) {
+        (false, _) => Err(VerifikatFel::IngetUtkast),
+        (true, true) => Err(VerifikatFel::T2Utkast),
+        (true, false) => Ok(()),
     }
+}
+
+// #150 T2: Maya skriver, räknar om och raderar T2-utkastet, och en användare bokför det.
+
+/// Skriver ett utkast med datum, beskrivning och kontrollerade rader i räkenskapsåret `år_id`:
+/// ett nytt, skapat av `skapare`, eller nytt innehåll i `utkast`. Loggas inte.
+#[allow(clippy::too_many_arguments)]
+pub(crate) async fn skriv_utkast_i(
+    ärende: &mut Ärende,
+    utkast: Option<VerifikatId>,
+    skapare: &Aktör,
+    år_id: i64,
+    datum: Date,
+    beskrivning: &str,
+    rader: &[maya_domain::verifikat::Rad],
+) -> Result<VerifikatId, sqlx::Error> {
+    let innehåll = Innehåll {
+        år_id: Some(år_id),
+        datum: Some(datum),
+        beskrivning,
+        rader: rader
+            .iter()
+            .map(|r| (Some(r.konto), r.debet, r.kredit, r.text.as_deref()))
+            .collect(),
+        källa: Källa::Manuell,
+        rättar: None,
+        kopia_av: None,
+    };
+    match utkast {
+        Some(id) => {
+            skriv_om(ärende, id, &innehåll).await?;
+            Ok(id)
+        }
+        None => skapa_som(ärende, skapare, &innehåll).await,
+    }
+}
+
+/// Bokför utkastet `utkast` med formulärets innehåll inne i ärendet, under samma spärrar som
+/// [`bokför_utkast`], utan att committa och utan att röra utkastets underlag.
+pub(crate) async fn bokför_utkast_i(
+    ärende: &mut Ärende,
+    utkast: VerifikatId,
+    formulär: &NyttVerifikat,
+) -> Result<Bokfört, VerifikatFel> {
+    bokför_utan_att_slutföra(ärende, Some(utkast), formulär, None).await
+}
+
+/// Tar bort utkastet `utkast` med rader och kopplingar. Loggas av den som anropar.
+pub(crate) async fn ta_bort_utkast_i(
+    ärende: &mut Ärende,
+    utkast: VerifikatId,
+) -> Result<(), sqlx::Error> {
+    for sql in [
+        "DELETE FROM underlagskoppling WHERE verifikat_id = ?",
+        "DELETE FROM verifikatrad WHERE verifikat_id = ?",
+        "DELETE FROM verifikat WHERE id = ? AND bokford IS NULL",
+    ] {
+        sqlx::query(sql)
+            .bind(utkast.0)
+            .execute(ärende.conn())
+            .await?;
+    }
+    Ok(())
 }
 
 /// Räkenskapsårets id, efter att året har skapats om det är nytt.
@@ -939,7 +1012,17 @@ impl<'a> Innehåll<'a> {
 async fn skapa(
     ärende: &mut Ärende, innehåll: &Innehåll<'_>
 ) -> Result<VerifikatId, sqlx::Error> {
-    let (företag, aktör, nu) = (ärende.företag, ärende.aktör, ärende.nu);
+    let aktör = ärende.aktör;
+    skapa_som(ärende, &aktör, innehåll).await
+}
+
+/// Skapar verifikatet som utkast med sina rader, skapat av `aktör`.
+async fn skapa_som(
+    ärende: &mut Ärende,
+    aktör: &Aktör,
+    innehåll: &Innehåll<'_>,
+) -> Result<VerifikatId, sqlx::Error> {
+    let (företag, nu) = (ärende.företag, ärende.nu);
     let id: i64 = sqlx::query_scalar(
         "INSERT INTO verifikat
              (foretag_id, rakenskapsar_id, datum, beskrivning, kalla, skapad, skapad_kanal,
@@ -1129,8 +1212,24 @@ pub(crate) async fn läs_verifikat(
         .collect::<Result<Vec<_>, DatabasFel>>()?;
     let underlag = underlag::verifikatets(&mut *tx, id).await?;
     let flöde = flödeslänk(&mut *tx, id).await?;
-    let mut historik = Vec::new();
+    // #150: posterna om att Maya skapade T2-utkastet har T2:s id, eftersom ett raderat utkasts
+    // id kan återanvändas av ett senare verifikat.
+    let t2: Option<i64> = sqlx::query_scalar("SELECT id FROM t2 WHERE verifikat_id = ?")
+        .bind(id.0)
+        .fetch_optional(&mut *tx)
+        .await?;
+    let mut poster = match t2 {
+        Some(t2) => behandlingshistorik::läs_om(&mut *tx, företag, "t2", t2).await?,
+        None => Vec::new(),
+    };
     for post in behandlingshistorik::läs_om_verifikat(&mut *tx, företag, id.0).await? {
+        if !poster.contains(&post) {
+            poster.push(post);
+        }
+    }
+    poster.sort_by_key(|p| p.tid);
+    let mut historik = Vec::new();
+    for post in poster {
         let namn = namn(&mut *tx, &post.aktör).await?;
         historik.push(Historikpost { post, namn });
     }
@@ -1169,6 +1268,7 @@ pub(crate) async fn läs_verifikat(
         underlag,
         historik,
         flöde,
+        t2: t2.is_some(),
     }))
 }
 

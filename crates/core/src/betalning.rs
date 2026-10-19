@@ -361,6 +361,7 @@ async fn läs_förutsättningar(
         räkenskapsår: v.räkenskapsår,
         originalvaluta: !fakturan.originalvaluta.trim().is_empty(),
         obokförd: crate::fordran::obokförd_i(&mut *conn, företag, faktura).await?,
+        bokförd_efter: crate::fordran::bokförd_efter_i(&mut *conn, företag, faktura).await?,
     })
 }
 

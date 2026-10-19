@@ -35,6 +35,7 @@ pub mod sie4;
 pub mod smtp;
 pub mod sok;
 pub mod systemdokumentation;
+pub mod t2;
 #[cfg(feature = "test-support")]
 pub mod testhjalp;
 pub mod underlag;

@@ -14,6 +14,7 @@ mod backup;
 mod cli;
 mod healthcheck;
 mod restore;
+mod t2;
 mod user;
 
 #[derive(Parser)]
@@ -120,6 +121,11 @@ async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
         let (config, db) = (config.clone(), db.clone());
         tokio::spawn(async move { backup::larmjobb(&config, db).await })
     };
+    // #150 T2-utkastet dagen efter räkenskapsårets slut.
+    let t2 = {
+        let db = db.clone();
+        tokio::spawn(async move { t2::nattligt_jobb(db).await })
+    };
     let app = maya_web::router(config.clone(), db);
 
     let listener = tokio::net::TcpListener::bind(config.listen)
@@ -140,6 +146,7 @@ async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
     .await?;
     jobb.abort();
     larm.abort();
+    t2.abort();
     tracing::info!("Maya har stannat");
     Ok(())
 }

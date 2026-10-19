@@ -749,7 +749,9 @@ async fn bokföringen(
     };
     let kontering = fordran::kreditens_kontering(
         conn,
+        företag,
         Faktura::Kund(KundfakturaId(h.faktura)),
+        u.fakturadatum,
         u.total,
         u.kontering(),
     )

@@ -42,6 +42,7 @@ fn förutsättningar(återstår: i64) -> Förutsättningar {
             date(2026, 1, 1),
             date(2026, 12, 31),
         )],
+        bokförd_efter: None,
     }
 }
 
@@ -120,6 +121,21 @@ fn när_fordran_inte_är_bokförd_blir_förlusten_bara_en_status() {
     let k = förlust("konkurs", "2027-02-01").kontrollera(&f).unwrap();
     assert!(k.kontering().is_empty());
     assert_eq!(k.räkenskapsår, None);
+}
+
+#[test]
+fn en_förlust_efter_årets_slut_på_en_faktura_som_väntar_på_t2_bokförs_mot_1510() {
+    // #150: fakturan var obetald vid årets slut och kommer med i T2-verifikatet.
+    let mut f = förutsättningar(1_000_000);
+    f.bokförd_efter = Some(date(2026, 12, 31));
+    let efter = förlust("konkurs", "2027-01-09").kontrollera(&f).unwrap();
+    assert_eq!(
+        öre(&efter.kontering()),
+        [(6351, 800_000, 0), (2611, 200_000, 0), (1510, 0, 1_000_000)]
+    );
+    let i_året = förlust("konkurs", "2026-12-31").kontrollera(&f).unwrap();
+    assert!(i_året.kontering().is_empty());
+    assert_eq!(i_året.räkenskapsår, None);
 }
 
 #[test]

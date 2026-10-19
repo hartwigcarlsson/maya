@@ -29,6 +29,8 @@ pub struct Original {
     /// Fakturan som verifikatet bokfördes från, t.ex. "leverantörsfaktura 8812 från Kontorsvaror
     /// AB", när det kommer från ett av Mayas flöden. Ett sådant verifikat rättas i fakturan.
     pub flöde: Option<String>,
+    /// Verifikatet är ett T2-verifikat under kontantmetoden (#150), som aldrig vänds.
+    pub t2: bool,
 }
 
 /// Varför ett verifikat inte kan rättas.
@@ -40,6 +42,8 @@ pub enum Rättelsespärr {
     ÄrRättelse(String),
     /// Verifikatet kommer från ett av Mayas flöden, fakturan i texten, och rättas där.
     FrånFlöde(String),
+    /// Verifikatet är T2-verifikatet, som inte vänds i det nya året (#150).
+    T2,
 }
 
 impl Rättelsespärr {
@@ -48,6 +52,7 @@ impl Rättelsespärr {
             Rättelsespärr::RedanRättat(_) => "redan_rattat",
             Rättelsespärr::ÄrRättelse(_) => "ar_rattelse",
             Rättelsespärr::FrånFlöde(_) => "fran_flode",
+            Rättelsespärr::T2 => "t2_vands_inte",
         }
     }
 }
@@ -67,6 +72,10 @@ impl fmt::Display for Rättelsespärr {
             Rättelsespärr::FrånFlöde(faktura) => write!(
                 f,
                 "Verifikatet bokfördes från {faktura}. Rättas i fakturan."
+            ),
+            Rättelsespärr::T2 => f.write_str(
+                "T2-verifikatet vänds inte i det nya året. Fakturorna i det betalas mot 1510 \
+                 och 2440.",
             ),
         }
     }
@@ -106,6 +115,9 @@ impl Original {
     /// registrering eller betalning): som [`Original::kan_rättas`], utan spärren mot verifikat
     /// från ett flöde.
     pub fn kan_rättas_i_flödet(&self) -> Result<(), Rättelsespärr> {
+        if self.t2 {
+            return Err(Rättelsespärr::T2);
+        }
         if let Some(original) = &self.rättar {
             return Err(Rättelsespärr::ÄrRättelse(original.clone()));
         }
@@ -198,7 +210,18 @@ mod tests {
             rättad_av: None,
             rättar: None,
             flöde: None,
+            t2: false,
         }
+    }
+
+    #[test]
+    fn t2_verifikatet_vänds_aldrig_varken_för_hand_eller_i_ett_flöde() {
+        let t2 = Original {
+            t2: true,
+            ..original()
+        };
+        assert_eq!(t2.kan_rättas().unwrap_err().kod(), "t2_vands_inte");
+        assert_eq!(t2.kan_rättas_i_flödet().unwrap_err(), Rättelsespärr::T2);
     }
 
     fn förutsättningar() -> Förutsättningar {

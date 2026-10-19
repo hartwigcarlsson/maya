@@ -26,9 +26,9 @@ use crate::kundfaktura::kontonummer;
 use crate::verifikat::VerifikatId;
 
 /// Om fakturans fordran eller skuld är bokförd nu: ett verifikat har bokfört den och är inte
-/// vänt. #150: en betalning efter årets slut av en faktura som var obetald vid årets slut under
-/// kontantmetoden räknas som bokförd också innan T2-verifikatet är bokfört; den regeln hör
-/// hemma här.
+/// vänt. För en händelse med ett datum (betalning, kredit, kundförlust) gäller också
+/// [`bokförd_på_i`]: efter årets slut är en faktura som var obetald vid årets slut bokförd också
+/// innan T2-verifikatet är bokfört (#150).
 pub(crate) async fn bokförd_i(
     conn: &mut SqliteConnection,
     faktura: Faktura,
@@ -42,6 +42,130 @@ pub(crate) async fn bokförd_i(
     .bind(leverantör)
     .fetch_one(conn)
     .await
+}
+
+/// Om fakturans fordran eller skuld är bokförd för en händelse daterad `dag`: den är bokförd
+/// ([`bokförd_i`]), eller `dag` ligger efter årets slut och fakturan var obetald då och väntar
+/// på T2-verifikatet ([`bokförd_efter_i`]). Spec: en betalning daterad efter räkenskapsårets
+/// slut av en faktura som var obetald vid årets slut bokförs mot 1510 eller 2440, också innan
+/// T2-verifikatet är bokfört. Krediter och kundförluster följer samma regel, eftersom
+/// T2-verifikatet tar med det som var obetalt vid årets slut och bokför det på 1510 eller 2440.
+pub(crate) async fn bokförd_på_i(
+    conn: &mut SqliteConnection,
+    företag: FöretagsId,
+    faktura: Faktura,
+    dag: Date,
+) -> Result<bool, DatabasFel> {
+    Ok(bokförd_i(&mut *conn, faktura).await?
+        || bokförd_efter_i(conn, företag, faktura)
+            .await?
+            .is_some_and(|slut| dag > slut))
+}
+
+/// Slutet på räkenskapsåret med fakturans fakturadatum, när fakturans fordran eller skuld inte
+/// är bokförd, något var obetalt av den vid årets slut och årets T2-verifikat inte är bokfört
+/// (#150): händelser daterade efter det bokförs mot 1510 eller 2440, eftersom T2-verifikatet
+/// tar med fakturan. `None` annars, också för en kreditfaktura, som räknas av mot sitt original.
+pub(crate) async fn bokförd_efter_i(
+    conn: &mut SqliteConnection,
+    företag: FöretagsId,
+    faktura: Faktura,
+) -> Result<Option<Date>, DatabasFel> {
+    if bokförd_i(&mut *conn, faktura).await? {
+        return Ok(None);
+    }
+    let fakturadatum: Option<Option<String>> = match faktura {
+        Faktura::Kund(id) => {
+            sqlx::query_scalar(
+                "SELECT fakturadatum FROM kundfaktura
+                 WHERE id = ? AND foretag_id = ? AND status IN ('utfardad', 'registrerad')
+                   AND krediterar IS NULL",
+            )
+            .bind(id.0)
+            .bind(företag.0)
+            .fetch_optional(&mut *conn)
+            .await?
+        }
+        Faktura::Leverantör(id) => {
+            sqlx::query_scalar(
+                "SELECT fakturadatum FROM leverantorsfaktura
+                 WHERE id = ? AND foretag_id = ? AND status = 'registrerad' AND krediterar IS NULL",
+            )
+            .bind(id.0)
+            .bind(företag.0)
+            .fetch_optional(&mut *conn)
+            .await?
+        }
+    };
+    let Some(Some(fakturadatum)) = fakturadatum else {
+        return Ok(None);
+    };
+    let år: Option<(String, bool)> = sqlx::query_as(
+        "SELECT r.slut, EXISTS (SELECT 1 FROM t2 JOIN verifikat v ON v.id = t2.verifikat_id
+                                WHERE t2.rakenskapsar_id = r.id AND v.bokford IS NOT NULL)
+         FROM rakenskapsar r WHERE r.foretag_id = ?1 AND r.start <= ?2 AND r.slut >= ?2",
+    )
+    .bind(företag.0)
+    .bind(&fakturadatum)
+    .fetch_optional(&mut *conn)
+    .await?;
+    let Some((slut, false)) = år else {
+        return Ok(None);
+    };
+    let slut = datum(&slut)?;
+    Ok((obetalt_vid_i(conn, faktura, slut).await? > 0).then_some(slut))
+}
+
+/// Det som var obetalt av fakturan vid utgången av `dag`, i öre, som bokföringen visade det
+/// då: totalen minus krediter med fakturadatum senast `dag`, betalningar med betaldag senast
+/// `dag` som inte var vända med en rättelse daterad senast `dag`, och (kundfaktura) en gällande
+/// kundförlust daterad senast `dag`. T2-verifikatet tar med det vid årets slut (#150).
+pub(crate) async fn obetalt_vid_i(
+    conn: &mut SqliteConnection,
+    faktura: Faktura,
+    dag: Date,
+) -> Result<i64, sqlx::Error> {
+    let sql = match faktura {
+        Faktura::Kund(_) => {
+            "SELECT f.total
+                 - coalesce((SELECT -sum(k.total) FROM kundfaktura k
+                             WHERE k.krediterar = f.id AND k.status IN ('utfardad', 'registrerad')
+                               AND k.fakturadatum <= ?2), 0)
+                 - coalesce((SELECT sum(b.belopp + b.oresutjamning) FROM betalning b
+                             WHERE b.kundfaktura_id = f.id AND b.betaldag <= ?2
+                               AND NOT EXISTS (
+                                   SELECT 1 FROM betalningsrattelse r
+                                   JOIN verifikat v ON v.id = r.verifikat_id
+                                   WHERE r.betalning_id = b.id AND v.datum <= ?2)), 0)
+                 - coalesce((SELECT sum(l.belopp) FROM kundforlust_i_reskontran l
+                             WHERE l.kundfaktura_id = f.id AND l.datum <= ?2), 0)
+             FROM kundfaktura f WHERE f.id = ?1"
+        }
+        Faktura::Leverantör(_) => {
+            "SELECT f.total
+                 - coalesce((SELECT -sum(k.total) FROM leverantorsfaktura k
+                             WHERE k.krediterar = f.id AND k.status = 'registrerad'
+                               AND k.fakturadatum <= ?2), 0)
+                 - coalesce((SELECT sum(b.belopp + b.oresutjamning + b.kursdifferens)
+                             FROM betalning b
+                             WHERE b.leverantorsfaktura_id = f.id AND b.betaldag <= ?2
+                               AND NOT EXISTS (
+                                   SELECT 1 FROM betalningsrattelse r
+                                   JOIN verifikat v ON v.id = r.verifikat_id
+                                   WHERE r.betalning_id = b.id AND v.datum <= ?2)), 0)
+             FROM leverantorsfaktura f WHERE f.id = ?1"
+        }
+    };
+    let id = match faktura {
+        Faktura::Kund(id) => id.0,
+        Faktura::Leverantör(id) => id.0,
+    };
+    let obetalt: Option<Option<i64>> = sqlx::query_scalar(sql)
+        .bind(id)
+        .bind(dag.to_string())
+        .fetch_optional(conn)
+        .await?;
+    Ok(obetalt.flatten().unwrap_or(0))
 }
 
 /// Att verifikatet `verifikat` bokförde fakturans fordran eller skuld: utfärdandet,
@@ -208,14 +332,16 @@ pub(crate) async fn underlaget_i(
 /// den del av krediten som överstiger det som var obetalt av originalet, mot 1510 eller 2440
 /// (kontantmetoden: kredit av en obetald del bokförs inte), och `None` när krediten ryms i det
 /// obetalda. Kreditfakturan bokför i inget av fallen en egen fordran eller skuld: den räknas av
-/// mot originalet.
+/// mot originalet. `dag` är kreditfakturans fakturadatum ([`bokförd_på_i`], #150).
 pub(crate) async fn kreditens_kontering(
     conn: &mut SqliteConnection,
+    företag: FöretagsId,
     original: Faktura,
+    dag: Date,
     total: i64,
     kontering: Vec<maya_domain::verifikat::Rad>,
 ) -> Result<Option<Vec<maya_domain::verifikat::Rad>>, DatabasFel> {
-    if bokförd_i(&mut *conn, original).await? {
+    if bokförd_på_i(&mut *conn, företag, original, dag).await? {
         return Ok(Some(kontering));
     }
     let (reskontrakonto, originalets_total): (_, Option<i64>) = match original {

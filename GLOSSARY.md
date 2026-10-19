@@ -239,6 +239,10 @@ _Avoid_: Olåst, öppnad, återkallad
 Att en fakturas fordran på 1510 eller skuld på 2440 är bokförd: från utfärdandet eller registreringen under fakturametoden, och från T2-verifikatet under kontantmetoden. När den inte är bokförd bokför betalningen intäkt eller kostnad och moms i proportion, och en kundförlust ger bara status. Bokföringsmetoden på fakturadatumet avgör.
 _Avoid_: Bokförd faktura, periodiserad fordran
 
+**T2-utkast**:
+Det verifikatutkast som Maya skapar dagen efter räkenskapsårets slut under kontantmetoden, daterat på årets sista dag, med det som var obetalt vid årets slut på varje faktura vars fordran eller skuld inte är bokförd. Maya räknar om det tills en användare bokför det; det ändras inte för hand, och det bokförda T2-verifikatet vänds inte i det nya året.
+_Avoid_: Bokslutsverifikat, periodisering, årsomföring
+
 **Anställd**:
 En person som får lön eller styrelsearvode från ett företag, även en ägare; registreras per företag.
 _Avoid_: Personal, medarbetare, löntagare

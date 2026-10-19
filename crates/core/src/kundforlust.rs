@@ -226,19 +226,33 @@ async fn läs_förutsättningar(
     let kundförlust = förlorat_i(&mut *conn, faktura).await? != 0;
     // En fordran som inte är bokförd (kontantmetoden, #149) ger bara status: inget verifikat.
     // #143: en extern fakturas fordran bokfördes av registreringen.
+    // #150: en fordran som T2-verifikatet bokförde, eller som väntar på det, har inget
+    // utfärdandeverifikat; förlusten konteras då med fakturans kontering under fakturametoden.
+    let fakturametodens = async |conn: &mut SqliteConnection| {
+        let o = crate::fordran::underlaget_i(conn, företag, Faktura::Kund(faktura)).await?;
+        Ok::<_, KundförlustFel>(o.kontering(o.total()))
+    };
+    let bokförd_efter =
+        crate::fordran::bokförd_efter_i(&mut *conn, företag, Faktura::Kund(faktura)).await?;
     let utfärdandet = if crate::fordran::bokförd_i(&mut *conn, Faktura::Kund(faktura)).await? {
         let bokföringen = match crate::extern_kundfaktura::registreringens_verifikat_i(
             &mut *conn, företag, faktura,
         )
         .await?
         {
-            Some(v) => v,
-            None => crate::kontering::gällande_i(&mut *conn, företag, faktura)
-                .await?
-                .verifikat
-                .ok_or(VerifikatFel::IngetVerifikat)?,
+            Some(v) => Some(v),
+            None => {
+                crate::kontering::gällande_i(&mut *conn, företag, faktura)
+                    .await?
+                    .verifikat
+            }
         };
-        Some(domänrader(&mut *conn, företag, bokföringen).await?)
+        Some(match bokföringen {
+            Some(v) => domänrader(&mut *conn, företag, v).await?,
+            None => fakturametodens(&mut *conn).await?,
+        })
+    } else if bokförd_efter.is_some() {
+        Some(fakturametodens(&mut *conn).await?)
     } else {
         None
     };
@@ -251,6 +265,7 @@ async fn läs_förutsättningar(
         kundförlust,
         utfärdandet,
         räkenskapsår,
+        bokförd_efter,
     })
 }
 

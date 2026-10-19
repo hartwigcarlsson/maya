@@ -102,6 +102,11 @@ pub struct Förutsättningar {
     /// bokförd.
     pub utfärdandet: Option<Vec<Rad>>,
     pub räkenskapsår: Vec<Räkenskapsår>,
+    /// Årets slut när fakturan var obetald vid räkenskapsårets slut och väntar på
+    /// T2-verifikatet (#150). `utfärdandet` är då fakturans kontering under fakturametoden, och
+    /// en förlust daterad efter årets slut bokförs mot 1510 med den; en förlust daterad senast
+    /// årets slut ger bara status.
+    pub bokförd_efter: Option<Date>,
 }
 
 /// Fälten i panelen, där spärrarna visas.
@@ -263,7 +268,13 @@ impl NyKundförlust {
                 }
             },
         };
-        let räkenskapsår = match (datum, &f.utfärdandet) {
+        // #150: före årets slut är en fordran som väntar på T2 inte bokförd.
+        let utfärdandet = match (datum, f.bokförd_efter) {
+            (Some(d), Some(slut)) if d <= slut => None,
+            (None, Some(_)) => None,
+            _ => f.utfärdandet.clone(),
+        };
+        let räkenskapsår = match (datum, &utfärdandet) {
             (Some(d), Some(_)) => {
                 let mut fel = Vec::new();
                 let val = verifikat::välj_år(d, &f.räkenskapsår, &mut fel);
@@ -287,7 +298,7 @@ impl NyKundförlust {
                 datum,
                 belopp: f.återstår,
                 räkenskapsår,
-                utfärdandet: f.utfärdandet.clone(),
+                utfärdandet,
             }),
             _ => Err(spärrar),
         }
