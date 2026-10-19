@@ -7,6 +7,13 @@
 //! summerar till totalen. Registreringen bokför kostnaden per rad netto och 2641 moms mot 2440
 //! totalen, daterat på fakturadatumet; ett företag som inte är momsregistrerat på
 //! fakturadatumet bokför momsen på kostnadskontot.
+//!
+//! Vid omvänd skattskyldighet (EU-tjänst, EU-vara, bygg eller tjänst från land utanför EU) har
+//! fakturan ingen moms: totalen är radernas netto, och radens momsbelopp är den fiktiva moms som
+//! köparen redovisar. Registreringen bokför den som avdragsgill ingående moms på 2645 (2647 för
+//! bygg) och som utgående moms på 2614/2624/2634 efter momssats. Leverantörens förval föreslås
+//! när fakturan inte har något val. Ett företag som inte är momsregistrerat kan inte välja
+//! omvänd skattskyldighet. Justeringsparet mot 4599 kommer i etapp 3.
 
 use std::fmt;
 
@@ -15,7 +22,7 @@ use jiff::civil::Date;
 use crate::belopp::Belopp;
 use crate::foretag::{Momsperiod, gäller};
 use crate::kontoplan::Kontonummer;
-use crate::leverantor::{self, NyLeverantör};
+use crate::leverantor::{self, NyLeverantör, OmvändSkattskyldighet};
 use crate::rakenskapsar::Räkenskapsår;
 use crate::verifikat::{self, Årsval};
 
@@ -23,6 +30,34 @@ use crate::verifikat::{self, Årsval};
 pub const LEVERANTÖRSSKULDER: u16 = 2440;
 /// Debiterad ingående moms.
 pub const INGÅENDE_MOMS: u16 = 2641;
+/// Fiktiv ingående moms vid omvänd skattskyldighet för EU-tjänst, EU-vara och tjänst från
+/// land utanför EU.
+pub const FIKTIV_INGÅENDE_MOMS: u16 = 2645;
+/// Fiktiv ingående moms vid omvänd skattskyldighet inom byggsektorn.
+pub const FIKTIV_INGÅENDE_MOMS_BYGG: u16 = 2647;
+
+/// Kontot för den fiktiva utgående momsen vid omvänd skattskyldighet med satsen `sats`
+/// procent: 2614, 2624 eller 2634. Ingen för 0 %.
+pub fn fiktiv_utgående_moms(sats: u8) -> Option<u16> {
+    match sats {
+        25 => Some(2614),
+        12 => Some(2624),
+        6 => Some(2634),
+        _ => None,
+    }
+}
+
+/// Kontot för den fiktiva ingående momsen, eller inget utan omvänd skattskyldighet.
+pub fn fiktiv_ingående_moms(omvänd: OmvändSkattskyldighet) -> Option<u16> {
+    match omvänd {
+        OmvändSkattskyldighet::Ingen => None,
+        OmvändSkattskyldighet::Bygg => Some(FIKTIV_INGÅENDE_MOMS_BYGG),
+        OmvändSkattskyldighet::EuTjänst
+        | OmvändSkattskyldighet::EuVara
+        | OmvändSkattskyldighet::UtanförEu => Some(FIKTIV_INGÅENDE_MOMS),
+    }
+}
+
 /// Momssatserna i procent, i den ordning väljaren visar dem.
 pub const MOMSSATSER: [u8; 4] = [25, 12, 6, 0];
 /// Leverantörsvalets värde för en ny leverantör som läggs upp från utkastet.
@@ -68,6 +103,8 @@ pub struct NyLeverantörsfaktura {
     pub referens: String,
     /// Totalbeloppet i SEK.
     pub totalbelopp: String,
+    /// Koden för en [`OmvändSkattskyldighet`]. Tomt: leverantörens förval.
+    pub omvänd_skattskyldighet: String,
     /// Originalvaluta och originalbelopp i fritext, t.ex. `EUR 54,00`.
     pub originalvaluta: String,
     pub rader: Vec<NyRad>,
@@ -79,6 +116,8 @@ pub struct Leverantörsval {
     pub id: String,
     pub namn: String,
     pub standardkonto: Option<Kontonummer>,
+    /// Leverantörens förvalda omvända skattskyldighet.
+    pub omvänd_skattskyldighet: OmvändSkattskyldighet,
 }
 
 /// En annan registrerad faktura i företaget, som dubblettregeln prövas mot.
@@ -112,6 +151,19 @@ impl Förutsättningar {
             .or_else(|| self.momsperioder.first().map(|(_, m)| *m))
             .is_none_or(|m| m != Momsperiod::EjMomsregistrerad)
     }
+
+    /// Om företaget är momsregistrerat på fakturadatumet i text, eller enligt den senaste
+    /// momsperioden när datumet inte går att tolka.
+    pub fn momsregistrerat_på(&self, fakturadatum: &str) -> bool {
+        match fakturadatum.trim().parse::<Date>() {
+            Ok(d) => self.momsregistrerat(d),
+            Err(_) => self
+                .momsperioder
+                .iter()
+                .max_by_key(|(d, _)| *d)
+                .is_none_or(|(_, m)| *m != Momsperiod::EjMomsregistrerad),
+        }
+    }
 }
 
 /// Fältet som en spärr gäller. Raderna räknas från 0 i formulärets ordning, tomma medräknade.
@@ -124,13 +176,14 @@ pub enum Fält {
     Fakturadatum,
     Förfallodag,
     Totalbelopp,
+    OmvändSkattskyldighet,
     /// Raderna som helhet: inga rader, eller summan mot totalen.
     Rader,
     Konto(usize),
     Netto(usize),
     Momssats(usize),
     Moms(usize),
-    /// Konteringens egna konton (2440 och 2641).
+    /// Konteringens egna konton (2440, 2641 och den fiktiva momsens konton).
     Kontering,
 }
 
@@ -209,6 +262,15 @@ pub const REGISTRERINGSSPÄRRAR: &[(&str, &str)] = &[
         "total_ogiltig",
         "Totalbeloppet är i kronor, inte negativt och har högst två decimaler.",
     ),
+    (
+        "omvand_ogiltig",
+        "Omvänd skattskyldighet är ingen, EU-tjänst, EU-vara, bygg eller tjänst från land \
+         utanför EU.",
+    ),
+    (
+        "omvand_ej_momsregistrerad",
+        "Omvänd skattskyldighet väljs bara när företaget är momsregistrerat på fakturadatumet.",
+    ),
     ("rader_saknas", "Fakturan har minst en konteringsrad."),
     (
         "konto_saknas",
@@ -217,7 +279,8 @@ pub const REGISTRERINGSSPÄRRAR: &[(&str, &str)] = &[
     ("konto_okant", "Kontot finns i företagets kontoplan."),
     (
         "konto_inaktivt",
-        "Radernas konton, 2440 och 2641 är aktiva.",
+        "Radernas konton, 2440 och 2641 är aktiva, och vid omvänd skattskyldighet 2645 (2647 \
+         för bygg) och 2614/2624/2634 efter momssats.",
     ),
     ("netto_saknas", "Varje rad har ett nettobelopp."),
     (
@@ -231,7 +294,8 @@ pub const REGISTRERINGSSPÄRRAR: &[(&str, &str)] = &[
     ),
     (
         "summerar_inte",
-        "Radernas netto och moms summerar till totalbeloppet.",
+        "Radernas netto och moms summerar till totalbeloppet; vid omvänd skattskyldighet \
+         summerar nettot till totalbeloppet.",
     ),
 ];
 
@@ -258,6 +322,7 @@ pub struct Registrerbar {
     pub referens: String,
     pub total: Belopp,
     pub originalvaluta: String,
+    pub omvänd_skattskyldighet: OmvändSkattskyldighet,
     pub rader: Vec<Rad>,
     /// Om företaget är momsregistrerat på fakturadatumet.
     pub momsregistrerat: bool,
@@ -267,13 +332,29 @@ pub struct Registrerbar {
 impl Registrerbar {
     /// Registreringens verifikatrader under fakturametoden: kostnadskontot per rad netto (med
     /// momsen när företaget inte är momsregistrerat), 2641 momsen och 2440 totalen i kredit.
+    /// Vid omvänd skattskyldighet är momsen fiktiv: 2645 (2647 för bygg) i debet och
+    /// 2614/2624/2634 efter momssats i kredit, efter 2440.
     pub fn kontering(&self) -> Vec<verifikat::Rad> {
-        kontering(&self.rader, self.momsregistrerat)
+        kontering(
+            &self.rader,
+            self.momsregistrerat,
+            self.omvänd_skattskyldighet,
+        )
     }
 }
 
-fn kontering(rader: &[Rad], momsregistrerat: bool) -> Vec<verifikat::Rad> {
-    let konto = |nr: u16| Kontonummer::new(nr).expect("ett kontonummer i klass 1–8");
+fn konto(nr: u16) -> Kontonummer {
+    Kontonummer::new(nr).expect("ett kontonummer i klass 1–8")
+}
+
+fn kontering(
+    rader: &[Rad],
+    momsregistrerat: bool,
+    omvänd: OmvändSkattskyldighet,
+) -> Vec<verifikat::Rad> {
+    if let Some(ingående) = fiktiv_ingående_moms(omvänd) {
+        return omvänd_kontering(rader, ingående);
+    }
     let mut ut = Vec::new();
     let mut moms = 0;
     let mut total = 0;
@@ -313,6 +394,51 @@ fn kontering(rader: &[Rad], momsregistrerat: bool) -> Vec<verifikat::Rad> {
     ut
 }
 
+/// Konteringen vid omvänd skattskyldighet: kostnaden per rad netto och den fiktiva ingående
+/// momsen på `ingående` i debet, 2440 nettot och den fiktiva utgående momsen per momssats i
+/// kredit. En rad med 0 % ger ingen fiktiv moms.
+fn omvänd_kontering(rader: &[Rad], ingående: u16) -> Vec<verifikat::Rad> {
+    let debet = |nr: Kontonummer, öre: i64| verifikat::Rad {
+        konto: nr,
+        debet: Belopp::från_öre(öre),
+        kredit: Belopp::NOLL,
+        text: None,
+    };
+    let kredit = |nr: Kontonummer, öre: i64| verifikat::Rad {
+        konto: nr,
+        debet: Belopp::NOLL,
+        kredit: Belopp::från_öre(öre),
+        text: None,
+    };
+    let mut ut: Vec<verifikat::Rad> = rader
+        .iter()
+        .filter(|r| r.netto != Belopp::NOLL)
+        .map(|r| debet(r.konto, r.netto.öre()))
+        .collect();
+    let fiktiv = |sats: u8| -> i64 {
+        rader
+            .iter()
+            .filter(|r| r.momssats == sats)
+            .map(|r| r.moms.öre())
+            .sum()
+    };
+    let utgående: Vec<(u16, i64)> = MOMSSATSER
+        .into_iter()
+        .filter_map(|s| Some((fiktiv_utgående_moms(s)?, fiktiv(s))))
+        .filter(|(_, öre)| *öre != 0)
+        .collect();
+    let moms: i64 = utgående.iter().map(|(_, öre)| öre).sum();
+    if moms != 0 {
+        ut.push(debet(konto(ingående), moms));
+    }
+    let total: i64 = rader.iter().map(|r| r.netto.öre()).sum();
+    if total != 0 {
+        ut.push(kredit(konto(LEVERANTÖRSSKULDER), total));
+    }
+    ut.extend(utgående.into_iter().map(|(nr, öre)| kredit(konto(nr), öre)));
+    ut
+}
+
 /// En rad som går att spara i ett utkast: det som är ifyllt går att lagra.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Utkastrad {
@@ -331,6 +457,8 @@ pub struct SparbartUtkast {
     pub förfallodag: Option<Date>,
     pub referens: String,
     pub total: Option<Belopp>,
+    /// Det som valdes på fakturan; inget när leverantörens förval gäller.
+    pub omvänd_skattskyldighet: Option<OmvändSkattskyldighet>,
     pub originalvaluta: String,
     pub rader: Vec<Utkastrad>,
 }
@@ -517,6 +645,24 @@ impl NyLeverantörsfaktura {
             )
         };
 
+        let vald = self.vald_omvänd(&mut spärrar);
+        let momsregistrerat = fakturadatum.is_none_or(|d| f.momsregistrerat(d));
+        let omvänd = match vald {
+            Some(o) if o != OmvändSkattskyldighet::Ingen && !momsregistrerat => {
+                spärrar.push(spärr(
+                    Fält::OmvändSkattskyldighet,
+                    "omvand_ej_momsregistrerad",
+                    "Företaget är inte momsregistrerat på fakturadatumet och kan inte välja \
+                     omvänd skattskyldighet.",
+                ));
+                OmvändSkattskyldighet::Ingen
+            }
+            Some(o) => o,
+            None if momsregistrerat => self.förval(f),
+            None => OmvändSkattskyldighet::Ingen,
+        };
+        let fiktiv = fiktiv_ingående_moms(omvänd);
+
         let standardkonto = self.standardkonto(f);
         let ifyllda: Vec<(usize, &NyRad)> = self
             .rader
@@ -563,27 +709,54 @@ impl NyLeverantörsfaktura {
             && !ifyllda.is_empty()
             && rader.len() == ifyllda.len()
         {
-            let summa: i64 = rader.iter().map(|r| r.netto.öre() + r.moms.öre()).sum();
+            let summa: i64 = rader
+                .iter()
+                .map(|r| r.netto.öre() + if fiktiv.is_some() { 0 } else { r.moms.öre() })
+                .sum();
             if summa != total.öre() {
                 let differens = Belopp::från_öre((summa - total.öre()).abs());
+                let vad = if fiktiv.is_some() {
+                    "Raderna"
+                } else {
+                    "Raderna med moms"
+                };
                 spärrar.push(spärr(
                     Fält::Rader,
                     "summerar_inte",
                     format!(
-                        "Raderna med moms blir {} kr, totalen är {total} kr. Differens {differens}.",
+                        "{vad} blir {} kr, totalen är {total} kr. Differens {differens}.",
                         Belopp::från_öre(summa)
                     ),
                 ));
             }
         }
 
-        let momsregistrerat = fakturadatum.is_none_or(|d| f.momsregistrerat(d));
-        let behövs = [
-            Some(LEVERANTÖRSSKULDER),
-            (momsregistrerat && rader.iter().any(|r| r.moms != Belopp::NOLL))
-                .then_some(INGÅENDE_MOMS),
-        ];
-        for nr in behövs.into_iter().flatten() {
+        let med_moms = |r: &&Rad| r.moms != Belopp::NOLL;
+        let mut behövs = vec![LEVERANTÖRSSKULDER];
+        match fiktiv {
+            Some(ingående) => {
+                if rader
+                    .iter()
+                    .filter(med_moms)
+                    .any(|r| fiktiv_utgående_moms(r.momssats).is_some())
+                {
+                    behövs.push(ingående);
+                }
+                behövs.extend(MOMSSATSER.into_iter().filter_map(|s| {
+                    rader
+                        .iter()
+                        .filter(med_moms)
+                        .any(|r| r.momssats == s)
+                        .then_some(fiktiv_utgående_moms(s))
+                        .flatten()
+                }));
+            }
+            None if momsregistrerat && rader.iter().any(|r| r.moms != Belopp::NOLL) => {
+                behövs.push(INGÅENDE_MOMS);
+            }
+            None => {}
+        }
+        for nr in behövs {
             let konto = Kontonummer::new(nr).expect("ett kontonummer i klass 1–8");
             if !f.konton.iter().any(|(k, aktiv)| *k == konto && *aktiv) {
                 spärrar.push(Spärr {
@@ -612,6 +785,7 @@ impl NyLeverantörsfaktura {
                     referens: self.referens.trim().to_string(),
                     total,
                     originalvaluta: self.originalvaluta.trim().to_string(),
+                    omvänd_skattskyldighet: omvänd,
                     rader,
                     momsregistrerat,
                     räkenskapsår,
@@ -683,7 +857,56 @@ impl NyLeverantörsfaktura {
             .trim()
             .parse::<Date>()
             .map_or(true, |d| f.momsregistrerat(d));
-        kontering(&rader, momsregistrerat)
+        let omvänd = if momsregistrerat {
+            self.omvänd_skattskyldighet(f)
+        } else {
+            OmvändSkattskyldighet::Ingen
+        };
+        kontering(&rader, momsregistrerat, omvänd)
+    }
+
+    /// Den omvända skattskyldighet som fakturan har: den som valdes, eller leverantörens förval
+    /// när inget är valt och företaget är momsregistrerat på fakturadatumet. En okänd kod är
+    /// ingen.
+    pub fn omvänd_skattskyldighet(&self, f: &Förutsättningar) -> OmvändSkattskyldighet {
+        match self.omvänd_skattskyldighet.trim() {
+            "" if f.momsregistrerat_på(&self.fakturadatum) => self.förval(f),
+            "" => OmvändSkattskyldighet::Ingen,
+            kod => OmvändSkattskyldighet::från_kod(kod).unwrap_or_default(),
+        }
+    }
+
+    /// Leverantörens förval: den valda leverantörens, eller den nya leverantörens.
+    fn förval(&self, f: &Förutsättningar) -> OmvändSkattskyldighet {
+        if self.leverantör.trim() == NY {
+            return OmvändSkattskyldighet::från_kod(
+                self.ny_leverantör.omvänd_skattskyldighet.trim(),
+            )
+            .unwrap_or_default();
+        }
+        f.leverantörer
+            .iter()
+            .find(|l| l.id == self.leverantör.trim())
+            .map(|l| l.omvänd_skattskyldighet)
+            .unwrap_or_default()
+    }
+
+    /// Valet på fakturan, inget när det är tomt; en okänd kod spärrar.
+    fn vald_omvänd(&self, spärrar: &mut Vec<Spärr>) -> Option<OmvändSkattskyldighet> {
+        match self.omvänd_skattskyldighet.trim() {
+            "" => None,
+            kod => {
+                let o = OmvändSkattskyldighet::från_kod(kod);
+                if o.is_none() {
+                    spärrar.push(spärr(
+                        Fält::OmvändSkattskyldighet,
+                        "omvand_ogiltig",
+                        "Välj omvänd skattskyldighet.",
+                    ));
+                }
+                o
+            }
+        }
     }
 
     /// Prövar det som måste gälla för att utkastet ska kunna sparas: datum som är datum, belopp
@@ -717,6 +940,7 @@ impl NyLeverantörsfaktura {
             "total_ogiltig",
             &mut spärrar,
         );
+        let omvänd_skattskyldighet = self.vald_omvänd(&mut spärrar);
         let mut rader = Vec::new();
         for (i, r) in self.rader.iter().enumerate().filter(|(_, r)| !r.tom()) {
             let konto = match r.konto.trim() {
@@ -752,6 +976,7 @@ impl NyLeverantörsfaktura {
             förfallodag,
             referens: self.referens.trim().to_string(),
             total,
+            omvänd_skattskyldighet,
             originalvaluta: self.originalvaluta.trim().to_string(),
             rader,
         })
