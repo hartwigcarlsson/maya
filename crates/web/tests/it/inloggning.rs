@@ -1,5 +1,5 @@
 //! Webben före och efter inloggning, genom routern. Passkey-ceremonierna själva prövas av
-//! röktestet i `crates/maya/tests/rok.rs`, som har en riktig webbläsare.
+//! röktestet i `crates/maya/tests/it/rok.rs`, som har en riktig webbläsare.
 
 use std::sync::Arc;
 

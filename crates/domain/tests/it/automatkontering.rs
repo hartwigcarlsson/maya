@@ -7,7 +7,7 @@ use maya_domain::automatkontering::{self, Flöde, Roll};
 use maya_domain::kontoplan::flödenas_konton;
 
 /// Specens tabeller för etapp 1 och etapp 2 ordagrant, med styckena runt dem.
-const SPECEN: &str = include_str!("golden/automatkonteringar.md");
+const SPECEN: &str = include_str!("../golden/automatkonteringar.md");
 
 #[test]
 fn tabellen_återges_ordagrant_som_i_specen() {

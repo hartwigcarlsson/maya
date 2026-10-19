@@ -420,11 +420,11 @@ async fn csv_exporten_har_en_rad_per_konto_med_kolumnerna_som_visas() {
     for (typ, förväntad) in [
         (
             Rapporttyp::Resultaträkning,
-            include_str!("fixtures/rapport/resultatrakning_5560360793_2026_202603.csv"),
+            include_str!("../fixtures/rapport/resultatrakning_5560360793_2026_202603.csv"),
         ),
         (
             Rapporttyp::Balansräkning,
-            include_str!("fixtures/rapport/balansrakning_5560360793_2026_202603.csv"),
+            include_str!("../fixtures/rapport/balansrakning_5560360793_2026_202603.csv"),
         ),
     ] {
         // Nivån påverkar inte exporten: den har alltid en rad per konto.

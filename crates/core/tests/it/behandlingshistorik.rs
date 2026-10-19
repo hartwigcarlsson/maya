@@ -753,7 +753,7 @@ async fn csv_exporten_är_utf8_med_bom_semikolon_och_decimalkomma() {
     .unwrap();
 
     assert_eq!(csv.filnamn, "behandlingshistorik_5560360793_20260302.csv");
-    let väntad = include_bytes!("golden/behandlingshistorik.csv");
+    let väntad = include_bytes!("../golden/behandlingshistorik.csv");
     assert_eq!(
         String::from_utf8_lossy(&csv.innehåll),
         String::from_utf8_lossy(väntad)

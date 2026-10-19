@@ -6,7 +6,7 @@
 //! till delarna med störst rest, vid lika rest till den som kommer först. Ett negativt belopp
 //! fördelas som det positiva med omvänt tecken, så att regeln är symmetrisk kring noll. Delarna
 //! summerar alltid exakt till beloppet, och varje del avviker mindre än ett öre från sin exakta
-//! andel (egenskapstesterna i `tests/fordelning.rs`).
+//! andel (egenskapstesterna i `tests/it/fordelning.rs`).
 
 /// `belopp` öre fördelat på `vikter` (t.ex. radernas netto och momsen per sats), en del per
 /// vikt i samma ordning. Summerar vikterna till noll blir varje del noll.

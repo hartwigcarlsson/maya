@@ -7,7 +7,7 @@ use maya_core::{Databas, Klocka, kontoplan, sie4, testhjalp, utskrift};
 use maya_domain::kontoplan::{Kontonummer, bas, ink2};
 use maya_domain::systemdokumentation::{Avsnitt, Block, Systemdokumentation, Tabellrad, Text};
 
-const BFL_KONTROLL: &str = include_str!("../../../docs/bfl-kontroll.md");
+const BFL_KONTROLL: &str = include_str!("../../../../docs/bfl-kontroll.md");
 
 fn config(par: &[(&str, &str)]) -> Config {
     Config::from_env(

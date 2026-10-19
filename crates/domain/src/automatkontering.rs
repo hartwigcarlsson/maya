@@ -5,8 +5,8 @@
 //! Tabellen byggs här ur samma konstanter och funktioner som flödena konterar med
 //! ([`KUNDFORDRINGAR`], [`Momssats::utgående_momskonto`], [`fiktiv_utgående_moms`] och de andra),
 //! så att ett konto som byts i konteringen byts i dokumentationen. Varje ruta är text med
-//! kontona och rollerna utmärkta ([`Del`]), och `core/tests/automatkonteringar.rs` bokför varje
-//! flöde och prövar att verifikatets konton är de som raden anger.
+//! kontona och rollerna utmärkta ([`Del`]), och `core/tests/it/automatkonteringar.rs` bokför
+//! varje flöde och prövar att verifikatets konton är de som raden anger.
 
 use crate::betalning::{KURSFÖRLUST, KURSVINST, STÖRSTA_ÖRESUTJÄMNING, ÖRESUTJÄMNING};
 use crate::faktura::Momssats;

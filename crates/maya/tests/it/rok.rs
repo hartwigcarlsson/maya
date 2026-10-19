@@ -7,7 +7,7 @@
 //! Kräver Chrome eller Chromium (sökvägen kan anges i `CHROME`) och ett `cargo leptos build`,
 //! så att sidorna hydreras. Utan WASM:en hoppar testet över sig självt, utom i CI.
 
-mod stod;
+use crate::stod;
 
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};

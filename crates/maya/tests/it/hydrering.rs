@@ -5,7 +5,7 @@
 //! så att `target/site/pkg/maya.wasm` finns. Utan WASM:en hoppar testet över sig självt,
 //! utom i CI.
 
-mod stod;
+use crate::stod;
 
 use std::io::{Read, Write};
 use std::net::TcpStream;
