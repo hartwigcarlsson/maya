@@ -514,3 +514,97 @@ async fn utan_smtp_visas_ingen_kryssruta_och_fakturan_markeras_som_skickad_för_
     assert!(utskick.contains("markerad"), "{utskick}");
     assert!(sida.contains("utskick lämnat på annat sätt"), "historiken");
 }
+
+// #153 Följ upp i Att göra
+
+/// Kortet med id `nyckel` i Att göra: från dess början till nästa kort.
+fn kortet<'a>(sida: &'a str, nyckel: &str) -> &'a str {
+    let kort = &sida[sida
+        .find(&format!(r#"id="{nyckel}""#))
+        .unwrap_or_else(|| panic!("{nyckel} saknas i {sida}"))..];
+    match kort[1..].find(r#"<div class="acard"#) {
+        Some(slut) => &kort[..slut + 1],
+        None => kort,
+    }
+}
+
+#[tokio::test]
+async fn ett_misslyckat_utskick_följs_upp_och_skickas_igen_från_att_göra() {
+    let smtp = FalskSmtp::som_avvisar(2);
+    let (webb, bas, granska) = granskat_utkast(smtp.config()).await;
+    let f = parameter(&granska, "f");
+    let utfärdad = plats(
+        &webb
+            .posta(&format!("{bas}/kundfakturor/{f}/utfarda"), "skicka=1")
+            .await,
+    );
+    assert!(utfärdad.contains("fel=skickfel"), "{utfärdad}");
+
+    // Under Följ upp med felet och mottagaren.
+    let nyckel = format!("utskick-{f}");
+    let sida = webb.hämta(&bas).await;
+    let spalten = &sida[sida.find("Utan datum").unwrap()..];
+    assert!(spalten.contains("Följ upp"), "{spalten}");
+    let kort = kortet(&sida, &nyckel);
+    assert!(kort.contains("Faktura 1007 · Kund AB"), "{kort}");
+    assert!(kort.contains("studsade"), "{kort}");
+    assert!(kort.contains("till ekonomi@kund.se misslyckades"), "{kort}");
+
+    // Kortet fälls ut med panelen Skicka, som går tillbaka till Att göra.
+    let sida = webb.hämta(&format!("{bas}?oppna={nyckel}")).await;
+    let kort = kortet(&sida, &nyckel);
+    assert!(kort.contains("Förra utskicket misslyckades"), "{kort}");
+    assert!(kort.contains("554 Avvisat av mottagaren"), "{kort}");
+    assert!(kort.contains("Skicka igen"), "{kort}");
+    assert!(kort.contains(r#"name="efter" value="att_gora""#), "{kort}");
+    assert!(kort.contains("Markera som skickad"), "{kort}");
+
+    // Ett nytt försök som också avvisas visar kortet igen med felet.
+    let igen = plats(
+        &webb
+            .posta(
+                &format!("{bas}/kundfakturor/{f}/skicka"),
+                "efter=att_gora&till=ekonomi%40kund.se&meddelande=Hej",
+            )
+            .await,
+    );
+    assert_eq!(igen, format!("{bas}?oppna={nyckel}&fel=skickfel"));
+    let sida = webb.hämta(&igen).await;
+    assert!(
+        sida.contains("Utskicket misslyckades och loggades"),
+        "{sida}"
+    );
+
+    // En ogiltig adress skickas inte, och kortet kommer tillbaka med den.
+    let tillbaka = plats(
+        &webb
+            .posta(
+                &format!("{bas}/kundfakturor/{f}/skicka"),
+                "efter=att_gora&till=ingen+adress&meddelande=Hej",
+            )
+            .await,
+    );
+    assert!(
+        tillbaka.starts_with(&format!("{bas}?oppna={nyckel}&fel=mottagare")),
+        "{tillbaka}"
+    );
+    let sida = webb.hämta(&tillbaka).await;
+    assert!(sida.contains(r#"value="ingen adress""#), "{sida}");
+
+    let skickat = plats(
+        &webb
+            .posta(
+                &format!("{bas}/kundfakturor/{f}/skicka"),
+                "efter=att_gora&till=ekonomi%40kund.se&meddelande=Tredje+f%C3%B6rs%C3%B6ket",
+            )
+            .await,
+    );
+    assert_eq!(skickat, format!("{bas}?skickat=1"));
+    assert_eq!(smtp.mejl().len(), 1);
+    let sida = webb.hämta(&skickat).await;
+    assert!(
+        sida.contains("Fakturan skickades med e-post, och utskicket loggades."),
+        "{sida}"
+    );
+    assert!(!sida.contains(&format!(r#"id="{nyckel}""#)), "{sida}");
+}

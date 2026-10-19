@@ -171,12 +171,13 @@ async fn förfallna_kundfakturor_och_obetalda_leverantörsfakturor_kommer_efter_
         ]
     );
 
-    // Toppmenyn räknar det som är förfallet eller förfaller inom 7 dagar, inte det senare.
+    // Toppmenyn räknar det som är förfallet eller förfaller inom 7 dagar, inte det senare, och
+    // (#153) de tre kundfakturorna under Följ upp, som inte är skickade.
     testhjalp::backup(&db, &i_dag()).await;
     let antal = att_gora::antal(&db, &i_dag(), &testhjalp::config(), &anna)
         .await
         .unwrap();
-    assert_eq!(antal.get(&id), Some(&3));
+    assert_eq!(antal.get(&id), Some(&(3 + 3)));
 }
 
 #[tokio::test]
@@ -316,7 +317,8 @@ async fn en_kundfaktura_med_en_gällande_kundförlust_är_varken_förfallen_elle
     let antal = att_gora::antal(&db, &i_dag(), &testhjalp::config(), &anna)
         .await
         .unwrap();
-    assert_eq!(antal.get(&id), Some(&1));
+    // Och (#153) de två fakturorna under Följ upp, som inte är skickade.
+    assert_eq!(antal.get(&id), Some(&(1 + 2)));
 }
 
 // #140 Kreditfakturor: utfärdade kreditfakturor drar av från originalet, och en kreditfaktura
@@ -385,7 +387,8 @@ async fn kreditfakturor_räknas_av_mot_originalet_och_syns_inte_själva_i_att_g�
     let antal = att_gora::antal(&db, &i_dag(), &testhjalp::config(), &anna)
         .await
         .unwrap();
-    assert_eq!(antal.get(&id), Some(&1));
+    // Och (#153) de tre fakturorna och tre kreditfakturorna under Följ upp, som inte är skickade.
+    assert_eq!(antal.get(&id), Some(&(1 + 6)));
 }
 
 // #148 Kreditfaktura från leverantör och Rätta avskrift
@@ -463,5 +466,6 @@ async fn leverantörens_kreditfakturor_minskar_det_som_ska_betalas_och_en_upplå
     let antal = att_gora::antal(&db, &i_dag(), &testhjalp::config(), &anna)
         .await
         .unwrap();
-    assert_eq!(antal.get(&id), Some(&1));
+    // Och (#153) den upplåsta fakturan under Utkast.
+    assert_eq!(antal.get(&id), Some(&(1 + 1)));
 }

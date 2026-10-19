@@ -316,7 +316,7 @@ fn radens<'a>(r: &'a mut NyFakturarad, namn: &str) -> &'a mut String {
 }
 
 /// Fälten för en ny kund i det streckade kortet (#137): formulärets namn, etikett och fält.
-const NYA_KUNDFÄLT: [(&str, &str, kund::Fält); 6] = [
+pub(crate) const NYA_KUNDFÄLT: [(&str, &str, kund::Fält); 6] = [
     ("ny_namn", "Namn", kund::Fält::Namn),
     (
         "ny_identitet",
@@ -337,7 +337,7 @@ const NYA_KUNDFÄLT: [(&str, &str, kund::Fält); 6] = [
     ),
 ];
 
-fn ny_kunds<'a>(k: &'a mut NyKund, namn: &str) -> &'a mut String {
+pub(crate) fn ny_kunds<'a>(k: &'a mut NyKund, namn: &str) -> &'a mut String {
     match namn {
         "ny_namn" => &mut k.namn,
         "ny_identitet" => &mut k.identitet,

@@ -497,7 +497,7 @@ pub async fn spara_utkast(
 }
 
 /// Den nya kunden som utkastet `id` hänvisar till, om den har en.
-async fn ny_kund_på(
+pub(crate) async fn ny_kund_på(
     ärende: &mut Ärende,
     id: KundfakturaId,
 ) -> Result<Option<KundId>, sqlx::Error> {

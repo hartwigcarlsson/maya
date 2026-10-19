@@ -2874,3 +2874,30 @@ kbd {
   color: var(--muted-foreground);
   border: 1px dashed var(--border);
 }
+
+/* Att göra: Följ upp, fakturautkast och nya kunder och leverantörer (#153): det streckade
+   kortet för en ny kund eller leverantör och panelen Skicka i ett kort under Följ upp. */
+.granska-kort {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.granska-kort .knappar {
+  margin: 0;
+}
+
+.ab .dialog.skicka {
+  max-width: none;
+  box-shadow: none;
+  padding: 0;
+}
+
+/* Sök: fakturor, kunder och leverantörer (#154) */
+.sok-traffar a > span:first-child {
+  flex: 1;
+}
+
+.sok-traffar a .badge {
+  flex: none;
+}

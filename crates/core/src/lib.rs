@@ -33,6 +33,7 @@ pub mod rapport;
 pub mod saldo;
 pub mod sie4;
 pub mod smtp;
+pub mod sok;
 pub mod systemdokumentation;
 #[cfg(feature = "test-support")]
 pub mod testhjalp;

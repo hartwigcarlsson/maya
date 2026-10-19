@@ -6,8 +6,8 @@ use maya_domain::extern_kundfaktura::{
 };
 use maya_domain::foretag::Momsperiod;
 use maya_domain::kontoplan::Kontonummer;
-use maya_domain::kund::OmvändSkattskyldighet;
-use maya_domain::kundfaktura::Fakturakund;
+use maya_domain::kund::{self, NyKund, OmvändSkattskyldighet};
+use maya_domain::kundfaktura::{Fakturakund, NY};
 use maya_domain::rakenskapsar::Räkenskapsår;
 
 fn nr(n: u16) -> Kontonummer {
@@ -66,6 +66,7 @@ fn faktura() -> NyExternFaktura {
             rad("12", "3002", "1 000,50"),
             NyExternRad::default(),
         ],
+        ..NyExternFaktura::default()
     }
 }
 
@@ -265,4 +266,87 @@ fn varje_spärrkod_står_i_systemdokumentationens_tabell() {
     ] {
         assert!(REGISTRERINGSSPÄRRAR.iter().any(|(k, _)| *k == kod), "{kod}");
     }
+}
+
+// #153 Ny kund från det externa utkastet
+
+fn med_ny_kund(ny: NyKund) -> NyExternFaktura {
+    NyExternFaktura {
+        kund: NY.into(),
+        ny_kund: ny,
+        ..faktura()
+    }
+}
+
+#[test]
+fn en_ny_kund_från_utkastet_registreras_med_kundregistrets_regler() {
+    let ny = NyKund {
+        namn: "Ny Kund AB".into(),
+        betalningsvillkor: "10".into(),
+        ..Default::default()
+    };
+    let r = med_ny_kund(ny).kontrollera(&förutsättningar()).unwrap();
+    assert_eq!(r.kund.namn, "Ny Kund AB");
+    assert_eq!(
+        r.kund.id, 0,
+        "inget id förrän core lägger kunden i registret"
+    );
+    assert_eq!(
+        r.ny_kund.as_ref().map(|k| k.namn.as_str()),
+        Some("Ny Kund AB")
+    );
+    assert_eq!(r.förfallodag, date(2026, 3, 20), "den nya kundens villkor");
+    assert_eq!(r.beskrivning(), "Extern kundfaktura F-2026-17, Ny Kund AB");
+
+    let fel = med_ny_kund(NyKund {
+        epost: "inte en adress".into(),
+        ..Default::default()
+    })
+    .kontrollera(&förutsättningar())
+    .unwrap_err();
+    let fält: Vec<(Fält, &str)> = fel.iter().map(|s| (s.fält, s.kod)).collect();
+    assert_eq!(
+        fält,
+        vec![
+            (Fält::NyKund(kund::Fält::Namn), "ny_kund"),
+            (Fält::NyKund(kund::Fält::Epost), "ny_kund"),
+        ]
+    );
+    assert!(REGISTRERINGSSPÄRRAR.iter().any(|(k, _)| *k == "ny_kund"));
+}
+
+#[test]
+fn en_ny_kund_sparas_med_utkastet_och_kommer_tillbaka_i_formuläret() {
+    let ny = NyKund {
+        namn: "Ny Kund AB".into(),
+        epost: "a@ny.se".into(),
+        betalningsvillkor: "30".into(),
+        ..Default::default()
+    };
+    let u = med_ny_kund(ny.clone()).som_utkast().unwrap();
+    assert_eq!(u.kund, None);
+    assert_eq!(
+        u.ny_kund.as_ref().map(|k| k.epost.as_str()),
+        Some("a@ny.se")
+    );
+    let tillbaka = u.som_formulär();
+    assert_eq!(tillbaka.kund, NY);
+    assert_eq!(tillbaka.ny_kund.namn, "Ny Kund AB");
+    // En ny kund utan namn är inget att spara.
+    let tom = med_ny_kund(NyKund::default()).som_utkast().unwrap();
+    assert_eq!((tom.kund, tom.ny_kund), (None, None));
+    // En kreditfaktura går alltid till originalets kund.
+    let mut fö = förutsättningar();
+    fö.krediterar = Some(Krediterar {
+        faktura: 3,
+        fakturanummer: "F-1".into(),
+        kund: kund(),
+        kvar: 10_000_000,
+    });
+    let kredit = NyExternFaktura {
+        rader: vec![rad("25", "3001", "-100")],
+        ..med_ny_kund(ny)
+    };
+    let r = kredit.kontrollera(&fö).unwrap();
+    assert_eq!((r.kund.id, r.ny_kund), (7, None));
 }

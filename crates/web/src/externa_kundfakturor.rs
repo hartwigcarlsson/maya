@@ -17,11 +17,13 @@ use maya_domain::extern_kundfaktura::{
 };
 use maya_domain::foretag::Momsperiod;
 use maya_domain::kontoplan::Kontonummer;
-use maya_domain::kundfaktura::Fakturakund;
+use maya_domain::kund::NyKund;
+use maya_domain::kundfaktura::{Fakturakund, NY};
 use maya_domain::rakenskapsar::Räkenskapsår;
 use serde::{Deserialize, Serialize};
 
 use crate::betalning::{Betalningar, Betalningspanel, Märke, ReskontraVy, RättaBetalningspanel};
+use crate::kundfakturor::{NYA_KUNDFÄLT, ny_kunds};
 use crate::kundforlust::KundförlustVy;
 use crate::underlag::{Förhandsvisning, UnderlagVy};
 use crate::verifikat::UtkastBadge;
@@ -142,8 +144,16 @@ pub(crate) fn ur_fält(värde: impl Fn(&str) -> Option<String>) -> NyExternFaktu
     let antal = (0..500)
         .take_while(|i| värde(&format!("belopp_{i}")).is_some())
         .count();
+    // #153 Den nya kunden i det streckade kortet.
+    let mut ny_kund = NyKund::default();
+    for (namn, _, _) in NYA_KUNDFÄLT {
+        if let Some(v) = värde(namn) {
+            *ny_kunds(&mut ny_kund, namn) = v;
+        }
+    }
     NyExternFaktura {
         kund: fält("kund"),
+        ny_kund,
         fakturanummer: fält("fakturanummer"),
         fakturadatum: fält("fakturadatum"),
         förfallodag: fält("forfallodag"),
@@ -856,6 +866,7 @@ fn Formulär(
         .into_any(),
         None => {
             let vald = start.kund.clone();
+            let ny_vald = vald.trim() == NY;
             let val = f
                 .kunder
                 .iter()
@@ -880,6 +891,9 @@ fn Formulär(
                             "Välj kund…"
                         </option>
                         {val}
+                        <option value=NY selected=ny_vald>
+                            "+ Ny kund…"
+                        </option>
                     </select>
                     {spärr_vid(Fält::Kund)}
                 </div>
@@ -887,6 +901,45 @@ fn Formulär(
             .into_any()
         }
     };
+    // #153 "+ Ny kund…": ett streckat kort med kundregistrets fält, som på Mayas egna utkast
+    // (#137). Kunden läggs i registret när fakturan registreras.
+    let ny_kund = kredit.is_none().then(|| {
+        let ny_vald = Memo::new(move |_| faktura.with(|x| x.kund.trim() == NY));
+        let nya_fält = NYA_KUNDFÄLT
+            .into_iter()
+            .map(|(namn, etikett, fält)| {
+                let fel = spärr_vid(Fält::NyKund(fält));
+                let värde =
+                    faktura.with_untracked(|x| ny_kunds(&mut x.ny_kund.clone(), namn).clone());
+                let sätt = move |ev: leptos::ev::Event| {
+                    faktura.update(|x| *ny_kunds(&mut x.ny_kund, namn) = event_target_value(&ev));
+                };
+                let fältet = if namn == "ny_adress" {
+                    view! { <textarea id=namn name=namn rows="3" on:input=sätt>{värde}</textarea> }
+                        .into_any()
+                } else {
+                    view! { <input id=namn name=namn type="text" value=värde on:input=sätt /> }
+                        .into_any()
+                };
+                view! {
+                    <div>
+                        <label for=namn>{etikett}</label>
+                        {fältet}
+                        {fel}
+                    </div>
+                }
+            })
+            .collect_view();
+        view! {
+            <div class="kort-streckat ny-kund" class:dold=move || !ny_vald.get()>
+                <b>"Ny kund"</b>
+                <div class="lf-rutnat">{nya_fält}</div>
+                <p class="diskret">
+                    "Läggs i kundregistret när fakturan registreras. Raderas utkastet försvinner förslaget."
+                </p>
+            </div>
+        }
+    });
     let antal = Memo::new(move |_| faktura.with(|x| x.rader.len()));
     let intäktskonton = f
         .intäktskonton
@@ -1043,6 +1096,7 @@ fn Formulär(
                 <span class="diskret">"Skapat av " {d.skapad.1.clone()} " · " {d.skapad.0.clone()}</span>
             </p>
             <div class="falt-rad">{kundval}</div>
+            {ny_kund}
             <div class="lf-rutnat">
                 {textfält(
                     "fakturanummer",

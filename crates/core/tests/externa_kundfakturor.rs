@@ -40,6 +40,7 @@ fn formulär(kund: KundId, nummer: &str) -> NyExternFaktura {
         fakturadatum: "2026-03-10".into(),
         förfallodag: "2026-04-09".into(),
         rader: vec![rad("25", "3001", "8 000"), rad("12", "3002", "1 000")],
+        ..Default::default()
     }
 }
 
@@ -386,6 +387,7 @@ async fn en_extern_kreditfaktura_registreras_och_minskar_det_som_återstår() {
         fakturadatum: "2026-03-20".into(),
         förfallodag: String::new(),
         rader: vec![rad("25", "3001", belopp)],
+        ..Default::default()
     };
     // Högst det som finns kvar: 11 120 kr.
     let fel = extern_kundfaktura::registrera(&db, &klocka(), &anna, id, k, &kredit("-9 000"))
@@ -735,4 +737,137 @@ async fn en_förfallen_extern_faktura_står_i_att_göra_tills_den_låses_upp() {
         fakturorna(a).is_empty(),
         "en upplåst faktura är inte förfallen"
     );
+}
+
+// #153 Ny kund från det externa utkastet
+
+fn med_ny_kund(kund: KundId) -> NyExternFaktura {
+    NyExternFaktura {
+        kund: maya_domain::kundfaktura::NY.into(),
+        ny_kund: maya_domain::kund::NyKund {
+            namn: "Nya Kunden AB".into(),
+            betalningsvillkor: "10".into(),
+            ..Default::default()
+        },
+        förfallodag: String::new(),
+        ..formulär(kund, "F-17")
+    }
+}
+
+async fn registret(db: &Databas, anna: &Aktör, id: FöretagsId) -> Vec<String> {
+    maya_core::kund::kunder(db, anna, id)
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|k| k.namn)
+        .collect()
+}
+
+#[tokio::test]
+async fn en_ny_kund_från_det_externa_utkastet_blir_verklig_när_fakturan_registreras() {
+    let (db, anna, id, kund) = företag().await;
+    let f = utkast(&db, &anna, id).await;
+    extern_kundfaktura::spara_utkast(&db, &klocka(), &anna, id, f, &med_ny_kund(kund))
+        .await
+        .unwrap();
+
+    // Den nya kunden hör till utkastet och syns varken i registret eller i väljaren.
+    assert_eq!(registret(&db, &anna, id).await, ["Kund AB"]);
+    let fö = extern_kundfaktura::förutsättningar(&db, &anna, id, Some(f))
+        .await
+        .unwrap();
+    assert_eq!(fö.kunder.len(), 1);
+    let sparat = extern_kundfaktura::fakturan(&db, &anna, id, f)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(sparat.kund, "Nya Kunden AB");
+    assert_eq!(sparat.formulär.kund, maya_domain::kundfaktura::NY);
+    assert_eq!(sparat.formulär.ny_kund.betalningsvillkor, "10");
+    assert!(listraden(&db, &anna, id, f).await.ny_kund);
+
+    extern_kundfaktura::registrera(&db, &klocka(), &anna, id, f, &sparat.formulär)
+        .await
+        .unwrap();
+
+    assert_eq!(
+        registret(&db, &anna, id).await,
+        ["Kund AB", "Nya Kunden AB"]
+    );
+    let rad = listraden(&db, &anna, id, f).await;
+    assert!(!rad.ny_kund);
+    assert_eq!(rad.kund, "Nya Kunden AB");
+    assert_eq!(
+        rad.förfallodag.map(|d| d.to_string()).as_deref(),
+        Some("2026-03-20"),
+        "den nya kundens villkor"
+    );
+    let poster = behandlingshistorik::läs(&db, &anna, id).await.unwrap();
+    let skapad = poster
+        .iter()
+        .find(|p| p.typ == "kund skapad" && p.objekt == "Nya Kunden AB")
+        .unwrap();
+    assert_eq!(skapad.aktör, anna);
+    let registrerad = poster
+        .iter()
+        .find(|p| p.typ == "extern kundfaktura registrerad")
+        .unwrap();
+    assert_eq!(registrerad.beskrivning["kund"], skapad.beskrivning["id"]);
+}
+
+#[tokio::test]
+async fn en_ny_kund_raderas_med_det_externa_utkastet_loggat_med_maya_som_aktör() {
+    let (db, anna, id, kund) = företag().await;
+    let f = utkast(&db, &anna, id).await;
+    extern_kundfaktura::spara_utkast(&db, &klocka(), &anna, id, f, &med_ny_kund(kund))
+        .await
+        .unwrap();
+    // Att spara igen skriver om samma nya kund.
+    extern_kundfaktura::spara_utkast(&db, &klocka(), &anna, id, f, &med_ny_kund(kund))
+        .await
+        .unwrap();
+    extern_kundfaktura::radera_utkast(&db, &klocka(), &anna, id, f)
+        .await
+        .unwrap();
+    let poster = behandlingshistorik::läs(&db, &anna, id).await.unwrap();
+    let raderade: Vec<_> = poster.iter().filter(|p| p.typ == "kund raderad").collect();
+    assert_eq!(raderade.len(), 1);
+    assert_eq!(raderade[0].aktör, Aktör::maya());
+    assert_eq!(raderade[0].objekt, "Nya Kunden AB");
+    let radering = poster
+        .iter()
+        .find(|p| p.typ == "fakturautkast raderat")
+        .unwrap();
+    assert_eq!(radering.beskrivning["kundnamn"], "Nya Kunden AB");
+    assert_eq!(radering.beskrivning["ny_kund"], true);
+    assert_eq!(registret(&db, &anna, id).await, ["Kund AB"]);
+
+    // Ett utkast som byter till en kund i registret släpper den nya, som raderas.
+    let g = utkast(&db, &anna, id).await;
+    extern_kundfaktura::spara_utkast(&db, &klocka(), &anna, id, g, &med_ny_kund(kund))
+        .await
+        .unwrap();
+    extern_kundfaktura::spara_utkast(&db, &klocka(), &anna, id, g, &formulär(kund, "F-18"))
+        .await
+        .unwrap();
+    let raderade = behandlingshistorik::läs(&db, &anna, id)
+        .await
+        .unwrap()
+        .into_iter()
+        .filter(|p| p.typ == "kund raderad")
+        .count();
+    assert_eq!(raderade, 2);
+}
+
+#[tokio::test]
+async fn en_ny_kund_som_inte_klarar_registrets_regler_spärrar_det_externa_utkastet() {
+    let (db, anna, id, kund) = företag().await;
+    let f = utkast(&db, &anna, id).await;
+    let mut fel = med_ny_kund(kund);
+    fel.ny_kund.epost = "inte en adress".into();
+    let e = extern_kundfaktura::spara_utkast(&db, &klocka(), &anna, id, f, &fel)
+        .await
+        .unwrap_err();
+    assert_eq!(spärrkoder(e), ["ny_kund"]);
+    assert_eq!(registret(&db, &anna, id).await, ["Kund AB"]);
 }

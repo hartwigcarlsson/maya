@@ -2,6 +2,9 @@
 //! panelen Skicka (`?panel=skicka`), med mottagare, svarsadress, meddelande och den arkiverade
 //! PDF:en som bilaga, och Lämnad på annat sätt. Utan SMTP visar panelen bara det senare, så att
 //! fakturan markeras som skickad för hand.
+//!
+//! Panelen visas också i ett kort under Följ upp i Att göra (#153). Formulären har då fältet
+//! `efter=att_gora`, och svaret går tillbaka till Att göra.
 
 use leptos::prelude::*;
 use leptos_router::hooks::use_query_map;
@@ -81,20 +84,32 @@ pub fn Utskicken(utskick: Vec<UtskickVy>) -> impl IntoView {
     }
 }
 
-/// Panelen Skicka fakturan. `lista` är Kundfakturor och `id` fakturan.
+/// Panelen Skicka fakturan. `lista` är Kundfakturor och `id` fakturan. I Att göra (#153) är
+/// `att_göra` kortets adress och adressen som stänger det.
 #[component]
-pub fn SkickaPanel(lista: String, id: String, s: SkickaVy) -> impl IntoView {
+pub fn SkickaPanel(
+    lista: String,
+    id: String,
+    s: SkickaVy,
+    #[prop(optional)] att_göra: Option<(String, String)>,
+) -> impl IntoView {
     let fråga = |namn: &str| use_query_map().with_untracked(|q| q.get(namn));
-    let här = format!("{lista}?f={id}");
+    let (här, panelen) = match &att_göra {
+        Some((kortet, stäng)) => (stäng.clone(), format!("{kortet}&")),
+        None => (
+            format!("{lista}?f={id}"),
+            format!("{lista}?f={id}&panel=skicka&"),
+        ),
+    };
+    let efter = att_göra.is_some();
+    let dolt =
+        move || efter.then(|| view! { <input type="hidden" name="efter" value="att_gora" /> });
     let epost = s.epost.then(|| {
         let till = fråga("till").unwrap_or_else(|| s.till.clone());
         let meddelande = fråga("meddelande").unwrap_or_else(|| s.meddelande.clone());
         let misslyckat = s.misslyckat.clone().map(|m| {
             let använd = (s.kundregistret != till && !s.kundregistret.is_empty()).then(|| {
-                let href = format!(
-                    "{lista}?f={id}&panel=skicka&till={}",
-                    koda(&s.kundregistret)
-                );
+                let href = format!("{panelen}till={}", koda(&s.kundregistret));
                 view! {
                     <p class="diskret">
                         "Kundregistret har " {s.kundregistret.clone()} ". "
@@ -119,6 +134,7 @@ pub fn SkickaPanel(lista: String, id: String, s: SkickaVy) -> impl IntoView {
         view! {
             {misslyckat}
             <form class="formular" method="post" action=format!("{lista}/{id}/skicka")>
+                {dolt()}
                 <label>
                     "Till" <input type="email" name="till" value=till required />
                 </label>
@@ -157,6 +173,7 @@ pub fn SkickaPanel(lista: String, id: String, s: SkickaVy) -> impl IntoView {
             {epost}
             {utan_epost}
             <form class="lamnad" method="post" action=format!("{lista}/{id}/lamnad")>
+                {dolt()}
                 <label>
                     "Lämnad på annat sätt" <select name="satt">{sätt}</select>
                 </label>
@@ -296,6 +313,19 @@ pub(crate) mod server {
             );
         };
         let lista = format!("/foretag/{företag}/kundfakturor");
+        // #153 Från ett kort under Följ upp i Att göra går svaret tillbaka dit.
+        let att_göra = värde(&fält, "efter") == "att_gora";
+        let (klar, panelen) = if att_göra {
+            (
+                format!("/foretag/{företag}?skickat=1"),
+                format!("/foretag/{företag}?oppna=utskick-{f}&"),
+            )
+        } else {
+            (
+                format!("{lista}?f={f}&skickat=1"),
+                format!("{lista}?f={f}&panel=skicka&"),
+            )
+        };
         let ny = NyttUtskick {
             till: värde(&fält, "till"),
             meddelande: värde(&fält, "meddelande"),
@@ -311,20 +341,16 @@ pub(crate) mod server {
         )
         .await
         {
-            Ok(Utfall::Skickat) => {
-                Redirect::to(&format!("{lista}?f={f}&skickat=1")).into_response()
-            }
+            Ok(Utfall::Skickat) => Redirect::to(&klar).into_response(),
             Ok(Utfall::Misslyckat(_)) => {
-                Redirect::to(&format!("{lista}?f={f}&panel=skicka&fel=skickfel")).into_response()
+                Redirect::to(&format!("{panelen}fel=skickfel")).into_response()
             }
             Err(UtskickFel::Mottagare(_)) => {
                 let mut q = url::form_urlencoded::Serializer::new(String::new());
-                q.append_pair("f", &f.to_string());
-                q.append_pair("panel", "skicka");
                 q.append_pair("fel", "mottagare");
                 q.append_pair("till", &ny.till);
                 q.append_pair("meddelande", &ny.meddelande);
-                Redirect::to(&format!("{lista}?{}", q.finish())).into_response()
+                Redirect::to(&format!("{panelen}{}", q.finish())).into_response()
             }
             Err(e) => utskicksfel(e),
         }
@@ -353,6 +379,10 @@ pub(crate) mod server {
         )
         .await
         {
+            // #153 Från ett kort under Följ upp i Att göra går svaret tillbaka dit.
+            Ok(()) if värde(&fält, "efter") == "att_gora" => {
+                Redirect::to(&format!("/foretag/{företag}?lamnad=1")).into_response()
+            }
             Ok(()) => Redirect::to(&format!("/foretag/{företag}/kundfakturor?f={f}&lamnad=1"))
                 .into_response(),
             Err(e) => utskicksfel(e),
