@@ -7,6 +7,11 @@
 //! (3740) i samma verifikat. En överbetalning spärras och hänvisas till ett manuellt verifikat,
 //! så att det återstående beloppet aldrig blir negativt av misstag. Specen säger det om
 //! kundfakturor; leverantörsfakturorna (#147) har samma spärr tills något annat bestäms.
+//! Har motparten pengar tillgodo (det som återstår är negativt, efter en kreditfaktura #140) är
+//! betalningen en *återbetalning*: en betalning åt andra hållet, med 1510 debet mot betalkontot
+//! för en kund och betalkontot debet mot 2440 för en leverantör. Användaren skriver beloppet som
+//! ett positivt belopp, och [`Betalning::belopp`] blir negativt.
+//!
 //! Betalning när fordran inte är bokförd (kontantmetoden) kommer i #149, och kursdifferens på
 //! leverantörsfakturor i #147.
 
@@ -94,7 +99,10 @@ pub const BETALNINGSSPÄRRAR: &[(&str, &str)] = &[
         "Betaldagen ligger i ett räkenskapsår som finns, eller i året direkt efter det senaste, \
          som då skapas när betalningen bokförs.",
     ),
-    ("redan_betald", "Fakturan har ett belopp kvar att betala."),
+    (
+        "redan_betald",
+        "Fakturan har ett belopp kvar att betala, eller ett tillgodohavande att återbetala.",
+    ),
     ("belopp_saknas", "Belopp krävs."),
     (
         "belopp_ogiltigt",
@@ -103,6 +111,10 @@ pub const BETALNINGSSPÄRRAR: &[(&str, &str)] = &[
     (
         "overbetalning",
         "Beloppet är högst det som återstår. En överbetalning bokförs som ett manuellt verifikat.",
+    ),
+    (
+        "overaterbetalning",
+        "En återbetalning är högst det som motparten har tillgodo.",
     ),
     ("konto_saknas", "Betalkonto krävs."),
     ("konto_okant", "Kontot finns i företagets kontoplan."),
@@ -114,7 +126,7 @@ pub const BETALNINGSSPÄRRAR: &[(&str, &str)] = &[
     ),
     (
         "oresutjamning_utan_rest",
-        "Öresutjämning kräver en rest efter betalningen.",
+        "Öresutjämning kräver en rest efter betalningen; en återbetalning har ingen.",
     ),
 ];
 
@@ -147,7 +159,7 @@ impl fmt::Display for Spärr {
 pub struct Betalning {
     pub reskontra: Reskontra,
     pub betaldag: Date,
-    /// Det som betalades, i öre.
+    /// Det som betalades, i öre; negativt för en återbetalning av ett tillgodohavande.
     pub belopp: i64,
     pub konto: Kontonummer,
     /// Resten som stängs mot öresutjämning, i öre; noll utan öresutjämning.
@@ -164,11 +176,12 @@ pub fn beskrivning(faktura: &str) -> String {
 }
 
 impl NyBetalning {
-    /// Panelen när den öppnas: det som återstår, dagens datum och 1930.
+    /// Panelen när den öppnas: det som återstår (eller tillgodohavandet att återbetala),
+    /// dagens datum och 1930.
     pub fn förvald(återstår: i64, idag: Date) -> Self {
         NyBetalning {
             betaldag: idag.to_string(),
-            belopp: Belopp::från_öre(återstår.max(0)).to_string(),
+            belopp: Belopp::från_öre(återstår.abs()).to_string(),
             konto: BETALKONTO.to_string(),
             öresutjämning: false,
         }
@@ -177,7 +190,7 @@ impl NyBetalning {
     /// Det som återstår efter betalningen om beloppet går att tolka, för texten
     /// "Delbetalning, X kr återstår" och kryssrutan medan användaren skriver.
     pub fn rest(&self, återstår: i64) -> Option<i64> {
-        tolka_belopp(&self.belopp).map(|b| återstår - b)
+        tolka_belopp(&self.belopp).map(|b| återstår - b * återstår.signum())
     }
 
     /// Prövar spärrarna. Spärrarna kommer i fältens ordning.
@@ -217,7 +230,9 @@ impl NyBetalning {
             val
         });
 
-        let belopp = if f.återstår <= 0 {
+        // En återbetalning har beloppet med motsatt tecken mot en betalning.
+        let tecken = if f.återstår < 0 { -1 } else { 1 };
+        let belopp = if f.återstår == 0 {
             spärrar.push(Spärr::ny(
                 Fält::Belopp,
                 "redan_betald",
@@ -239,7 +254,18 @@ impl NyBetalning {
                         ));
                         None
                     }
-                    Some(b) if b > f.återstår => {
+                    Some(b) if tecken < 0 && b > -f.återstår => {
+                        spärrar.push(Spärr::ny(
+                            Fält::Belopp,
+                            "overaterbetalning",
+                            format!(
+                                "Beloppet är större än tillgodohavandet, {} kr.",
+                                Belopp::från_öre(-f.återstår)
+                            ),
+                        ));
+                        None
+                    }
+                    Some(b) if tecken > 0 && b > f.återstår => {
                         spärrar.push(Spärr::ny(
                             Fält::Belopp,
                             "overbetalning",
@@ -251,7 +277,7 @@ impl NyBetalning {
                         ));
                         None
                     }
-                    Some(b) => Some(b),
+                    Some(b) => Some(b * tecken),
                 },
             }
         };
@@ -259,6 +285,14 @@ impl NyBetalning {
         let konto = self.kontrollera_konto(f, &mut spärrar);
 
         let öresutjämning = match (belopp, self.öresutjämning) {
+            (Some(_), true) if tecken < 0 => {
+                spärrar.push(Spärr::ny(
+                    Fält::Öresutjämning,
+                    "oresutjamning_utan_rest",
+                    "En återbetalning stängs inte mot öresutjämning.",
+                ));
+                0
+            }
             (Some(b), true) => {
                 let rest = f.återstår - b;
                 if rest == 0 {

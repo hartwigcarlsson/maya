@@ -254,10 +254,59 @@ fn varje_spärr_vid_betalning_är_dokumenterad() {
         .iter()
         .flat_map(|b| koder(b, &f))
         .chain(koder(&betalning("2026-11-02", "1"), &förutsättningar(0)))
+        // #140: en återbetalning av mer än tillgodohavandet.
+        .chain(koder(&betalning("2026-11-02", "2"), &förutsättningar(-100)))
         .collect();
     sedda.sort();
     sedda.dedup();
     let mut dokumenterade: Vec<&str> = BETALNINGSSPÄRRAR.iter().map(|(k, _)| *k).collect();
     dokumenterade.sort();
     assert_eq!(sedda, dokumenterade);
+}
+
+// #140 Återbetalning av ett tillgodohavande
+
+#[test]
+fn ett_tillgodohavande_återbetalas_med_1510_mot_betalkontot() {
+    let f = förutsättningar(-40_000);
+    assert_eq!(
+        NyBetalning::förvald(-40_000, date(2026, 11, 2)).belopp,
+        "400,00"
+    );
+    let b = betalning("2026-11-02", "400").kontrollera(&f).unwrap();
+    assert_eq!(b.belopp, -40_000);
+    assert_eq!(b.återstår_efter, 0);
+    assert_eq!(
+        b.kontering(),
+        vec![rad(1930, 0, 40_000), rad(1510, 40_000, 0)]
+    );
+    let del = betalning("2026-11-02", "150").kontrollera(&f).unwrap();
+    assert_eq!(del.återstår_efter, -25_000);
+}
+
+#[test]
+fn en_återbetalning_är_högst_tillgodohavandet_och_utan_öresutjämning() {
+    let f = förutsättningar(-40_000);
+    assert_eq!(
+        koder(&betalning("2026-11-02", "400,01"), &f),
+        ["overaterbetalning"]
+    );
+    let med_rest = NyBetalning {
+        öresutjämning: true,
+        ..betalning("2026-11-02", "395")
+    };
+    assert_eq!(koder(&med_rest, &f), ["oresutjamning_utan_rest"]);
+}
+
+#[test]
+fn ett_tillgodohavande_hos_leverantören_återbetalas_med_betalkontot_mot_2440() {
+    let f = Förutsättningar {
+        reskontra: Reskontra::Leverantör,
+        ..förutsättningar(-40_000)
+    };
+    let b = betalning("2026-11-02", "400").kontrollera(&f).unwrap();
+    assert_eq!(
+        b.kontering(),
+        vec![rad(2440, 0, 40_000), rad(1930, 40_000, 0)]
+    );
 }

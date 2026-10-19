@@ -325,6 +325,7 @@ fn ur_fält(värde: impl Fn(&str) -> Option<String>) -> NyKundfaktura {
     NyKundfaktura {
         kund: fält("kund"),
         ny_kund,
+        krediterar: None,
         fakturadatum: fält("fakturadatum"),
         leveransdatum: fält("leveransdatum"),
         förfallodag: fält("forfallodag"),

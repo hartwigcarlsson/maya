@@ -852,6 +852,7 @@ async fn läs_utkast(conn: &mut SqliteConnection, id: KundfakturaId) -> Result<U
                 })
             })
             .collect::<Result<_, DatabasFel>>()?,
+        krediterar: None,
     })
 }
 
