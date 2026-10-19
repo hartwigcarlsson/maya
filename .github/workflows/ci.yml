@@ -66,9 +66,10 @@ jobs:
       - name: Sajten (cargo leptos build)
         run: cargo leptos build
       # ubuntu-latest har Google Chrome; headless_chrome hittar den på PATH.
-      # Två testtrådar per binär: varje rök-test (crates/maya/tests/rok.rs) startar en server och
-      # en Chrome, och de får timeout när alla körs samtidigt. Övriga binärer tar sekunder ändå.
-      - run: cargo test --workspace --locked -- --test-threads=2
+      # En testtråd per binär: varje rök-test (crates/maya/tests/rok.rs) startar en server och
+      # en Chrome med debug-WASM:en, och redan två samtidigt hinner inte hydrera inom
+      # testernas väntetid på runnerns fyra kärnor. Övriga binärer tar sekunder ändå.
+      - run: cargo test --workspace --locked -- --test-threads=1
       - if: always()
         run: df -h /
 
