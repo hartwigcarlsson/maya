@@ -481,25 +481,33 @@ pub async fn registrera(
             .collect(),
     };
     // Under fakturametoden på fakturadatumet bokför registreringen skulden; en kreditfaktura med
-    // hänvisning följer originalets skuld, och en utan hänvisning bokförs alltid (#149).
+    // hänvisning följer originalets skuld och registrering, och en utan hänvisning bokförs alltid
+    // (#149).
     let original = r
         .krediterar
         .as_deref()
         .and_then(|k| k.parse().ok())
         .map(|k| Faktura::Leverantör(LeverantörsfakturaId(k)));
     let (kontering, skulden_bokförs) = match original {
-        Some(o) => (
-            crate::fordran::kreditens_kontering(
-                ärende.conn(),
-                företag,
-                o,
-                r.fakturadatum,
-                r.total,
-                r.kontering(),
+        // Krediten speglar originalets registrering i proportion till krediten, också den
+        // fiktiva momsen, vilka rader kreditfakturan än skrevs av med.
+        Some(o) => {
+            let spegling = crate::fordran::underlaget_i(ärende.conn(), företag, o)
+                .await?
+                .spegling(-r.total);
+            (
+                crate::fordran::kreditens_kontering(
+                    ärende.conn(),
+                    företag,
+                    o,
+                    r.fakturadatum,
+                    r.total,
+                    spegling,
+                )
+                .await?,
+                false,
             )
-            .await?,
-            false,
-        ),
+        }
         None if r.total < 0
             || crate::fordran::fakturametoden_på(ärende.conn(), företag, r.fakturadatum)
                 .await? =>
@@ -733,16 +741,17 @@ async fn läs_förutsättningar(
     }
     // #148: det som redan har betalats eller krediterats av en upplåst faktura, så att den inte
     // registreras om med mindre kvar än noll (berättelse 68).
-    let betalt: i64 = match utkast {
-        Some(u) => sqlx::query_scalar(
-            "SELECT coalesce((SELECT betalt + krediterat FROM leverantorsfaktura_i_reskontran
+    let betalt: i64 =
+        match utkast {
+            Some(u) => sqlx::query_scalar(
+                "SELECT coalesce((SELECT betalt + krediterat FROM leverantorsfaktura_i_reskontran
                               WHERE id = ?), 0)",
-        )
-        .bind(u.0)
-        .fetch_one(&mut *conn)
-        .await?,
-        None => 0,
-    };
+            )
+            .bind(u.0)
+            .fetch_one(&mut *conn)
+            .await?,
+            None => 0,
+        };
     Ok(Förutsättningar {
         konton: v.konton,
         räkenskapsår: v.räkenskapsår,

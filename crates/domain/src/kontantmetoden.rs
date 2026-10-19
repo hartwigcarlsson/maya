@@ -114,6 +114,18 @@ impl Obokförd {
         ut.extend(self.andel(andel));
         ut
     }
+
+    /// Konteringen för en kreditfaktura på `kredit` öre (positivt) som krediterar fakturan:
+    /// fakturans rader med omvänt tecken och i proportion till krediten, också den fiktiva
+    /// momsen, och reskontrakontot sist med krediten, som i fakturans eget verifikat.
+    pub fn spegling(&self, kredit: i64) -> Vec<verifikat::Rad> {
+        let andel = -kredit * self.total.signum();
+        let mut ut = self.andel(andel);
+        if andel != 0 {
+            ut.push(rad(self.reskontrakonto, andel));
+        }
+        ut
+    }
 }
 
 /// Den del av en kredit på `kredit` öre (positivt) som bokförs när originalets fordran eller

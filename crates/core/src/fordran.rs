@@ -498,8 +498,9 @@ pub(crate) async fn underlaget_i(
 }
 
 /// Konteringen för en kreditfaktura med totalen `total` (negativ) som krediterar `original`.
-/// `kontering` är kreditfakturans kontering under fakturametoden (utfärdandets eller
-/// registreringens, med debet och kredit bytta mot originalets).
+/// `kontering` är kreditfakturans kontering under fakturametoden: utfärdandets, eller för en
+/// leverantörs kreditfaktura originalets registrering speglad i proportion till krediten
+/// ([`maya_domain::kontantmetoden::Obokförd::spegling`]).
 ///
 /// Är originalets fordran eller skuld bokförd speglar krediten originalet. Annars bokförs bara
 /// den del av krediten som överstiger det som var obetalt av originalet, mot 1510 eller 2440

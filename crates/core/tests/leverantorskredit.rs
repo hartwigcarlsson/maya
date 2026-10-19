@@ -615,3 +615,94 @@ async fn en_upplåst_faktura_får_ingen_total_under_det_som_redan_är_betalt_och
         .unwrap();
     assert_eq!(återstår_i_listan(&db, &anna, id, f).await, 0);
 }
+
+/// Raderna i kontoordning.
+async fn sorterade(
+    db: &Databas,
+    anna: &Aktör,
+    id: FöretagsId,
+    v: VerifikatId,
+) -> Vec<(u16, i64, i64)> {
+    let mut r = rader(db, anna, id, v).await;
+    r.sort();
+    r
+}
+
+#[tokio::test]
+async fn en_kreditfaktura_med_hänvisning_bokförs_som_registreringens_rader_i_proportion() {
+    // Tabellen: kreditfakturan speglar registreringsverifikatet, proportionellt vid delkredit,
+    // vilka rader kreditfakturan än skrevs av med. Här 500 kr på 5410 utan moms mot ett original
+    // på 5410 netto 1 000 kr och 250 kr moms: 2 av 5 av registreringen.
+    let db = Databas::tillfällig().await;
+    let (anna, id, l, f) = original(&db).await;
+    let mut formulär = kredit(l, Some(f), "-500", "-500");
+    formulär.rader[0].momssats = "0".into();
+    let (_, v) = registrera_kredit(&db, &anna, id, &formulär).await;
+    assert_eq!(
+        sorterade(&db, &anna, id, v).await,
+        [(2440, 50_000, 0), (2641, 0, 10_000), (5410, 0, 40_000)]
+    );
+}
+
+#[tokio::test]
+async fn en_kreditfaktura_med_hänvisning_speglar_också_den_fiktiva_momsen() {
+    let db = Databas::tillfällig().await;
+    let (anna, id) = testhjalp::företag(&db).await;
+    let l = testhjalp::leverantör(&db, &anna, id, "Cloud GmbH").await;
+    let (f, _) = leverantorsfaktura::ladda_upp(
+        &db,
+        &klocka(),
+        &anna,
+        id,
+        ("eu-1.pdf", "application/pdf", b"%PDF-1.4 faktura EU-1"),
+    )
+    .await
+    .unwrap();
+    let r = leverantorsfaktura::registrera(
+        &db,
+        &klocka(),
+        &anna,
+        id,
+        f,
+        &NyLeverantörsfaktura {
+            leverantör: l.to_string(),
+            fakturanummer: "EU-1".into(),
+            fakturadatum: "2026-03-14".into(),
+            förfallodag: "2026-04-13".into(),
+            totalbelopp: "1 000".into(),
+            omvänd_skattskyldighet: "eu_tjanst".into(),
+            rader: vec![NyRad {
+                konto: "5410".into(),
+                netto: "1 000".into(),
+                momssats: "25".into(),
+                moms: String::new(),
+            }],
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        sorterade(&db, &anna, id, r.verifikat.unwrap().id).await,
+        [
+            (2440, 0, 100_000),
+            (2614, 0, 25_000),
+            (2645, 25_000, 0),
+            (5410, 100_000, 0)
+        ]
+    );
+
+    // Kreditfakturan skrivs av utan omvänd skattskyldighet, men speglar registreringen.
+    let mut formulär = kredit(l, Some(f), "-500", "-500");
+    formulär.rader[0].momssats = "0".into();
+    let (_, v) = registrera_kredit(&db, &anna, id, &formulär).await;
+    assert_eq!(
+        sorterade(&db, &anna, id, v).await,
+        [
+            (2440, 50_000, 0),
+            (2614, 12_500, 0),
+            (2645, 0, 12_500),
+            (5410, 0, 50_000)
+        ]
+    );
+}
