@@ -1,0 +1,590 @@
+//! Betalningen av en faktura: spärrarna i panelen och konteringen enligt tabellen över
+//! automatkonteringar.
+
+use jiff::civil::date;
+use maya_domain::belopp::Belopp;
+use maya_domain::betalning::{
+    BETALNINGSSPÄRRAR, Fält, Förutsättningar, NyBetalning, Reskontra, beskrivning,
+};
+use maya_domain::kontoplan::Kontonummer;
+use maya_domain::rakenskapsar::Räkenskapsår;
+use maya_domain::verifikat::Rad;
+
+fn konto(nr: u16) -> Kontonummer {
+    Kontonummer::new(nr).unwrap()
+}
+
+fn förutsättningar(återstår: i64) -> Förutsättningar {
+    Förutsättningar {
+        reskontra: Reskontra::Kund,
+        återstår,
+        konton: vec![
+            (konto(1030), true),
+            (konto(1510), true),
+            (konto(1910), false),
+            (konto(1930), true),
+            (konto(1940), true),
+            (konto(2440), true),
+            (konto(3001), true),
+            (konto(3740), true),
+        ],
+        räkenskapsår: vec![Räkenskapsår::befintligt(
+            date(2026, 1, 1),
+            date(2026, 12, 31),
+        )],
+        originalvaluta: false,
+        obokförd: None,
+        bokförd_efter: None,
+        återstod: Vec::new(),
+    }
+}
+
+/// En leverantörsfaktura i originalvaluta, t.ex. "EUR 870,00", registrerad i SEK.
+fn i_valuta(återstår: i64) -> Förutsättningar {
+    Förutsättningar {
+        reskontra: Reskontra::Leverantör,
+        originalvaluta: true,
+        ..förutsättningar(återstår)
+    }
+}
+
+fn med_kursdifferens(betaldag: &str, belopp: &str) -> NyBetalning {
+    NyBetalning {
+        kursdifferens: true,
+        ..betalning(betaldag, belopp)
+    }
+}
+
+fn betalning(betaldag: &str, belopp: &str) -> NyBetalning {
+    NyBetalning {
+        betaldag: betaldag.into(),
+        belopp: belopp.into(),
+        konto: "1930".into(),
+        ..Default::default()
+    }
+}
+
+fn rad(nr: u16, debet: i64, kredit: i64) -> Rad {
+    Rad {
+        konto: konto(nr),
+        debet: Belopp::från_öre(debet),
+        kredit: Belopp::från_öre(kredit),
+        text: None,
+    }
+}
+
+fn koder(b: &NyBetalning, f: &Förutsättningar) -> Vec<&'static str> {
+    b.kontrollera(f)
+        .err()
+        .unwrap_or_default()
+        .iter()
+        .map(|s| s.kod)
+        .collect()
+}
+
+#[test]
+fn panelen_förväljer_det_som_återstår_dagen_och_1930() {
+    let b = NyBetalning::förvald(1_250_050, date(2026, 10, 19));
+    assert_eq!(b.betaldag, "2026-10-19");
+    assert_eq!(b.belopp, "12 500,50");
+    assert_eq!(b.konto, "1930");
+    assert!(!b.öresutjämning);
+}
+
+#[test]
+fn hela_beloppet_bokför_betalkontot_mot_1510() {
+    let g = betalning("2026-11-02", "12 500,00")
+        .kontrollera(&förutsättningar(1_250_000))
+        .unwrap();
+    assert_eq!(g.betaldag, date(2026, 11, 2));
+    assert_eq!(g.belopp, 1_250_000);
+    assert_eq!(g.återstår_efter, 0);
+    assert_eq!(
+        g.kontering(),
+        vec![rad(1930, 1_250_000, 0), rad(1510, 0, 1_250_000)]
+    );
+}
+
+#[test]
+fn en_delbetalning_lämnar_resten_kvar() {
+    let g = betalning("2026-11-02", "5000")
+        .kontrollera(&förutsättningar(1_250_000))
+        .unwrap();
+    assert_eq!(g.återstår_efter, 750_000);
+    assert_eq!(
+        g.kontering(),
+        vec![rad(1930, 500_000, 0), rad(1510, 0, 500_000)]
+    );
+    assert_eq!(betalning("", "5000").rest(1_250_000), Some(750_000));
+}
+
+#[test]
+fn en_rest_på_högst_10_kr_stängs_mot_öresutjämning_i_samma_verifikat() {
+    let b = NyBetalning {
+        öresutjämning: true,
+        ..betalning("2026-11-02", "12 490")
+    };
+    let g = b.kontrollera(&förutsättningar(1_250_000)).unwrap();
+    assert_eq!(g.öresutjämning, 1_000);
+    assert_eq!(g.återstår_efter, 0);
+    assert_eq!(
+        g.kontering(),
+        vec![
+            rad(1930, 1_249_000, 0),
+            rad(3740, 1_000, 0),
+            rad(1510, 0, 1_250_000),
+        ]
+    );
+}
+
+#[test]
+fn en_rest_över_10_kr_eller_ingen_rest_kan_inte_öresutjämnas() {
+    let för_stor = NyBetalning {
+        öresutjämning: true,
+        ..betalning("2026-11-02", "12 489,99")
+    };
+    assert_eq!(
+        koder(&för_stor, &förutsättningar(1_250_000)),
+        ["oresutjamning_for_stor"]
+    );
+    let ingen = NyBetalning {
+        öresutjämning: true,
+        ..betalning("2026-11-02", "12 500")
+    };
+    assert_eq!(
+        koder(&ingen, &förutsättningar(1_250_000)),
+        ["oresutjamning_utan_rest"]
+    );
+}
+
+#[test]
+fn en_överbetalning_spärras_och_hänvisas_till_ett_manuellt_verifikat() {
+    let spärrar = betalning("2026-11-02", "12 500,01")
+        .kontrollera(&förutsättningar(1_250_000))
+        .unwrap_err();
+    assert_eq!(spärrar.len(), 1);
+    assert_eq!(spärrar[0].kod, "overbetalning");
+    assert_eq!(spärrar[0].fält, Fält::Belopp);
+    assert!(spärrar[0].text.contains("12 500,00"), "{}", spärrar[0].text);
+    assert!(
+        spärrar[0].text.contains("manuellt verifikat"),
+        "{}",
+        spärrar[0].text
+    );
+}
+
+#[test]
+fn en_betald_faktura_tar_inte_emot_fler_betalningar() {
+    assert_eq!(
+        koder(&betalning("2026-11-02", "1"), &förutsättningar(0)),
+        ["redan_betald"]
+    );
+}
+
+#[test]
+fn betaldag_belopp_och_konto_prövas_vid_fälten() {
+    let f = förutsättningar(10_000);
+    assert_eq!(koder(&betalning("", "1"), &f), ["betaldag_saknas"]);
+    assert_eq!(koder(&betalning("2/11", "1"), &f), ["betaldag_ogiltig"]);
+    assert_eq!(
+        koder(&betalning("2028-01-01", "1"), &f),
+        ["saknat_rakenskapsar"]
+    );
+    assert_eq!(
+        koder(&betalning("2025-12-31", "1"), &f),
+        ["fore_forsta_aret"]
+    );
+    assert_eq!(koder(&betalning("2026-11-02", ""), &f), ["belopp_saknas"]);
+    assert_eq!(
+        koder(&betalning("2026-11-02", "-5"), &f),
+        ["belopp_ogiltigt"]
+    );
+    assert_eq!(
+        koder(&betalning("2026-11-02", "0"), &f),
+        ["belopp_ogiltigt"]
+    );
+    let med_konto = |k: &str| NyBetalning {
+        konto: k.into(),
+        ..betalning("2026-11-02", "1")
+    };
+    assert_eq!(koder(&med_konto(""), &f), ["konto_saknas"]);
+    assert_eq!(koder(&med_konto("1999"), &f), ["konto_okant"]);
+    assert_eq!(koder(&med_konto("1910"), &f), ["konto_inaktivt"]);
+    assert_eq!(koder(&med_konto("3001"), &f), ["konto_inte_betalkonto"]);
+    assert!(med_konto("1940").kontrollera(&f).is_ok());
+}
+
+#[test]
+fn betalkontot_är_ett_kassa_eller_bankkonto_och_inte_vilket_konto_i_klass_1_som_helst() {
+    let f = förutsättningar(10_000);
+    let med_konto = |k: &str| NyBetalning {
+        konto: k.into(),
+        ..betalning("2026-11-02", "1")
+    };
+    // 1030 Patent och 1510 Kundfordringar är tillgångar men inga pengar att betala med.
+    assert_eq!(koder(&med_konto("1030"), &f), ["konto_inte_betalkonto"]);
+    assert_eq!(koder(&med_konto("1510"), &f), ["konto_inte_betalkonto"]);
+    assert!(med_konto("1930").kontrollera(&f).is_ok());
+    for (nr, väntat) in [
+        (1910, true),
+        (1930, true),
+        (1999, true),
+        (1899, false),
+        (1030, false),
+    ] {
+        assert_eq!(
+            maya_domain::betalning::är_betalkonto(konto(nr)),
+            väntat,
+            "{nr}"
+        );
+    }
+}
+
+#[test]
+fn betaldagen_kan_ligga_i_året_efter_det_senaste() {
+    let g = betalning("2027-01-15", "100")
+        .kontrollera(&förutsättningar(10_000))
+        .unwrap();
+    assert_eq!(g.räkenskapsår.år().start(), date(2027, 1, 1));
+}
+
+#[test]
+fn en_leverantörsbetalning_bokför_2440_mot_betalkontot() {
+    let f = Förutsättningar {
+        reskontra: Reskontra::Leverantör,
+        ..förutsättningar(1_250_000)
+    };
+    let b = NyBetalning {
+        öresutjämning: true,
+        ..betalning("2026-11-02", "12 495")
+    };
+    assert_eq!(
+        b.kontrollera(&f).unwrap().kontering(),
+        vec![
+            rad(2440, 1_250_000, 0),
+            rad(1930, 0, 1_249_500),
+            rad(3740, 0, 500),
+        ]
+    );
+}
+
+#[test]
+fn verifikatet_har_fakturan_som_referens() {
+    assert_eq!(
+        beskrivning("kundfaktura 1007, Kund AB"),
+        "Betalning av kundfaktura 1007, Kund AB"
+    );
+}
+
+#[test]
+fn varje_spärr_vid_betalning_är_dokumenterad() {
+    let f = förutsättningar(1_250_000);
+    let mut fall: Vec<NyBetalning> = vec![
+        betalning("", ""),
+        betalning("x", "x"),
+        betalning("2028-01-01", "12 500,01"),
+        betalning("2025-01-01", "0"),
+    ];
+    for k in ["", "1999", "1910", "3001"] {
+        fall.push(NyBetalning {
+            konto: k.into(),
+            ..betalning("2026-11-02", "1")
+        });
+    }
+    for belopp in ["12 400", "12 500"] {
+        fall.push(NyBetalning {
+            öresutjämning: true,
+            ..betalning("2026-11-02", belopp)
+        });
+    }
+    fall.push(med_kursdifferens("2026-11-02", "12 400"));
+    let i_valuta = i_valuta(1_250_000);
+    let kurs = [
+        med_kursdifferens("2026-11-02", "12 500"),
+        NyBetalning {
+            öresutjämning: true,
+            ..med_kursdifferens("2026-11-02", "12 495")
+        },
+    ];
+    let mut sedda: Vec<&str> = fall
+        .iter()
+        .flat_map(|b| koder(b, &f))
+        .chain(kurs.iter().flat_map(|b| koder(b, &i_valuta)))
+        .chain(koder(&betalning("2026-11-02", "1"), &förutsättningar(0)))
+        // #140: en återbetalning av mer än tillgodohavandet.
+        .chain(koder(&betalning("2026-11-02", "2"), &förutsättningar(-100)))
+        // #151: en återbetalning före tillgodohavandet.
+        .chain(koder(
+            &betalning("2026-11-02", "1"),
+            &Förutsättningar {
+                återstod: vec![(date(2026, 11, 1), 50), (date(2026, 11, 3), -100)],
+                ..förutsättningar(-100)
+            },
+        ))
+        .collect();
+    sedda.sort();
+    sedda.dedup();
+    let mut dokumenterade: Vec<&str> = BETALNINGSSPÄRRAR.iter().map(|(k, _)| *k).collect();
+    dokumenterade.sort();
+    assert_eq!(sedda, dokumenterade);
+}
+
+// #140 Återbetalning av ett tillgodohavande
+
+#[test]
+fn ett_tillgodohavande_återbetalas_med_1510_mot_betalkontot() {
+    let f = förutsättningar(-40_000);
+    assert_eq!(
+        NyBetalning::förvald(-40_000, date(2026, 11, 2)).belopp,
+        "400,00"
+    );
+    let b = betalning("2026-11-02", "400").kontrollera(&f).unwrap();
+    assert_eq!(b.belopp, -40_000);
+    assert_eq!(b.återstår_efter, 0);
+    assert_eq!(
+        b.kontering(),
+        vec![rad(1930, 0, 40_000), rad(1510, 40_000, 0)]
+    );
+    let del = betalning("2026-11-02", "150").kontrollera(&f).unwrap();
+    assert_eq!(del.återstår_efter, -25_000);
+}
+
+#[test]
+fn en_återbetalning_är_högst_tillgodohavandet_och_utan_öresutjämning() {
+    let f = förutsättningar(-40_000);
+    assert_eq!(
+        koder(&betalning("2026-11-02", "400,01"), &f),
+        ["overaterbetalning"]
+    );
+    let med_rest = NyBetalning {
+        öresutjämning: true,
+        ..betalning("2026-11-02", "395")
+    };
+    assert_eq!(koder(&med_rest, &f), ["oresutjamning_utan_rest"]);
+}
+
+#[test]
+fn ett_tillgodohavande_hos_leverantören_återbetalas_med_betalkontot_mot_2440() {
+    let f = Förutsättningar {
+        reskontra: Reskontra::Leverantör,
+        ..förutsättningar(-40_000)
+    };
+    let b = betalning("2026-11-02", "400").kontrollera(&f).unwrap();
+    assert_eq!(
+        b.kontering(),
+        vec![rad(2440, 0, 40_000), rad(1930, 40_000, 0)]
+    );
+}
+
+// #147 Kursdifferens på leverantörsfakturor med originalvaluta
+
+#[test]
+fn en_dyrare_betalning_i_originalvaluta_stängs_mot_kursförlust_7960() {
+    let g = med_kursdifferens("2026-11-02", "10 250")
+        .kontrollera(&i_valuta(1_000_000))
+        .unwrap();
+    assert_eq!(g.belopp, 1_025_000);
+    assert_eq!(g.kursdifferens, -25_000);
+    assert_eq!(g.återstår_efter, 0);
+    assert_eq!(
+        g.kontering(),
+        vec![
+            rad(2440, 1_000_000, 0),
+            rad(1930, 0, 1_025_000),
+            rad(7960, 25_000, 0),
+        ]
+    );
+}
+
+#[test]
+fn en_billigare_betalning_i_originalvaluta_stängs_mot_kursvinst_3960() {
+    let g = med_kursdifferens("2026-11-02", "9 800")
+        .kontrollera(&i_valuta(1_000_000))
+        .unwrap();
+    assert_eq!(g.kursdifferens, 20_000);
+    assert_eq!(g.återstår_efter, 0);
+    assert_eq!(
+        g.kontering(),
+        vec![
+            rad(2440, 1_000_000, 0),
+            rad(1930, 0, 980_000),
+            rad(3960, 0, 20_000),
+        ]
+    );
+}
+
+#[test]
+fn utan_kursdifferens_spärras_en_överbetalning_också_på_en_leverantörsfaktura() {
+    assert_eq!(
+        koder(&betalning("2026-11-02", "10 250"), &i_valuta(1_000_000)),
+        ["overbetalning"]
+    );
+    // En delbetalning i originalvaluta är fortfarande en delbetalning.
+    let g = betalning("2026-11-02", "5 000")
+        .kontrollera(&i_valuta(1_000_000))
+        .unwrap();
+    assert_eq!((g.kursdifferens, g.återstår_efter), (0, 500_000));
+}
+
+#[test]
+fn kursdifferens_kräver_en_leverantörsfaktura_med_originalvaluta() {
+    let utan_valuta = Förutsättningar {
+        originalvaluta: false,
+        ..i_valuta(1_000_000)
+    };
+    let b = med_kursdifferens("2026-11-02", "9 800");
+    assert_eq!(
+        koder(&b, &utan_valuta),
+        ["kursdifferens_utan_originalvaluta"]
+    );
+    // En kundfaktura har ingen originalvaluta.
+    let kund = Förutsättningar {
+        reskontra: Reskontra::Kund,
+        ..i_valuta(1_000_000)
+    };
+    assert_eq!(koder(&b, &kund), ["kursdifferens_utan_originalvaluta"]);
+    let s = b.kontrollera(&kund).unwrap_err();
+    assert_eq!(s[0].fält, Fält::Kursdifferens);
+}
+
+#[test]
+fn kursdifferens_kräver_en_avvikelse_och_går_inte_med_öresutjämning() {
+    assert_eq!(
+        koder(
+            &med_kursdifferens("2026-11-02", "10 000"),
+            &i_valuta(1_000_000)
+        ),
+        ["kursdifferens_utan_avvikelse"]
+    );
+    let båda = NyBetalning {
+        öresutjämning: true,
+        ..med_kursdifferens("2026-11-02", "9 995")
+    };
+    assert_eq!(
+        koder(&båda, &i_valuta(1_000_000)),
+        ["kursdifferens_och_oresutjamning"]
+    );
+}
+
+// #149 Kontantmetoden: fordran eller skulden är inte bokförd.
+
+/// Kundfakturan 12 500 kr (3001 netto 10 000 kr, 2611 2 500 kr) vars fordran inte är bokförd.
+fn obokförd_kundfaktura() -> maya_domain::kontantmetoden::Obokförd {
+    maya_domain::kontantmetoden::Obokförd::av(
+        &[
+            rad(1510, 1_250_000, 0),
+            rad(3001, 0, 1_000_000),
+            rad(2611, 0, 250_000),
+        ],
+        konto(1510),
+    )
+}
+
+#[test]
+fn betalning_när_fordran_inte_är_bokförd_bokför_intäkt_och_moms_proportionellt() {
+    let f = Förutsättningar {
+        obokförd: Some(obokförd_kundfaktura()),
+        ..förutsättningar(1_250_000)
+    };
+    let g = betalning("2026-11-02", "5000").kontrollera(&f).unwrap();
+    assert_eq!(g.återstår_efter, 750_000);
+    assert_eq!(
+        g.kontering(),
+        vec![
+            rad(1930, 500_000, 0),
+            rad(3001, 0, 400_000),
+            rad(2611, 0, 100_000)
+        ]
+    );
+}
+
+#[test]
+fn en_betalning_efter_årets_slut_av_en_faktura_som_väntar_på_t2_bokförs_mot_1510() {
+    // #150: fakturan var obetald vid årets slut 2026-12-31 och kommer med i T2-verifikatet.
+    let f = Förutsättningar {
+        obokförd: Some(obokförd_kundfaktura()),
+        bokförd_efter: Some(date(2026, 12, 31)),
+        ..förutsättningar(1_250_000)
+    };
+    let efter = betalning("2027-01-05", "5000").kontrollera(&f).unwrap();
+    assert_eq!(
+        efter.kontering(),
+        vec![rad(1930, 500_000, 0), rad(1510, 0, 500_000)]
+    );
+    let på_årets_sista_dag = betalning("2026-12-31", "5000").kontrollera(&f).unwrap();
+    assert_eq!(
+        på_årets_sista_dag.kontering(),
+        vec![
+            rad(1930, 500_000, 0),
+            rad(3001, 0, 400_000),
+            rad(2611, 0, 100_000)
+        ]
+    );
+}
+
+#[test]
+fn öresutjämningen_bokförs_inte_när_fordran_inte_är_bokförd() {
+    let f = Förutsättningar {
+        obokförd: Some(obokförd_kundfaktura()),
+        ..förutsättningar(1_250_000)
+    };
+    let b = NyBetalning {
+        öresutjämning: true,
+        ..betalning("2026-11-02", "12 490")
+    };
+    let g = b.kontrollera(&f).unwrap();
+    assert_eq!((g.öresutjämning, g.återstår_efter), (1_000, 0));
+    assert_eq!(
+        g.kontering(),
+        vec![
+            rad(1930, 1_249_000, 0),
+            rad(3001, 0, 999_200),
+            rad(2611, 0, 249_800)
+        ]
+    );
+}
+
+#[test]
+fn en_återbetalning_bokförs_mot_1510_också_när_fordran_inte_är_bokförd() {
+    let f = Förutsättningar {
+        obokförd: Some(obokförd_kundfaktura()),
+        ..förutsättningar(-40_000)
+    };
+    let g = betalning("2026-11-02", "400").kontrollera(&f).unwrap();
+    assert_eq!(
+        g.kontering(),
+        vec![rad(1930, 0, 40_000), rad(1510, 40_000, 0)]
+    );
+}
+
+#[test]
+fn betalning_när_skulden_inte_är_bokförd_bokför_kostnad_och_fiktiv_moms_med_kursdifferensen() {
+    // EU-tjänst 1 000 kr på 5410 med fiktiv moms 250 kr; betalningen 990 kr stänger 10 kr som
+    // kursvinst, och kostnaden är fakturans belopp i SEK.
+    let o = maya_domain::kontantmetoden::Obokförd::av(
+        &[
+            rad(5410, 100_000, 0),
+            rad(2645, 25_000, 0),
+            rad(2440, 0, 100_000),
+            rad(2614, 0, 25_000),
+        ],
+        konto(2440),
+    );
+    let f = Förutsättningar {
+        obokförd: Some(o),
+        ..i_valuta(100_000)
+    };
+    let g = med_kursdifferens("2026-11-02", "990")
+        .kontrollera(&f)
+        .unwrap();
+    assert_eq!(
+        g.kontering(),
+        vec![
+            rad(5410, 100_000, 0),
+            rad(2645, 25_000, 0),
+            rad(2614, 0, 25_000),
+            rad(1930, 0, 99_000),
+            rad(3960, 0, 1_000),
+        ]
+    );
+}

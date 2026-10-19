@@ -12,7 +12,7 @@ name: maya
 
 services:
   maya:
-    image: ghcr.io/hartwigcarlsson/maya:0.1.0
+    image: ghcr.io/hartwigcarlsson/maya:0.2.0
     restart: unless-stopped
     env_file: .env
     environment:

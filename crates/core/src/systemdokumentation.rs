@@ -10,6 +10,8 @@
 use jiff::civil::Date;
 use maya_domain::backup::{DAGLIGA, MÅNATLIGA};
 use maya_domain::kontoplan::{bas, ink2, klassnamn, om_numret};
+use maya_domain::kundfaktura::KUNDFORDRINGAR;
+use maya_domain::leverantorsfaktura::LEVERANTÖRSSKULDER;
 use maya_domain::rakenskapsar::periodnamn;
 use maya_domain::systemdokumentation::{
     Avsnitt, Block, Systemdokumentation, Tabell, Tabellrad, Text, behandlingsregler, ändringslogg,
@@ -23,7 +25,8 @@ use crate::backup::{self, Backupmål, Körning};
 use crate::behandlingshistorik::{self, Händelse, Post, Urval};
 use crate::config::Config;
 use crate::foretag::{self, Företag, FöretagsId};
-use crate::{Databas, kontoplan, underlag, verifikat};
+use crate::reskontra::Läge;
+use crate::{Databas, kontoplan, kundfaktura, leverantorsfaktura, underlag, verifikat};
 
 /// Det som står när driften inte har angett något i arkivplanens fritext.
 const EJ_ANGIVET: &str = "ej angivet";
@@ -43,6 +46,7 @@ pub async fn systemdokumentation(
         .await?
         .poster;
     let status = backup::status(db).await?;
+    let fakturor = Fakturor::läs(db, aktör, företag).await?;
     let bas_version = konton
         .iter()
         .filter_map(|k| k.bas_version.clone())
@@ -53,9 +57,9 @@ pub async fn systemdokumentation(
     let avsnitt = vec![
         kontoplanen(&konton, &bas_version, &bas),
         sammanställningen(),
-        samlingsplanen(&f, &bokförda, &bas),
+        samlingsplanen(&f, &bokförda, &fakturor, &bas),
         behandlingsreglerna(&f),
-        verifieringskedjan(&bokförda, &underlag, &bas),
+        verifieringskedjan(&bokförda, &underlag, &fakturor, &bas),
         utskriften(&bas),
         överföringarna(config, &status, &historik),
         arkivplanen(&f, config),
@@ -69,6 +73,63 @@ pub async fn systemdokumentation(
         bas: bas_version,
         avsnitt,
     })
+}
+
+/// Företagets fakturor som dokumentationen beskriver: fakturaserien och reskontrornas storlek.
+struct Fakturor {
+    /// Företagets första fakturanummer.
+    startnummer: u64,
+    /// Nästa nummer i serien, när en faktura är utfärdad.
+    nästa: Option<u64>,
+    /// De utfärdade numren i serien, kundfakturor och kreditfakturor, i ordning.
+    utfärdade: Vec<u64>,
+    /// Utfärdade och registrerade kundfakturor, också externa.
+    kundfakturor: usize,
+    externa: usize,
+    /// Registrerade och upplåsta leverantörsfakturor.
+    leverantörsfakturor: usize,
+}
+
+impl Fakturor {
+    async fn läs(
+        db: &Databas, aktör: &Aktör, företag: FöretagsId
+    ) -> Result<Self, ÅtkomstFel> {
+        let serien = kundfaktura::förutsättningar(db, aktör, företag).await?;
+        let kund = kundfaktura::lista(db, aktör, företag).await?;
+        let leverantör = leverantorsfaktura::lista(db, aktör, företag).await?;
+        let mut utfärdade: Vec<u64> = kund
+            .iter()
+            .filter(|k| !k.är_extern && k.status != kundfaktura::Status::Utkast)
+            .filter_map(|k| k.nummer)
+            .collect();
+        utfärdade.sort();
+        Ok(Fakturor {
+            startnummer: serien.startnummer,
+            nästa: serien.nästa_nummer,
+            utfärdade,
+            kundfakturor: kund
+                .iter()
+                .filter(|k| k.status != kundfaktura::Status::Utkast)
+                .count(),
+            externa: kund
+                .iter()
+                .filter(|k| k.är_extern && k.status != kundfaktura::Status::Utkast)
+                .count(),
+            leverantörsfakturor: leverantör
+                .iter()
+                .filter(|l| l.status != leverantorsfaktura::Status::Utkast)
+                .count(),
+        })
+    }
+
+    /// De utfärdade numren som ett intervall, t.ex. `1–12`.
+    fn utfärdade(&self) -> String {
+        match (self.utfärdade.first(), self.utfärdade.last()) {
+            (Some(a), Some(b)) if a == b => a.to_string(),
+            (Some(a), Some(b)) => format!("{a}–{b}"),
+            _ => "inga".into(),
+        }
+    }
 }
 
 fn avsnitt(id: &str, rubrik: &str, krav: &[&str], block: Vec<Block>) -> Avsnitt {
@@ -213,7 +274,12 @@ fn sammanställningen() -> Avsnitt {
     )
 }
 
-fn samlingsplanen(f: &Företag, bokförda: &[verifikat::Verifikatrad], bas: &str) -> Avsnitt {
+fn samlingsplanen(
+    f: &Företag,
+    bokförda: &[verifikat::Verifikatrad],
+    fakturor: &Fakturor,
+    bas: &str,
+) -> Avsnitt {
     let rader = f
         .räkenskapsår
         .iter()
@@ -267,6 +333,12 @@ fn samlingsplanen(f: &Företag, bokförda: &[verifikat::Verifikatrad], bas: &str
             "rapporter/balansrakning",
             "ingående balans, förändring och utgående balans",
         ),
+        (
+            "Reskontran per datum",
+            "rapporter/reskontra",
+            "öppna kund- och leverantörsfakturor per faktura med det som återstår och \
+             avstämningen mot reskontrakontona",
+        ),
         ("Kontoplan", "installningar/kontoplan", "se ovan"),
         (
             "Behandlingshistorik",
@@ -308,12 +380,70 @@ fn samlingsplanen(f: &Företag, bokförda: &[verifikat::Verifikatrad], bas: &str
             .iter()
             .map(|(namn, sökväg, _)| länk(namn, format!("{bas}/{sökväg}"))),
     );
+    block.extend(fakturaserien(fakturor, bas));
     avsnitt(
         "samlingsplan",
         "Samlingsplan och serier",
         &["S1", "VF4"],
         block,
     )
+}
+
+/// Fakturaserien och reskontrorna som delsystem (VF4).
+fn fakturaserien(fakturor: &Fakturor, bas: &str) -> Vec<Block> {
+    vec![
+        Block::Underrubrik("Fakturaserien".into()),
+        stycke(
+            "Kundfakturorna numreras i en serie per företag, som är obruten, löper över \
+             räkenskapsåren och är gemensam för fakturor och kreditfakturor. Numret tilldelas \
+             när fakturan utfärdas, som nästa nummer i serien och i samma transaktion som \
+             verifikatet bokförs, och ett unikt index på företag och nummer är skyddsnätet. Ett \
+             utkast har inget nummer. Startnumret väljs på det första utkastet, är 1 som \
+             standard, loggas som \"startnummer ändrat\" och kan inte ändras efter det första \
+             utfärdandet. Externa kundfakturor har det andra systemets nummer, unikt bland \
+             företagets externa fakturor, och ingår inte i serien; leverantörsfakturor har \
+             leverantörens nummer, och samma nummer från samma leverantör spärras som \
+             dubblett. Verifikaten från fakturaflödena numreras i serien V som andra \
+             verifikat.",
+        ),
+        fakta(vec![
+            ("Startnummer", fakturor.startnummer.to_string()),
+            ("Utfärdade", fakturor.utfärdade()),
+            (
+                "Nästa nummer",
+                fakturor.nästa.unwrap_or(fakturor.startnummer).to_string(),
+            ),
+        ]),
+        Block::Underrubrik("Reskontrorna som delsystem".into()),
+        stycke(format!(
+            "Kundreskontran och leverantörsreskontran är delsystem till huvudboken. \
+             Kundreskontran har företagets kundfakturor, kreditfakturor och externa \
+             kundfakturor med deras betalningar, krediteringar och kundförluster; \
+             leverantörsreskontran har leverantörsfakturorna och leverantörernas kreditfakturor \
+             med deras betalningar. Varje fakturahändelse bokförs i samma transaktion som den \
+             registreras, med verifikat i serien V i den enda huvudboken, där fordringarna står \
+             på {KUNDFORDRINGAR} och skulderna på {LEVERANTÖRSSKULDER}. Reskontran per datum \
+             visar de öppna posterna per faktura en viss dag, med PDF och CSV, och stämmer av \
+             dem mot kontona (se Verifieringskedja)."
+        )),
+        fakta(vec![
+            ("Kundfakturor", fakturor.kundfakturor.to_string()),
+            ("varav externa", fakturor.externa.to_string()),
+            (
+                "Leverantörsfakturor",
+                fakturor.leverantörsfakturor.to_string(),
+            ),
+        ]),
+        länk(
+            "Kundreskontran: Kundfakturor",
+            format!("{bas}/kundfakturor"),
+        ),
+        länk(
+            "Leverantörsreskontran: Leverantörsfakturor",
+            format!("{bas}/leverantorsfakturor"),
+        ),
+        länk("Reskontran per datum", format!("{bas}/rapporter/reskontra")),
+    ]
 }
 
 fn behandlingsreglerna(f: &Företag) -> Avsnitt {
@@ -341,8 +471,12 @@ fn behandlingsreglerna(f: &Företag) -> Avsnitt {
             ),
         ]),
         stycke(
-            "Bokföringsmetoden och momsperioden styr flöden som kommer i senare versioner \
-             (fakturor och moms). Byten loggas i behandlingshistoriken.",
+            "Bokföringsmetoden på fakturadatumet avgör om en kundfaktura eller \
+             leverantörsfaktura bokförs när den utfärdas eller registreras \
+             (fakturametoden) eller först när den betalas och vid årets slut med T2 \
+             (kontantmetoden), se Bokföringsmetoden och reskontrakontot nedan. Momsperioden \
+             styr momsdeklarationen, som kommer i en senare version. Byten loggas i \
+             behandlingshistoriken.",
         ),
     ];
     block.extend(behandlingsregler());
@@ -352,6 +486,7 @@ fn behandlingsreglerna(f: &Företag) -> Avsnitt {
 fn verifieringskedjan(
     bokförda: &[verifikat::Verifikatrad],
     underlag: &[underlag::Underlag],
+    fakturor: &Fakturor,
     bas: &str,
 ) -> Avsnitt {
     let kompletteringar = underlag
@@ -365,8 +500,9 @@ fn verifieringskedjan(
         &["S3"],
         vec![
             stycke(
-                "I den här versionen registreras allt för hand i webben; det finns ingen import, \
-                 e-faktura eller bankkoppling. Kedjan från affärshändelse till rapport:",
+                "Allt registreras i webben; det finns ingen import, e-faktura eller \
+                 bankkoppling, och Maya tolkar inga fakturor. Kedjan från affärshändelse till \
+                 rapport:",
             ),
             Block::Lista(vec![
                 Text::markdown(&format!(
@@ -408,6 +544,92 @@ fn verifieringskedjan(
             ]),
             länk("Underlag", format!("{bas}/underlag")),
             länk("Verifikat", format!("{bas}/verifikat")),
+            Block::Underrubrik("Fakturorna".into()),
+            stycke(
+                "En faktura följer samma kedja med reskontran emellan: underlag eller utfärdad \
+                 PDF → faktura i reskontran → verifikat → huvudbok.",
+            ),
+            Block::Lista(vec![
+                Text::markdown(
+                    "**Underlag eller utfärdad PDF**: en leverantörsfaktura och en extern \
+                     kundfaktura registreras med originalet bredvid, som sparas som underlag \
+                     med SHA-256. En kundfaktura som Maya utfärdar skrivs som PDF/A-2b en gång, \
+                     när den utfärdas, och arkiveras som underlag med SHA-256; den skrivs aldrig \
+                     om (VF5).",
+                ),
+                Text::markdown(
+                    "**Faktura i reskontran**: fakturan låses när den utfärdas eller \
+                     registreras, med motparten ur kund- eller leverantörsregistret (VF2). \
+                     Betalningar, krediteringar, kundförluster och utskick är händelser på \
+                     fakturan och loggas i behandlingshistoriken; status och det som återstår \
+                     räknas fram ur dem. Rätta registrering och Rätta avskrift låser upp en \
+                     faktura med betalningarna kvar.",
+                ),
+                Text::markdown(
+                    "**Verifikat**: varje fakturahändelse som bokförs får sitt verifikat i samma \
+                     transaktion, enligt automatkonteringarna, med fakturan som referens och \
+                     underlaget kopplat. Ett fel rättas inifrån fakturan med en rättelse som \
+                     länkas till verifikatet (R1, R2, VF7), aldrig med Rätta… på verifikatet.",
+                ),
+                Text::markdown(
+                    "**Huvudbok**: flödenas verifikat står i grundboken och huvudboken som \
+                     andra verifikat, och fordringarna och skulderna på reskontrakontona.",
+                ),
+            ]),
+            stycke(
+                "Länkarna går åt båda hållen: fakturan visar sitt underlag eller sin PDF och \
+                 verifikaten för utfärdandet, registreringen, betalningarna, krediterna och \
+                 rättelserna, och varje sådant verifikat visar fakturan som det kommer från och \
+                 underlaget.",
+            ),
+            Block::Underrubrik(format!(
+                "Avstämningen mot {KUNDFORDRINGAR} och {LEVERANTÖRSSKULDER}"
+            )),
+            stycke(format!(
+                "Reskontran per datum stämmer av varje reskontra mot sitt konto: summan av \
+                 fakturornas del på kontot jämförs med saldot på {KUNDFORDRINGAR} respektive \
+                 {LEVERANTÖRSSKULDER} per samma dag, och en avvikelse visas med differensen i \
+                 fakturalistans rubrik och på rapporten. En fakturas del på kontot följer dess \
+                 läge den dagen:"
+            )),
+            Block::Lista(vec![
+                Text::from(format!(
+                    "{}: fordran eller skulden är bokförd och inte vänd, och hela det som \
+                     återstår står på kontot.",
+                    Läge::Bokförd.namn()
+                )),
+                Text::from(format!(
+                    "{} (kontantmetoden): betalningar och krediter bokförs mot intäkt eller \
+                     kostnad och moms, utom den del av en kredit som överstiger det obetalda; \
+                     posten står på kontot med det som återstår när det är negativt, annars \
+                     med noll.",
+                    Läge::InteBokförd.namn()
+                )),
+                Text::from(format!(
+                    "{}: dagen är efter årets slut, fakturan var obetald vid årets slut och \
+                     årets T2-verifikat är inte bokfört; posten står på kontot med det som \
+                     återstår minus det som T2 ska bokföra.",
+                    Läge::VäntarPåT2.namn()
+                )),
+                Text::from(format!(
+                    "{}: registreringens verifikat är vänt med Rätta registrering eller Rätta \
+                     avskrift; posten står på kontot med det som betalningarna och krediterna \
+                     bokförde, tills fakturan registreras om.",
+                    Läge::Upplåst.namn()
+                )),
+            ]),
+            stycke(
+                "Spärren mot att stänga ett räkenskapsår med en differens kommer med \
+                 stängningen i en senare version.",
+            ),
+            fakta(vec![
+                ("Kundfakturor", fakturor.kundfakturor.to_string()),
+                (
+                    "Leverantörsfakturor",
+                    fakturor.leverantörsfakturor.to_string(),
+                ),
+            ]),
+            länk("Reskontran per datum", format!("{bas}/rapporter/reskontra")),
         ],
     )
 }
@@ -443,6 +665,21 @@ fn utskriften(bas: &str) -> Avsnitt {
             "Balansräkning",
             "Rapporter → Balansräkning → PDF eller CSV",
             "rapporter/balansrakning",
+        ),
+        (
+            "Kundfaktura",
+            "Kundfakturor → öppna fakturan → PDF:en som den utfärdades, oförändrad",
+            "kundfakturor",
+        ),
+        (
+            "Leverantörsfaktura",
+            "Leverantörsfakturor → öppna fakturan → originalet, oförändrat",
+            "leverantorsfakturor",
+        ),
+        (
+            "Reskontran per datum",
+            "Rapporter → Reskontran per datum → PDF eller CSV",
+            "rapporter/reskontra",
         ),
         ("SIE4", "Rapporter → SIE4 för räkenskapsåret", "rapporter"),
         (
@@ -651,8 +888,8 @@ fn arkivplanen(f: &Företag, config: &Config) -> Avsnitt {
         stycke(
             "Maya förutsätter att databasen och alla backuper förvaras i Sverige (BFL 7:2). Den \
              som driftar servern ansvarar för det: att servern och backupmålet, även en kopia \
-             som flyttas offsite, finns i Sverige. Förvaring i ett annat land stöds inte i Maya \
-             0.1.",
+             som flyttas offsite, finns i Sverige. Förvaring i ett annat land stöds inte \
+             i Maya.",
         ),
         Block::Underrubrik("Driftens fritext".into()),
         stycke("Det Maya inte kan veta, ordagrant ur konfigurationen:"),

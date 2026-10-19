@@ -206,10 +206,6 @@ main {
   white-space: nowrap;
 }
 
-.anvandare {
-  color: var(--muted-foreground);
-}
-
 .kommando {
   display: inline-block;
   margin: 1rem 0;
@@ -2263,4 +2259,764 @@ kbd {
   color: var(--muted-foreground);
   font-size: 0.92em;
   margin-left: 0.5rem;
+}
+
+/* Fakturauppgifter (#134): logotypen under Inställningar → Företag. */
+.logotyp {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.logotyp-forhandsvisning {
+  max-width: 12rem;
+  max-height: 6rem;
+  object-fit: contain;
+  align-self: flex-start;
+  padding: 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: #fff;
+}
+
+.formular textarea {
+  padding: 6px 8px;
+  border: 1px solid var(--input);
+  border-radius: var(--radius);
+  background: var(--background);
+  color: var(--foreground);
+  font: inherit;
+  resize: vertical;
+}
+
+.formular textarea:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 1px;
+}
+
+.formular input[type="file"] {
+  height: auto;
+  padding: 6px 8px;
+}
+
+/* Kundregister (#133): formuläret i detaljspalten och adressens rader. Textrutorna följer
+   .formular textarea ovan. */
+
+.kundregister .formular {
+  max-width: 28rem;
+  margin: 0;
+}
+
+.kundregister .adressrad {
+  display: block;
+}
+
+/* Leverantörsfakturor (#145): originalet till vänster, formuläret till höger, det streckade
+   kortet för en ny leverantör och rutan "Bokförs som". */
+.ny-meny {
+  position: relative;
+}
+
+.ny-meny summary {
+  list-style: none;
+  font-weight: 500;
+}
+
+.ny-meny ul {
+  position: absolute;
+  z-index: 10;
+  min-width: 12rem;
+  margin: 4px 0 0;
+  padding: 4px;
+  list-style: none;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--card);
+  color: var(--card-foreground);
+}
+
+.ny-meny a {
+  display: block;
+  padding: 4px 8px;
+  border-radius: var(--radius);
+  text-decoration: none;
+}
+
+.ny-meny a:hover {
+  background: var(--accent);
+}
+
+.lf-grupp {
+  margin: 1rem 0 0.25rem;
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--muted-foreground);
+}
+
+.lf-formular {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  min-width: 0;
+}
+
+.lf-formular p {
+  margin: 0;
+}
+
+.lf-formular label {
+  display: block;
+  margin-bottom: 4px;
+}
+
+.lf-formular input,
+.lf-formular select {
+  width: 100%;
+  height: var(--control-height);
+  padding: 0 8px;
+  border: 1px solid var(--input);
+  border-radius: var(--radius);
+  background: var(--background);
+  color: var(--foreground);
+  font: inherit;
+}
+
+.lf-formular .fel {
+  margin: 4px 0 0;
+  color: var(--destructive);
+}
+
+.lf-rutnat {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(11rem, 1fr));
+  gap: 0.75rem;
+}
+
+.kort-streckat {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.75rem;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius);
+}
+
+.kort-streckat.dold {
+  display: none;
+}
+
+.bokfors-som {
+  padding: 0.75rem;
+  border-radius: var(--radius);
+  background: var(--muted);
+}
+
+.bokfors-som h3 {
+  margin: 0 0 0.5rem;
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--muted-foreground);
+}
+
+.diff-ok {
+  color: var(--success);
+}
+
+.diff-bad {
+  color: var(--destructive);
+}
+
+.badge-ny {
+  border: 1px dashed var(--primary);
+  background: color-mix(in oklch, var(--primary) 12%, transparent);
+}
+
+/* Kundfakturor (#135): formuläret med förhandsvisningen som spalt vid behov, Granska och
+   utfärda, rutan "Bokförs som" och den utfärdade fakturans dokument. Papperet är alltid ljust:
+   det är kundens exemplar. */
+
+.fakturaformular-ram {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 1rem;
+  align-items: start;
+}
+
+.fakturaformular-ram.med-forhandsvisning {
+  grid-template-columns: minmax(0, 40%) minmax(0, 1fr);
+}
+
+.kundfakturaformular,
+.dokument.kundfaktura {
+  max-width: 960px;
+}
+
+.formular-huvud {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+}
+
+.kundfakturaformular .falt-rad {
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+}
+
+.kundfakturaformular .falt-rad .bred {
+  grid-column: 1 / -1;
+}
+
+.kundfakturaformular select {
+  width: 100%;
+  height: var(--control-height);
+  padding: 0 8px;
+  border: 1px solid var(--input);
+  border-radius: var(--radius);
+  background: var(--background);
+  color: var(--foreground);
+  font: inherit;
+}
+
+.kundfakturaformular .etikett {
+  display: block;
+  margin-bottom: 4px;
+}
+
+.fakturarader td:first-child {
+  min-width: 12rem;
+}
+
+.fakturarader input.belopp {
+  text-align: right;
+}
+
+.rader tr.summa td {
+  font-weight: 600;
+}
+
+.foretagets-fel {
+  padding: 8px 12px;
+  border: 1px solid color-mix(in oklch, var(--destructive) 40%, transparent);
+  border-radius: var(--radius);
+}
+
+.kont {
+  padding: 10px 12px;
+  border-radius: var(--radius);
+  background: var(--sidebar);
+  box-shadow: 0 0 0 1px var(--border);
+}
+
+.kont h3 {
+  margin: 0 0 0.25rem;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted-foreground);
+}
+
+.papper {
+  position: sticky;
+  top: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding: 28px;
+  border-radius: 4px;
+  background: #fff;
+  color: #1c1917;
+  box-shadow: 0 0 0 1px var(--border), 0 2px 8px rgb(0 0 0 / 8%);
+  font-size: 13px;
+}
+
+.papper header {
+  display: flex;
+  justify-content: space-between;
+}
+
+.papper h3 {
+  margin: 0;
+  font-size: 20px;
+}
+
+.papper p {
+  margin: 0;
+}
+
+.papper .adressrad {
+  display: block;
+}
+
+.papper .rader td {
+  border-bottom-color: #e7e5e4;
+}
+
+.papper-utkast {
+  align-self: flex-end;
+  color: #a8a29e;
+  font-weight: 700;
+  letter-spacing: 0.2em;
+}
+
+.papper-summa {
+  align-self: flex-end;
+  font-weight: 600;
+}
+
+.dialog.granska {
+  max-width: 960px;
+}
+
+.granska-pdf {
+  width: 100%;
+  height: 56vh;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: #fff;
+}
+
+.kundfaktura .adressrad {
+  display: block;
+}
+
+.kundfaktura .hash {
+  font-family: ui-monospace, monospace;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 720px) {
+  .fakturaformular-ram.med-forhandsvisning {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .papper {
+    position: static;
+  }
+}
+
+/* Rätta kontering (#142): handlingarna på en utfärdad faktura och panelen. */
+.dokument-handlingar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin: 0.5rem 0 1rem;
+}
+
+.dialog.rattelse label {
+  display: block;
+  margin: 0.75rem 0;
+}
+
+/* Utskick (#138): panelen Skicka fakturan och avsnittet Utskick i fakturans dokument.
+   Raden .dokument-handlingar delas med Rätta kontering ovan. */
+
+.dialog.skicka {
+  max-width: 640px;
+  margin: 0.75rem 0;
+}
+
+.dialog.skicka form.formular {
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.dialog.skicka form.formular label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.dialog.skicka form.lamnad {
+  flex-wrap: wrap;
+  justify-content: flex-start;
+  align-items: flex-end;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--border);
+}
+
+.dialog.skicka form.lamnad p {
+  flex-basis: 100%;
+}
+
+.utskick-bilaga {
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: calc(var(--radius) * 0.8);
+}
+
+.utskick-ok {
+  color: var(--success);
+}
+
+.utskick-fel {
+  color: var(--destructive);
+}
+
+/* Betalningar (#139): märkena för reskontrans status, listans grupper, betalningspanelen och
+   betalningarna i dokumentet. Märkena delas av kund- och leverantörsfakturor. */
+.badge-obetald {
+  background: var(--muted);
+  color: var(--foreground);
+}
+
+.badge-delbetald {
+  background: color-mix(in oklch, var(--primary) 12%, transparent);
+  color: var(--primary);
+}
+
+.badge-forfallen {
+  background: color-mix(in oklch, var(--destructive) 14%, transparent);
+  color: var(--destructive);
+}
+
+.badge-betald {
+  background: color-mix(in oklch, var(--success) 14%, transparent);
+  color: var(--success);
+}
+
+.kundfordringar {
+  margin: 0;
+}
+
+.listgrupper,
+.lista-grupp {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.lista-grupp h2.per {
+  margin: 0;
+  font-size: 11px;
+}
+
+.panel {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  margin: 0.75rem 0;
+  padding: 14px;
+  border-radius: var(--radius);
+  box-shadow: 0 0 0 2px var(--ring);
+}
+
+.panel h3 {
+  margin: 0;
+}
+
+.panel .falt-grupp {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 0.75rem;
+}
+
+.panel .falt-grupp label {
+  display: block;
+}
+
+.panel .falt-grupp input,
+.panel .falt-grupp select {
+  width: 100%;
+}
+
+.kont h4 {
+  margin: 0 0 0.25rem;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted-foreground);
+}
+
+.betalningar tr.rattad td:nth-child(-n + 4) {
+  color: var(--muted-foreground);
+  text-decoration: line-through;
+}
+
+.kundens-fakturor {
+  margin-top: 1rem;
+}
+
+/* Omvänd skattskyldighet på kundfakturor (#136): texten på förhandsvisningen och dokumentet. */
+.papper-omvand {
+  border-left: 3px solid var(--border);
+  padding: 4px 8px;
+  font-weight: 600;
+}
+
+/* Att göra med fakturorna (#152): nedtonade kort längre fram, kopieringschipsen och kortets
+   uppgifter. */
+.acard.nedtonad {
+  opacity: 0.6;
+}
+
+.acard.nedtonad:hover {
+  opacity: 1;
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.copy {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 24px;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: calc(var(--radius) * 0.8);
+  background: var(--background);
+  color: inherit;
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+  user-select: all;
+}
+
+.copy:hover {
+  background: var(--muted);
+}
+
+.copy .k {
+  color: var(--muted-foreground);
+  font-size: 11px;
+  user-select: none;
+}
+
+.fakturakort {
+  display: grid;
+  grid-template-columns: 130px 1fr;
+  gap: 6px 16px;
+  margin: 0;
+}
+
+.fakturakort dd {
+  margin: 0;
+}
+
+/* Betalning av leverantörsfaktura (#147): leverantörsskulderna i listans rubrik och
+   betaluppgifterna i dokumentet, markerade med ett klick så att de kan kopieras till banken. */
+.leverantorsskulder {
+  margin: 0;
+}
+
+.betaluppgifter code {
+  user-select: all;
+}
+
+/* Kundförlust (#141): märket och skälen i panelen. */
+.badge-kundforlust {
+  background: color-mix(in oklch, var(--destructive) 12%, transparent);
+  color: var(--destructive);
+}
+
+.panel fieldset.skal {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  border: none;
+  padding: 0;
+  margin: 0 0 12px;
+}
+
+.panel fieldset.skal legend {
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+/* Kreditfakturor (#140): märkena krediterad, tillgodo och kreditfaktura, panelen Kreditfaktura…
+   och hänvisningen på kreditutkastet. */
+.badge-krediterad {
+  background: var(--muted);
+  color: var(--muted-foreground);
+}
+
+.badge-tillgodo {
+  background: color-mix(in oklch, var(--primary) 12%, transparent);
+  color: var(--primary);
+}
+
+.badge-kreditfaktura {
+  background: transparent;
+  color: var(--foreground);
+  border: 1px solid var(--border);
+}
+
+.panel.kreditera input.belopp {
+  width: 6em;
+}
+
+.hanvisning {
+  font-weight: 600;
+}
+
+/* Kreditfaktura från leverantör och Rätta avskrift (#148): märket upplåst, hänvisningen i
+   formuläret och panelen Rätta avskrift…. */
+.badge-upplast {
+  border: 1px dashed var(--primary);
+  color: var(--primary);
+}
+
+.hanvisning-val select {
+  max-width: 24em;
+}
+
+/* Externa kundfakturor (#143) */
+.badge-extern {
+  background: transparent;
+  color: var(--muted-foreground);
+  border: 1px dashed var(--border);
+}
+
+/* Att göra: Följ upp, fakturautkast och nya kunder och leverantörer (#153): det streckade
+   kortet för en ny kund eller leverantör och panelen Skicka i ett kort under Följ upp. */
+.granska-kort {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.granska-kort .knappar {
+  margin: 0;
+}
+
+.ab .dialog.skicka {
+  max-width: none;
+  box-shadow: none;
+  padding: 0;
+}
+
+/* Sök: fakturor, kunder och leverantörer (#154) */
+.sok-traffar a > span:first-child {
+  flex: 1;
+}
+
+.sok-traffar a .badge {
+  flex: none;
+}
+
+/* Reskontran per datum och avstämningen mot 1510 och 2440 (#151) */
+.reskontradel + .reskontradel {
+  margin-top: 1.5rem;
+}
+
+.avstamningen {
+  max-width: 28rem;
+}
+
+.avstamningen dd {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.avstamning.stammer {
+  color: var(--success);
+}
+
+.avstamning.avviker,
+.avstamning.avviker a,
+p.avviker a {
+  color: var(--destructive);
+  font-weight: 600;
+}
+
+/* Användarmenyn: e-postadressen i toppmenyn fäller ut Passkeys, Sessioner, Installation, temat
+   och Logga ut, som företagsväljaren och Ny. */
+.anvandarmeny {
+  position: relative;
+}
+
+.anvandarmeny summary {
+  display: block;
+  max-width: 14rem;
+  overflow: hidden;
+  line-height: calc(var(--control-height) - 2px);
+  list-style: none;
+  color: var(--muted-foreground);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* Toppmenyn får plats på en rad från 1024 px: i företagets del krymper bara sökfältet, och
+   e-postadressen kortas med … när den inte får plats. */
+.toppmeny-foretag {
+  flex: 1 1 auto;
+}
+
+.toppmeny-foretag .sokfalt {
+  width: auto;
+  min-width: 6rem;
+  flex: 0 1 240px;
+}
+
+/* Fältet tar den plats sökrutan har, så att rutan kan krympa under fältets egen bredd. */
+.toppmeny-foretag .sokfalt input {
+  width: 0;
+}
+
+@media (max-width: 1180px) {
+  .toppmeny-foretag .sokfalt kbd {
+    display: none;
+  }
+}
+
+.toppmeny-foretag > :not(.sokfalt) {
+  flex-shrink: 0;
+}
+
+.toppmeny-hoger {
+  min-width: 7rem;
+}
+
+.anvandarmeny {
+  min-width: 0;
+}
+
+.anvandarmeny summary::-webkit-details-marker {
+  display: none;
+}
+
+.anvandarmeny ul {
+  position: absolute;
+  right: 0;
+  z-index: 10;
+  min-width: 12rem;
+  margin: 4px 0 0;
+  padding: 4px;
+  list-style: none;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--card);
+  color: var(--card-foreground);
+}
+
+.anvandarmeny ul form {
+  margin: 0;
+}
+
+.anvandarmeny ul a,
+.anvandarmeny ul button {
+  display: block;
+  width: 100%;
+  height: auto;
+  padding: 4px 8px;
+  border: 0;
+  border-radius: var(--radius);
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.anvandarmeny ul a:hover,
+.anvandarmeny ul button:hover {
+  background: var(--accent);
+  color: var(--accent-foreground);
 }

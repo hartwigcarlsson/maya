@@ -4,7 +4,7 @@
 //!
 //! Ett verifikat kan rättas högst en gång och en rättelse kan inte rättas. Rättelsens datum är
 //! tidigast originalets och prövas annars med samma spärrar som när ett verifikat bokförs.
-//! Periodlåsningen (R3) kommer i etapp 3: då ska datumet också ligga i en olåst period.
+//! Periodlåsningen (R3) kommer i etapp 3: då ska datumet också ligga i en period som inte är låst.
 
 use std::fmt;
 
@@ -26,6 +26,11 @@ pub struct Original {
     pub rättad_av: Option<String>,
     /// Numret på verifikatet som det här rättar, om det är en rättelse.
     pub rättar: Option<String>,
+    /// Fakturan som verifikatet bokfördes från, t.ex. "leverantörsfaktura 8812 från Kontorsvaror
+    /// AB", när det kommer från ett av Mayas flöden. Ett sådant verifikat rättas i fakturan.
+    pub flöde: Option<String>,
+    /// Verifikatet är ett T2-verifikat under kontantmetoden (#150), som aldrig vänds.
+    pub t2: bool,
 }
 
 /// Varför ett verifikat inte kan rättas.
@@ -35,6 +40,10 @@ pub enum Rättelsespärr {
     RedanRättat(String),
     /// Verifikatet är en rättelse av verifikatet med numret.
     ÄrRättelse(String),
+    /// Verifikatet kommer från ett av Mayas flöden, fakturan i texten, och rättas där.
+    FrånFlöde(String),
+    /// Verifikatet är T2-verifikatet, som inte vänds i det nya året (#150).
+    T2,
 }
 
 impl Rättelsespärr {
@@ -42,6 +51,8 @@ impl Rättelsespärr {
         match self {
             Rättelsespärr::RedanRättat(_) => "redan_rattat",
             Rättelsespärr::ÄrRättelse(_) => "ar_rattelse",
+            Rättelsespärr::FrånFlöde(_) => "fran_flode",
+            Rättelsespärr::T2 => "t2_vands_inte",
         }
     }
 }
@@ -57,6 +68,14 @@ impl fmt::Display for Rättelsespärr {
                 f,
                 "Det här är en rättelse av {original} och kan inte rättas. Blev något fel, \
                  registrera ett nytt verifikat."
+            ),
+            Rättelsespärr::FrånFlöde(faktura) => write!(
+                f,
+                "Verifikatet bokfördes från {faktura}. Rättas i fakturan."
+            ),
+            Rättelsespärr::T2 => f.write_str(
+                "T2-verifikatet vänds inte i det nya året. Fakturorna i det betalas mot 1510 \
+                 och 2440.",
             ),
         }
     }
@@ -86,6 +105,19 @@ pub fn vänd(rader: &[Rad]) -> Vec<Rad> {
 impl Original {
     /// Om verifikatet kan rättas: det är inte redan rättat och inte självt en rättelse.
     pub fn kan_rättas(&self) -> Result<(), Rättelsespärr> {
+        if let Some(faktura) = &self.flöde {
+            return Err(Rättelsespärr::FrånFlöde(faktura.clone()));
+        }
+        self.kan_rättas_i_flödet()
+    }
+
+    /// Om verifikatet kan rättas inifrån sitt fakturaflöde (Rätta kontering, avskrift,
+    /// registrering eller betalning): som [`Original::kan_rättas`], utan spärren mot verifikat
+    /// från ett flöde.
+    pub fn kan_rättas_i_flödet(&self) -> Result<(), Rättelsespärr> {
+        if self.t2 {
+            return Err(Rättelsespärr::T2);
+        }
         if let Some(original) = &self.rättar {
             return Err(Rättelsespärr::ÄrRättelse(original.clone()));
         }
@@ -177,7 +209,19 @@ mod tests {
             ],
             rättad_av: None,
             rättar: None,
+            flöde: None,
+            t2: false,
         }
+    }
+
+    #[test]
+    fn t2_verifikatet_vänds_aldrig_varken_för_hand_eller_i_ett_flöde() {
+        let t2 = Original {
+            t2: true,
+            ..original()
+        };
+        assert_eq!(t2.kan_rättas().unwrap_err().kod(), "t2_vands_inte");
+        assert_eq!(t2.kan_rättas_i_flödet().unwrap_err(), Rättelsespärr::T2);
     }
 
     fn förutsättningar() -> Förutsättningar {
@@ -256,5 +300,48 @@ mod tests {
             ..original()
         };
         assert_eq!(rättelse.kan_rättas().unwrap_err().kod(), "ar_rattelse");
+    }
+
+    #[test]
+    fn ett_verifikat_från_en_faktura_rättas_i_fakturan() {
+        let från_flöde = Original {
+            flöde: Some("leverantörsfaktura 8812 från Kontorsvaror AB".into()),
+            ..original()
+        };
+        let spärr = från_flöde.kan_rättas().unwrap_err();
+        assert_eq!(spärr.kod(), "fran_flode");
+        assert_eq!(
+            spärr.to_string(),
+            "Verifikatet bokfördes från leverantörsfaktura 8812 från Kontorsvaror AB. Rättas i \
+             fakturan."
+        );
+    }
+
+    #[test]
+    fn i_fakturan_rättas_verifikatet_en_gång_och_aldrig_en_rättelse() {
+        let flöde = Some("kundfaktura 1 till Kund AB".to_string());
+        let från_flöde = Original {
+            flöde: flöde.clone(),
+            ..original()
+        };
+        assert_eq!(från_flöde.kan_rättas_i_flödet(), Ok(()));
+        let rättat = Original {
+            flöde: flöde.clone(),
+            rättad_av: Some("V6".into()),
+            ..original()
+        };
+        assert_eq!(
+            rättat.kan_rättas_i_flödet().unwrap_err().kod(),
+            "redan_rattat"
+        );
+        let rättelse = Original {
+            flöde,
+            rättar: Some("V4".into()),
+            ..original()
+        };
+        assert_eq!(
+            rättelse.kan_rättas_i_flödet().unwrap_err().kod(),
+            "ar_rattelse"
+        );
     }
 }

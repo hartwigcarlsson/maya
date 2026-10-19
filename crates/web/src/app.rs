@@ -18,7 +18,12 @@ use crate::installation::InstallationSida;
 use crate::installningar::FöretagsInställningar;
 use crate::konto::{Passkeys, Sessioner};
 use crate::kontoplan::KontoplanSida;
+use crate::kunder::{KundregisterSida, NyKundSida};
+use crate::kundfakturor::{KundfakturorSida, NyExternKundfakturaSida, NyKundfakturaSida};
+use crate::leverantorer::{LeverantörerSida, NyLeverantörSida};
+use crate::leverantorsfakturor::{LeverantörsfakturorSida, NyLeverantörsfakturaSida};
 use crate::rapporter::{Balansräkning, Rapporter, Resultaträkning};
+use crate::reskontra::ReskontraSida;
 use crate::sidodata::per_adress;
 use crate::sok::SökSida;
 use crate::systemdokumentation::SystemdokumentationSida;
@@ -61,6 +66,27 @@ if(e.key!=='/'||e.ctrlKey||e.metaKey||e.altKey)return;var t=e.target;\
 if(t&&(t.isContentEditable||/^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName)))return;\
 var f=document.getElementById('kontosok');if(f){e.preventDefault();f.focus();f.select()}})";
 
+/// Webbläsarens PDF-visare i en ram tar fokus när den har laddat, och då rullar sidan till ramen
+/// (underlagets förhandsvisning bredvid ett formulär). Det fokus som en ram tar inom några
+/// sekunder efter att den laddat lämnas tillbaka, och sidan står kvar där den stod. Ett klick i
+/// ramen därefter fokuserar den som vanligt.
+const RAMEN_TAR_INTE_FOKUS: &str = "(function(){var x=scrollX,y=scrollY;\
+function ram(e){return e&&e.tagName==='IFRAME'}\
+addEventListener('scroll',function(){if(!ram(document.activeElement)){x=scrollX;y=scrollY}},\
+{passive:true});\
+document.addEventListener('load',function(e){if(ram(e.target))e.target.__laddad=Date.now()},true);\
+addEventListener('blur',function(){var r=document.activeElement;\
+if(!ram(r)||!r.__laddad||Date.now()-r.__laddad>5000)return;r.__laddad=0;var lx=x,ly=y;\
+setTimeout(function(){r.blur();scrollTo(lx,ly)},0)})})()";
+
+/// Menyerna i toppmenyn (användarmenyn, företagsväljaren, Ny) stängs när man väljer något i dem
+/// eller klickar utanför dem. Toppmenyn ritas inte om när man byter sida, så en öppen meny
+/// skulle annars stå kvar öppen.
+const MENYERNA_STÄNGS: &str = "document.addEventListener('click',function(e){\
+document.querySelectorAll('header details[open]').forEach(function(d){\
+if(!d.contains(e.target)||(e.target.closest('a,button')&&!e.target.closest('summary')))\
+d.removeAttribute('open')})})";
+
 /// Dokumentet som servern renderar runt appen.
 pub fn shell(options: LeptosOptions) -> impl IntoView {
     view! {
@@ -73,6 +99,8 @@ pub fn shell(options: LeptosOptions) -> impl IntoView {
                 <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
                 <script>{TEMA_FÖRE_RITNING}</script>
                 <script>{SNABBTANGENT_SÖK}</script>
+                <script>{RAMEN_TAR_INTE_FOKUS}</script>
+                <script>{MENYERNA_STÄNGS}</script>
                 <script src="/auth/webauthn.js" defer></script>
                 <HydrationScripts options />
                 <MetaTags />
@@ -90,25 +118,34 @@ pub fn App() -> impl IntoView {
     let läge = läge();
     provide_context(läge.clone());
     provide_context(företagsval());
+    // Användarmenyn fälls ut under e-postadressen, så att toppmenyn får plats på en rad.
     let användarmeny = match läge {
-        Läge::Inloggad { visningsnamn } => Some(view! {
-            <span class="anvandare">{visningsnamn}</span>
-            <a class="knapp knapp-diskret" href="/passkeys">
-                "Passkeys"
-            </a>
-            <a class="knapp knapp-diskret" href="/sessioner">
-                "Sessioner"
-            </a>
-            <a class="knapp knapp-diskret" href="/installation">
-                "Installation"
-            </a>
-            <form method="post" action="/auth/utloggning">
-                <button class="knapp knapp-diskret" type="submit">
-                    "Logga ut"
-                </button>
-            </form>
-        }),
-        _ => None,
+        Läge::Inloggad { visningsnamn } => view! {
+            <details class="anvandarmeny">
+                <summary class="knapp knapp-diskret">{visningsnamn}</summary>
+                <ul>
+                    <li>
+                        <a href="/passkeys">"Passkeys"</a>
+                    </li>
+                    <li>
+                        <a href="/sessioner">"Sessioner"</a>
+                    </li>
+                    <li>
+                        <a href="/installation">"Installation"</a>
+                    </li>
+                    <li>
+                        <TemaVäxlare />
+                    </li>
+                    <li>
+                        <form method="post" action="/auth/utloggning">
+                            <button type="submit">"Logga ut"</button>
+                        </form>
+                    </li>
+                </ul>
+            </details>
+        }
+        .into_any(),
+        _ => view! { <TemaVäxlare /> }.into_any(),
     };
 
     view! {
@@ -120,10 +157,7 @@ pub fn App() -> impl IntoView {
                     "Maya"
                 </a>
                 <Toppmeny />
-                <div class="toppmeny-hoger">
-                    {användarmeny}
-                    <TemaVäxlare />
-                </div>
+                <div class="toppmeny-hoger">{användarmeny}</div>
             </header>
             <main>
                 <Innehåll />
@@ -161,6 +195,12 @@ fn Innehåll() -> impl IntoView {
                 <Route
                     path=path!("foretag/:id/rapporter/huvudbok")
                     view=HuvudbokSida
+                    ssr=SsrMode::Async
+                />
+                // #151
+                <Route
+                    path=path!("foretag/:id/rapporter/reskontra")
+                    view=ReskontraSida
                     ssr=SsrMode::Async
                 />
                 <Route
@@ -203,6 +243,48 @@ fn Innehåll() -> impl IntoView {
                 <Route
                     path=path!("foretag/:id/installningar/systemdokumentation")
                     view=SystemdokumentationSida
+                    ssr=SsrMode::Async
+                />
+                // #144 leverantörsregistret
+                <Route
+                    path=path!("foretag/:id/leverantorer")
+                    view=LeverantörerSida
+                    ssr=SsrMode::Async
+                />
+                <Route
+                    path=path!("foretag/:id/leverantorer/ny")
+                    view=NyLeverantörSida
+                    ssr=SsrMode::Async
+                />
+                // #133 Kundregister
+                <Route path=path!("foretag/:id/kunder") view=KundregisterSida ssr=SsrMode::Async />
+                <Route path=path!("foretag/:id/kunder/ny") view=NyKundSida ssr=SsrMode::Async />
+                // #145 leverantörsfakturor
+                <Route
+                    path=path!("foretag/:id/leverantorsfakturor")
+                    view=LeverantörsfakturorSida
+                    ssr=SsrMode::Async
+                />
+                <Route
+                    path=path!("foretag/:id/leverantorsfakturor/ny")
+                    view=NyLeverantörsfakturaSida
+                    ssr=SsrMode::Async
+                />
+                // #135 Kundfakturor
+                <Route
+                    path=path!("foretag/:id/kundfakturor")
+                    view=KundfakturorSida
+                    ssr=SsrMode::Async
+                />
+                <Route
+                    path=path!("foretag/:id/kundfakturor/ny")
+                    view=NyKundfakturaSida
+                    ssr=SsrMode::Async
+                />
+                // #143 Externa kundfakturor
+                <Route
+                    path=path!("foretag/:id/kundfakturor/extern/ny")
+                    view=NyExternKundfakturaSida
                     ssr=SsrMode::Async
                 />
             </Routes>

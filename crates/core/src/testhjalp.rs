@@ -96,6 +96,11 @@ pub async fn kör_sql(db: &Databas, sql: &'static str) -> Result<(), sqlx::Error
 /// Ett företag med kalenderåret 2026 som första räkenskapsår, upplagt av en ny användare
 /// `anna@example.se`, som returneras.
 pub async fn företag(db: &Databas) -> (Aktör, FöretagsId) {
+    företag_med_metod(db, "faktura").await
+}
+
+/// Ett företag som [`företag`] med bokföringsmetoden `metod` (`faktura` eller `kontant`, #149).
+pub async fn företag_med_metod(db: &Databas, metod: &str) -> (Aktör, FöretagsId) {
     let anna = användare(db, "anna@example.se").await;
     let id = foretag::lägg_upp(
         db,
@@ -106,7 +111,7 @@ pub async fn företag(db: &Databas) -> (Aktör, FöretagsId) {
             namn: "Exempel AB".into(),
             första_år_start: "2026-01-01".into(),
             första_år_slut: "2026-12-31".into(),
-            bokföringsmetod: "faktura".into(),
+            bokföringsmetod: metod.into(),
             momsperiod: "kvartal".into(),
         },
     )
@@ -254,4 +259,318 @@ pub async fn misslyckad_migrering(
         .await
         .expect("misslyckandet loggas");
     tx.commit().await.expect("commit");
+}
+
+// #144 leverantörsregistret
+/// En aktiv leverantör `namn` med standardkontot 5410 och bankgiro 5050-1055.
+pub async fn leverantör(
+    db: &Databas,
+    aktör: &Aktör,
+    företag: FöretagsId,
+    namn: &str,
+) -> crate::leverantor::LeverantörsId {
+    crate::leverantor::skapa(
+        db,
+        &Klocka::system(),
+        aktör,
+        företag,
+        &maya_domain::leverantor::NyLeverantör {
+            namn: namn.into(),
+            bankgiro: "5050-1055".into(),
+            standardkonto: "5410".into(),
+            ..Default::default()
+        },
+    )
+    .await
+    .expect("testleverantör")
+}
+
+// #135 Kundfakturor
+/// Ett företag som [`företag`], med de uppgifter som en kundfaktura kräver: adress, säte,
+/// momsregistreringsnummer, F-skatt och bankgiro 5050-1055.
+pub async fn fakturaföretag(db: &Databas) -> (Aktör, FöretagsId) {
+    fakturaföretag_med_metod(db, "faktura").await
+}
+
+/// Ett företag som [`fakturaföretag`] med bokföringsmetoden `metod` (#149).
+pub async fn fakturaföretag_med_metod(db: &Databas, metod: &str) -> (Aktör, FöretagsId) {
+    let (anna, id) = företag_med_metod(db, metod).await;
+    let klocka = Klocka::system();
+    foretag::ändra_uppgifter(
+        db,
+        &klocka,
+        &anna,
+        id,
+        &maya_domain::foretag::Uppgifter {
+            namn: "Exempel AB".into(),
+            gatuadress: "Exempelgatan 1".into(),
+            postnummer: "12345".into(),
+            postort: "Exempelstad".into(),
+            säte: "Stockholm".into(),
+            momsregnr: "SE556036079301".into(),
+            f_skatt: true,
+            ..Default::default()
+        },
+    )
+    .await
+    .expect("företagets uppgifter");
+    crate::fakturauppgifter::ändra(
+        db,
+        &klocka,
+        &anna,
+        id,
+        &maya_domain::fakturauppgifter::Fakturauppgifter {
+            bankgiro: "5050-1055".into(),
+            ..Default::default()
+        },
+    )
+    .await
+    .expect("fakturauppgifterna");
+    (anna, id)
+}
+
+/// En aktiv kund `namn` med adress och 30 dagars betalningsvillkor.
+pub async fn kund(
+    db: &Databas,
+    aktör: &Aktör,
+    företag: FöretagsId,
+    namn: &str,
+) -> crate::kund::KundId {
+    crate::kund::skapa(
+        db,
+        &Klocka::system(),
+        aktör,
+        företag,
+        &maya_domain::kund::NyKund {
+            namn: namn.into(),
+            adress: "Storgatan 1\n111 22 Stockholm".into(),
+            epost: "ekonomi@kund.se".into(),
+            ..Default::default()
+        },
+    )
+    .await
+    .expect("testkund")
+}
+
+/// Ett utkast till kundfaktura till `kund` daterat `fakturadatum`, med en rad: 10 timmar à
+/// 950 kr med 25 % moms på 3001 (totalt 11 875 kr).
+pub async fn kundfakturautkast(
+    db: &Databas,
+    aktör: &Aktör,
+    företag: FöretagsId,
+    kund: crate::kund::KundId,
+    fakturadatum: &str,
+) -> crate::kundfaktura::KundfakturaId {
+    crate::kundfaktura::spara_utkast(
+        db,
+        &Klocka::system(),
+        aktör,
+        företag,
+        None,
+        &maya_domain::kundfaktura::NyKundfaktura {
+            kund: kund.to_string(),
+            fakturadatum: fakturadatum.into(),
+            rader: vec![maya_domain::kundfaktura::NyFakturarad {
+                beskrivning: "Konsulttimmar".into(),
+                antal: "10".into(),
+                enhet: "tim".into(),
+                à_pris: "950".into(),
+                ..Default::default()
+            }],
+            ..Default::default()
+        },
+    )
+    .await
+    .expect("testutkastet")
+}
+
+/// En utfärdad kundfaktura som [`kundfakturautkast`] till en ny kund `namn`.
+pub async fn utfärdad_kundfaktura(
+    db: &Databas,
+    aktör: &Aktör,
+    företag: FöretagsId,
+    namn: &str,
+    fakturadatum: &str,
+) -> crate::kundfaktura::Utfärdad {
+    let kund = kund(db, aktör, företag, namn).await;
+    let utkast = kundfakturautkast(db, aktör, företag, kund, fakturadatum).await;
+    crate::kundfaktura::utfärda(db, &Klocka::system(), aktör, företag, utkast)
+        .await
+        .expect("fakturan utfärdas")
+}
+
+// #138 Utskick
+/// En brevlåda i stället för SMTP: sparar fakturamejlen, eller avvisar varje mejl med ett fel.
+#[derive(Debug, Clone, Default)]
+pub struct Brevlåda {
+    mejl: std::sync::Arc<std::sync::Mutex<Vec<crate::utskick::Fakturamejl>>>,
+    avvisar: Option<String>,
+}
+
+impl Brevlåda {
+    pub fn ny() -> Self {
+        Self::default()
+    }
+
+    /// En brevlåda som avvisar varje mejl med `fel`, som en SMTP-server som svarar 554.
+    pub fn som_avvisar(fel: &str) -> Self {
+        Brevlåda {
+            avvisar: Some(fel.into()),
+            ..Self::default()
+        }
+    }
+
+    /// Mejlen som kom fram.
+    pub fn mejl(&self) -> Vec<crate::utskick::Fakturamejl> {
+        self.mejl.lock().expect("brevlådan").clone()
+    }
+}
+
+impl crate::utskick::Epost for Brevlåda {
+    async fn skicka(
+        &self,
+        mejl: &crate::utskick::Fakturamejl,
+        _nu: jiff::Timestamp,
+    ) -> Result<(), String> {
+        match &self.avvisar {
+            Some(fel) => Err(fel.clone()),
+            None => {
+                self.mejl.lock().expect("brevlådan").push(mejl.clone());
+                Ok(())
+            }
+        }
+    }
+}
+
+// #147 Betalning av leverantörsfaktura
+/// En registrerad leverantörsfaktura `nummer` från `leverantör` på 1 250,00 kr (5410 netto
+/// 1 000 kr och 25 % moms), fakturerad 2026-03-14 och förfallen 2026-04-13. `originalvaluta` är
+/// fritext, t.ex. "EUR 109,50", eller tom.
+pub async fn registrerad_leverantörsfaktura(
+    db: &Databas,
+    aktör: &Aktör,
+    företag: FöretagsId,
+    leverantör: crate::leverantor::LeverantörsId,
+    nummer: &str,
+    originalvaluta: &str,
+) -> crate::leverantorsfaktura::LeverantörsfakturaId {
+    use crate::leverantorsfaktura;
+    let klocka = Klocka::system();
+    let innehåll = format!("%PDF-1.4 leverantörsfaktura {nummer}");
+    let (id, _) = leverantorsfaktura::ladda_upp(
+        db,
+        &klocka,
+        aktör,
+        företag,
+        (
+            &format!("faktura-{nummer}.pdf"),
+            "application/pdf",
+            innehåll.as_bytes(),
+        ),
+    )
+    .await
+    .expect("originalet laddas upp");
+    leverantorsfaktura::registrera(
+        db,
+        &klocka,
+        aktör,
+        företag,
+        id,
+        &maya_domain::leverantorsfaktura::NyLeverantörsfaktura {
+            leverantör: leverantör.to_string(),
+            fakturanummer: nummer.into(),
+            fakturadatum: "2026-03-14".into(),
+            förfallodag: "2026-04-13".into(),
+            referens: "4455667788".into(),
+            totalbelopp: "1 250,00".into(),
+            originalvaluta: originalvaluta.into(),
+            rader: vec![maya_domain::leverantorsfaktura::NyRad {
+                konto: "5410".into(),
+                netto: "1 000".into(),
+                momssats: "25".into(),
+                moms: String::new(),
+            }],
+            ..Default::default()
+        },
+    )
+    .await
+    .expect("fakturan registreras");
+    id
+}
+
+// #140 Kreditfakturor
+/// En utfärdad kreditfaktura som krediterar hela den utfärdade fakturan `original`.
+pub async fn utfärdad_kreditfaktura(
+    db: &Databas,
+    aktör: &Aktör,
+    företag: FöretagsId,
+    original: crate::kundfaktura::KundfakturaId,
+) -> crate::kundfaktura::Utfärdad {
+    let klocka = Klocka::system();
+    let utkast = crate::kundfaktura::kreditera(
+        db,
+        &klocka,
+        aktör,
+        företag,
+        original,
+        &maya_domain::kreditfaktura::NyKreditering {
+            hela: true,
+            antal: Vec::new(),
+        },
+    )
+    .await
+    .expect("kreditutkastet");
+    crate::kundfaktura::utfärda(db, &klocka, aktör, företag, utkast)
+        .await
+        .expect("kreditfakturan utfärdas")
+}
+
+// #143 Externa kundfakturor
+/// En registrerad extern kundfaktura `nummer` till kunden `kund`: 10 000 kr på 3001 med 25 %
+/// moms, 12 500,00 kr, fakturerad 2026-03-10 och förfallen 2026-04-09.
+pub async fn registrerad_extern_kundfaktura(
+    db: &Databas,
+    aktör: &Aktör,
+    företag: FöretagsId,
+    kund: crate::kund::KundId,
+    nummer: &str,
+) -> crate::kundfaktura::KundfakturaId {
+    use crate::extern_kundfaktura;
+    let klocka = Klocka::system();
+    let innehåll = format!("%PDF-1.4 extern kundfaktura {nummer}");
+    let (id, _) = extern_kundfaktura::ladda_upp(
+        db,
+        &klocka,
+        aktör,
+        företag,
+        (
+            &format!("{nummer}.pdf"),
+            "application/pdf",
+            innehåll.as_bytes(),
+        ),
+    )
+    .await
+    .expect("originalet laddas upp");
+    extern_kundfaktura::registrera(
+        db,
+        &klocka,
+        aktör,
+        företag,
+        id,
+        &maya_domain::extern_kundfaktura::NyExternFaktura {
+            kund: kund.to_string(),
+            fakturanummer: nummer.into(),
+            fakturadatum: "2026-03-10".into(),
+            förfallodag: "2026-04-09".into(),
+            rader: vec![maya_domain::extern_kundfaktura::NyExternRad {
+                momssats: "25".into(),
+                konto: "3001".into(),
+                belopp: "10 000".into(),
+            }],
+            ..Default::default()
+        },
+    )
+    .await
+    .expect("den externa fakturan registreras");
+    id
 }

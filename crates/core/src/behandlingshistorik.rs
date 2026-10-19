@@ -6,6 +6,7 @@ use jiff::Timestamp;
 use jiff::civil::Date;
 use maya_domain::belopp::Saldo;
 use maya_domain::foretag::{Bokföringsmetod, Momsperiod};
+use maya_domain::kund::OmvändSkattskyldighet;
 use serde_json::Value;
 use sqlx::SqliteConnection;
 
@@ -75,6 +76,50 @@ händelser! {
     MigreringKörd => "migrering körd",
     MigreringMisslyckad => "migrering misslyckad",
     ProgramversionBytt => "programversion bytt",
+    // #134 Fakturauppgifter
+    FakturauppgifterÄndrade => "fakturauppgifter ändrade",
+    OcrInställningÄndrad => "ocr-inställning ändrad",
+    // #144 leverantörsregistret
+    LeverantörSkapad => "leverantör skapad",
+    LeverantörÄndrad => "leverantör ändrad",
+    LeverantörArkiverad => "leverantör arkiverad",
+    LeverantörRaderad => "leverantör raderad",
+    StandardkontoÄndrat => "standardkonto ändrat",
+    // #133 Kundregister
+    KundSkapad => "kund skapad",
+    KundÄndrad => "kund ändrad",
+    KundArkiverad => "kund arkiverad",
+    KundRaderad => "kund raderad",
+    // #145 Leverantörsfakturor
+    LeverantörsfakturaRegistrerad => "leverantörsfaktura registrerad",
+    FakturautkastRaderat => "fakturautkast raderat",
+    // #135 Kundfakturor
+    KundfakturaUtfärdad => "kundfaktura utfärdad",
+    StartnummerÄndrat => "startnummer ändrat",
+    // #142 Rätta kontering
+    KonteringRättad => "kontering rättad",
+    // #138 Utskick
+    UtskickGjort => "utskick gjort",
+    UtskickMisslyckat => "utskick misslyckat",
+    UtskickLämnatPåAnnatSätt => "utskick lämnat på annat sätt",
+    // #139 Betalningar
+    BetalningRegistrerad => "betalning registrerad",
+    BetalningRättad => "betalning rättad",
+    // #141 Kundförlust
+    KundförlustBokförd => "kundförlust bokförd",
+    KundförlustÅterkallad => "kundförlust återkallad",
+    // #140 Kreditfakturor
+    KreditfakturaUtfärdad => "kreditfaktura utfärdad",
+    Återbetalning => "återbetalning",
+    // #148 Kreditfaktura från leverantör och Rätta avskrift
+    KreditfakturaRegistrerad => "kreditfaktura registrerad",
+    AvskriftRättad => "avskrift rättad",
+    // #143 Externa kundfakturor (KreditfakturaRegistrerad ovan gäller också externa)
+    ExternKundfakturaRegistrerad => "extern kundfaktura registrerad",
+    RegistreringRättad => "registrering rättad",
+    // #150 T2
+    T2UtkastSkapat => "T2-utkast skapat",
+    T2UtkastBokfört => "T2-utkast bokfört",
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -290,6 +335,14 @@ impl Post {
             Momsperiod::från_kod(&s(kod)).map_or_else(|| s(kod), |m| m.namn().to_lowercase())
         };
         let kronor = |öre: &Value| Saldo::från_öre(öre.as_i64().unwrap_or_default()).to_string();
+        // #149: ", bokförd som V1", eller att inget bokfördes under kontantmetoden.
+        let bokförd_som = |nummer: String| {
+            if nummer.is_empty() {
+                ", inte bokförd (kontantmetoden)".to_string()
+            } else {
+                format!(", bokförd som {nummer}")
+            }
+        };
         let Some(händelse) = Händelse::från_namn(&self.typ) else {
             return fält_som_text(b);
         };
@@ -480,6 +533,390 @@ impl Post {
                 };
                 format!("Från {från} till {}", f("till"))
             }
+            // #134 Fakturauppgifter
+            Händelse::FakturauppgifterÄndrade => b
+                .as_object()
+                .map(|fält| {
+                    let värde = |namn: &str, v: &Value| match (namn, v) {
+                        ("logotyp", Value::Null) => "ingen".to_string(),
+                        ("logotyp", v) => format!("”{}”", s(&v["filnamn"])),
+                        (_, v) => format!("”{}”", s(v)),
+                    };
+                    fält
+                        .iter()
+                        .map(|(namn, v)| {
+                            format!(
+                                "{namn}: {} → {}",
+                                värde(namn, &v["från"]),
+                                värde(namn, &v["till"])
+                            )
+                        })
+                        .collect::<Vec<_>>()
+                        .join("; ")
+                })
+                .unwrap_or_default(),
+            Händelse::OcrInställningÄndrad => {
+                if b["till"].as_bool() == Some(true) {
+                    "OCR-referens på".into()
+                } else {
+                    "OCR-referens av".into()
+                }
+            }
+            // #144 leverantörsregistret
+            Händelse::LeverantörSkapad => {
+                let mut text = format!("”{}” upplagd", f("namn"));
+                if !f("orgnr").is_empty() {
+                    text.push_str(&format!(", orgnr {}", f("orgnr")));
+                }
+                text
+            }
+            Händelse::LeverantörÄndrad => b["ändrat"]
+                .as_object()
+                .map(|fält| {
+                    fält
+                        .iter()
+                        .map(|(namn, v)| {
+                            format!(
+                                "{}: ”{}” → ”{}”",
+                                namn.replace('_', " "),
+                                s(&v["från"]),
+                                s(&v["till"])
+                            )
+                        })
+                        .collect::<Vec<_>>()
+                        .join("; ")
+                })
+                .unwrap_or_default(),
+            Händelse::LeverantörArkiverad => format!("”{}” arkiverad", f("namn")),
+            Händelse::LeverantörRaderad => format!("”{}” raderad", f("namn")),
+            Händelse::StandardkontoÄndrat => {
+                let konto = |v: &Value| match v {
+                    Value::Null => "inget".to_string(),
+                    v => s(v),
+                };
+                format!(
+                    "Standardkonto för ”{}”: {} → {}",
+                    f("namn"),
+                    konto(&b["från"]),
+                    konto(&b["till"])
+                )
+            }
+            // #133 Kundregister
+            Händelse::KundSkapad => {
+                let mut delar: Vec<String> = ["namn", "identitet", "epost"]
+                    .into_iter()
+                    .map(f)
+                    .filter(|d| !d.is_empty())
+                    .collect();
+                delar.push(format!("{} dagar", s(&b["betalningsvillkor"])));
+                if let Some(o) = OmvändSkattskyldighet::från_kod(&f("omvänd_skattskyldighet"))
+                    .filter(|o| *o != OmvändSkattskyldighet::Ingen)
+                {
+                    delar.push(format!("omvänd skattskyldighet: {}", o.namn()));
+                }
+                delar.join(", ")
+            }
+            Händelse::KundÄndrad => b["ändringar"]
+                .as_object()
+                .map(|fält| {
+                    fält
+                        .iter()
+                        .map(|(namn, v)| {
+                            format!("{namn}: ”{}” → ”{}”", s(&v["från"]), s(&v["till"]))
+                        })
+                        .collect::<Vec<_>>()
+                        .join("; ")
+                })
+                .unwrap_or_default(),
+            Händelse::KundArkiverad => "Arkiverad; visas inte längre i väljarna".into(),
+            Händelse::KundRaderad => {
+                let namn = [f("namn"), f("identitet")]
+                    .into_iter()
+                    .filter(|d| !d.is_empty())
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                format!("{namn} raderad ur kundregistret")
+            }
+            // #145 Leverantörsfakturor
+            Händelse::LeverantörsfakturaRegistrerad => format!(
+                "Faktura {} från ”{}” daterad {}, förfaller {}{}",
+                f("fakturanummer"),
+                f("leverantörsnamn"),
+                f("fakturadatum"),
+                f("förfallodag"),
+                bokförd_som(f("nummer"))
+            ),
+            // #135 Kundfakturor
+            Händelse::KundfakturaUtfärdad => format!(
+                "Faktura {} till ”{}” daterad {}, förfaller {}, {} kr{}",
+                f("nummer"),
+                s(&b["kund"]["namn"]),
+                f("fakturadatum"),
+                f("förfallodag"),
+                kronor(&b["summa_öre"]),
+                bokförd_som(s(&b["verifikat"]["nummer"]))
+            ),
+            Händelse::FakturautkastRaderat => {
+                // Gemensam för kund- och leverantörsfakturor (#135, #145).
+                let mut text = format!("Utkast till {}", f("sort"));
+                for (namn, etikett) in [
+                    ("fakturanummer", "nummer"),
+                    ("kundnamn", "till"),
+                    ("leverantörsnamn", "från"),
+                ] {
+                    if !f(namn).is_empty() {
+                        text.push_str(&format!(", {etikett} ”{}”", f(namn)));
+                    }
+                }
+                text.push_str(&format!(", {} rader", s(&b["antal_rader"])));
+                text
+            }
+            Händelse::StartnummerÄndrat => {
+                format!("Första fakturanummer: {} → {}", f("från"), f("till"))
+            }
+            // #142 Rätta kontering
+            Händelse::KonteringRättad => {
+                let rader = b["rader"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .map(|r| {
+                        format!(
+                            "rad {} från {} till {}",
+                            s(&r["rad"]),
+                            s(&r["från"]),
+                            s(&r["till"])
+                        )
+                    })
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                let mut text = format!(
+                    "Faktura {}: {} vänt av {} och bokförd som {}, {rader}",
+                    f("nummer"),
+                    s(&b["vänt"]["nummer"]),
+                    s(&b["rättelse"]["nummer"]),
+                    s(&b["verifikat"]["nummer"])
+                );
+                if !f("orsak").is_empty() {
+                    text.push_str(&format!(" ({})", f("orsak")));
+                }
+                text
+            }
+            // #138 Utskick
+            Händelse::UtskickGjort => {
+                format!("Faktura {} skickad till {}", f("nummer"), f("till"))
+            }
+            Händelse::UtskickMisslyckat => format!(
+                "Faktura {} kunde inte skickas till {}: {}",
+                f("nummer"),
+                f("till"),
+                f("fel")
+            ),
+            Händelse::UtskickLämnatPåAnnatSätt => {
+                format!("Faktura {} lämnad på annat sätt: {}", f("nummer"), f("hur"))
+            }
+            // #139 Betalningar
+            Händelse::BetalningRegistrerad => {
+                let mut text = format!(
+                    "Betalning {} kr av faktura {} till ”{}” den {} på {}",
+                    kronor(&b["summa_öre"]),
+                    f("fakturanummer"),
+                    f("motpart"),
+                    f("betaldag"),
+                    f("konto")
+                );
+                if b["öresutjämning_öre"].as_i64().unwrap_or_default() != 0 {
+                    text.push_str(&format!(
+                        ", {} kr mot öresutjämning",
+                        kronor(&b["öresutjämning_öre"])
+                    ));
+                }
+                // #147 Kursdifferens: positiv vid vinst, negativ vid förlust.
+                match b["kursdifferens_öre"].as_i64().unwrap_or_default() {
+                    0 => {}
+                    k => text.push_str(&format!(
+                        ", {} kr {}",
+                        Saldo::från_öre(k.abs()),
+                        if k > 0 { "kursvinst" } else { "kursförlust" }
+                    )),
+                }
+                text.push_str(&format!(
+                    ", bokförd som {}, {} kr återstår",
+                    s(&b["verifikat"]["nummer"]),
+                    kronor(&b["återstår_öre"])
+                ));
+                text
+            }
+            Händelse::BetalningRättad => {
+                let mut text = format!(
+                    "Betalning {} kr av faktura {} ({}) rättad med {}",
+                    kronor(&b["summa_öre"]),
+                    f("fakturanummer"),
+                    s(&b["verifikat"]["nummer"]),
+                    s(&b["rättelse"]["nummer"])
+                );
+                if !f("orsak").is_empty() {
+                    text.push_str(&format!(", {}", f("orsak")));
+                }
+                text.push_str(&format!(", {} kr återstår", kronor(&b["återstår_öre"])));
+                text
+            }
+            // #141 Kundförlust
+            Händelse::KundförlustBokförd => {
+                let mut text = format!(
+                    "Kundförlust {} kr på faktura {} till ”{}” den {} ({})",
+                    kronor(&b["summa_öre"]),
+                    f("fakturanummer"),
+                    f("motpart"),
+                    f("datum"),
+                    f("skälet")
+                );
+                match b["verifikat"]["nummer"].as_str() {
+                    Some(nr) => text.push_str(&format!(
+                        ", bokförd som {nr}, utgående moms minskad med {} kr",
+                        kronor(&b["moms_öre"])
+                    )),
+                    None => text.push_str(", bara status: fordran är inte bokförd"),
+                }
+                text
+            }
+            Händelse::KundförlustÅterkallad => {
+                let mut text = format!(
+                    "Kundförlust {} kr på faktura {} återkallad",
+                    kronor(&b["summa_öre"]),
+                    f("fakturanummer")
+                );
+                if let (Some(v), Some(å)) = (
+                    b["verifikat"]["nummer"].as_str(),
+                    b["återkallelse"]["nummer"].as_str(),
+                ) {
+                    text.push_str(&format!(" med {å}, som vänder {v}"));
+                }
+                text.push_str(&format!(", {} kr återstår", kronor(&b["återstår_öre"])));
+                text
+            }
+            // #140 Kreditfakturor
+            Händelse::KreditfakturaUtfärdad => format!(
+                "Kreditfaktura {} till ”{}” daterad {}, krediterar faktura {}, {} kr{}",
+                f("nummer"),
+                s(&b["kund"]["namn"]),
+                f("fakturadatum"),
+                f("krediterar_nummer"),
+                kronor(&b["summa_öre"]),
+                bokförd_som(s(&b["verifikat"]["nummer"]))
+            ),
+            Händelse::Återbetalning => format!(
+                "Återbetalning {} kr av tillgodohavandet på faktura {} till ”{}” den {} från {}, \
+                 bokförd som {}, {} kr återstår",
+                kronor(&b["summa_öre"]),
+                f("fakturanummer"),
+                f("motpart"),
+                f("betaldag"),
+                f("konto"),
+                s(&b["verifikat"]["nummer"]),
+                kronor(&b["återstår_öre"])
+            ),
+            // #148 Kreditfaktura från leverantör och Rätta avskrift
+            // Gemensam för leverantörens kreditfakturor (#148) och externa (#143).
+            Händelse::KreditfakturaRegistrerad => {
+                let (riktning, motpart) = match b["leverantörsnamn"].as_str() {
+                    Some(namn) => ("från", namn.to_string()),
+                    None => ("till", f("kundnamn")),
+                };
+                let mut text = format!(
+                    "Kreditfaktura {} {riktning} ”{motpart}” daterad {}, {} kr",
+                    f("fakturanummer"),
+                    f("fakturadatum"),
+                    kronor(&b["summa_öre"])
+                );
+                if b["krediterar"].is_object() {
+                    text.push_str(&format!(
+                        ", krediterar faktura {}",
+                        s(&b["krediterar"]["fakturanummer"])
+                    ));
+                } else if !f("krediterar_nummer").is_empty() {
+                    text.push_str(&format!(", krediterar faktura {}", f("krediterar_nummer")));
+                }
+                match &b["verifikat"] {
+                    Value::Object(v) => {
+                        text.push_str(&bokförd_som(s(v.get("nummer").unwrap_or(&Value::Null))))
+                    }
+                    _ => text.push_str(&bokförd_som(f("nummer"))),
+                }
+                text
+            }
+            Händelse::AvskriftRättad => {
+                let mut text = format!(
+                    "Avskriften av faktura {} från ”{}”",
+                    f("fakturanummer"),
+                    f("leverantörsnamn")
+                );
+                if b["rättelse"].is_object() {
+                    text.push_str(&format!(
+                        " rättad med {} av {}",
+                        s(&b["rättelse"]["nummer"]),
+                        s(&b["verifikat"]["nummer"])
+                    ));
+                } else {
+                    text.push_str(" rättad");
+                }
+                if !f("orsak").is_empty() {
+                    text.push_str(&format!(", {}", f("orsak")));
+                }
+                text.push_str(", fakturan är upplåst");
+                text
+            }
+            // #143 Externa kundfakturor
+            Händelse::ExternKundfakturaRegistrerad => {
+                let mut text = format!(
+                    "Extern faktura {} till ”{}” daterad {}, förfaller {}, {} kr",
+                    f("fakturanummer"),
+                    f("kundnamn"),
+                    f("fakturadatum"),
+                    f("förfallodag"),
+                    kronor(&b["summa_öre"])
+                );
+                text.push_str(&bokförd_som(s(&b["verifikat"]["nummer"])));
+                if b["omregistrerad"].as_bool() == Some(true) {
+                    text.push_str(", registrerad om");
+                }
+                text
+            }
+            Händelse::RegistreringRättad => {
+                let mut text = format!(
+                    "Registreringen av faktura {} till ”{}”",
+                    f("fakturanummer"),
+                    f("kundnamn")
+                );
+                if b["rättelse"].is_object() {
+                    text.push_str(&format!(
+                        " rättad med {} av {}",
+                        s(&b["rättelse"]["nummer"]),
+                        s(&b["verifikat"]["nummer"])
+                    ));
+                } else {
+                    text.push_str(" rättad");
+                }
+                if !f("orsak").is_empty() {
+                    text.push_str(&format!(", {}", f("orsak")));
+                }
+                text.push_str(", fakturan är upplåst");
+                text
+            }
+            // #150 T2
+            Händelse::T2UtkastSkapat => format!(
+                "Utkast daterat {} med {}, {} kr",
+                f("datum"),
+                fakturor(&b["fakturor"]),
+                kronor(&b["summa_öre"])
+            ),
+            Händelse::T2UtkastBokfört => format!(
+                "{} daterat {} med {}, {} kr; fordringarna och skulderna är bokförda",
+                f("nummer"),
+                f("datum"),
+                fakturor(&b["fakturor"]),
+                kronor(&b["summa_öre"])
+            ),
         }
     }
 
@@ -490,6 +927,14 @@ impl Post {
             (_, Some(namn)) => namn.clone(),
             (kanal, None) => kanal.namn().into(),
         }
+    }
+}
+
+/// #150: antalet obetalda fakturor i T2-utkastet, t.ex. "2 obetalda fakturor".
+fn fakturor(v: &Value) -> String {
+    match v.as_array().map_or(0, Vec::len) {
+        1 => "1 obetald faktura".into(),
+        n => format!("{n} obetalda fakturor"),
     }
 }
 
@@ -555,6 +1000,50 @@ pub(crate) async fn läs_om_verifikat(
     )
     .bind(företag.0)
     .bind(verifikat)
+    .fetch_all(conn)
+    .await?;
+    poster(rader)
+}
+
+// #144: posterna om en leverantör (och senare en kund) har dess id i beskrivningen.
+/// Posterna vars beskrivning har `"<nyckel>": id`, i ordning.
+pub(crate) async fn läs_om(
+    conn: &mut SqliteConnection,
+    företag: FöretagsId,
+    nyckel: &str,
+    id: i64,
+) -> Result<Vec<Post>, DatabasFel> {
+    let rader = sqlx::query_as(
+        "SELECT h.tid, h.kanal, h.anvandare_id, u.visningsnamn, h.typ, h.objekt, h.beskrivning
+         FROM behandlingshistorik h LEFT JOIN anvandare u ON u.id = h.anvandare_id
+         WHERE h.foretag_id = ? AND h.beskrivning ->> ? = ? ORDER BY h.id",
+    )
+    .bind(företag.0)
+    .bind(format!("$.\"{nyckel}\""))
+    .bind(id)
+    .fetch_all(conn)
+    .await?;
+    poster(rader)
+}
+
+// #140: en kundfakturas poster och kreditfakturornas poster om den.
+/// Posterna vars beskrivning har `"<nyckel>": id` för någon av `nycklar`, i ordning.
+pub(crate) async fn läs_om_någon(
+    conn: &mut SqliteConnection,
+    företag: FöretagsId,
+    nycklar: [&str; 2],
+    id: i64,
+) -> Result<Vec<Post>, DatabasFel> {
+    let rader = sqlx::query_as(
+        "SELECT h.tid, h.kanal, h.anvandare_id, u.visningsnamn, h.typ, h.objekt, h.beskrivning
+         FROM behandlingshistorik h LEFT JOIN anvandare u ON u.id = h.anvandare_id
+         WHERE h.foretag_id = ?1 AND (h.beskrivning ->> ?2 = ?4 OR h.beskrivning ->> ?3 = ?4)
+         ORDER BY h.id",
+    )
+    .bind(företag.0)
+    .bind(format!("$.\"{}\"", nycklar[0]))
+    .bind(format!("$.\"{}\"", nycklar[1]))
+    .bind(id)
     .fetch_all(conn)
     .await?;
     poster(rader)

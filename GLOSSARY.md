@@ -14,7 +14,7 @@ _Avoid_: Användarkonto, anpassat konto, underkonto (som samlingsnamn)
 
 **Grundkonto**:
 Ett konto som BAS markerar som en del av basuppsättningen (■). Grundkontona är aktiva när ett nytt företag läggs upp.
-_Avoid_: Baskonto, standardkonto
+_Avoid_: Baskonto. *Standardkonto* är ett annat begrepp: en leverantörs förvalda kostnadskonto.
 
 **Reserverat konto**:
 Ett konto som Maya lägger in i varje företags kontoplan för sina egna flöden; det kan inte skapas som eget konto, och det kan inte byta namn, inaktiveras eller få en annan koppling.
@@ -163,9 +163,13 @@ _Avoid_: Inkommande faktura, inköpsfaktura
 Den som ett företag säljer till och skickar kundfakturor till; registreras per företag.
 _Avoid_: Köpare, beställare, klient
 
+**Kundregister**:
+Företagets förteckning över sina kunder med deras uppgifter; en kund arkiveras men raderas inte så länge den har fakturor.
+_Avoid_: Kundlista, kundreskontra (det är fakturorna och vad som återstår på dem)
+
 **Kundreskontra**:
 Företagets register över kundfakturor och vad som återstår att betala på dem; allt i den bokförs in i huvudboken.
-_Avoid_: Kundregister, fordringslista
+_Avoid_: Fordringslista. *Kundregister* är ett annat begrepp: förteckningen över kunderna.
 
 **Utfärda**:
 Att färdigställa en kundfaktura som skapats i Maya så att den låses, får sitt fakturanummer och sin PDF; därefter ändras den bara genom en kreditfaktura.
@@ -179,17 +183,77 @@ _Avoid_: Kreditnota, negativ faktura, makulering
 Den som ett företag köper från och tar emot leverantörsfakturor från; registreras per företag.
 _Avoid_: Säljare, leverantörskund, motpart (som term)
 
+**Leverantörsregister**:
+Företagets förteckning över sina leverantörer med deras uppgifter; en leverantör arkiveras men raderas inte så länge den har fakturor.
+_Avoid_: Leverantörslista, leverantörsreskontra (det är fakturorna och vad som återstår på dem)
+
+**Standardkonto**:
+Det kostnadskonto som en leverantör har förvalt för raderna på sina leverantörsfakturor; det är en automatkontering, och en ändring av det loggas i behandlingshistoriken.
+_Avoid_: Förvalt konto, grundkonto (det är BAS basuppsättning)
+
 **Leverantörsreskontra**:
 Företagets register över leverantörsfakturor och vad som återstår att betala på dem; allt i den bokförs in i huvudboken.
-_Avoid_: Leverantörsregister, skuldlista
+_Avoid_: Skuldlista. *Leverantörsregister* är ett annat begrepp: förteckningen över leverantörerna.
 
 **Registrera**:
-Att färdigställa en leverantörsfaktura så att den låses i leverantörsreskontran; under fakturametoden bokförs den i samma steg.
+Att färdigställa en leverantörsfaktura eller en extern kundfaktura så att den låses i reskontran; under fakturametoden bokförs den i samma steg.
 _Avoid_: Attestera, godkänna, ta emot
+
+**Extern kundfaktura**:
+En kundfaktura som har skapats i ett annat system och registreras i Maya med sin PDF som underlag och det andra systemets fakturanummer; den ingår inte i fakturaserien men betalas, krediteras och skrivs av som Mayas egna.
+_Avoid_: Importerad faktura, manuell kundfaktura, utomstående faktura
 
 **Okopplat underlag**:
 Ett uppladdat och arkiverat underlag som ännu inte hör till något verifikat eller någon faktura.
 _Avoid_: Inkorgsdokument, obehandlat kvitto, lös bilaga
+
+**Fakturauppgifter**:
+Det ett företag anger under Inställningar → Företag för sina kundfakturor utöver adress, säte, momsreg-nr och F-skatt: betalsätt, OCR-referens på eller av, logotyp, svarsadress och standardmeddelande för fakturamejl; en utfärdad kundfaktura kopierar in det den använder.
+_Avoid_: Fakturaprofil, fakturahuvud
+
+**Omvänd skattskyldighet**:
+Att köparen och inte säljaren redovisar momsen på en faktura: för en kundfaktura bygg inom Sverige eller EU-tjänst (0 % moms, intäkten på 3231 eller 3308, köparens momsreg-nr och texten "Omvänd betalningsskyldighet" på fakturan), för en leverantörsfaktura dessutom EU-vara och tjänst från land utanför EU; kunden och leverantören har ett förval.
+_Avoid_: Reverse charge, omvänd moms
+
+**Momsläge**:
+Hur en kundfaktura har moms: med momssatserna, med omvänd skattskyldighet, eller utan moms för ett företag som inte är momsregistrerat på fakturadatumet; den utfärdade fakturan bär sitt momsläge.
+_Avoid_: Momstyp, momskod
+
+**Betalsätt**:
+Ett sätt som en faktura kan betalas på: bankgiro, plusgiro eller IBAN med BIC.
+_Avoid_: Betalningsmetod, betalkanal
+
+**Utskick**:
+Ett mejl med en utfärdad kundfaktura som Maya skickade eller försökte skicka, eller en markering att fakturan lämnades på annat sätt (post, personligen, kundens portal); det loggas med tid, mottagare, vem och resultat och är inget tillstånd på fakturan.
+_Avoid_: Leverans, distribution, skickad (som status)
+
+**Kursdifferens**:
+Skillnaden mellan det som återstår av en leverantörsfaktura i originalvaluta, registrerad i SEK, och det som betalades i SEK; den stängs i betalningens verifikat mot 3960 vid vinst och 7960 vid förlust, så att inget återstår.
+_Avoid_: Valutadifferens, kursavvikelse, valutajustering
+
+**Kundförlust**:
+En konstaterad förlust på det som återstår av en utfärdad kundfaktura, med skäl (konkurs, ackord, utmätning utan resultat eller annat) och datum; när fordran är bokförd bokförs den på 6351 med utgående moms minskad proportionellt, och den kan återkallas med ett nytt verifikat så att fakturan kan betalas igen. En befarad kundförlust är ett manuellt verifikat och ingen kundförlust i Maya.
+_Avoid_: Avskrivning (det är anläggningstillgångar), osäker fordran, nedskrivning av kundfordran
+
+**Tillgodohavande**:
+Det som motparten har att få tillbaka när det som återstår av en faktura är negativt, till exempel när en betald faktura krediteras; det återbetalas som en betalning åt andra hållet och visas på fakturan och kunden.
+_Avoid_: Kreditsaldo, överskott, negativ fordran
+
+**Återbetalning**:
+En betalning åt andra hållet av ett tillgodohavande: för en kund 1510 mot betalkontot, för en leverantör betalkontot mot 2440.
+_Avoid_: Utbetalning (som term), retur, kreditering
+
+**Upplåst**:
+En registrerad leverantörsfaktura eller extern kundfaktura vars registrering har vänts med Rätta avskrift eller Rätta registrering; den skrivs av igen med betalningarna kvar och registreras om med samma regler, men raderas inte.
+_Avoid_: Olåst, öppnad, återkallad
+
+**Bokförd fordran**:
+Att en fakturas fordran på 1510 eller skuld på 2440 är bokförd: från utfärdandet eller registreringen under fakturametoden, och från T2-verifikatet under kontantmetoden. När den inte är bokförd bokför betalningen intäkt eller kostnad och moms i proportion, och en kundförlust ger bara status. Bokföringsmetoden på fakturadatumet avgör.
+_Avoid_: Bokförd faktura, periodiserad fordran
+
+**T2-utkast**:
+Det verifikatutkast som Maya skapar dagen efter räkenskapsårets slut under kontantmetoden, daterat på årets sista dag, med det som var obetalt vid årets slut på varje faktura vars fordran eller skuld inte är bokförd. Maya räknar om det tills en användare bokför det; det ändras inte för hand, och det bokförda T2-verifikatet vänds inte i det nya året.
+_Avoid_: Bokslutsverifikat, periodisering, årsomföring
 
 **Anställd**:
 En person som får lön eller styrelsearvode från ett företag, även en ägare; registreras per företag.

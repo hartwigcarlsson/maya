@@ -150,7 +150,7 @@ impl Urval {
 }
 
 /// Procentkodning för ett värde i en adress.
-fn koda(värde: &str) -> String {
+pub(crate) fn koda(värde: &str) -> String {
     let mut ut = String::new();
     for b in värde.bytes() {
         match b {

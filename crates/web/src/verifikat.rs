@@ -81,6 +81,12 @@ pub struct DokumentVy {
     pub inte_rättbart: Option<String>,
     /// Det som Rätta… behöver, när verifikatet kan rättas.
     pub rättelse: Option<RättelseVy>,
+    /// Fakturan som verifikatet bokfördes från: sidans adress (utan företagets bas) och text.
+    pub flöde: Option<(String, String)>,
+    /// #150: räkenskapsårets T2-verifikat under kontantmetoden. Som utkast visas det som ett
+    /// dokument med Bokför, eftersom det inte kan ändras för hand.
+    #[serde(default)]
+    pub t2: bool,
 }
 
 /// En länk till ett annat verifikat, med vem som bokförde det och när.
@@ -129,6 +135,8 @@ impl RättelseVy {
                 .collect::<Option<_>>()?,
             rättad_av: None,
             rättar: None,
+            flöde: None,
+            t2: false,
         })
     }
 
@@ -231,6 +239,7 @@ pub(crate) mod server {
     use maya_core::atkomst::ÅtkomstFel;
     use maya_core::foretag::FöretagsId;
     use maya_core::inloggning::Inloggad;
+    use maya_core::t2::T2Fel;
     use maya_core::underlag::{self, UnderlagFel, UnderlagId};
     use maya_core::verifikat::{
         self, Länk, Rättelseval, Signatur, Urval, VerifikatFel, VerifikatId,
@@ -260,6 +269,8 @@ pub(crate) mod server {
             .route("/foretag/{id}/verifikat/{utkast}/radera", post(radera))
             .route("/foretag/{id}/verifikat/{v}/komplettera", post(komplettera))
             .route("/foretag/{id}/verifikat/{v}/ratta", post(rätta))
+            // #150
+            .route("/foretag/{id}/verifikat/{v}/bokfor-t2", post(bokför_t2))
             .layer(DefaultBodyLimit::max(STÖRSTA_BEGÄRAN))
             .with_state(Arc::new(state))
     }
@@ -384,6 +395,15 @@ pub(crate) mod server {
                 kopia_av: v.kopia_av.as_ref().map(länk),
                 inte_rättbart,
                 rättelse,
+                flöde: v.flöde.as_ref().map(|f| match f.flöde {
+                    verifikat::Flöde::Leverantörsfaktura => {
+                        (format!("/leverantorsfakturor?f={}", f.id), f.text.clone())
+                    }
+                    verifikat::Flöde::Kundfaktura => {
+                        (format!("/kundfakturor?f={}", f.id), f.text.clone())
+                    }
+                }),
+                t2: v.t2,
                 id: v.id.to_string(),
                 pdf: (
                     format!("/foretag/{företag}/verifikat/{}/pdf", v.id),
@@ -429,7 +449,7 @@ pub(crate) mod server {
         };
         let okopplade = alla_underlag
             .iter()
-            .filter(|u| u.kopplingar.is_empty())
+            .filter(|u| u.okopplat())
             .map(vy)
             .collect();
         let utkast = dokument.as_ref().is_some_and(|d| d.nummer.is_none());
@@ -657,7 +677,8 @@ pub(crate) mod server {
                 dubblett,
             ),
             Err(VerifikatFel::OkäntUnderlag) => tillbaka_med(Some("okant_underlag"), &[], None),
-            Err(VerifikatFel::IngetUtkast) => inget_utkast(),
+            // #150: T2-utkastet ändras inte för hand.
+            Err(VerifikatFel::IngetUtkast | VerifikatFel::T2Utkast) => inget_utkast(),
             Err(VerifikatFel::Åtkomst(ÅtkomstFel::IngenÅtkomst | ÅtkomstFel::KanalenFårInte)) => {
                 ingen_åtkomst()
             }
@@ -822,6 +843,44 @@ pub(crate) mod server {
         }
     }
 
+    /// #150: Bokför T2-utkastet. Utkastet räknas om en sista gång och bokförs med nästa nummer;
+    /// en spärr (t.ex. ett inaktivt konto) visas i dokumentet med sin kod.
+    async fn bokför_t2(
+        State(state): State<Arc<VerifikatState>>,
+        Path((id, v)): Path<(String, String)>,
+        inloggad: Option<Extension<Inloggad>>,
+    ) -> Response {
+        let Some(Extension(inloggad)) = inloggad else {
+            return Redirect::to("/").into_response();
+        };
+        let Ok(företag) = id.parse::<FöretagsId>() else {
+            return ingen_åtkomst();
+        };
+        let Ok(utkast) = v.parse::<VerifikatId>() else {
+            return inget_utkast();
+        };
+        let sida = format!("/foretag/{företag}/verifikat");
+        match maya_core::t2::bokför(&state.db, &state.klocka, &inloggad.aktör, företag, utkast)
+            .await
+        {
+            Ok(b) => {
+                Redirect::to(&format!("{sida}?v={}&t2_bokfort={}", b.id, b.nummer)).into_response()
+            }
+            Err(T2Fel::Verifikat(VerifikatFel::Spärrat(spärrar))) => {
+                let kod = spärrar.first().map(|s| s.kod).unwrap_or_default();
+                Redirect::to(&format!("{sida}?v={utkast}&t2_fel={kod}")).into_response()
+            }
+            Err(T2Fel::UpplåstFaktura(_)) => {
+                Redirect::to(&format!("{sida}?v={utkast}&t2_fel=upplast")).into_response()
+            }
+            Err(T2Fel::IngetUtkast) => inget_utkast(),
+            Err(T2Fel::Åtkomst(ÅtkomstFel::IngenÅtkomst | ÅtkomstFel::KanalenFårInte)) => {
+                ingen_åtkomst()
+            }
+            Err(e) => serverfel(e),
+        }
+    }
+
     /// Radera utkast, efter att sidan har frågat och visat en sammanfattning.
     async fn radera(
         State(state): State<Arc<VerifikatState>>,
@@ -844,7 +903,9 @@ pub(crate) mod server {
                 "/foretag/{företag}/verifikat?urval=utkast&raderat=1"
             ))
             .into_response(),
-            Err(VerifikatFel::IngetUtkast | VerifikatFel::Spärrat(_)) => inget_utkast(),
+            Err(VerifikatFel::IngetUtkast | VerifikatFel::Spärrat(_) | VerifikatFel::T2Utkast) => {
+                inget_utkast()
+            }
             Err(VerifikatFel::Åtkomst(ÅtkomstFel::IngenÅtkomst | ÅtkomstFel::KanalenFårInte)) => {
                 ingen_åtkomst()
             }
@@ -944,6 +1005,11 @@ fn verifikatsida(data: Verifikatdata) -> AnyView {
         Some("Utkastet sparades.".to_string())
     } else if fråga("kompletterat") {
         Some("Verifikatet kompletterades. Kompletteringen loggades och kan inte tas bort.".into())
+    } else if let Some(nummer) = use_query_map().with_untracked(|q| q.get("t2_bokfort")) {
+        // #150
+        Some(format!(
+            "T2-verifikatet bokfördes som {nummer}. Fakturornas fordringar och skulder är bokförda."
+        ))
     } else {
         rättad_notis(&data)
     }
@@ -958,6 +1024,10 @@ fn verifikatsida(data: Verifikatdata) -> AnyView {
         .map(|text| view! { <p class="fel" role="alert">{text}</p> });
     let okopplade = data.okopplade.clone();
     let detalj = match data.dokument.clone() {
+        // #150: T2-utkastet ändras inte för hand och visas som ett dokument med Bokför.
+        Some(d) if d.t2 => {
+            view! { <Dokument bas=bas.clone() d=d okopplade=okopplade /> }.into_any()
+        }
         Some(d) if d.nummer.is_none() && fråga("radera") => {
             view! { <RaderaUtkast bas=bas.clone() d=d /> }.into_any()
         }
@@ -1331,11 +1401,49 @@ fn Delad(bas: String, data: Verifikatdata, detalj: AnyView) -> impl IntoView {
 /// Ett verifikat som dokument: rubrik, nummer, belopp, metadata, rader och historik.
 #[component]
 fn Dokument(bas: String, d: DokumentVy, okopplade: Vec<UnderlagVy>) -> impl IntoView {
-    let status = if d.nummer.is_some() {
-        "Bokfört"
-    } else {
-        "Utkast"
+    let status = match (d.nummer.is_some(), d.t2) {
+        (true, _) => "Bokfört",
+        (false, true) => "T2-utkast",
+        (false, false) => "Utkast",
     };
+    // #150: T2-utkastet bokförs här; det kan inte ändras för hand.
+    let t2 = (d.t2 && d.nummer.is_none()).then(|| {
+        let fel = use_query_map()
+            .with_untracked(|q| q.get("t2_fel"))
+            .map(|kod| {
+                // #151
+                let text = if kod == "upplast" {
+                    "T2-utkastet kan inte bokföras medan en faktura från året är upplåst med \
+                     Rätta registrering eller Rätta avskrift. Registrera om den först."
+                        .to_string()
+                } else {
+                    format!(
+                        "T2-utkastet kan inte bokföras ({kod}). Kontrollera att radernas konton \
+                         är aktiva."
+                    )
+                };
+                view! {
+                    <p class="fel" role="alert" data-kod=kod>
+                        {text}
+                    </p>
+                }
+            });
+        view! {
+            <section class="t2" aria-label="T2-utkast">
+                <p class="notis">
+                    "Maya skapade utkastet dagen efter räkenskapsårets slut med det som var obetalt \
+                     vid årets slut på fakturorna under kontantmetoden, och räknar om det när \
+                     fakturorna och betalningarna ändras. Det kan inte ändras eller raderas för \
+                     hand. När det är bokfört betalas fakturorna mot 1510 och 2440, och \
+                     verifikatet vänds inte i det nya året."
+                </p>
+                {fel}
+                <form method="post" action=format!("{bas}/verifikat/{}/bokfor-t2", d.id)>
+                    <button class="knapp knapp-primar" type="submit">"Bokför T2"</button>
+                </form>
+            </section>
+        }
+    });
     let bokförd = d.bokförd.clone().map(|(tid, namn, _)| {
         view! {
             <dt>"Bokfört"</dt>
@@ -1373,6 +1481,14 @@ fn Dokument(bas: String, d: DokumentVy, okopplade: Vec<UnderlagVy>) -> impl Into
         .inte_rättbart
         .clone()
         .map(|text| view! { <p class="notis">{text}</p> });
+    let flöde = d.flöde.clone().map(|(href, text)| {
+        view! {
+            <dt>"Bokfört från"</dt>
+            <dd>
+                <a href=format!("{bas}{href}")>{text}</a>
+            </dd>
+        }
+    });
     let öppen = use_query_map().with_untracked(|q| q.get("ratta").is_some());
     let rätta = match d.rättelse.clone() {
         Some(r) if öppen => {
@@ -1409,6 +1525,7 @@ fn Dokument(bas: String, d: DokumentVy, okopplade: Vec<UnderlagVy>) -> impl Into
                 </p>
             </header>
             {inte_rättbart}
+            {t2}
             {rätta}
             <dl class="metadata">
                 <dt>"Verifikatdatum"</dt>
@@ -1419,6 +1536,7 @@ fn Dokument(bas: String, d: DokumentVy, okopplade: Vec<UnderlagVy>) -> impl Into
                 {rättad}
                 {rättar}
                 {ersätter}
+                {flöde}
             </dl>
             <table class="rader">
                 <thead>

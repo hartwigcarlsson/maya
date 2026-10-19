@@ -254,7 +254,7 @@ pub async fn företaget(
     Ok(läs_företag(&mut tx, id).await?)
 }
 
-async fn läs_företag(
+pub(crate) async fn läs_företag(
     conn: &mut SqliteConnection,
     id: FöretagsId,
 ) -> Result<Företag, DatabasFel> {
@@ -600,6 +600,17 @@ pub async fn radera(
         .await?;
     for sql in [
         "INSERT INTO foretag_radering (foretag_id) VALUES (?1)",
+        // #150 T2 (bara när fakturor är utfärdade eller registrerade, så inga rader här).
+        "DELETE FROM t2 WHERE foretag_id = ?1",
+        // #149 Bokförda fordringar och skulder (bara på utfärdade och registrerade fakturor,
+        // så inga rader här).
+        "DELETE FROM bokford_reskontrapost WHERE foretag_id = ?1",
+        // #148 Rätta avskrift (bara på registrerade fakturor, så inga rader här).
+        "DELETE FROM leverantorsfaktura_avskrift WHERE foretag_id = ?1",
+        // #145 Leverantörsfakturautkast (en registrerad faktura är räkenskapsinformation).
+        "DELETE FROM leverantorsfakturarad
+         WHERE faktura_id IN (SELECT id FROM leverantorsfaktura WHERE foretag_id = ?1)",
+        "DELETE FROM leverantorsfaktura WHERE foretag_id = ?1",
         // Inga underlag finns (de är räkenskapsinformation), men listan täcker varje tabell
         // med företagets data.
         "DELETE FROM underlagskoppling
@@ -617,6 +628,27 @@ pub async fn radera(
         "DELETE FROM momsperiod WHERE foretag_id = ?1",
         "DELETE FROM atkomst WHERE foretag_id = ?1",
         "DELETE FROM inbjudan WHERE foretag_id = ?1",
+        // #134 Fakturauppgifterna och logotypen är inte räkenskapsinformation; en utfärdad
+        // faktura har kopierat in det den använder.
+        "DELETE FROM fakturauppgifter WHERE foretag_id = ?1",
+        // #144 leverantörsregistret
+        "DELETE FROM leverantor WHERE foretag_id = ?1",
+        // #139 Betalningar finns bara på utfärdade fakturor, som spärrar raderingen.
+        "DELETE FROM betalningsrattelse
+         WHERE betalning_id IN (SELECT id FROM betalning WHERE foretag_id = ?1)",
+        "DELETE FROM betalning WHERE foretag_id = ?1",
+        // #141 Kundförluster finns också bara på utfärdade fakturor.
+        "DELETE FROM kundforlust_aterkallelse
+         WHERE kundforlust_id IN (SELECT id FROM kundforlust WHERE foretag_id = ?1)",
+        "DELETE FROM kundforlust WHERE foretag_id = ?1",
+        // #135 Kundfakturor: bara utkast, eftersom en utfärdad faktura är
+        // räkenskapsinformation.
+        "DELETE FROM kundfakturarad
+         WHERE faktura_id IN (SELECT id FROM kundfaktura WHERE foretag_id = ?1)",
+        "DELETE FROM kundfaktura WHERE foretag_id = ?1",
+        "DELETE FROM fakturaserie WHERE foretag_id = ?1",
+        // #133 Kundregister: kunder utan fakturor.
+        "DELETE FROM kund WHERE foretag_id = ?1",
         "DELETE FROM foretag WHERE id = ?1",
         "DELETE FROM konto WHERE foretag_id = ?1",
         "DELETE FROM behandlingshistorik WHERE foretag_id = ?1",
@@ -660,7 +692,10 @@ async fn har_räkenskapsinformation_i(
              OR EXISTS (SELECT 1 FROM underlag WHERE foretag_id = ?1)
              OR EXISTS (SELECT 1 FROM ingaende_balans b
                         JOIN rakenskapsar r ON r.id = b.rakenskapsar_id
-                        WHERE r.foretag_id = ?1)",
+                        WHERE r.foretag_id = ?1)
+             OR EXISTS (SELECT 1 FROM leverantorsfaktura
+                        WHERE foretag_id = ?1 AND status <> 'utkast')
+             OR EXISTS (SELECT 1 FROM kundfaktura WHERE foretag_id = ?1 AND status <> 'utkast')",
     )
     .bind(id.0)
     .fetch_one(conn)
@@ -690,6 +725,17 @@ async fn ändringsläge_i(
     .bind(id.0)
     .fetch_one(&mut *conn)
     .await?;
+    let fakturerade: Option<String> = sqlx::query_scalar(
+        "SELECT max(fakturadatum) FROM (
+             SELECT fakturadatum FROM kundfaktura
+             WHERE foretag_id = ?1 AND status IN ('utfardad', 'registrerad', 'upplast')
+             UNION ALL
+             SELECT fakturadatum FROM leverantorsfaktura
+             WHERE foretag_id = ?1 AND status IN ('registrerad', 'upplast'))",
+    )
+    .bind(id.0)
+    .fetch_one(&mut *conn)
+    .await?;
     Ok(Ändringsläge {
         räkenskapsår: företag
             .räkenskapsår
@@ -700,6 +746,7 @@ async fn ändringsläge_i(
         momsperioder: företag.momsperioder,
         senast_bokförda: bokförda.as_deref().map(datum).transpose()?,
         senast_daterade: daterade.as_deref().map(datum).transpose()?,
+        senast_fakturerade: fakturerade.as_deref().map(datum).transpose()?,
     })
 }
 

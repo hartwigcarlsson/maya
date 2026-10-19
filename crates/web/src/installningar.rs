@@ -17,6 +17,7 @@ use maya_domain::rakenskapsar::Räkenskapsår;
 use serde::{Deserialize, Serialize};
 
 use crate::app::{LoggaIn, Läge};
+use crate::fakturauppgifter::{FakturaFormulär, FakturauppgifterVy, LogotypFormulär};
 use crate::foretag::{Företagsval, IngenÅtkomst};
 use crate::sidodata::sida;
 
@@ -104,7 +105,12 @@ pub struct Inställningsdata {
     pub momsperioder: Vec<(String, String)>,
     pub senast_bokförda: Option<String>,
     pub senast_daterade: Option<String>,
+    // #151
+    #[serde(default)]
+    pub senast_fakturerade: Option<String>,
     pub kan_raderas: bool,
+    // #134
+    pub fakturauppgifter: FakturauppgifterVy,
 }
 
 impl Inställningsdata {
@@ -128,6 +134,7 @@ impl Inställningsdata {
                 .collect(),
             senast_bokförda: self.senast_bokförda.as_deref().and_then(datum),
             senast_daterade: self.senast_daterade.as_deref().and_then(datum),
+            senast_fakturerade: self.senast_fakturerade.as_deref().and_then(datum),
         }
     }
 }
@@ -207,6 +214,7 @@ pub(crate) mod server {
         let f = foretag::företaget(db, aktör, id).await?;
         let läge = foretag::ändringsläge(db, aktör, id).await?;
         let kan_raderas = !foretag::har_räkenskapsinformation(db, aktör, id).await?;
+        let fakturauppgifter = crate::fakturauppgifter::server::vy(db, inloggad, id).await?;
         let u = f.uppgifter;
         Ok(Inställningsdata {
             orgnr: f.orgnr.to_string(),
@@ -239,7 +247,9 @@ pub(crate) mod server {
                 .collect(),
             senast_bokförda: läge.senast_bokförda.map(|d| d.to_string()),
             senast_daterade: läge.senast_daterade.map(|d| d.to_string()),
+            senast_fakturerade: läge.senast_fakturerade.map(|d| d.to_string()),
             kan_raderas,
+            fakturauppgifter,
         })
     }
 
@@ -457,7 +467,7 @@ fn bekräftar(text: &str, siffror: &str) -> bool {
 }
 
 /// Ett fält i formuläret som kom tillbaka från servern, eller `None` för en vanlig visning.
-fn fråga() -> (Option<String>, impl Fn(&str) -> Option<String> + Clone) {
+pub(crate) fn fråga() -> (Option<String>, impl Fn(&str) -> Option<String> + Clone) {
     let q = use_query_map().get_untracked();
     let form = q.get("form");
     (form, move |namn: &str| q.get(namn))
@@ -521,6 +531,8 @@ fn företagsinställningar(data: Option<Inställningsdata>) -> AnyView {
             <div class="installningar-innehall">
                     {sparat}
                     <UppgiftsFormulär bas=bas.clone() data=data.clone() />
+                    <FakturaFormulär bas=bas.clone() data=data.fakturauppgifter.clone() />
+                    <LogotypFormulär bas=bas.clone() data=data.fakturauppgifter.clone() />
                     <MetodFormulär bas=bas.clone() data=data.clone() />
                     <MomsFormulär bas=bas.clone() data=data.clone() />
                     <RäkenskapsårsFormulär bas=bas.clone() data=data.clone() />

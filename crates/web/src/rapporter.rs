@@ -48,6 +48,8 @@ pub const RAPPORTER: &[(&str, &str, &str)] = &[
     ("Bokslut", "Balansräkning", "/rapporter/balansrakning"),
     ("Bokföring", "Grundbok", "/rapporter/grundbok"),
     ("Bokföring", "Huvudbok", "/rapporter/huvudbok"),
+    // #151
+    ("Bokföring", "Reskontran per datum", "/rapporter/reskontra"),
     ("Bokföring", "Kontoplan", "/installningar/kontoplan"),
 ];
 

@@ -21,13 +21,20 @@ use crate::assets;
 use crate::atkomst::server::{self as atkomst, ÅtkomstState};
 use crate::att_gora::server::{self as att_gora, AttGöraState};
 use crate::bokforing::server::{self as bokforing, BokföringsState};
+use crate::epost::SmtpEpost;
+use crate::fakturauppgifter::server::{self as fakturauppgifter, FakturauppgiftsState};
 use crate::foretag::server::{self as foretag, FöretagsState};
 use crate::ingaende_balans::server::{self as ingaende_balans, IngåendeBalansState};
 use crate::inloggning::{self, InloggningsState};
 use crate::installningar::server::{self as installningar, InställningsState};
 use crate::kontoplan::server::{self as kontoplan, KontoplansState};
+use crate::kunder::server::{self as kunder, KundState};
+use crate::kundfakturor::server::{self as kundfakturor, KundfakturaState};
+use crate::leverantorer::server::{self as leverantorer, LeverantörsState};
+use crate::leverantorsfakturor::server::{self as leverantorsfakturor, LeverantörsfakturaState};
 use crate::rapporter::server::{self as rapporter, RapportState};
 use crate::underlag::server::{self as underlag, UnderlagState};
+use crate::utskick::server::{self as utskick, UtskickState};
 use crate::utskrift::server::{self as utskrift, UtskriftsState};
 use crate::verifikat::server::{self as verifikat, VerifikatState};
 
@@ -83,6 +90,11 @@ pub fn router(config: Arc<Config>, db: Databas) -> Router {
         db: db.clone(),
         klocka: inloggning.klocka.clone(),
     };
+    // #134 Fakturauppgifter
+    let fakturauppgifter = FakturauppgiftsState {
+        db: db.clone(),
+        klocka: inloggning.klocka.clone(),
+    };
     let utskrift = UtskriftsState {
         config: config.clone(),
         db: db.clone(),
@@ -123,6 +135,33 @@ pub fn router(config: Arc<Config>, db: Databas) -> Router {
     let rapporter = RapportState {
         db: db.clone(),
         klocka: inloggning.klocka.clone(),
+    };
+    // #144 leverantörsregistret
+    let leverantörer = LeverantörsState {
+        db: db.clone(),
+        klocka: inloggning.klocka.clone(),
+    };
+    // #133 Kundregister
+    let kundregistret = KundState {
+        db: db.clone(),
+        klocka: inloggning.klocka.clone(),
+    };
+    // #145 leverantörsfakturor
+    let leverantörsfakturor = LeverantörsfakturaState {
+        db: db.clone(),
+        klocka: inloggning.klocka.clone(),
+    };
+    // #135 Kundfakturor
+    let kundfakturorna = KundfakturaState {
+        db: db.clone(),
+        klocka: inloggning.klocka.clone(),
+        epost: SmtpEpost::ur(&config),
+    };
+    // #138 Utskick
+    let utskicken = UtskickState {
+        db: db.clone(),
+        klocka: inloggning.klocka.clone(),
+        epost: SmtpEpost::ur(&config),
     };
     let state = AppState { config, db };
 
@@ -246,6 +285,78 @@ pub fn router(config: Arc<Config>, db: Databas) -> Router {
                 inloggning.clone(),
                 inloggning::identifiera,
             )),
+        )
+        // #134 Fakturauppgifter
+        .merge(
+            fakturauppgifter::routes(fakturauppgifter)
+                .layer(middleware::from_fn_with_state(
+                    inloggning.clone(),
+                    inloggning::identifiera,
+                ))
+                .layer(middleware::from_fn_with_state(
+                    inloggning.clone(),
+                    inloggning::kräv_eget_origin,
+                )),
+        )
+        // #144 leverantörsregistret
+        .merge(
+            leverantorer::routes(leverantörer)
+                .layer(middleware::from_fn_with_state(
+                    inloggning.clone(),
+                    inloggning::identifiera,
+                ))
+                .layer(middleware::from_fn_with_state(
+                    inloggning.clone(),
+                    inloggning::kräv_eget_origin,
+                )),
+        )
+        // #133 Kundregister
+        .merge(
+            kunder::routes(kundregistret)
+                .layer(middleware::from_fn_with_state(
+                    inloggning.clone(),
+                    inloggning::identifiera,
+                ))
+                .layer(middleware::from_fn_with_state(
+                    inloggning.clone(),
+                    inloggning::kräv_eget_origin,
+                )),
+        )
+        // #145 leverantörsfakturor
+        .merge(
+            leverantorsfakturor::routes(leverantörsfakturor)
+                .layer(middleware::from_fn_with_state(
+                    inloggning.clone(),
+                    inloggning::identifiera,
+                ))
+                .layer(middleware::from_fn_with_state(
+                    inloggning.clone(),
+                    inloggning::kräv_eget_origin,
+                )),
+        )
+        // #135 Kundfakturor
+        .merge(
+            kundfakturor::routes(kundfakturorna)
+                .layer(middleware::from_fn_with_state(
+                    inloggning.clone(),
+                    inloggning::identifiera,
+                ))
+                .layer(middleware::from_fn_with_state(
+                    inloggning.clone(),
+                    inloggning::kräv_eget_origin,
+                )),
+        )
+        // #138 Utskick
+        .merge(
+            utskick::routes(utskicken)
+                .layer(middleware::from_fn_with_state(
+                    inloggning.clone(),
+                    inloggning::identifiera,
+                ))
+                .layer(middleware::from_fn_with_state(
+                    inloggning.clone(),
+                    inloggning::kräv_eget_origin,
+                )),
         )
         .merge(
             inloggning::routes(inloggning.clone())

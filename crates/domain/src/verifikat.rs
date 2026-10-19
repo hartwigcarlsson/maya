@@ -270,7 +270,11 @@ impl NyttVerifikat {
     }
 }
 
-fn välj_år(datum: Date, år: &[Räkenskapsår], spärrar: &mut Vec<Spärr>) -> Option<Årsval> {
+pub(crate) fn välj_år(
+    datum: Date,
+    år: &[Räkenskapsår],
+    spärrar: &mut Vec<Spärr>,
+) -> Option<Årsval> {
     let (Some(första), Some(senaste)) = (år.first(), år.last()) else {
         spärrar.push(Spärr::ny(
             Fält::Datum,

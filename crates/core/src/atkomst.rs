@@ -110,6 +110,35 @@ impl Ärende {
         }
     }
 
+    /// Ett ärende där Maya självt skriver i företaget, t.ex. T2-utkastet (#150): kanalpolicyn
+    /// kontrolleras för [`Kanal::Maya`](crate::aktor::Kanal::Maya), och någon användaråtkomst
+    /// finns inte att kontrollera. Ett företag som inte finns ger [`ÅtkomstFel::IngenÅtkomst`].
+    pub async fn för_maya(
+        db: &Databas,
+        klocka: &Klocka,
+        företag: FöretagsId,
+        handling: Handling,
+    ) -> Result<Self, ÅtkomstFel> {
+        let maya = Aktör::maya();
+        if !aktor::tillåter(maya.kanal, handling) {
+            return Err(ÅtkomstFel::KanalenFårInte);
+        }
+        let mut tx = db.pool().begin_with("BEGIN IMMEDIATE").await?;
+        let finns: bool = sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM foretag WHERE id = ?)")
+            .bind(företag.0)
+            .fetch_one(&mut *tx)
+            .await?;
+        if !finns {
+            return Err(ÅtkomstFel::IngenÅtkomst);
+        }
+        Ok(Ärende {
+            tx,
+            aktör: maya,
+            företag,
+            nu: klocka.nu(),
+        })
+    }
+
     pub fn conn(&mut self) -> &mut SqliteConnection {
         &mut self.tx
     }
@@ -133,7 +162,33 @@ impl Ärende {
         .await
     }
 
-    pub async fn slutför(self) -> Result<(), sqlx::Error> {
+    /// Skriver en post med en annan aktör än ärendets, i samma transaktion. Används när Maya
+    /// gör något som följer av användarens ändring, t.ex. raderar en *ny* leverantör som inget
+    /// utkast längre hänvisar till.
+    pub async fn logga_som(
+        &mut self,
+        aktör: &Aktör,
+        händelse: Händelse,
+        objekt: &str,
+        beskrivning: serde_json::Value,
+    ) -> Result<(), sqlx::Error> {
+        behandlingshistorik::skriv(
+            &mut self.tx,
+            self.företag,
+            self.nu,
+            aktör,
+            händelse,
+            objekt,
+            beskrivning,
+        )
+        .await
+    }
+
+    /// Sparar ärendet. Först räknar Maya om ett T2-utkast som ändringen kan ha påverkat
+    /// (#150), i samma transaktion, så att utkastet alltid stämmer med fakturorna och
+    /// betalningarna: varje användningsfall som ändrar en faktura eller betalning slutar här.
+    pub async fn slutför(mut self) -> Result<(), sqlx::Error> {
+        crate::t2::räkna_om_utkasten_i(&mut self).await?;
         self.tx.commit().await
     }
 }

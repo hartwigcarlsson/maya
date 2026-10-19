@@ -1,0 +1,9 @@
+﻿Reskontra;Fakturanummer;Motpart;Fakturadatum;Förfallodag;Total;Återstår;På kontot;Läge
+Kundreskontra;1;Kund AB;2026-03-10;2026-04-09;11875,00;10000,00;10000,00;Bokförd
+Kundreskontra;;Summa;;;;10000,00;10000,00;
+Kundreskontra;;Saldo 1510;;;;;10500,00;
+Kundreskontra;;Differens;;;;;-500,00;
+Leverantörsreskontra;8812;Kontorsvaror AB;2026-03-14;2026-04-13;1250,00;1250,00;1250,00;Bokförd
+Leverantörsreskontra;;Summa;;;;1250,00;1250,00;
+Leverantörsreskontra;;Saldo 2440;;;;;1250,00;
+Leverantörsreskontra;;Differens;;;;;0,00;
