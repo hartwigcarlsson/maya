@@ -14,7 +14,7 @@ _Avoid_: Användarkonto, anpassat konto, underkonto (som samlingsnamn)
 
 **Grundkonto**:
 Ett konto som BAS markerar som en del av basuppsättningen (■). Grundkontona är aktiva när ett nytt företag läggs upp.
-_Avoid_: Baskonto, standardkonto
+_Avoid_: Baskonto. *Standardkonto* är ett annat begrepp: en leverantörs förvalda kostnadskonto.
 
 **Reserverat konto**:
 Ett konto som Maya lägger in i varje företags kontoplan för sina egna flöden; det kan inte skapas som eget konto, och det kan inte byta namn, inaktiveras eller få en annan koppling.
@@ -163,9 +163,13 @@ _Avoid_: Inkommande faktura, inköpsfaktura
 Den som ett företag säljer till och skickar kundfakturor till; registreras per företag.
 _Avoid_: Köpare, beställare, klient
 
+**Kundregister**:
+Företagets förteckning över sina kunder med deras uppgifter; en kund arkiveras men raderas inte så länge den har fakturor.
+_Avoid_: Kundlista, kundreskontra (det är fakturorna och vad som återstår på dem)
+
 **Kundreskontra**:
 Företagets register över kundfakturor och vad som återstår att betala på dem; allt i den bokförs in i huvudboken.
-_Avoid_: Kundregister, fordringslista
+_Avoid_: Fordringslista. *Kundregister* är ett annat begrepp: förteckningen över kunderna.
 
 **Utfärda**:
 Att färdigställa en kundfaktura som skapats i Maya så att den låses, får sitt fakturanummer och sin PDF; därefter ändras den bara genom en kreditfaktura.
@@ -179,9 +183,17 @@ _Avoid_: Kreditnota, negativ faktura, makulering
 Den som ett företag köper från och tar emot leverantörsfakturor från; registreras per företag.
 _Avoid_: Säljare, leverantörskund, motpart (som term)
 
+**Leverantörsregister**:
+Företagets förteckning över sina leverantörer med deras uppgifter; en leverantör arkiveras men raderas inte så länge den har fakturor.
+_Avoid_: Leverantörslista, leverantörsreskontra (det är fakturorna och vad som återstår på dem)
+
+**Standardkonto**:
+Det kostnadskonto som en leverantör har förvalt för raderna på sina leverantörsfakturor; det är en automatkontering, och en ändring av det loggas i behandlingshistoriken.
+_Avoid_: Förvalt konto, grundkonto (det är BAS basuppsättning)
+
 **Leverantörsreskontra**:
 Företagets register över leverantörsfakturor och vad som återstår att betala på dem; allt i den bokförs in i huvudboken.
-_Avoid_: Leverantörsregister, skuldlista
+_Avoid_: Skuldlista. *Leverantörsregister* är ett annat begrepp: förteckningen över leverantörerna.
 
 **Registrera**:
 Att färdigställa en leverantörsfaktura eller en extern kundfaktura så att den låses i reskontran; under fakturametoden bokförs den i samma steg.
