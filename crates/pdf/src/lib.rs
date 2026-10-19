@@ -155,13 +155,13 @@ pub struct Behandlingspost {
     pub beskrivning: String,
 }
 
-/// En kundfaktura som den utfärdas (momslagen 17 kap. 24 §): säljaren, köparen, raderna,
+/// En kundfaktura som den utfärdas (momslagen 17 kap. 24 §): företaget, köparen, raderna,
 /// momsen per sats, betalsätten och referensen. Fakturan har ingen utskriftssidfot; den är
 /// kundens exemplar. Den skrivs en gång när den utfärdas och arkiveras som underlag.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Kundfaktura {
     pub faktura: maya_domain::kundfaktura::Utfärdbar,
-    pub säljare: maya_domain::kundfaktura::Säljare,
+    pub fakturaföretag: maya_domain::kundfaktura::Fakturaföretag,
     pub logotyp: Option<Logotyp>,
     /// En förhandsvisning av ett utkast, märkt UTKAST.
     pub utkast: bool,

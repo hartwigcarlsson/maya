@@ -27,8 +27,8 @@ use maya_domain::kontoplan::Kontonummer;
 use maya_domain::kreditfaktura::{Hänvisning, Kreditspärr, NyKreditering};
 use maya_domain::kund::OmvändSkattskyldighet;
 use maya_domain::kundfaktura::{
-    Fakturakund, Fakturarad, Förutsättningar, Momsläge, NyKundfaktura, Spärr, Säljare, Utfärdbar,
-    Utkast, Utkastrad,
+    Fakturaföretag, Fakturakund, Fakturarad, Förutsättningar, Momsläge, NyKundfaktura, Spärr,
+    Utfärdbar, Utkast, Utkastrad,
 };
 use serde_json::json;
 use sqlx::SqliteConnection;
@@ -223,7 +223,7 @@ pub struct Utfärdning {
     /// OCR-referensen med OCR på, annars numret.
     pub referens: String,
     pub kund: Fakturakund,
-    pub säljare: Säljare,
+    pub fakturaföretag: Fakturaföretag,
     pub fakturadatum: Date,
     pub leveransdatum: String,
     pub förfallodag: Date,
@@ -317,7 +317,7 @@ async fn läs_förutsättningar(
                 },
             )
             .collect::<Result<_, DatabasFel>>()?,
-        säljare: Säljare {
+        fakturaföretag: Fakturaföretag {
             namn: u.namn.clone(),
             orgnr: f.orgnr.to_string(),
             gatuadress: u.gatuadress.clone(),
@@ -609,7 +609,7 @@ pub async fn utfärda(
 ) -> Result<Utfärdad, KundfakturaFel> {
     let mut ärende = Ärende::börja(db, klocka, aktör, företag, Handling::UtfärdaFaktura).await?;
     kräv_utkast(&mut ärende, id).await?;
-    let (mut u, säljare) = utfärdbar(ärende.conn(), företag, id).await?;
+    let (mut u, fakturaföretag) = utfärdbar(ärende.conn(), företag, id).await?;
     // En ny kund från utkastet blir verklig i samma transaktion, och fakturan får dess id.
     if let Some(ny) = &u.ny_kund {
         let kund_id = ny_kund_på(&mut ärende, id)
@@ -620,7 +620,16 @@ pub async fn utfärda(
     }
     let logotyp = fakturauppgifter::logotypen_i(ärende.conn(), företag).await?;
     let (nu, utfärdare) = (ärende.nu, ärende.aktör);
-    let pdf = skriv_pdf(&u, &säljare, logotyp, false, nu, ärende.conn(), &utfärdare).await?;
+    let pdf = skriv_pdf(
+        &u,
+        &fakturaföretag,
+        logotyp,
+        false,
+        nu,
+        ärende.conn(),
+        &utfärdare,
+    )
+    .await?;
     let arkiverad =
         underlag::ladda_upp_i(&mut ärende, &pdf.filnamn, "application/pdf", &pdf.innehåll).await?;
     let (kontering, fordran_bokförs) = bokföringen(ärende.conn(), företag, &u).await?;
@@ -679,7 +688,7 @@ pub async fn utfärda(
     .bind(u.förfallodag.to_string())
     .bind(&u.er_referens)
     .bind(serde_json::to_string(&u.kund).expect("kunden som JSON"))
-    .bind(serde_json::to_string(&säljare).expect("säljaren som JSON"))
+    .bind(serde_json::to_string(&fakturaföretag).expect("företaget som JSON"))
     .bind(u.netto)
     .bind(u.moms)
     .bind(u.total)
@@ -795,30 +804,39 @@ pub async fn förhandsvisning(
     if status != Status::Utkast {
         return Err(KundfakturaFel::IngetUtkast);
     }
-    let (u, säljare) = utfärdbar(&mut tx, företag, id).await?;
+    let (u, fakturaföretag) = utfärdbar(&mut tx, företag, id).await?;
     let logotyp = fakturauppgifter::logotypen_i(&mut tx, företag).await?;
-    skriv_pdf(&u, &säljare, logotyp, true, klocka.nu(), &mut tx, aktör).await
+    skriv_pdf(
+        &u,
+        &fakturaföretag,
+        logotyp,
+        true,
+        klocka.nu(),
+        &mut tx,
+        aktör,
+    )
+    .await
 }
 
-/// Utkastet kontrollerat mot det som gäller i transaktionen, med säljarens uppgifter som
+/// Utkastet kontrollerat mot det som gäller i transaktionen, med företagets uppgifter som
 /// fakturan har dem.
 async fn utfärdbar(
     conn: &mut SqliteConnection,
     företag: FöretagsId,
     id: KundfakturaId,
-) -> Result<(Utfärdbar, Säljare), KundfakturaFel> {
+) -> Result<(Utfärdbar, Fakturaföretag), KundfakturaFel> {
     let förutsättningar = läs_förutsättningar(&mut *conn, företag).await?;
     let formulär = läs_utkast(&mut *conn, id).await?.som_formulär();
     let u = formulär
         .kontrollera(&förutsättningar)
         .map_err(KundfakturaFel::Spärrat)?;
-    let säljare = u.säljare_på_fakturan(&förutsättningar.säljare);
-    Ok((u, säljare))
+    let fakturaföretag = u.företaget_på_fakturan(&förutsättningar.fakturaföretag);
+    Ok((u, fakturaföretag))
 }
 
 async fn skriv_pdf(
     u: &Utfärdbar,
-    säljare: &Säljare,
+    fakturaföretag: &Fakturaföretag,
     logotyp: Option<fakturauppgifter::Logotypfil>,
     utkast: bool,
     nu: Timestamp,
@@ -831,7 +849,7 @@ async fn skriv_pdf(
     };
     let dokument = maya_pdf::Dokument::Kundfaktura(maya_pdf::Kundfaktura {
         faktura: u.clone(),
-        säljare: säljare.clone(),
+        fakturaföretag: fakturaföretag.clone(),
         logotyp: logotyp.map(|l| maya_pdf::Logotyp {
             mime: l.mime,
             innehåll: l.innehåll,
@@ -1136,8 +1154,8 @@ pub async fn kundfakturan(
     let utkast = läs_utkast(&mut tx, id).await?;
     let mut formulär = utkast.som_formulär();
     let utfärdning = match (status, kunduppgifter, saljaruppgifter, utfardad) {
-        (Status::Utfärdad, Some(kund), Some(säljare), Some(_)) => {
-            Some(läs_utfärdning(&mut tx, id, &kund, &säljare).await?)
+        (Status::Utfärdad, Some(kund), Some(fakturaföretag), Some(_)) => {
+            Some(läs_utfärdning(&mut tx, id, &kund, &fakturaföretag).await?)
         }
         (Status::Utfärdad, ..) => {
             return Err(DatabasFel::Korrupt("kundfaktura: utfärdandet".into()).into());
@@ -1177,7 +1195,7 @@ async fn läs_utfärdning(
     conn: &mut SqliteConnection,
     id: KundfakturaId,
     kund: &str,
-    säljare: &str,
+    fakturaföretag: &str,
 ) -> Result<Utfärdning, KundfakturaFel> {
     let korrupt = |vad: &str| DatabasFel::Korrupt(format!("kundfaktura {}: {vad}", id.0));
     type Rad = (
@@ -1255,7 +1273,8 @@ async fn läs_utfärdning(
         nummer: nummer.unsigned_abs(),
         referens,
         kund: serde_json::from_str(kund).map_err(|_| korrupt("kunduppgifter"))?,
-        säljare: serde_json::from_str(säljare).map_err(|_| korrupt("saljaruppgifter"))?,
+        fakturaföretag: serde_json::from_str(fakturaföretag)
+            .map_err(|_| korrupt("saljaruppgifter"))?,
         fakturadatum: datum(&fakturadatum)?,
         leveransdatum,
         förfallodag: datum(&förfallodag)?,

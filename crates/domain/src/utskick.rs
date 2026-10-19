@@ -43,10 +43,10 @@ impl Lämningssätt {
     }
 }
 
-/// Fakturamejlets ämnesrad. Radbrytningar i säljarens namn blir mellanslag, så att ämnet
+/// Fakturamejlets ämnesrad. Radbrytningar i företagets namn blir mellanslag, så att ämnet
 /// aldrig blir flera huvudrader.
-pub fn ämne(nummer: u64, säljare: &str) -> String {
-    format!("Faktura {nummer} från {}", en_rad(säljare))
+pub fn ämne(nummer: u64, företagsnamn: &str) -> String {
+    format!("Faktura {nummer} från {}", en_rad(företagsnamn))
 }
 
 fn en_rad(text: &str) -> String {
@@ -58,16 +58,18 @@ fn en_rad(text: &str) -> String {
 
 // #140 Kreditfakturor
 /// Ämnesraden för en kreditfaktura.
-pub fn kreditämne(nummer: u64, säljare: &str) -> String {
-    format!("Kreditfaktura {nummer} från {}", en_rad(säljare))
+pub fn kreditämne(nummer: u64, företagsnamn: &str) -> String {
+    format!("Kreditfaktura {nummer} från {}", en_rad(företagsnamn))
 }
 
 /// Meddelandet som förvals för en kreditfaktura: numret, beloppet och originalet. Företagets
 /// standardmeddelande gäller fakturor att betala och används inte.
-pub fn kreditmeddelande(nummer: u64, total_öre: i64, original: u64, säljare: &str) -> String {
+pub fn kreditmeddelande(
+    nummer: u64, total_öre: i64, original: u64, företagsnamn: &str
+) -> String {
     format!(
         "Hej!\n\nHär kommer kreditfaktura {nummer} på {} kr, som krediterar faktura {original}. \
-         Kreditfakturan är bifogad som PDF.\n\nVänliga hälsningar\n{säljare}",
+         Kreditfakturan är bifogad som PDF.\n\nVänliga hälsningar\n{företagsnamn}",
         Saldo::från_öre(total_öre)
     )
 }
@@ -79,7 +81,7 @@ pub fn förvalt_meddelande(
     nummer: u64,
     total_öre: i64,
     förfallodag: Date,
-    säljare: &str,
+    företagsnamn: &str,
 ) -> String {
     let standard = standardmeddelande.trim();
     if !standard.is_empty() {
@@ -87,7 +89,7 @@ pub fn förvalt_meddelande(
     }
     format!(
         "Hej!\n\nHär kommer faktura {nummer} på {} kr, att betala senast {förfallodag}. \
-         Fakturan är bifogad som PDF.\n\nVänliga hälsningar\n{säljare}",
+         Fakturan är bifogad som PDF.\n\nVänliga hälsningar\n{företagsnamn}",
         Saldo::från_öre(total_öre)
     )
 }

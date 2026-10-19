@@ -279,7 +279,7 @@ pub fn tabell() -> Vec<Automatkontering> {
             ruta([text(
                 "originalet är bokfört, inte rättat, inte en rättelse och inte från ett av Mayas \
                  flöden; radtexten följer med; rättelsen länkas till originalet; datum ≥ \
-                 originalets datum och i en olåst period",
+                 originalets datum och i en period som inte är låst",
             )]),
         ),
         rad(

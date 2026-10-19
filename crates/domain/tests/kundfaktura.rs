@@ -4,8 +4,8 @@ use maya_domain::foretag::Momsperiod;
 use maya_domain::kontoplan::Kontonummer;
 use maya_domain::kund::{self, NyKund, OmvändSkattskyldighet};
 use maya_domain::kundfaktura::{
-    Fakturakund, Fält, Förutsättningar, Momsläge, NY, NyFakturarad, NyKundfaktura,
-    OMVÄND_BETALNINGSSKYLDIGHET, Radfält, Spärr, Säljare, UTFÄRDANDESPÄRRAR, intäktskonto,
+    Fakturaföretag, Fakturakund, Fält, Förutsättningar, Momsläge, NY, NyFakturarad, NyKundfaktura,
+    OMVÄND_BETALNINGSSKYLDIGHET, Radfält, Spärr, UTFÄRDANDESPÄRRAR, intäktskonto,
 };
 use maya_domain::rakenskapsar::Räkenskapsår;
 use maya_domain::verifikat::Årsval;
@@ -27,8 +27,8 @@ fn kund() -> Fakturakund {
     }
 }
 
-fn säljare() -> Säljare {
-    Säljare {
+fn fakturaföretag() -> Fakturaföretag {
+    Fakturaföretag {
         namn: "Exempel AB".into(),
         orgnr: "556036-0793".into(),
         gatuadress: "Exempelgatan 1".into(),
@@ -48,7 +48,7 @@ fn säljare() -> Säljare {
 fn förutsättningar() -> Förutsättningar {
     Förutsättningar {
         kunder: vec![kund()],
-        säljare: säljare(),
+        fakturaföretag: fakturaföretag(),
         konton: [
             1510, 2611, 2621, 2631, 3001, 3002, 3003, 3004, 3041, 3231, 3308,
         ]
@@ -161,7 +161,7 @@ fn efter_det_första_utfärdandet_gäller_seriens_nästa_nummer_och_startnumret_
 #[test]
 fn med_ocr_på_är_referensen_numret_med_längdsiffra_och_luhn() {
     let mut ff = förutsättningar();
-    ff.säljare.ocr = true;
+    ff.fakturaföretag.ocr = true;
     ff.nästa_nummer = Some(1007);
     let u = faktura().kontrollera(&ff).unwrap();
     assert_eq!(u.referens, "100768");
@@ -401,11 +401,11 @@ fn en_faktura_vars_summa_är_noll_spärras() {
 #[test]
 fn företagets_fakturauppgifter_krävs() {
     let mut ff = förutsättningar();
-    ff.säljare.gatuadress = String::new();
-    ff.säljare.säte = String::new();
-    ff.säljare.f_skatt = false;
-    ff.säljare.momsregnr = String::new();
-    ff.säljare.bankgiro = String::new();
+    ff.fakturaföretag.gatuadress = String::new();
+    ff.fakturaföretag.säte = String::new();
+    ff.fakturaföretag.f_skatt = false;
+    ff.fakturaföretag.momsregnr = String::new();
+    ff.fakturaföretag.bankgiro = String::new();
     assert_eq!(
         spärrar(&faktura(), &ff),
         [
@@ -421,23 +421,23 @@ fn företagets_fakturauppgifter_krävs() {
 #[test]
 fn ett_plusgiro_eller_iban_med_bic_räcker_som_betalsätt() {
     let mut ff = förutsättningar();
-    ff.säljare.bankgiro = String::new();
-    ff.säljare.plusgiro = "4711-7".into();
+    ff.fakturaföretag.bankgiro = String::new();
+    ff.fakturaföretag.plusgiro = "4711-7".into();
     assert!(faktura().kontrollera(&ff).is_ok());
-    ff.säljare.plusgiro = String::new();
-    ff.säljare.iban = "SE45 5000 0000 0583 9825 7466".into();
+    ff.fakturaföretag.plusgiro = String::new();
+    ff.fakturaföretag.iban = "SE45 5000 0000 0583 9825 7466".into();
     assert_eq!(
         spärrar(&faktura(), &ff),
         [(Fält::Företag, "betalsatt_saknas")]
     );
-    ff.säljare.bic = "ESSESESS".into();
+    ff.fakturaföretag.bic = "ESSESESS".into();
     assert!(faktura().kontrollera(&ff).is_ok());
 }
 
 #[test]
 fn momsregistreringsnumret_krävs_bara_när_företaget_är_momsregistrerat_på_fakturadatumet() {
     let mut ff = förutsättningar();
-    ff.säljare.momsregnr = String::new();
+    ff.fakturaföretag.momsregnr = String::new();
     ff.momsperioder = vec![
         (date(2026, 1, 1), Momsperiod::EjMomsregistrerad),
         (date(2026, 4, 1), Momsperiod::Kvartal),
@@ -470,7 +470,7 @@ fn startnumret_är_ett_positivt_heltal() {
 #[test]
 fn varje_spärr_vid_utfärdande_är_dokumenterad_och_ingen_annan() {
     let mut tom_säljare = förutsättningar();
-    tom_säljare.säljare = Säljare::default();
+    tom_säljare.fakturaföretag = Fakturaföretag::default();
     tom_säljare.kunder[0].adress = String::new();
     let mut fall: Vec<(NyKundfaktura, Förutsättningar)> = vec![
         (NyKundfaktura::default(), förutsättningar()),
@@ -717,7 +717,7 @@ fn omvänd(kod: &str) -> NyKundfaktura {
 fn ej_momsregistrerat() -> Förutsättningar {
     let mut ff = förutsättningar();
     ff.momsperioder = vec![(date(2026, 1, 1), Momsperiod::EjMomsregistrerad)];
-    ff.säljare.momsregnr = String::new();
+    ff.fakturaföretag.momsregnr = String::new();
     ff
 }
 
@@ -825,11 +825,11 @@ fn ett_företag_utan_momsregistrering_får_en_faktura_utan_moms_och_utan_momsreg
             .iter()
             .all(|r| !(2600..2700).contains(&r.konto.get()))
     );
-    // Säljarens momsreg-nr står inte på fakturan, också om det finns kvar i inställningarna.
-    let mut säljare = säljare();
-    assert_eq!(u.säljare_på_fakturan(&säljare).momsregnr, "");
-    säljare.momsregnr = String::new();
-    assert_eq!(u.säljare_på_fakturan(&säljare), säljare);
+    // Företagets momsreg-nr står inte på fakturan, också om det finns kvar i inställningarna.
+    let mut fakturaföretag = fakturaföretag();
+    assert_eq!(u.företaget_på_fakturan(&fakturaföretag).momsregnr, "");
+    fakturaföretag.momsregnr = String::new();
+    assert_eq!(u.företaget_på_fakturan(&fakturaföretag), fakturaföretag);
     assert_eq!(f.beräkna_med(f.momsläge(&ff)).moms, 0);
 }
 

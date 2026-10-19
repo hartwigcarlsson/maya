@@ -8,8 +8,8 @@ use maya_domain::kontoplan::Kontonummer;
 use maya_domain::kreditfaktura::{Hänvisning, KREDITERINGSSPÄRRAR, NyKreditering};
 use maya_domain::kund::{NyKund, OmvändSkattskyldighet};
 use maya_domain::kundfaktura::{
-    Fakturakund, Fält, Förutsättningar, Momsläge, NyFakturarad, NyKundfaktura, Radfält, Säljare,
-    Utfärdbar,
+    Fakturaföretag, Fakturakund, Fält, Förutsättningar, Momsläge, NyFakturarad, NyKundfaktura,
+    Radfält, Utfärdbar,
 };
 use maya_domain::rakenskapsar::Räkenskapsår;
 use maya_domain::verifikat::Rad;
@@ -34,7 +34,7 @@ fn kund() -> Fakturakund {
 fn förutsättningar() -> Förutsättningar {
     Förutsättningar {
         kunder: vec![kund()],
-        säljare: Säljare {
+        fakturaföretag: Fakturaföretag {
             namn: "Exempel AB".into(),
             orgnr: "556036-0793".into(),
             gatuadress: "Exempelgatan 1".into(),
@@ -44,7 +44,7 @@ fn förutsättningar() -> Förutsättningar {
             momsregnr: "SE556036079301".into(),
             f_skatt: true,
             bankgiro: "5050-1055".into(),
-            ..Säljare::default()
+            ..Fakturaföretag::default()
         },
         konton: [1510, 2611, 2631, 3001, 3003, 3004, 3041, 3231]
             .into_iter()

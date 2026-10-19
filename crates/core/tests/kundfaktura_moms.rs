@@ -257,7 +257,7 @@ async fn ett_företag_utan_momsregistrering_får_fakturor_utan_moms_och_utan_mom
         .utfärdad
         .unwrap();
     assert_eq!(utfärdning.momsläge, Momsläge::UtanMoms);
-    assert_eq!(utfärdning.säljare.momsregnr, "");
+    assert_eq!(utfärdning.fakturaföretag.momsregnr, "");
     let text = pdf_text(&db, &anna, id, &u).await;
     for saknas in ["Momsreg", "Moms 0 %", "Omvänd betalningsskyldighet"] {
         assert!(!innehåller(&text, saknas), "{saknas} finns i {text}");

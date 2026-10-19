@@ -4,7 +4,7 @@ use jiff::civil::date;
 use maya_domain::foretag::Momsperiod;
 use maya_domain::kontoplan::Kontonummer;
 use maya_domain::kundfaktura::{
-    Fakturakund, Förutsättningar, NyFakturarad, NyKundfaktura, Säljare, Utfärdbar,
+    Fakturaföretag, Fakturakund, Förutsättningar, NyFakturarad, NyKundfaktura, Utfärdbar,
 };
 use maya_domain::rakenskapsar::Räkenskapsår;
 use maya_pdf::testhjalp::{bilder, innehåller, sidor, är_pdfa_2b};
@@ -13,8 +13,8 @@ use maya_pdf::{Dokument, Kundfaktura, Logotyp, Sidfot, skriv};
 /// En PNG med en enda pixel.
 const PNG: &[u8] = b"\x89\x50\x4e\x47\x0d\x0a\x1a\x0a\x00\x00\x00\x0d\x49\x48\x44\x52\x00\x00\x00\x01\x00\x00\x00\x01\x08\x02\x00\x00\x00\x90\x77\x53\xde\x00\x00\x00\x0c\x49\x44\x41\x54\x78\x9c\x63\xf8\xdf\xc0\x00\x00\x04\x01\x01\x80\xc5\x2a\x18\x5d\x00\x00\x00\x00\x49\x45\x4e\x44\xae\x42\x60\x82";
 
-fn säljare() -> Säljare {
-    Säljare {
+fn fakturaföretag() -> Fakturaföretag {
+    Fakturaföretag {
         namn: "Exempel AB".into(),
         orgnr: "556036-0793".into(),
         gatuadress: "Exempelgatan 1".into(),
@@ -43,7 +43,7 @@ fn faktura() -> Utfärdbar {
             betalningsvillkor: 30,
             omvänd_skattskyldighet: Default::default(),
         }],
-        säljare: säljare(),
+        fakturaföretag: fakturaföretag(),
         konton: [3001, 3003]
             .into_iter()
             .map(|n| (Kontonummer::new(n).unwrap(), true))
@@ -100,7 +100,7 @@ fn sidfot() -> Sidfot {
 fn dokument(logotyp: Option<Logotyp>) -> Dokument {
     Dokument::Kundfaktura(Kundfaktura {
         faktura: faktura(),
-        säljare: säljare(),
+        fakturaföretag: fakturaföretag(),
         logotyp,
         utkast: false,
     })
@@ -119,7 +119,7 @@ fn kundfakturan_är_pdfa_2b_med_momslagens_fakturauppgifter() {
         "Förfallodag 2026-04-09",
         // Leveransdatum eller period.
         "Leveransdatum februari 2026",
-        // Säljaren: namn, adress, orgnr, säte, momsregistreringsnummer och F-skatt.
+        // Företaget: namn, adress, orgnr, säte, momsregistreringsnummer och F-skatt.
         "Exempel AB",
         "Exempelgatan 1",
         "123 45 Exempelstad",
@@ -160,14 +160,14 @@ fn kundfakturan_är_pdfa_2b_med_momslagens_fakturauppgifter() {
 
 #[test]
 fn utan_ocr_är_fakturanumret_referensen() {
-    let mut s = säljare();
+    let mut s = fakturaföretag();
     s.ocr = false;
     let mut f = faktura();
     f.referens = "1007".into();
     let pdf = skriv(
         &Dokument::Kundfaktura(Kundfaktura {
             faktura: f,
-            säljare: s,
+            fakturaföretag: s,
             logotyp: None,
             utkast: false,
         }),
@@ -203,7 +203,7 @@ fn en_förhandsvisning_av_ett_utkast_är_märkt() {
     let pdf = skriv(
         &Dokument::Kundfaktura(Kundfaktura {
             faktura: faktura(),
-            säljare: säljare(),
+            fakturaföretag: fakturaföretag(),
             logotyp: None,
             utkast: true,
         }),
