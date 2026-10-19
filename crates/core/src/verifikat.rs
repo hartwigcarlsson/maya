@@ -530,36 +530,11 @@ pub async fn rätta(
     val: Rättelseval,
 ) -> Result<Rättad, VerifikatFel> {
     let mut ärende = Ärende::börja(db, klocka, aktör, företag, Handling::Bokföra).await?;
-    let o = läs_verifikat(ärende.conn(), företag, original)
-        .await?
-        .ok_or(VerifikatFel::IngetVerifikat)?;
-    let (Some(original_nummer), Some(som_original)) = (o.nummer, o.som_original()) else {
-        return Err(VerifikatFel::IngetVerifikat);
-    };
+    let (o, som_original) = läs_original(&mut ärende, original).await?;
     som_original
         .kan_rättas()
         .map_err(VerifikatFel::InteRättbart)?;
-    let förutsättningar = läs_förutsättningar(ärende.conn(), företag).await?;
-    let v = som_original
-        .rättelse(datum, orsak, &förutsättningar)
-        .map_err(VerifikatFel::Spärrat)?;
-
-    let år_id = räkenskapsår_id(&mut ärende, v.räkenskapsår).await?;
-    let innehåll = Innehåll {
-        källa: Källa::Rättelse,
-        rättar: Some(original),
-        ..Innehåll::bokförbart(år_id, &v)
-    };
-    let id = skapa(&mut ärende, &innehåll).await?;
-    let nummer = tilldela_nummer(&mut ärende, id, år_id).await?;
-    logga_bokfört(
-        &mut ärende,
-        id,
-        nummer,
-        &v,
-        Some((original, original_nummer)),
-    )
-    .await?;
+    let (rättelse, datum) = vänd_i(&mut ärende, &o, &som_original, datum, orsak).await?;
 
     let kopia = match val {
         Rättelseval::BaraRättelse => None,
@@ -592,25 +567,108 @@ pub async fn rätta(
         }
     };
 
+    logga_rättat(&mut ärende, &o, rättelse, datum, orsak, kopia).await?;
+    ärende.slutför().await?;
+    Ok(Rättad { rättelse, kopia })
+}
+
+/// En rättelse som ett fakturaflöde har bokfört inne i sitt ärende.
+#[derive(Debug, Clone)]
+pub(crate) struct Vänt {
+    pub rättelse: Bokfört,
+    /// Verifikatet som rättelsen vänder, som det var före rättelsen.
+    pub original: Verifikat,
+}
+
+/// Rättar det bokförda verifikatet `original` inne i ärendet utan att committa, för
+/// fakturaflödenas Rätta kontering, avskrift, registrering och betalning: en rättelse som vänder
+/// varje rad (R1), daterad `datum`, bokförd och loggad som av [`rätta`] (R2, VF7). Spärren mot
+/// verifikat från ett flöde gäller inte här, eftersom det är flödet som rättar; ett verifikat
+/// rättas ändå högst en gång och en rättelse rättas inte. Flödet länkar rättelsen till sin
+/// faktura, loggar sin egen händelse och slutför ärendet.
+pub(crate) async fn rätta_i(
+    ärende: &mut Ärende,
+    original: VerifikatId,
+    datum: Date,
+    orsak: &str,
+) -> Result<Vänt, VerifikatFel> {
+    let (o, som_original) = läs_original(ärende, original).await?;
+    som_original
+        .kan_rättas_i_flödet()
+        .map_err(VerifikatFel::InteRättbart)?;
+    let (rättelse, datum) = vänd_i(ärende, &o, &som_original, &datum.to_string(), orsak).await?;
+    logga_rättat(ärende, &o, rättelse, datum, orsak, None).await?;
+    Ok(Vänt {
+        rättelse,
+        original: o,
+    })
+}
+
+/// Det bokförda verifikatet `id` i ärendets företag, också som original till en rättelse.
+async fn läs_original(
+    ärende: &mut Ärende,
+    id: VerifikatId,
+) -> Result<(Verifikat, Original), VerifikatFel> {
+    let företag = ärende.företag;
+    let o = läs_verifikat(ärende.conn(), företag, id)
+        .await?
+        .ok_or(VerifikatFel::IngetVerifikat)?;
+    let som_original = o.som_original().ok_or(VerifikatFel::IngetVerifikat)?;
+    Ok((o, som_original))
+}
+
+/// Bokför rättelsen av `o` daterad `datum`: prövar den, skapar räkenskapsåret vid behov,
+/// numrerar och loggar bokföringen. Ger rättelsen och dess datum.
+async fn vänd_i(
+    ärende: &mut Ärende,
+    o: &Verifikat,
+    som_original: &Original,
+    datum: &str,
+    orsak: &str,
+) -> Result<(Bokfört, Date), VerifikatFel> {
+    let original_nummer = o.nummer.ok_or(VerifikatFel::IngetVerifikat)?;
+    let företag = ärende.företag;
+    let förutsättningar = läs_förutsättningar(ärende.conn(), företag).await?;
+    let v = som_original
+        .rättelse(datum, orsak, &förutsättningar)
+        .map_err(VerifikatFel::Spärrat)?;
+    let år_id = räkenskapsår_id(ärende, v.räkenskapsår).await?;
+    let innehåll = Innehåll {
+        källa: Källa::Rättelse,
+        rättar: Some(o.id),
+        ..Innehåll::bokförbart(år_id, &v)
+    };
+    let id = skapa(ärende, &innehåll).await?;
+    let nummer = tilldela_nummer(ärende, id, år_id).await?;
+    logga_bokfört(ärende, id, nummer, &v, Some((o.id, original_nummer))).await?;
+    Ok((Bokfört { id, nummer }, v.datum))
+}
+
+/// Loggar att `o` rättades av `rättelse` (R2), med kopian från "registrera om".
+async fn logga_rättat(
+    ärende: &mut Ärende,
+    o: &Verifikat,
+    rättelse: Bokfört,
+    datum: Date,
+    orsak: &str,
+    kopia: Option<VerifikatId>,
+) -> Result<(), VerifikatFel> {
+    let original_nummer = o.nummer.ok_or(VerifikatFel::IngetVerifikat)?;
     ärende
         .logga(
             Händelse::VerifikatRättat,
             &original_nummer.to_string(),
             serde_json::json!({
-                "verifikat": original.0,
+                "verifikat": o.id.0,
                 "nummer": original_nummer.to_string(),
-                "rättelse": { "verifikat": id.0, "nummer": nummer.to_string() },
-                "datum": v.datum.to_string(),
+                "rättelse": { "verifikat": rättelse.id.0, "nummer": rättelse.nummer.to_string() },
+                "datum": datum.to_string(),
                 "orsak": orsak.trim(),
                 "kopia": kopia.map(|k| k.0),
             }),
         )
         .await?;
-    ärende.slutför().await?;
-    Ok(Rättad {
-        rättelse: Bokfört { id, nummer },
-        kopia,
-    })
+    Ok(())
 }
 
 /// Sparar formuläret som ett nytt utkast, eller som nytt innehåll i utkastet `utkast`. Ett

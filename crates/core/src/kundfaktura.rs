@@ -1016,14 +1016,17 @@ async fn läs_utfärdning(
     })
 }
 
-/// Fakturan som verifikatet bokfördes från, för länken från verifikatet (story 73).
+/// Fakturan som verifikatet bokfördes från, för länken från verifikatet (story 73): utfärdandets
+/// verifikat, eller rättelsen och det nya verifikatet från Rätta kontering (#142).
 pub(crate) async fn fakturan_för_verifikat(
     conn: &mut SqliteConnection,
     verifikat: VerifikatId,
 ) -> Result<Option<(i64, String)>, DatabasFel> {
     let rad: Option<(i64, i64, String)> = sqlx::query_as(
         "SELECT id, nummer, kunduppgifter ->> '$.namn' FROM kundfaktura
-         WHERE verifikat_id = ? AND status <> 'utkast'",
+         WHERE status <> 'utkast' AND (verifikat_id = ?1 OR id IN (
+             SELECT faktura_id FROM kundfaktura_kontering
+             WHERE rattelse_id = ?1 OR verifikat_id = ?1))",
     )
     .bind(verifikat.0)
     .fetch_optional(conn)

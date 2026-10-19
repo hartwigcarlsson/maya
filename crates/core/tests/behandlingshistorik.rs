@@ -433,7 +433,7 @@ async fn fakturaändringar(db: &Databas, anna: &Aktör, id: FöretagsId, tid: &s
     let utkast = kundfaktura::spara_utkast(db, &k, anna, id, None, &faktura)
         .await
         .unwrap();
-    kundfaktura::utfärda(db, &k, anna, id, utkast)
+    let utfärdad = kundfaktura::utfärda(db, &k, anna, id, utkast)
         .await
         .unwrap();
     let utkast = kundfaktura::spara_utkast(
@@ -452,6 +452,20 @@ async fn fakturaändringar(db: &Databas, anna: &Aktör, id: FöretagsId, tid: &s
     kundfaktura::radera_utkast(db, &k, anna, id, utkast)
         .await
         .unwrap();
+    // #142 Rätta kontering
+    maya_core::kontering::rätta(
+        db,
+        &k,
+        anna,
+        id,
+        utfärdad.id,
+        &maya_domain::kontering::NyKontering {
+            konton: vec!["3002".into()],
+            orsak: String::new(),
+        },
+    )
+    .await
+    .unwrap();
 }
 
 #[tokio::test]
