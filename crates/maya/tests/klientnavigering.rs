@@ -261,6 +261,7 @@ fn menylankarna_navigerar_pa_klienten_och_sidorna_visar_sina_data() {
     vänta_på_text(&tab, "Ny leverantörsfaktura");
     klicka(&tab, ".verifikatlista a[href*='/leverantorsfakturor?f=']");
     vänta_på_text(&tab, "Bokförs som");
+    vänta_på_förhandsvisningen(&tab);
     klicka(&tab, "a.leverantorsregister");
     klicka(&tab, ".verifikatlista a[href*='/leverantorer?l=']");
     vänta_på_text(&tab, "5050-1055");
@@ -388,6 +389,36 @@ fn fel(tab: &Tab) -> Vec<String> {
         .filter(|s| !s.is_empty())
         .map(|s| s.split('\0').map(str::to_string).collect())
         .unwrap_or_default()
+}
+
+/// Väntar tills underlagets förhandsvisning har laddats och sidan står still. PDF-visaren i
+/// iframen tar fokus när den laddats och rullar då sidan, så ett klick dessförinnan kan missa.
+fn vänta_på_förhandsvisningen(tab: &Tab) {
+    let start = Instant::now();
+    let mut förra = None;
+    loop {
+        let läge = tab
+            .evaluate(
+                "(() => { const f = document.querySelector('iframe.forhandsvisning'); \
+                 const d = f && f.contentDocument; \
+                 return d && d.readyState === 'complete' && d.URL !== 'about:blank' \
+                 ? String(scrollY) : null })()",
+                false,
+            )
+            .ok()
+            .and_then(|svar| svar.value)
+            .and_then(|v| v.as_str().map(str::to_string));
+        if läge.is_some() && läge == förra {
+            return;
+        }
+        förra = läge;
+        assert!(
+            start.elapsed() < VÄNTA,
+            "förhandsvisningen på {} laddades aldrig",
+            tab.get_url()
+        );
+        std::thread::sleep(Duration::from_millis(250));
+    }
 }
 
 fn vänta_på_text(tab: &Tab, text: &str) {
