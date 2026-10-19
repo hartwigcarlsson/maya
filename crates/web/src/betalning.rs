@@ -509,7 +509,7 @@ pub(crate) mod server {
     use maya_core::kundfaktura::KundfakturaId;
     use maya_core::{kontoplan, verifikat};
     use maya_domain::betalning::NyBetalning;
-    use maya_domain::reskontra::märke;
+    use maya_domain::reskontra::kundfakturans_märke;
 
     use super::*;
     use crate::kundfakturor::server::KundfakturaState;
@@ -527,7 +527,13 @@ pub(crate) mod server {
         let aktör = &b.inloggad.aktör;
         let idag = b.klocka.idag();
         let post = betalning::reskontrapost(&b.db, aktör, företag, faktura).await?;
-        let m = märke(post.total, post.återstår, post.förfallodag, idag);
+        let m = kundfakturans_märke(
+            post.total,
+            post.återstår,
+            post.kundförlust,
+            post.förfallodag,
+            idag,
+        );
         let mut vy = ReskontraVy {
             märke: (m.kod().into(), m.namn().into()),
             återstår: kr(post.återstår),

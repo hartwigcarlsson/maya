@@ -202,6 +202,8 @@ pub struct FakturaVy {
     pub epost: bool,
     /// Status, betalningar och det som återstår (#139).
     pub reskontra: Option<ReskontraVy>,
+    /// Kundförlusterna och deras paneler (#141).
+    pub kundförlust: Option<crate::kundforlust::KundförlustVy>,
 }
 
 /// Det som Kundfakturor visar.
@@ -250,7 +252,9 @@ fn feltext(kod: &str) -> Option<&'static str> {
             "Utskicket misslyckades och loggades. Fakturan är utfärdad och kan skickas igen."
         }
         "mottagare" => "Mottagaren är ingen e-postadress. Inget skickades.",
-        kod => return crate::betalning::feltext(kod),
+        kod => {
+            return crate::betalning::feltext(kod).or_else(|| crate::kundforlust::feltext(kod));
+        }
     })
 }
 
@@ -356,6 +360,10 @@ pub enum Panel {
     Betalning,
     /// Rätta betalning, med betalningen i `&b=` (#139).
     RättaBetalning,
+    /// Konstaterad kundförlust (#141).
+    Kundförlust,
+    /// Återkalla kundförlust (#141).
+    ÅterkallaKundförlust,
 }
 
 impl Panel {
@@ -365,6 +373,8 @@ impl Panel {
             "skicka" => Some(Panel::Skicka),
             "betalning" => Some(Panel::Betalning),
             "ratta-betalning" => Some(Panel::RättaBetalning),
+            "kundforlust" => Some(Panel::Kundförlust),
+            "aterkalla-kundforlust" => Some(Panel::ÅterkallaKundförlust),
             _ => None,
         }
     }
@@ -375,6 +385,8 @@ impl Panel {
             Panel::Skicka => "skicka",
             Panel::Betalning => "betalning",
             Panel::RättaBetalning => "ratta-betalning",
+            Panel::Kundförlust => "kundforlust",
+            Panel::ÅterkallaKundförlust => "aterkalla-kundforlust",
         }
     }
 }
@@ -434,6 +446,15 @@ pub(crate) mod server {
                 "/foretag/{id}/kundfakturor/{f}/betalningar/{b}/ratta",
                 post(crate::betalning::server::rätta_kundbetalning),
             )
+            // #141 Kundförlust
+            .route(
+                "/foretag/{id}/kundfakturor/{f}/kundforlust",
+                post(crate::kundforlust::server::bokför),
+            )
+            .route(
+                "/foretag/{id}/kundfakturor/{f}/kundforlust/{k}/aterkalla",
+                post(crate::kundforlust::server::återkalla),
+            )
             .with_state(Arc::new(state))
     }
 
@@ -490,7 +511,13 @@ pub(crate) mod server {
                     ny_kund: f.ny_kund,
                     återstår: kr(f.återstår),
                     märke: utfärdad.map(|d| {
-                        let m = maya_domain::reskontra::märke(f.total, f.återstår, d, idag);
+                        let m = maya_domain::reskontra::kundfakturans_märke(
+                            f.total,
+                            f.återstår,
+                            f.kundförlust,
+                            d,
+                            idag,
+                        );
                         (m.kod().to_string(), m.namn().to_string())
                     }),
                     grupp: Some(match utfärdad {
@@ -589,6 +616,27 @@ pub(crate) mod server {
                                 KundfakturaFel::Åtkomst(e)
                             }
                             maya_core::betalning::BetalningFel::FinnsInte => {
+                                KundfakturaFel::FinnsInte
+                            }
+                            e => KundfakturaFel::Åtkomst(ÅtkomstFel::Databas(
+                                maya_core::DatabasFel::Korrupt(e.to_string()),
+                            )),
+                        })?,
+                    );
+                    // #141 Kundförlust
+                    d.kundförlust = Some(
+                        crate::kundforlust::server::kundförlusterna(
+                            b,
+                            företag,
+                            f.id,
+                            panel.as_deref(),
+                        )
+                        .await
+                        .map_err(|e| match e {
+                            maya_core::kundforlust::KundförlustFel::Åtkomst(e) => {
+                                KundfakturaFel::Åtkomst(e)
+                            }
+                            maya_core::kundforlust::KundförlustFel::FinnsInte => {
                                 KundfakturaFel::FinnsInte
                             }
                             e => KundfakturaFel::Åtkomst(ÅtkomstFel::Databas(
@@ -1022,6 +1070,15 @@ fn kundfakturor_sida(data: Kundfakturadata, ny: bool) -> AnyView {
         (
             "betalning_rattad",
             "Betalningen rättades. Rättelsen bokfördes och betalningen räknas inte längre.",
+        ),
+        // #141 Kundförlust
+        (
+            "kundforlust_aterkallad",
+            "Kundförlusten återkallades med ett nytt verifikat, och fakturan kan betalas igen.",
+        ),
+        (
+            "kundforlust",
+            "Kundförlusten bokfördes, och utgående moms minskades.",
         ),
     ]
     .into_iter()
@@ -2232,6 +2289,35 @@ fn Fakturadokument(bas: String, d: FakturaVy) -> impl IntoView {
         (true, false) => "Skicka…",
         (true, true) => "Skicka igen…",
     };
+    // #141 Kundförlust: panelerna och förlusterna i uppgifterna.
+    let förlustpanel = d.kundförlust.as_ref().and_then(|k| {
+        match (vald_panel, k.panel.clone(), k.återkalla.clone()) {
+            (Some(Panel::Kundförlust), Some(p), _) => Some(
+                view! {
+                    <crate::kundforlust::Kundförlustpanel
+                        action=format!("{lista}/{}/kundforlust", d.id)
+                        stäng=här.clone()
+                        p=p
+                    />
+                }
+                .into_any(),
+            ),
+            (Some(Panel::ÅterkallaKundförlust), _, Some(å)) => Some(
+                view! {
+                    <crate::kundforlust::KundförlustÅterkallelsepanel
+                        action=format!("{lista}/{}/kundforlust/{}/aterkalla", d.id, å.id)
+                        stäng=här.clone()
+                        vy=å
+                    />
+                }
+                .into_any(),
+            ),
+            _ => None,
+        }
+    });
+    let kundförlusterna = d.kundförlust.as_ref().map(|k| {
+        view! { <crate::kundforlust::Kundförlusterna bas=bas.clone() poster=k.poster.clone() /> }
+    });
     let panel = match (d.rätta_kontering.clone(), d.skicka.clone()) {
         // #142 Rätta kontering
         (Some(p), _) => Some(
@@ -2242,9 +2328,39 @@ fn Fakturadokument(bas: String, d: FakturaVy) -> impl IntoView {
         (None, Some(s)) => {
             Some(view! { <SkickaPanel lista=lista.clone() id=d.id.clone() s=s /> }.into_any())
         }
-        (None, None) => betalpanel,
+        (None, None) => betalpanel.or(förlustpanel),
     };
     let handlingar = panel.is_none().then(|| {
+        // #141 Kundförlust
+        let kundförlust = d.kundförlust.as_ref().and_then(|k| {
+            if k.gällande.is_some() {
+                Some(
+                    view! {
+                        <a
+                            class="knapp"
+                            href=format!("{här}&panel={}", Panel::ÅterkallaKundförlust.kod())
+                        >
+                            "Återkalla kundförlust"
+                        </a>
+                    }
+                    .into_any(),
+                )
+            } else if k.kan_bokföras {
+                Some(
+                    view! {
+                        <a
+                            class="knapp knapp-fara-diskret"
+                            href=format!("{här}&panel={}", Panel::Kundförlust.kod())
+                        >
+                            "Kundförlust…"
+                        </a>
+                    }
+                    .into_any(),
+                )
+            } else {
+                None
+            }
+        });
         let rätta_kontering = d.kan_rätta_kontering.then(|| {
             view! {
                 <a class="knapp knapp-diskret" href=format!("{lista}?f={}&panel=ratta", d.id)>
@@ -2257,6 +2373,7 @@ fn Fakturadokument(bas: String, d: FakturaVy) -> impl IntoView {
                 {betala}
                 <a class="knapp" href=format!("{lista}?f={}&panel=skicka", d.id)>{skicka_text}</a>
                 {rätta_kontering}
+                {kundförlust}
             </p>
         }
     });
@@ -2323,6 +2440,7 @@ fn Fakturadokument(bas: String, d: FakturaVy) -> impl IntoView {
                     </dd>
                     <dt>"Utfärdad"</dt>
                     <dd>{d.utfärdad.0.clone()} " av " {d.utfärdad.1.clone()} " via " {d.utfärdad.2.clone()}</dd>
+                    {kundförlusterna}
                 </dl>
                 <table class="rader">
                     <thead>
