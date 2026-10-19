@@ -18,6 +18,7 @@
 mod bokforing;
 mod data;
 mod kundfaktura;
+mod reskontra;
 mod systemdokumentation;
 #[cfg(feature = "test-support")]
 pub mod testhjalp;
@@ -33,6 +34,7 @@ pub use bokforing::{
     Transaktion,
 };
 pub use data::Dokument;
+pub use reskontra::{Reskontradel, Reskontran, Reskontrapost};
 
 /// Det som står längst ned på varje sida, utöver versionen och INK2-utgåvan som Maya själv vet.
 #[derive(Debug, Clone, PartialEq, Eq)]

@@ -39,8 +39,9 @@ use crate::betalning::Faktura;
 use crate::foretag::{FöretagsId, datum};
 use crate::kundfaktura::KundfakturaId;
 use crate::leverantorsfaktura::LeverantörsfakturaId;
+use crate::utskrift::{self, Pdf, UtskriftFel};
 use crate::verifikat::VerifikatId;
-use crate::{Databas, DatabasFel, fordran, saldo};
+use crate::{Databas, DatabasFel, Klocka, fordran, saldo};
 
 /// Fakturans läge på dagen, som avgör hur mycket av det som återstår som står på
 /// reskontrakontot.
@@ -336,4 +337,140 @@ async fn posten_i(
         bokfört,
         läge,
     }))
+}
+
+/// Reskontrans rubrik.
+fn rubrik(r: Reskontra) -> &'static str {
+    match r {
+        Reskontra::Kund => "Kundreskontra",
+        Reskontra::Leverantör => "Leverantörsreskontra",
+    }
+}
+
+/// `reskontra_<orgnr>_<ÅÅÅÅMMDD>` utan ändelse.
+pub fn filnamnsstam(orgnr: &str, dag: Date) -> String {
+    format!(
+        "reskontra_{}_{}",
+        orgnr.replace('-', ""),
+        dag.strftime("%Y%m%d")
+    )
+}
+
+/// Reskontran per `dag` som CSV, med samma konventioner som rapporterna (UTF-8 med BOM,
+/// semikolon, CRLF och decimalkomma): en rad per öppen post, och per reskontra summan, saldot
+/// på kontot och differensen.
+pub async fn csv(
+    db: &Databas,
+    aktör: &Aktör,
+    företag: FöretagsId,
+    dag: Date,
+) -> Result<crate::bokforing::Fil, ÅtkomstFel> {
+    let r = reskontran(db, aktör, företag, dag).await?;
+    let orgnr = crate::foretag::företaget(db, aktör, företag).await?.orgnr;
+    let belopp = maya_domain::csv::belopp;
+    let mut csv = maya_domain::csv::Csv::new(&[
+        "Reskontra",
+        "Fakturanummer",
+        "Motpart",
+        "Fakturadatum",
+        "Förfallodag",
+        "Total",
+        "Återstår",
+        "På kontot",
+        "Läge",
+    ]);
+    for d in [&r.kund, &r.leverantör] {
+        let namn = rubrik(d.reskontra);
+        for p in &d.poster {
+            csv.rad([
+                namn.to_string(),
+                p.fakturanummer.clone(),
+                p.motpart.clone(),
+                p.fakturadatum.to_string(),
+                p.förfallodag.map(|d| d.to_string()).unwrap_or_default(),
+                belopp(p.total),
+                belopp(p.återstår),
+                belopp(p.bokfört),
+                p.läge.namn().to_string(),
+            ]);
+        }
+        let konto = d.reskontra.konto().to_string();
+        for (text, återstår, på_kontot) in [
+            ("Summa".to_string(), belopp(d.återstår), belopp(d.bokfört)),
+            (format!("Saldo {konto}"), String::new(), belopp(d.saldo)),
+            ("Differens".to_string(), String::new(), belopp(d.differens)),
+        ] {
+            csv.rad([
+                namn.to_string(),
+                String::new(),
+                text,
+                String::new(),
+                String::new(),
+                String::new(),
+                återstår,
+                på_kontot,
+                String::new(),
+            ]);
+        }
+    }
+    Ok(crate::bokforing::Fil {
+        filnamn: format!("{}.csv", filnamnsstam(&orgnr.to_string(), dag)),
+        innehåll: csv.innehåll(),
+    })
+}
+
+/// Reskontran per `dag` som PDF/A-2b (A2). Skriv ut och exporten är samma PDF.
+pub async fn pdf(
+    db: &Databas,
+    klocka: &Klocka,
+    aktör: &Aktör,
+    företag: FöretagsId,
+    dag: Date,
+) -> Result<Pdf, UtskriftFel> {
+    let r = reskontran(db, aktör, företag, dag).await?;
+    let f = crate::foretag::företaget(db, aktör, företag).await?;
+    let konton = crate::kontoplan::konton(db, aktör, företag).await?;
+    let kontonamn = |r: Reskontra| {
+        let nr = r.konto();
+        let namn = konton
+            .iter()
+            .find(|k| k.nummer == nr)
+            .map(|k| k.namn.clone())
+            .unwrap_or_default();
+        format!("{nr} {namn}").trim().to_string()
+    };
+    let dokument = maya_pdf::Dokument::Reskontran(maya_pdf::Reskontran {
+        företag: maya_pdf::Företag {
+            namn: f.namn,
+            orgnr: f.orgnr.to_string(),
+        },
+        dag,
+        delar: [&r.kund, &r.leverantör]
+            .into_iter()
+            .map(|d| maya_pdf::Reskontradel {
+                rubrik: rubrik(d.reskontra).into(),
+                konto: kontonamn(d.reskontra),
+                poster: d
+                    .poster
+                    .iter()
+                    .map(|p| maya_pdf::Reskontrapost {
+                        fakturanummer: p.fakturanummer.clone(),
+                        motpart: p.motpart.clone(),
+                        fakturadatum: p.fakturadatum,
+                        förfallodag: p.förfallodag,
+                        total: p.total,
+                        återstår: p.återstår,
+                        bokfört: p.bokfört,
+                        läge: p.läge.namn().into(),
+                    })
+                    .collect(),
+                återstår: d.återstår,
+                bokfört: d.bokfört,
+                saldo: d.saldo,
+                differens: d.differens,
+            })
+            .collect(),
+    });
+    let filnamn = format!("{}.pdf", filnamnsstam(&f.orgnr.to_string(), dag));
+    utskrift::skriv(db, klocka, aktör, filnamn, &dokument).await
 }

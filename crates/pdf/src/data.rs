@@ -21,6 +21,8 @@ pub enum Dokument {
     Rapport(Rapport),
     Systemdokumentation(maya_domain::systemdokumentation::Systemdokumentation),
     Kundfaktura(crate::Kundfaktura),
+    // #151
+    Reskontran(crate::Reskontran),
 }
 
 impl Dokument {
@@ -35,6 +37,7 @@ impl Dokument {
             Dokument::Rapport(_) => "rapport.typ",
             Dokument::Systemdokumentation(_) => "systemdokumentation.typ",
             Dokument::Kundfaktura(_) => "kundfaktura.typ",
+            Dokument::Reskontran(_) => "reskontra.typ",
         }
     }
 
@@ -61,6 +64,7 @@ impl Dokument {
             Dokument::Rapport(r) => rapport(r),
             Dokument::Systemdokumentation(s) => crate::systemdokumentation::systemdokumentation(s),
             Dokument::Kundfaktura(k) => crate::kundfaktura::kundfaktura(k),
+            Dokument::Reskontran(r) => crate::reskontra::reskontran(r),
         };
         json!({
             "sidfot": {

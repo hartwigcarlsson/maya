@@ -117,6 +117,90 @@ async fn reskontran_per_datum_visar_öppna_poster_och_stämmer_med_1510_och_2440
     assert_eq!((r.leverantör.saldo, r.leverantör.differens), (0, 0));
 }
 
+/// Ett företag med en delbetald kundfaktura, en obetald leverantörsfaktura och ett manuellt
+/// verifikat på 1510 som inte hör till någon faktura.
+async fn med_differens(db: &Databas) -> (Aktör, FöretagsId) {
+    let (anna, id) = testhjalp::fakturaföretag(db).await;
+    let k = testhjalp::utfärdad_kundfaktura(db, &anna, id, "Kund AB", "2026-03-10").await;
+    let l = testhjalp::leverantör(db, &anna, id, "Kontorsvaror AB").await;
+    testhjalp::registrerad_leverantörsfaktura(db, &anna, id, l, "8812", "").await;
+    betala(
+        db,
+        &anna,
+        id,
+        Faktura::Kund(k.id),
+        &betalning("2026-04-02", "1 875"),
+    )
+    .await;
+    testhjalp::bokför(
+        db,
+        &anna,
+        id,
+        "2026-05-01",
+        &[(1510, 50_000, 0), (3001, 0, 50_000)],
+    )
+    .await;
+    (anna, id)
+}
+
+#[tokio::test]
+async fn reskontran_per_datum_blir_den_förväntade_csv_filen() {
+    let db = Databas::tillfällig().await;
+    let (anna, id) = med_differens(&db).await;
+    let csv = reskontra::csv(&db, &anna, id, dag("2026-10-18"))
+        .await
+        .unwrap();
+    assert_eq!(csv.filnamn, "reskontra_5560360793_20261018.csv");
+    let väntad = include_bytes!("golden/reskontra.csv");
+    assert_eq!(
+        String::from_utf8_lossy(&csv.innehåll),
+        String::from_utf8_lossy(väntad)
+    );
+    assert_eq!(csv.innehåll, väntad);
+}
+
+#[tokio::test]
+async fn reskontran_per_datum_skrivs_ut_som_pdf_med_differensen() {
+    use maya_pdf::testhjalp::{innehåller, sidor, är_pdfa_2b};
+    let db = Databas::tillfällig().await;
+    let (anna, id) = med_differens(&db).await;
+    let pdf = reskontra::pdf(&db, &klocka(), &anna, id, dag("2026-10-18"))
+        .await
+        .unwrap();
+    assert_eq!(pdf.filnamn, "reskontra_5560360793_20261018.pdf");
+    är_pdfa_2b(&pdf.innehåll);
+    let text = sidor(&pdf.innehåll).join("\n");
+    for väntat in [
+        "Reskontran per 2026-10-18",
+        "Exempel AB",
+        "Kundreskontra",
+        "Kund AB",
+        "10 000,00",
+        "Saldo på 1510 Kundfordringar i huvudboken",
+        "Reskontran avviker från huvudboken med -500,00 kr.",
+        "Leverantörsreskontra",
+        "Kontorsvaror AB",
+        "Reskontran stämmer med huvudboken.",
+        "Utskrivet 2026-10-18 10:00 av anna@example.se",
+    ] {
+        assert!(innehåller(&text, väntat), "saknar {väntat:?} i {text}");
+    }
+}
+
+#[tokio::test]
+async fn den_utan_åtkomst_kan_inte_läsa_reskontran() {
+    let db = Databas::tillfällig().await;
+    let (_, id) = med_differens(&db).await;
+    let bo = testhjalp::användare(&db, "bo@example.se").await;
+    let fel = reskontra::reskontran(&db, &bo, id, dag("2026-10-18"))
+        .await
+        .unwrap_err();
+    assert!(
+        matches!(fel, maya_core::atkomst::ÅtkomstFel::IngenÅtkomst),
+        "{fel:?}"
+    );
+}
+
 #[tokio::test]
 async fn ett_verifikat_på_1510_utanför_reskontran_ger_en_differens_från_sitt_datum() {
     let db = Databas::tillfällig().await;
