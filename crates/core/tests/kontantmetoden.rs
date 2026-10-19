@@ -386,6 +386,46 @@ async fn kreditera_hela(
 }
 
 #[tokio::test]
+async fn en_återbetalning_dateras_inte_före_tillgodohavandet() {
+    for (metod, _) in METODER {
+        let db = Databas::tillfällig().await;
+        let (anna, id, f) = kundfaktura(&db, metod).await;
+        betala(
+            &db,
+            &anna,
+            id,
+            Faktura::Kund(f),
+            &betalning("2026-04-02", "11 875"),
+        )
+        .await;
+        // Krediten är daterad i dag (2026-10-18), så tillgodohavandet finns från då.
+        kreditera_hela(&db, &anna, id, f).await;
+        let fel = betalning::registrera(
+            &db,
+            &klocka(),
+            &anna,
+            id,
+            Faktura::Kund(f),
+            &betalning("2026-06-02", "11 875"),
+        )
+        .await
+        .unwrap_err();
+        assert!(
+            matches!(&fel, betalning::BetalningFel::Spärrat(s) if s.iter().map(|s| s.kod).eq(["aterbetalning_fore_tillgodo"])),
+            "{metod}: {fel:?}"
+        );
+        betala(
+            &db,
+            &anna,
+            id,
+            Faktura::Kund(f),
+            &betalning("2026-10-18", "11 875"),
+        )
+        .await;
+    }
+}
+
+#[tokio::test]
 async fn kredit_av_en_obokförd_obetald_faktura_bokförs_inte() {
     let db = Databas::tillfällig().await;
     let (anna, id, f) = kundfaktura(&db, "kontant").await;

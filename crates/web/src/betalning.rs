@@ -68,6 +68,9 @@ pub struct BetalningsVy {
     /// bokförs mot 1510 eller 2440.
     #[serde(default)]
     pub bokförd_efter: Option<String>,
+    /// Det som återstod per dag (#151), så att en återbetalning före tillgodohavandet spärras.
+    #[serde(default)]
+    pub återstod: Vec<(String, i64)>,
 }
 
 impl BetalningsVy {
@@ -89,6 +92,11 @@ impl BetalningsVy {
             originalvaluta: !self.originalvaluta.trim().is_empty(),
             obokförd: self.obokförd.clone(),
             bokförd_efter: self.bokförd_efter.as_deref().and_then(datum),
+            återstod: self
+                .återstod
+                .iter()
+                .filter_map(|(d, å)| Some((datum(d)?, *å)))
+                .collect(),
         }
     }
 }
@@ -755,6 +763,11 @@ pub(crate) mod server {
                     originalvaluta: post.originalvaluta.clone(),
                     obokförd: f.obokförd.clone(),
                     bokförd_efter: f.bokförd_efter.map(|d| d.to_string()),
+                    återstod: f
+                        .återstod
+                        .iter()
+                        .map(|(d, å)| (d.to_string(), *å))
+                        .collect(),
                 });
             }
             Some("ratta-betalning") => {

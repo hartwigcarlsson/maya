@@ -224,6 +224,50 @@ pub(crate) async fn obetalt_vid_i(
     obetalt_i(conn, faktura, dag, true).await
 }
 
+/// Det som återstod av fakturan vid utgången av varje dag med en händelse på den, i
+/// datumordning, som bokföringen visar det ([`obetalt_vid_i`]): fakturadatumet och dagarna för
+/// krediter, betalningar, rättelser av betalningar, kundförluster och återkallelser (#151).
+pub(crate) async fn återstod_i(
+    conn: &mut SqliteConnection,
+    faktura: Faktura,
+) -> Result<Vec<(Date, i64)>, DatabasFel> {
+    let sql = match faktura {
+        Faktura::Kund(_) => {
+            "SELECT fakturadatum FROM kundfaktura WHERE id = ?1 AND fakturadatum IS NOT NULL
+             UNION SELECT fakturadatum FROM kundfaktura
+                   WHERE krediterar = ?1 AND status IN ('utfardad', 'registrerad')
+             UNION SELECT betaldag FROM betalning WHERE kundfaktura_id = ?1
+             UNION SELECT v.datum FROM betalningsrattelse r JOIN betalning b ON b.id = r.betalning_id
+                   JOIN verifikat v ON v.id = r.verifikat_id WHERE b.kundfaktura_id = ?1
+             UNION SELECT datum FROM kundforlust WHERE kundfaktura_id = ?1
+             UNION SELECT v.datum FROM kundforlust_aterkallelse a
+                   JOIN kundforlust l ON l.id = a.kundforlust_id
+                   JOIN verifikat v ON v.id = a.verifikat_id WHERE l.kundfaktura_id = ?1
+             ORDER BY 1"
+        }
+        Faktura::Leverantör(_) => {
+            "SELECT fakturadatum FROM leverantorsfaktura WHERE id = ?1 AND fakturadatum IS NOT NULL
+             UNION SELECT fakturadatum FROM leverantorsfaktura
+                   WHERE krediterar = ?1 AND status = 'registrerad'
+             UNION SELECT betaldag FROM betalning WHERE leverantorsfaktura_id = ?1
+             UNION SELECT v.datum FROM betalningsrattelse r JOIN betalning b ON b.id = r.betalning_id
+                   JOIN verifikat v ON v.id = r.verifikat_id WHERE b.leverantorsfaktura_id = ?1
+             ORDER BY 1"
+        }
+    };
+    let (kund, leverantör) = faktura.kolumner();
+    let dagar: Vec<String> = sqlx::query_scalar(sql)
+        .bind(kund.or(leverantör))
+        .fetch_all(&mut *conn)
+        .await?;
+    let mut återstod = Vec::new();
+    for dag in dagar {
+        let dag = datum(&dag)?;
+        återstod.push((dag, obetalt_vid_i(&mut *conn, faktura, dag).await?));
+    }
+    Ok(återstod)
+}
+
 /// Det som T2-verifikatet tar med för årets slut `slut` (#150): det som var obetalt då, som
 /// reskontran visar det nu. En betalning i året som har rättats efter årets slut var fel och
 /// räknas inte som betald, så att fordran eller skulden kommer med i T2 och står på 1510 eller
