@@ -510,6 +510,24 @@ async fn fakturaändringar(db: &Databas, anna: &Aktör, id: FöretagsId, tid: &s
     maya_core::betalning::rätta(db, &k, anna, id, betalning.id, "2026-03-01", "fel belopp")
         .await
         .unwrap();
+    // #141 Kundförlust
+    let förlust = maya_core::kundforlust::bokför(
+        db,
+        &k,
+        anna,
+        id,
+        betald.id,
+        &maya_domain::kundforlust::NyKundförlust {
+            skäl: "konkurs".into(),
+            annat: String::new(),
+            datum: "2026-03-01".into(),
+        },
+    )
+    .await
+    .unwrap();
+    maya_core::kundforlust::återkalla(db, &k, anna, id, förlust.id)
+        .await
+        .unwrap();
 }
 
 #[tokio::test]

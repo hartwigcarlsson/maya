@@ -215,6 +215,10 @@ _Avoid_: Leverans, distribution, skickad (som status)
 Skillnaden mellan det som återstår av en leverantörsfaktura i originalvaluta, registrerad i SEK, och det som betalades i SEK; den stängs i betalningens verifikat mot 3960 vid vinst och 7960 vid förlust, så att inget återstår.
 _Avoid_: Valutadifferens, kursavvikelse, valutajustering
 
+**Kundförlust**:
+En konstaterad förlust på det som återstår av en utfärdad kundfaktura, med skäl (konkurs, ackord, utmätning utan resultat eller annat) och datum; när fordran är bokförd bokförs den på 6351 med utgående moms minskad proportionellt, och den kan återkallas med ett nytt verifikat så att fakturan kan betalas igen. En befarad kundförlust är ett manuellt verifikat och ingen kundförlust i Maya.
+_Avoid_: Avskrivning (det är anläggningstillgångar), osäker fordran, nedskrivning av kundfordran
+
 **Anställd**:
 En person som får lön eller styrelsearvode från ett företag, även en ägare; registreras per företag.
 _Avoid_: Personal, medarbetare, löntagare

@@ -2,7 +2,8 @@
 //! fram ur fakturans total, det som återstår, förfallodagen och dagens datum, och lagras inte.
 //!
 //! Märkena i etapp 2 är obetald, delbetald, förfallen och betald; krediterad och tillgodo
-//! kommer med kreditfakturorna (#140) och kundförlust med #141.
+//! kommer med kreditfakturorna (#140). Kundförlust (#141) är märket för en kundfaktura som en
+//! gällande kundförlust har skrivit bort.
 
 use jiff::civil::Date;
 
@@ -19,6 +20,8 @@ pub enum Märke {
     Förfallen,
     /// Inget återstår.
     Betald,
+    /// En kundförlust som inte är återkallad har skrivit bort det som återstod (#141).
+    Kundförlust,
 }
 
 impl Märke {
@@ -28,6 +31,7 @@ impl Märke {
             Märke::Delbetald => "Delbetald",
             Märke::Förfallen => "Förfallen",
             Märke::Betald => "Betald",
+            Märke::Kundförlust => "Kundförlust",
         }
     }
 
@@ -38,6 +42,7 @@ impl Märke {
             Märke::Delbetald => "delbetald",
             Märke::Förfallen => "forfallen",
             Märke::Betald => "betald",
+            Märke::Kundförlust => "kundforlust",
         }
     }
 }
@@ -57,6 +62,22 @@ pub fn märke(total: i64, återstår: i64, förfallodag: Date, idag: Date) -> M�
         Märke::Delbetald
     } else {
         Märke::Obetald
+    }
+}
+
+/// Märket för en kundfaktura: [`Märke::Kundförlust`] medan en kundförlust gäller den, annars
+/// [`märke`] (#141).
+pub fn kundfakturans_märke(
+    total: i64,
+    återstår: i64,
+    kundförlust: bool,
+    förfallodag: Date,
+    idag: Date,
+) -> Märke {
+    if kundförlust {
+        Märke::Kundförlust
+    } else {
+        märke(total, återstår, förfallodag, idag)
     }
 }
 

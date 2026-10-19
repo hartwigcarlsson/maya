@@ -2757,3 +2757,23 @@ kbd {
 .betaluppgifter code {
   user-select: all;
 }
+
+/* Kundförlust (#141): märket och skälen i panelen. */
+.badge-kundforlust {
+  background: color-mix(in oklch, var(--destructive) 12%, transparent);
+  color: var(--destructive);
+}
+
+.panel fieldset.skal {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  border: none;
+  padding: 0;
+  margin: 0 0 12px;
+}
+
+.panel fieldset.skal legend {
+  font-weight: 600;
+  margin-bottom: 4px;
+}

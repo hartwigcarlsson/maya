@@ -226,7 +226,13 @@ pub(crate) mod server {
                     återstår: kr(f.återstår),
                     märke: match (f.status, f.förfallodag) {
                         (Status::Utfärdad, Some(d)) => {
-                            let m = maya_domain::reskontra::märke(f.total, f.återstår, d, idag);
+                            let m = maya_domain::reskontra::kundfakturans_märke(
+                                f.total,
+                                f.återstår,
+                                f.kundförlust,
+                                d,
+                                idag,
+                            );
                             (m.kod().into(), m.namn().into())
                         }
                         _ => ("utkast".into(), "Utkast".into()),

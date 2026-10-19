@@ -2,7 +2,7 @@
 //! förfallodagen och dagens datum. Inget av det lagras.
 
 use jiff::civil::date;
-use maya_domain::reskontra::{Grupp, Märke, förfallotext, grupp, märke};
+use maya_domain::reskontra::{Grupp, Märke, förfallotext, grupp, kundfakturans_märke, märke};
 
 #[test]
 fn märket_följer_det_som_återstår() {
@@ -73,5 +73,24 @@ fn förfallotexten_räknar_dagarna() {
     assert_eq!(
         förfallotext(date(2026, 10, 9), idag),
         "förföll för 10 dagar sedan"
+    );
+}
+
+// #141 Kundförlust
+#[test]
+fn en_gällande_kundförlust_ger_märket_kundförlust_och_fakturan_är_avslutad() {
+    let idag = date(2026, 10, 19);
+    let förföll = date(2026, 4, 9);
+    assert_eq!(
+        kundfakturans_märke(10_000, 0, true, förföll, idag),
+        Märke::Kundförlust
+    );
+    assert_eq!(Märke::Kundförlust.namn(), "Kundförlust");
+    assert_eq!(Märke::Kundförlust.kod(), "kundforlust");
+    assert_eq!(grupp(0, förföll, idag), Grupp::Avslutade);
+    // En återkallad förlust räknas inte: fakturan är förfallen igen.
+    assert_eq!(
+        kundfakturans_märke(10_000, 10_000, false, förföll, idag),
+        Märke::Förfallen
     );
 }
