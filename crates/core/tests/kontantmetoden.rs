@@ -518,6 +518,37 @@ async fn kredit_bokförs_mot_1510_för_hela_krediten_eller_för_det_som_översti
 // Kundförlust
 
 #[tokio::test]
+async fn en_kundförlust_som_en_bokförd_kredit_bygger_på_återkallas_inte_under_kontantmetoden() {
+    let db = Databas::tillfällig().await;
+    let (anna, id, f) = kundfaktura(&db, "kontant").await;
+    let förlust = kundforlust::bokför(
+        &db,
+        &klocka(),
+        &anna,
+        id,
+        f,
+        &NyKundförlust {
+            skäl: "konkurs".into(),
+            datum: "2026-06-01".into(),
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(förlust.verifikat, None);
+    // Inget är obetalt efter förlusten, så krediten bokförs mot 1510.
+    let k = kreditera_hela(&db, &anna, id, f).await;
+    assert!(k.verifikat.is_some());
+    let fel = kundforlust::återkalla(&db, &klocka(), &anna, id, förlust.id)
+        .await
+        .unwrap_err();
+    assert!(
+        matches!(fel, kundforlust::KundförlustFel::BokförtUtifrån),
+        "{fel:?}"
+    );
+}
+
+#[tokio::test]
 async fn kundförlust_bokförs_när_fordran_är_bokförd_och_ger_annars_bara_status() {
     for (metod, bokförd) in METODER {
         let db = Databas::tillfällig().await;

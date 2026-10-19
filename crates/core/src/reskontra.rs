@@ -39,6 +39,7 @@ use crate::betalning::Faktura;
 use crate::foretag::{FöretagsId, datum};
 use crate::kundfaktura::KundfakturaId;
 use crate::leverantorsfaktura::LeverantörsfakturaId;
+use crate::verifikat::VerifikatId;
 use crate::{Databas, DatabasFel, fordran, saldo};
 
 /// Fakturans läge på dagen, som avgör hur mycket av det som återstår som står på
@@ -188,6 +189,38 @@ pub(crate) async fn på_kontot_i(
         }
     }
     Ok(bokfört)
+}
+
+/// Om det som reskontran säger står på fakturans reskontrakonto har ändrats från `före`
+/// ([`på_kontot_i`]) med precis det som `verifikat` bokförde där. En rättelse eller
+/// återkallelse som ändrar mer skulle få kontot att avvika från reskontran: något har bokförts
+/// utifrån det som rättas, och den spärras (#151).
+pub(crate) async fn följer_kontot_i(
+    conn: &mut SqliteConnection,
+    företag: FöretagsId,
+    faktura: Faktura,
+    före: i64,
+    verifikat: Option<VerifikatId>,
+) -> Result<bool, DatabasFel> {
+    let (reskontra, tecken) = match faktura {
+        Faktura::Kund(_) => (Reskontra::Kund, 1),
+        Faktura::Leverantör(_) => (Reskontra::Leverantör, -1),
+    };
+    let bokfört: i64 = match verifikat {
+        None => 0,
+        Some(v) => {
+            sqlx::query_scalar(
+                "SELECT coalesce(sum(debet - kredit), 0) FROM verifikatrad
+             WHERE verifikat_id = ? AND konto = ?",
+            )
+            .bind(v.0)
+            .bind(i64::from(reskontra.konto().get()))
+            .fetch_one(&mut *conn)
+            .await?
+        }
+    };
+    let efter = på_kontot_i(conn, företag, faktura, Date::MAX).await?;
+    Ok(efter - före == tecken * bokfört)
 }
 
 /// En faktura i reskontran som kan ha något kvar på dagen.

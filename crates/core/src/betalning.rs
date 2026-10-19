@@ -119,10 +119,10 @@ pub enum BetalningFel {
     /// Betalningen är redan rättad.
     #[error("betalningen är redan rättad")]
     RedanRättad,
-    /// Betalningen bokfördes mot intäkt eller kostnad och moms (kontantmetoden), och något har
-    /// sedan bokförts utifrån den på 1510 eller 2440: ett bokfört T2-verifikat, som aldrig
-    /// vänds, eller den del av en kredit som översteg det obetalda. En rättelse skulle ge
-    /// fakturan det betalda tillbaka i reskontran men inte på kontot (#150, #151).
+    /// Något har bokförts på 1510 eller 2440 utifrån betalningen, t.ex. ett bokfört T2-verifikat
+    /// (som aldrig vänds) efter en betalning mot intäkt eller kostnad och moms, eller den del av
+    /// en senare kredit som översteg det obetalda. En rättelse skulle ge fakturan det betalda
+    /// tillbaka i reskontran men inte på kontot (#150, #151).
     #[error("något har bokförts på reskontrakontot utifrån betalningen")]
     BokförtUtifrån,
     /// Betalningens verifikat kunde inte bokföras eller rättas, t.ex. ett rättelsedatum före
@@ -512,20 +512,9 @@ pub async fn rätta(
         (None, None) => return Err(BetalningFel::IngenBetalning),
     };
     let fakturan = läs_fakturan(ärende.conn(), företag, faktura).await?;
-    let mot_reskontrakontot: bool = sqlx::query_scalar(
-        "SELECT EXISTS (SELECT 1 FROM verifikatrad WHERE verifikat_id = ? AND konto = ?)",
-    )
-    .bind(verifikat_id)
-    .bind(i64::from(faktura.reskontra().konto().get()))
-    .fetch_one(ärende.conn())
-    .await?;
-    // En betalning mot intäkt eller kostnad ändrar inte reskontrakontot, så rättelsen får inte
-    // ändra det som reskontran säger står där (#151).
-    let före = if mot_reskontrakontot {
-        None
-    } else {
-        Some(crate::reskontra::på_kontot_i(ärende.conn(), företag, faktura, Date::MAX).await?)
-    };
+    // Rättelsen får ändra det som reskontran säger står på 1510 eller 2440 bara med det som
+    // den själv bokför där (#151).
+    let före = crate::reskontra::på_kontot_i(ärende.conn(), företag, faktura, Date::MAX).await?;
     let datum = rättelsedatum(datum)?;
     let rättelse = verifikat::rätta_i(&mut ärende, VerifikatId(verifikat_id), datum, orsak).await?;
     let (nu, kanal, av) = (
@@ -546,8 +535,8 @@ pub async fn rätta(
     .bind(av)
     .execute(ärende.conn())
     .await?;
-    if let Some(före) = före
-        && crate::reskontra::på_kontot_i(ärende.conn(), företag, faktura, Date::MAX).await? != före
+    if !crate::reskontra::följer_kontot_i(ärende.conn(), företag, faktura, före, Some(rättelse.id))
+        .await?
     {
         // Ärendet slutförs inte, så rättelsen rullas tillbaka.
         return Err(BetalningFel::BokförtUtifrån);

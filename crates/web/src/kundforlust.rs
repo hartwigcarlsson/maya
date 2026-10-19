@@ -65,6 +65,11 @@ pub fn feltext(kod: &str) -> Option<&'static str> {
     Some(match kod {
         "kundforlust" => "Kundförlusten kunde inte bokföras. Rätta det som är markerat.",
         "redan_aterkallad" => "Kundförlusten är redan återkallad.",
+        // #151
+        "bokfort_utifran" => {
+            "En kredit har sedan bokförts på 1510 utifrån kundförlusten, så den kan inte \
+             återkallas här."
+        }
         "fore_forlusten" => {
             "Kundförlusten är daterad senare än i dag och kan återkallas först från den dagen."
         }
@@ -553,6 +558,9 @@ pub(crate) mod server {
             }
             Err(KundförlustFel::FöreFörlusten) => {
                 Redirect::to(&format!("{här}&fel=fore_forlusten")).into_response()
+            }
+            Err(KundförlustFel::BokförtUtifrån) => {
+                Redirect::to(&format!("{här}&fel=bokfort_utifran")).into_response()
             }
             Err(KundförlustFel::Verifikat(_)) => {
                 Redirect::to(&format!("{här}&fel=aterkalla")).into_response()
