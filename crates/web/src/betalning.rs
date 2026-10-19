@@ -14,6 +14,22 @@ use maya_domain::kontoplan::Kontonummer;
 use maya_domain::rakenskapsar::Räkenskapsår;
 use serde::{Deserialize, Serialize};
 
+/// Om bokföringsmetoden på `fakturadatum` är kontantmetoden (#149), ur företagets historik
+/// `metoder` (från vilket datum och metodens kod, i ordning): då bokförs inget när en faktura
+/// utfärdas eller registreras, och knappen heter Registrera.
+pub(crate) fn kontantmetoden_på(metoder: &[(String, String)], fakturadatum: &str) -> bool {
+    use maya_domain::foretag::{Bokföringsmetod, gäller};
+    let metoder: Vec<(Date, Bokföringsmetod)> = metoder
+        .iter()
+        .filter_map(|(d, kod)| Some((d.parse().ok()?, Bokföringsmetod::från_kod(kod)?)))
+        .collect();
+    let metod = match fakturadatum.trim().parse::<Date>() {
+        Ok(d) => gäller(&metoder, d).or(metoder.first().map(|(_, m)| *m)),
+        Err(_) => metoder.last().map(|(_, m)| *m),
+    };
+    metod == Some(Bokföringsmetod::Kontant)
+}
+
 /// Ett belopp i öre som det visas.
 fn kr(öre: i64) -> String {
     Saldo::från_öre(öre).to_string()
@@ -44,6 +60,10 @@ pub struct BetalningsVy {
     /// Leverantörsfakturans originalvaluta i fritext, t.ex. "EUR 109,50", eller tom (#147).
     #[serde(default)]
     pub originalvaluta: String,
+    /// Fakturans kontering när dess fordran eller skuld inte är bokförd (kontantmetoden, #149),
+    /// så att "Bokförs som" visar intäkt eller kostnad och moms.
+    #[serde(default)]
+    pub obokförd: Option<maya_domain::kontantmetoden::Obokförd>,
 }
 
 impl BetalningsVy {
@@ -63,6 +83,7 @@ impl BetalningsVy {
                 .filter_map(|(s, e)| Some(Räkenskapsår::befintligt(datum(s)?, datum(e)?)))
                 .collect(),
             originalvaluta: !self.originalvaluta.trim().is_empty(),
+            obokförd: self.obokförd.clone(),
         }
     }
 }
@@ -680,6 +701,17 @@ pub(crate) mod server {
                 let f = betalning::förutsättningar(&b.db, aktör, företag, faktura).await?;
                 let konton = kontoplan::konton(&b.db, aktör, företag).await?;
                 let tillbaka = fel.as_deref() == Some("betalning");
+                // #149: kontona som en betalning mot intäkt eller kostnad och moms bokför på.
+                let obokförda: Vec<u16> = f
+                    .obokförd
+                    .as_ref()
+                    .map(|o| {
+                        o.kontering(o.total())
+                            .iter()
+                            .map(|r| r.konto.get())
+                            .collect()
+                    })
+                    .unwrap_or_default();
                 vy.betalning = Some(BetalningsVy {
                     reskontra: f.reskontra,
                     återstår: f.återstår,
@@ -700,6 +732,7 @@ pub(crate) mod server {
                         .filter(|k| {
                             k.nummer.klass() == 1
                                 || [2440, 3740, KURSVINST, KURSFÖRLUST].contains(&k.nummer.get())
+                                || obokförda.contains(&k.nummer.get())
                         })
                         .map(|k| (k.nummer.get(), k.namn.clone()))
                         .collect(),
@@ -710,6 +743,7 @@ pub(crate) mod server {
                     },
                     fel: tillbaka.then(|| feltext("betalning").unwrap_or_default().into()),
                     originalvaluta: post.originalvaluta.clone(),
+                    obokförd: f.obokförd.clone(),
                 });
             }
             Some("ratta-betalning") => {

@@ -142,6 +142,10 @@ pub struct GranskningVy {
     pub spärrar: Vec<String>,
     /// #138: kundens e-postadress när Maya har SMTP, för kryssrutan "Skicka till …"; annars tom.
     pub skicka_till: String,
+    /// #149: utfärdandet bokför inget (kontantmetoden på fakturadatumet, eller en kredit som
+    /// ryms i det obetalda av ett original vars fordran inte är bokförd).
+    #[serde(default)]
+    pub bokförs_inte: bool,
 }
 
 /// En rad på en utfärdad faktura.
@@ -264,10 +268,6 @@ fn feltext(kod: &str) -> Option<&'static str> {
     Some(match kod {
         "utkast" => "Utkastet kunde inte sparas. Rätta det som är markerat.",
         "sparrat" => "Fakturan kan inte utfärdas än. Rätta det som är markerat.",
-        "kontant" => {
-            "Under kontantmetoden utfärdas kundfakturor i en senare version av Maya. Fakturan \
-             är kvar som utkast."
-        }
         "startnummer" => "Startnumret kan inte ändras efter första utfärdandet.",
         "finns_inte" => "Utkastet finns inte längre eller är redan utfärdat.",
         // #142 Rätta kontering
@@ -733,6 +733,17 @@ pub(crate) mod server {
             let förutsättningar = kundfaktura::förutsättningar(&b.db, aktör, företag).await?;
             if let (Some(u), true) = (&data.utkast, b.värde("granska").is_some()) {
                 let mut g = granskning(&u.formulär, &förutsättningar, &kontonamn);
+                // #149: det som utfärdandet bokför; inget under kontantmetoden.
+                if let (true, Ok(id)) = (g.spärrar.is_empty(), u.id.parse::<KundfakturaId>()) {
+                    match kundfaktura::utfärdandets_kontering(&b.db, aktör, företag, id).await {
+                        Ok(Some(rader)) => g.kontering = konteringsvy(&rader, &kontonamn),
+                        Ok(None) => {
+                            g.kontering = Vec::new();
+                            g.bokförs_inte = true;
+                        }
+                        Err(_) => {}
+                    }
+                }
                 // #138: kryssrutan bara med SMTP och en kund med e-postadress.
                 if b.config.smtp.is_some() {
                     g.skicka_till = u
@@ -783,27 +794,32 @@ pub(crate) mod server {
             Ok(u) => GranskningVy {
                 nummer: u.nummer.to_string(),
                 fakturadatum: u.fakturadatum.to_string(),
-                kontering: u
-                    .kontering()
-                    .iter()
-                    .map(|r| {
-                        (
-                            r.konto.to_string(),
-                            kontonamn(r.konto.get()),
-                            r.debet.eller_tomt(),
-                            r.kredit.eller_tomt(),
-                        )
-                    })
-                    .collect(),
+                kontering: konteringsvy(&u.kontering(), kontonamn),
                 total: kr(u.total),
-                spärrar: Vec::new(),
-                skicka_till: String::new(),
+                ..GranskningVy::default()
             },
             Err(spärrar) => GranskningVy {
                 spärrar: spärrar.into_iter().map(|s| s.text).collect(),
                 ..GranskningVy::default()
             },
         }
+    }
+
+    fn konteringsvy(
+        rader: &[maya_domain::verifikat::Rad],
+        kontonamn: &dyn Fn(u16) -> String,
+    ) -> Vec<KonteringVy> {
+        rader
+            .iter()
+            .map(|r| {
+                (
+                    r.konto.to_string(),
+                    kontonamn(r.konto.get()),
+                    r.debet.eller_tomt(),
+                    r.kredit.eller_tomt(),
+                )
+            })
+            .collect()
     }
 
     /// Märket för en utfärdad faktura i listorna: kreditfaktura, eller statusen efter
@@ -914,13 +930,17 @@ pub(crate) mod server {
                 .fakturatext()
                 .map(|text| (u.momsläge.omvänd().namn().to_string(), text.to_string())),
             utan_moms: u.momsläge == Momsläge::UtanMoms,
-            verifikat: (
-                u.verifikat.id.to_string(),
-                u.verifikat
-                    .nummer
-                    .map(|n| n.to_string())
-                    .unwrap_or_default(),
-            ),
+            // #149: under kontantmetoden har utfärdandet inget verifikat.
+            verifikat: u
+                .verifikat
+                .as_ref()
+                .map(|v| {
+                    (
+                        v.id.to_string(),
+                        v.nummer.map(|n| n.to_string()).unwrap_or_default(),
+                    )
+                })
+                .unwrap_or_default(),
             pdf: PdfVy {
                 href: format!("/foretag/{företag}/underlag/{}/fil", u.pdf.underlag),
                 filnamn: u.pdf.filnamn.clone(),
@@ -1083,9 +1103,6 @@ pub(crate) mod server {
             }
             Err(KundfakturaFel::Spärrat(_)) => {
                 Redirect::to(&format!("{lista}?f={f}&granska=1&fel=sparrat")).into_response()
-            }
-            Err(KundfakturaFel::Kontantmetoden) => {
-                Redirect::to(&format!("{lista}?f={f}&fel=kontant")).into_response()
             }
             Err(KundfakturaFel::IngetUtkast) => {
                 Redirect::to(&format!("{lista}?f={f}&fel=finns_inte")).into_response()
@@ -1304,7 +1321,14 @@ fn kundfakturor_sida(data: Kundfakturadata, ny: bool) -> AnyView {
     .map(|(_, text)| text.to_string())
     // #143: registreringen och Rätta registrering säger vilket verifikat det blev.
     .or_else(|| {
-        fråga("registrerad").map(|v| format!("Fakturan registrerades och bokfördes som {v}."))
+        fråga("registrerad").map(|v| {
+            if v == "0" {
+                "Fakturan registrerades. Under kontantmetoden bokförs den när den betalas."
+                    .to_string()
+            } else {
+                format!("Fakturan registrerades och bokfördes som {v}.")
+            }
+        })
     })
     .or_else(|| {
         fråga("registrering_rattad").map(|v| {
@@ -1558,7 +1582,12 @@ fn Granska(lista: String, id: String, g: GranskningVy) -> impl IntoView {
                     "Öppna PDF:en"
                 </a>
             </p>
-            <div class="kont">
+            {g.bokförs_inte.then(|| view! {
+                <p class="kont-inte">
+                    "Bokförs inte nu: under kontantmetoden bokförs fakturan när den betalas."
+                </p>
+            })}
+            <div class="kont" hidden=g.bokförs_inte>
                 <h3>"Bokförs som verifikat · " {g.fakturadatum.clone()}</h3>
                 <table class="rader">
                     <thead>
@@ -2908,8 +2937,22 @@ fn Fakturadokument(bas: String, d: FakturaVy) -> impl IntoView {
                     <dd>{referens}</dd>
                     <dt>"Verifikat"</dt>
                     <dd>
-                        <a href=format!("{bas}/verifikat?v={verifikat_id}")>{verifikat_nummer}</a>
-                        <span class="diskret">" utfärdande"</span>
+                        {if verifikat_id.is_empty() {
+                            view! {
+                                <span class="diskret">
+                                    "Utfärdandet bokförs inte under kontantmetoden"
+                                </span>
+                            }
+                                .into_any()
+                        } else {
+                            view! {
+                                <a href=format!(
+                                    "{bas}/verifikat?v={verifikat_id}",
+                                )>{verifikat_nummer}</a>
+                                <span class="diskret">" utfärdande"</span>
+                            }
+                                .into_any()
+                        }}
                     </dd>
                     <dt>"Utfärdad"</dt>
                     <dd>{d.utfärdad.0.clone()} " av " {d.utfärdad.1.clone()} " via " {d.utfärdad.2.clone()}</dd>

@@ -109,14 +109,21 @@ fn parameter(plats: &str, namn: &str) -> String {
 /// Ett företag med fakturauppgifterna ifyllda och kunden Kund AB: sessionen, företagets
 /// adress och kundens id.
 async fn fakturaföretag(db: &TillfälligDatabas) -> (String, String, String) {
+    fakturaföretag_med(db, "faktura").await
+}
+
+/// Som [`fakturaföretag`] med bokföringsmetoden `metod` (#149).
+async fn fakturaföretag_med(db: &TillfälligDatabas, metod: &str) -> (String, String, String) {
     let session = inloggad(db).await;
     let bas = plats(
         &posta(
             db,
             &session,
             "/foretag",
-            "orgnr=556036-0793&namn=Exempel+AB&start=2026-01-01&slut=2026-12-31\
-             &bokforingsmetod=faktura&momsperiod=kvartal",
+            &format!(
+                "orgnr=556036-0793&namn=Exempel+AB&start=2026-01-01&slut=2026-12-31\
+                 &bokforingsmetod={metod}&momsperiod=kvartal"
+            ),
         )
         .await,
     );
@@ -543,4 +550,58 @@ async fn ett_företag_utan_momsregistrering_kan_inte_välja_momssats() {
     let konto = &ny[ny.find(r#"name="konto_0""#).unwrap()..];
     let konto = &konto[..konto.find('>').unwrap()];
     assert!(konto.contains(r#"value="3004""#), "kontot för 0 %: {konto}");
+}
+
+// #149 Kontantmetoden
+#[tokio::test]
+async fn under_kontantmetoden_bokförs_utfärdandet_inte_och_betalningen_bokför_intäkten() {
+    let db = Databas::tillfällig().await;
+    let (session, bas, kund) = fakturaföretag_med(&db, "kontant").await;
+    let granska = plats(
+        &posta(
+            &db,
+            &session,
+            &format!("{bas}/kundfakturor"),
+            &format!("{}&handling=granska", utkast(&kund)),
+        )
+        .await,
+    );
+    let f = parameter(&granska, "f");
+    let dialog = hämta(&db, &session, &granska).await;
+    let dialog = &dialog[dialog.find("Granska och utfärda").unwrap()..];
+    assert!(
+        dialog.contains("under kontantmetoden bokförs fakturan när den betalas"),
+        "{dialog}"
+    );
+    let utfärdad = plats(
+        &posta(
+            &db,
+            &session,
+            &format!("{bas}/kundfakturor/{f}/utfarda"),
+            "",
+        )
+        .await,
+    );
+    assert!(utfärdad.contains("utfardad=1"), "{utfärdad}");
+    let sida = hämta(&db, &session, &utfärdad).await;
+    let dokument = &sida[sida.find(r#"class="dokument"#).unwrap()..];
+    assert!(
+        dokument.contains("Utfärdandet bokförs inte under kontantmetoden"),
+        "{dokument}"
+    );
+    assert!(!dokument.contains("Rätta kontering"), "{dokument}");
+    // Betalningspanelen visar intäkten och momsen i "Bokförs som".
+    let panel = hämta(
+        &db,
+        &session,
+        &format!("{bas}/kundfakturor?f={f}&panel=betalning"),
+    )
+    .await;
+    let kont = &panel[panel.find("betalningspanel").unwrap()..];
+    let kont = &kont[kont.find(r#"class="kont""#).unwrap()..];
+    let kont = &kont[..kont.find("</table>").unwrap()];
+    for konto in ["1930", "3001", "2611"] {
+        assert!(kont.contains(konto), "{konto}: {kont}");
+    }
+    assert!(!kont.contains("1510"), "{kont}");
 }
