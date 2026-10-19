@@ -49,7 +49,7 @@ pub struct BetalningsVy {
     pub konton: Vec<(u16, bool)>,
     /// Räkenskapsårens start och slut.
     pub räkenskapsår: Vec<(String, String)>,
-    /// Aktiva konton i klass 1 med namn, för väljaren.
+    /// Aktiva konton för kassa och bank (19xx) med namn, för väljaren.
     pub betalkonton: Vec<(u16, String)>,
     /// Kontonamnen som "Bokförs som" kan behöva.
     pub kontonamn: Vec<(u16, String)>,
@@ -749,13 +749,13 @@ pub(crate) mod server {
                         .collect(),
                     betalkonton: konton
                         .iter()
-                        .filter(|k| k.aktiv && k.nummer.klass() == 1)
+                        .filter(|k| k.aktiv && maya_domain::betalning::är_betalkonto(k.nummer))
                         .map(|k| (k.nummer.get(), k.namn.clone()))
                         .collect(),
                     kontonamn: konton
                         .iter()
                         .filter(|k| {
-                            k.nummer.klass() == 1
+                            maya_domain::betalning::är_betalkonto(k.nummer)
                                 || [2440, 3740, KURSVINST, KURSFÖRLUST].contains(&k.nummer.get())
                                 || obokförda.contains(&k.nummer.get())
                         })

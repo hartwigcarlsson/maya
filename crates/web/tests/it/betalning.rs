@@ -210,6 +210,10 @@ async fn en_betalning_registreras_i_panelen_och_visas_i_dokumentet() {
         "förvalt det som återstår"
     );
     assert!(panel.contains(r#"value="1930" selected"#), "{panel}");
+    // Till konto: bara kassa och bank (19xx), inte vilken tillgång som helst.
+    assert!(panel.contains(r#"<option value="1930""#), "{panel}");
+    assert!(!panel.contains(r#"<option value="1030""#), "{panel}");
+    assert!(!panel.contains(r#"<option value="1510""#), "{panel}");
     assert!(panel.contains("Bokförs som verifikat"));
     assert!(panel.contains("1510"));
     assert!(panel.contains(&format!("{bas}/kundfakturor/{f}/betalning")));

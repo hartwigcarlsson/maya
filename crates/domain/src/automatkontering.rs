@@ -86,8 +86,8 @@ pub enum Roll {
     Intäkt,
     /// Kostnadskontona på leverantörsfakturans rader.
     Kostnad,
-    /// Betalkontot som betalningen anger, ett aktivt konto i klass 1 ([`crate::betalning::BETALKONTO`] som
-    /// förval).
+    /// Betalkontot som betalningen anger, ett aktivt konto för kassa eller bank
+    /// ([`crate::betalning::är_betalkonto`], [`crate::betalning::BETALKONTO`] som förval).
     Betalkonto,
     /// Utgående moms per momssats.
     UtgåendeMoms,

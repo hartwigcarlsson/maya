@@ -337,7 +337,8 @@ pub fn behandlingsregler() -> Vec<Block> {
         Block::Underrubrik("Spärrar vid betalning av faktura".into()),
         Block::Stycke(
             "Panelen och servern prövar samma spärrar. Beloppet är förvalt det som återstår, och \
-             betalkontot 1930, som kan ändras till ett annat aktivt konto i klass 1. En \
+             betalkontot 1930, som kan ändras till ett annat aktivt konto för kassa eller bank \
+             (19xx). En \
              delbetalning lämnar resten kvar; en rest på högst 10 kr kan stängas mot \
              öresutjämning (3740) i samma verifikat. Rätta betalning vänder betalningens \
              verifikat med en rättelse och tar bort betalningen ur reskontran."

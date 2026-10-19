@@ -277,7 +277,7 @@ async fn en_överbetalning_spärras_och_inget_bokförs() {
 }
 
 #[tokio::test]
-async fn ett_betalkonto_utanför_klass_1_spärras_och_betaldagen_kan_skapa_nästa_år() {
+async fn ett_betalkonto_utanför_kassa_och_bank_spärras_och_betaldagen_kan_skapa_nästa_år() {
     let db = Databas::tillfällig().await;
     let (anna, id, f) = faktura(&db).await;
     let fel = betalning::registrera(
@@ -294,7 +294,7 @@ async fn ett_betalkonto_utanför_klass_1_spärras_och_betaldagen_kan_skapa_näst
     .await
     .unwrap_err();
     assert!(
-        matches!(&fel, BetalningFel::Spärrat(s) if s[0].kod == "konto_inte_klass_1"),
+        matches!(&fel, BetalningFel::Spärrat(s) if s[0].kod == "konto_inte_betalkonto"),
         "{fel:?}"
     );
     let r = betalning::registrera(
