@@ -188,6 +188,41 @@ async fn reskontran_per_datum_skrivs_ut_som_pdf_med_differensen() {
 }
 
 #[tokio::test]
+async fn en_återkallad_kundförlust_gäller_i_reskontran_fram_till_återkallelsen() {
+    let db = Databas::tillfällig().await;
+    let (anna, id) = testhjalp::fakturaföretag(&db).await;
+    let k = testhjalp::utfärdad_kundfaktura(&db, &anna, id, "Kund AB", "2026-03-10").await;
+    let förlust = maya_core::kundforlust::bokför(
+        &db,
+        &klocka(),
+        &anna,
+        id,
+        k.id,
+        &maya_domain::kundforlust::NyKundförlust {
+            skäl: "konkurs".into(),
+            datum: "2026-06-01".into(),
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
+    // Återkallelsen bokförs i dag, 2026-10-18.
+    maya_core::kundforlust::återkalla(&db, &klocka(), &anna, id, förlust.id)
+        .await
+        .unwrap();
+    let r = reskontra::reskontran(&db, &anna, id, dag("2026-07-01"))
+        .await
+        .unwrap();
+    assert!(r.kund.poster.is_empty(), "{:?}", r.kund.poster);
+    assert_eq!((r.kund.saldo, r.kund.differens), (0, 0));
+    let r = reskontra::reskontran(&db, &anna, id, dag("2026-10-18"))
+        .await
+        .unwrap();
+    assert_eq!(r.kund.poster[0].återstår, 1_187_500);
+    assert_eq!((r.kund.saldo, r.kund.differens), (1_187_500, 0));
+}
+
+#[tokio::test]
 async fn den_utan_åtkomst_kan_inte_läsa_reskontran() {
     let db = Databas::tillfällig().await;
     let (_, id) = med_differens(&db).await;

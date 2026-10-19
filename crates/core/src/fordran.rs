@@ -214,8 +214,9 @@ pub(crate) async fn väntar_på_t2_vid_i(
 
 /// Det som var obetalt av fakturan vid utgången av `dag`, i öre, som bokföringen visade det
 /// då: totalen minus krediter med fakturadatum senast `dag`, betalningar med betaldag senast
-/// `dag` som inte var vända med en rättelse daterad senast `dag`, och (kundfaktura) en gällande
-/// kundförlust daterad senast `dag`. Reskontran per datum (#151) visar det.
+/// `dag` som inte var vända med en rättelse daterad senast `dag`, och (kundfaktura) en
+/// kundförlust daterad senast `dag` som inte var återkallad då. Reskontran per datum (#151)
+/// visar det.
 pub(crate) async fn obetalt_vid_i(
     conn: &mut SqliteConnection,
     faktura: Faktura,
@@ -282,7 +283,9 @@ pub(crate) async fn obetalt_vid_årets_slut_i(
 }
 
 /// Det som var obetalt vid utgången av `dag`. Med `per_datum` räknas en betalning som betald
-/// tills dagen för dess rättelse; annars räknas en rättad betalning aldrig.
+/// tills dagen för dess rättelse, och en bokförd kundförlust som gällande tills dagen för
+/// återkallelsens verifikat; annars räknas en rättad betalning och en återkallad kundförlust
+/// aldrig. En kundförlust som bara är en status har inget datum för återkallelsen.
 async fn obetalt_i(
     conn: &mut SqliteConnection,
     faktura: Faktura,
@@ -301,8 +304,13 @@ async fn obetalt_i(
                                    SELECT 1 FROM betalningsrattelse r
                                    JOIN verifikat v ON v.id = r.verifikat_id
                                    WHERE r.betalning_id = b.id AND (?3 = 0 OR v.datum <= ?2))), 0)
-                 - coalesce((SELECT sum(l.belopp) FROM kundforlust_i_reskontran l
-                             WHERE l.kundfaktura_id = f.id AND l.datum <= ?2), 0)
+                 - coalesce((SELECT sum(l.belopp) FROM kundforlust l
+                             WHERE l.kundfaktura_id = f.id AND l.datum <= ?2
+                               AND NOT EXISTS (
+                                   SELECT 1 FROM kundforlust_aterkallelse a
+                                   LEFT JOIN verifikat v ON v.id = a.verifikat_id
+                                   WHERE a.kundforlust_id = l.id
+                                     AND (?3 = 0 OR a.verifikat_id IS NULL OR v.datum <= ?2))), 0)
              FROM kundfaktura f WHERE f.id = ?1"
         }
         Faktura::Leverantör(_) => {
