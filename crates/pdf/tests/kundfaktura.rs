@@ -82,6 +82,7 @@ fn faktura() -> Utfärdbar {
                 konto: "3003".into(),
             },
         ],
+        ..NyKundfaktura::default()
     }
     .kontrollera(&f)
     .unwrap()

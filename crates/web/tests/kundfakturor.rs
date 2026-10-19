@@ -348,3 +348,51 @@ async fn den_som_saknar_åtkomst_får_inte_se_eller_utfärda_ett_annat_företags
     .await;
     assert_eq!(svar.status(), StatusCode::FORBIDDEN);
 }
+
+// #137 Ny kund från fakturautkastet
+
+#[tokio::test]
+async fn en_ny_kund_läggs_upp_på_utkastet_och_hamnar_i_kundregistret_när_fakturan_utfärdas() {
+    let db = Databas::tillfällig().await;
+    let (session, bas, _) = fakturaföretag(&db).await;
+
+    let ny = hämta(&db, &session, &format!("{bas}/kundfakturor/ny")).await;
+    assert!(ny.contains("+ Ny kund…"), "valet i kundväljaren");
+    assert!(ny.contains("kort-streckat ny-kund"), "det streckade kortet");
+
+    let body = format!(
+        "{}&ny_namn=Nya+Kunden+AB&ny_identitet=&ny_adress=Lillgatan+2%0D%0A222+33+Malm%C3%B6\
+         &ny_epost=&ny_momsregnr=&ny_betalningsvillkor=10&handling=spara",
+        utkast("ny")
+    );
+    let sparat = plats(&posta(&db, &session, &format!("{bas}/kundfakturor"), &body).await);
+    assert!(sparat.contains("sparat=1"), "{sparat}");
+    let f = parameter(&sparat, "f");
+    let sida = hämta(&db, &session, &sparat).await;
+    assert!(
+        sida.contains(r#"value="Nya Kunden AB""#),
+        "kortet med kunden"
+    );
+    let lista = &sida[sida.find(r#"class="verifikatlista""#).unwrap()..];
+    let lista = &lista[..lista.find("</ul>").unwrap()];
+    assert!(
+        lista.contains("Nya Kunden AB") && lista.contains("badge-ny"),
+        "{lista}"
+    );
+    // Kunden finns inte i kundregistret än.
+    let register = hämta(&db, &session, &format!("{bas}/kunder")).await;
+    assert!(!register.contains("Nya Kunden AB"));
+
+    let utfärdad = plats(
+        &posta(
+            &db,
+            &session,
+            &format!("{bas}/kundfakturor/{f}/utfarda"),
+            "",
+        )
+        .await,
+    );
+    assert!(utfärdad.contains("utfardad=1"), "{utfärdad}");
+    let register = hämta(&db, &session, &format!("{bas}/kunder")).await;
+    assert!(register.contains("Nya Kunden AB"));
+}

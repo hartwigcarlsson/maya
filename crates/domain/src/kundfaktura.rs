@@ -16,11 +16,15 @@ use crate::belopp::Belopp;
 use crate::faktura::{self, Antal, Momsrad, Momssats, Rabatt};
 use crate::foretag::Momsperiod;
 use crate::kontoplan::Kontonummer;
+use crate::kund::{self, GiltigKund, NyKund};
 use crate::rakenskapsar::Räkenskapsår;
 use crate::verifikat::{self, Årsval};
 
 /// Kundfordringar, debet när fakturan utfärdas under fakturametoden.
 pub const KUNDFORDRINGAR: u16 = 1510;
+
+/// Kundvalets värde för en ny kund som läggs upp från utkastet (#137).
+pub const NY: &str = "ny";
 
 /// Det största startnummer som kan väljas.
 pub const STÖRSTA_STARTNUMMER: u64 = 999_999_999;
@@ -84,7 +88,7 @@ impl NyFakturarad {
 /// Utkastet till en kundfaktura som användaren skrev det.
 #[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct NyKundfaktura {
-    /// Kundens id i kundregistret.
+    /// Kundens id i kundregistret, [`NY`] för en ny kund från utkastet, eller tomt.
     pub kund: String,
     /// `ÅÅÅÅ-MM-DD`.
     pub fakturadatum: String,
@@ -98,6 +102,9 @@ pub struct NyKundfaktura {
     pub startnummer: String,
     /// Raderna i formulärets ordning. Helt tomma rader räknas inte.
     pub rader: Vec<NyFakturarad>,
+    /// Den nya kunden, när `kund` är [`NY`] (#137).
+    #[serde(default)]
+    pub ny_kund: NyKund,
 }
 
 /// Kunden som fakturan går till, ur kundregistret. Uppgifterna kopieras in när fakturan
@@ -191,6 +198,8 @@ pub enum Radfält {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Fält {
     Kund,
+    /// Ett fält i den nya kundens streckade kort (#137).
+    NyKund(kund::Fält),
     Fakturadatum,
     Förfallodag,
     Startnummer,
@@ -209,6 +218,11 @@ pub const UTFÄRDANDESPÄRRAR: &[(&str, &str)] = &[
     (
         "kund_saknas",
         "Fakturan har en aktiv kund ur kundregistret.",
+    ),
+    (
+        "ny_kund",
+        "En ny kund från utkastet klarar kundregistrets regler: den har ett namn, och \
+         organisations- eller personnummer, e-post och betalningsvillkor är rätt ifyllda.",
     ),
     ("kund_adress_saknas", "Kunden har en adress."),
     ("fakturadatum_saknas", "Fakturadatum krävs."),
@@ -320,7 +334,10 @@ pub struct Fakturarad {
 /// En faktura som klarar alla spärrar och kan utfärdas.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Utfärdbar {
+    /// Kunden. En ny kund har id 0 tills `core` lägger den i registret.
     pub kund: Fakturakund,
+    /// Den nya kunden från utkastet, som blir verklig när fakturan utfärdas (#137).
+    pub ny_kund: Option<GiltigKund>,
     pub fakturadatum: Date,
     /// Leveransdatum eller period som fakturan anger.
     pub leveransdatum: String,
@@ -450,6 +467,11 @@ impl NyKundfaktura {
         let mut spärrar = Vec::new();
 
         let kund = self.kontrollera_kund(f, &mut spärrar);
+        let (kund, ny_kund) = match kund {
+            Some((k, ny)) => (Some(k), ny),
+            None => (None, None),
+        };
+        let kund = kund.as_ref();
         let fakturadatum = self.kontrollera_fakturadatum(&mut spärrar);
         let årsval = fakturadatum.and_then(|d| {
             let mut fel = Vec::new();
@@ -510,6 +532,7 @@ impl NyKundfaktura {
                 };
                 Ok(Utfärdbar {
                     kund: kund.clone(),
+                    ny_kund,
                     fakturadatum,
                     leveransdatum,
                     förfallodag,
@@ -532,11 +555,41 @@ impl NyKundfaktura {
         }
     }
 
-    fn kontrollera_kund<'a>(
+    /// Kunden som fakturan går till: den valda i registret, eller den nya kunden när den
+    /// klarar kundregistrets regler.
+    pub fn kunden(&self, f: &Förutsättningar) -> Option<Fakturakund> {
+        match self.kund.trim() {
+            NY => self.ny_kund.kontrollera().ok().map(|k| fakturakund(&k)),
+            id => {
+                let id = id.parse::<i64>().ok()?;
+                f.kunder.iter().find(|k| k.id == id).cloned()
+            }
+        }
+    }
+
+    fn kontrollera_kund(
         &self,
-        f: &'a Förutsättningar,
+        f: &Förutsättningar,
         spärrar: &mut Vec<Spärr>,
-    ) -> Option<&'a Fakturakund> {
+    ) -> Option<(Fakturakund, Option<GiltigKund>)> {
+        if self.kund.trim() == NY {
+            return match self.ny_kund.kontrollera() {
+                Err(fel) => {
+                    spärrar.extend(ny_kunds_spärrar(fel));
+                    None
+                }
+                Ok(k) => {
+                    if k.adress.is_empty() {
+                        spärrar.push(Spärr::ny(
+                            Fält::NyKund(kund::Fält::Adress),
+                            "kund_adress_saknas",
+                            format!("{} saknar adress. Fyll i den på kortet.", k.namn),
+                        ));
+                    }
+                    Some((fakturakund(&k), Some(k)))
+                }
+            };
+        }
         let id = self.kund.trim();
         let kund = id
             .parse::<i64>()
@@ -561,9 +614,9 @@ impl NyKundfaktura {
                     "kund_adress_saknas",
                     format!("{} saknar adress. Fyll i den i kundregistret.", k.namn),
                 ));
-                Some(k)
+                Some((k.clone(), None))
             }
-            Some(k) => Some(k),
+            Some(k) => Some((k.clone(), None)),
         }
     }
 
@@ -634,8 +687,18 @@ impl NyKundfaktura {
     /// utfärdande.
     pub fn som_utkast(&self) -> Result<Utkast, Vec<Spärr>> {
         let mut spärrar = Vec::new();
+        let mut ny_kund = None;
         let kund = match self.kund.trim() {
             "" => None,
+            // En ny kund utan namn är inget att spara; utkastet saknar då kund.
+            NY if self.ny_kund.namn.trim().is_empty() => None,
+            NY => {
+                match self.ny_kund.kontrollera() {
+                    Ok(k) => ny_kund = Some(k),
+                    Err(fel) => spärrar.extend(ny_kunds_spärrar(fel)),
+                }
+                None
+            }
             id => match id.parse::<i64>() {
                 Ok(id) => Some(id),
                 Err(_) => {
@@ -732,6 +795,7 @@ impl NyKundfaktura {
         }
         Ok(Utkast {
             kund,
+            ny_kund,
             fakturadatum,
             leveransdatum: self.leveransdatum.trim().to_string(),
             förfallodag,
@@ -739,6 +803,25 @@ impl NyKundfaktura {
             startnummer,
             rader,
         })
+    }
+}
+
+/// Den nya kundens fel som spärrar vid fälten i kortet.
+fn ny_kunds_spärrar(fel: Vec<kund::Fältfel>) -> impl Iterator<Item = Spärr> {
+    fel.into_iter()
+        .map(|f| Spärr::ny(Fält::NyKund(f.fält), "ny_kund", f.text))
+}
+
+/// Den nya kunden som fakturans kund, med id 0 tills den finns i registret.
+fn fakturakund(k: &GiltigKund) -> Fakturakund {
+    Fakturakund {
+        id: 0,
+        namn: k.namn.clone(),
+        identitet: k.identitet.clone(),
+        adress: k.adress.clone(),
+        epost: k.epost.clone(),
+        momsregnr: k.momsregnr.clone(),
+        betalningsvillkor: k.betalningsvillkor,
     }
 }
 
@@ -944,6 +1027,8 @@ pub struct Utkastrad {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Utkast {
     pub kund: Option<i64>,
+    /// En ny kund från utkastet, i stället för en kund ur registret (#137).
+    pub ny_kund: Option<GiltigKund>,
     pub fakturadatum: Option<Date>,
     pub leveransdatum: String,
     pub förfallodag: Option<Date>,
@@ -959,7 +1044,15 @@ impl Utkast {
     pub fn som_formulär(&self) -> NyKundfaktura {
         let text = |d: Option<Date>| d.map(|d| d.to_string()).unwrap_or_default();
         NyKundfaktura {
-            kund: self.kund.map(|k| k.to_string()).unwrap_or_default(),
+            kund: match (&self.ny_kund, self.kund) {
+                (Some(_), _) => NY.to_string(),
+                (None, k) => k.map(|k| k.to_string()).unwrap_or_default(),
+            },
+            ny_kund: self
+                .ny_kund
+                .as_ref()
+                .map(GiltigKund::som_formulär)
+                .unwrap_or_default(),
             fakturadatum: text(self.fakturadatum),
             leveransdatum: self.leveransdatum.clone(),
             förfallodag: text(self.förfallodag),
