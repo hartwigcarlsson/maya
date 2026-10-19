@@ -245,6 +245,7 @@ fn ur_fält(värde: impl Fn(&str) -> Option<String>) -> NyKundfaktura {
         förfallodag: fält("forfallodag"),
         er_referens: fält("er_referens"),
         startnummer: fält("startnummer"),
+        omvänd_skattskyldighet: fält("omvand_skattskyldighet"),
         rader: (0..antal)
             .map(|i| {
                 let mut r = NyFakturarad::default();

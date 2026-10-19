@@ -503,6 +503,10 @@ async fn varje_spärr_vid_utfärdande_stoppar_utfärdandet_och_ändrar_ingenting
         ..rad("x", "1", "1", "25", "3001")
     }];
     fall.push(noll);
+    // #136: omvänd skattskyldighet till en kund utan momsreg-nr.
+    let mut omvänd = faktura(utan_adress);
+    omvänd.omvänd_skattskyldighet = "bygg".into();
+    fall.push(omvänd);
 
     for formulär in &fall {
         // Ett utkast med ett fel som inte går att lagra sparas utan det och prövas här.
@@ -529,6 +533,7 @@ async fn varje_spärr_vid_utfärdande_stoppar_utfärdandet_och_ändrar_ingenting
         ("à_pris", "-5", "rad_pris_ogiltigt"),
         ("momssats", "8", "rad_momssats_ogiltig"),
         ("rabatt", "200", "rad_rabatt_ogiltig"),
+        ("omvänd", "export", "omvand_ogiltig"),
     ] {
         let mut f = faktura(utan_adress);
         match fält {
@@ -538,6 +543,7 @@ async fn varje_spärr_vid_utfärdande_stoppar_utfärdandet_och_ändrar_ingenting
             "antal" => f.rader[0].antal = värde.into(),
             "à_pris" => f.rader[0].à_pris = värde.into(),
             "rabatt" => f.rader[0].rabatt = värde.into(),
+            "omvänd" => f.omvänd_skattskyldighet = värde.into(),
             _ => f.rader[0].momssats = värde.into(),
         }
         let KundfakturaFel::Spärrat(spärrar) =

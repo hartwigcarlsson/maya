@@ -6,8 +6,11 @@ use std::fmt;
 use crate::orgnr::{Organisationsnummer, OrgnrFel};
 
 /// Omvänd skattskyldighet som kunden har som förval på sina fakturor.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Debug, Clone, Copy, Default, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize,
+)]
 pub enum OmvändSkattskyldighet {
+    #[default]
     Ingen,
     /// Byggtjänster inom Sverige.
     Bygg,

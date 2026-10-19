@@ -16,6 +16,7 @@ use crate::belopp::Belopp;
 use crate::faktura::{self, Antal, Momsrad, Momssats, Rabatt};
 use crate::foretag::Momsperiod;
 use crate::kontoplan::Kontonummer;
+use crate::kund::OmvändSkattskyldighet;
 use crate::rakenskapsar::Räkenskapsår;
 use crate::verifikat::{self, Årsval};
 
@@ -34,6 +35,89 @@ pub fn intäktskonto(sats: Momssats) -> Kontonummer {
         Momssats::Sex => 3003,
         Momssats::Noll => 3004,
     })
+}
+
+/// Texten som en faktura med omvänd skattskyldighet ska ha (momslagen 17 kap. 24 §).
+pub const OMVÄND_BETALNINGSSKYLDIGHET: &str = "Omvänd betalningsskyldighet";
+
+/// Hur fakturan har moms: med momssatserna, med omvänd skattskyldighet för bygg eller
+/// EU-tjänst (0 % på varje rad, intäkten på 3231 eller 3308 och köparens momsreg-nr på
+/// fakturan), eller utan moms för ett företag som inte är momsregistrerat på fakturadatumet
+/// (0 % på varje rad och inget momsreg-nr).
+#[derive(
+    Debug, Clone, Copy, Default, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize,
+)]
+pub enum Momsläge {
+    #[default]
+    Moms,
+    Bygg,
+    EuTjänst,
+    UtanMoms,
+}
+
+impl Momsläge {
+    /// Momsläget för ett momsregistrerat företag med den omvända skattskyldigheten.
+    pub fn av(omvänd: OmvändSkattskyldighet) -> Self {
+        match omvänd {
+            OmvändSkattskyldighet::Ingen => Momsläge::Moms,
+            OmvändSkattskyldighet::Bygg => Momsläge::Bygg,
+            OmvändSkattskyldighet::EuTjänst => Momsläge::EuTjänst,
+        }
+    }
+
+    /// Den omvända skattskyldigheten som fakturan har; ingen utan momsregistrering.
+    pub fn omvänd(self) -> OmvändSkattskyldighet {
+        match self {
+            Momsläge::Bygg => OmvändSkattskyldighet::Bygg,
+            Momsläge::EuTjänst => OmvändSkattskyldighet::EuTjänst,
+            Momsläge::Moms | Momsläge::UtanMoms => OmvändSkattskyldighet::Ingen,
+        }
+    }
+
+    /// Om användaren väljer momssats per rad. Annars har varje rad 0 %.
+    pub fn fri_momssats(self) -> bool {
+        self == Momsläge::Moms
+    }
+
+    /// Satsen som en rad med den valda satsen får.
+    pub fn sats(self, vald: Momssats) -> Momssats {
+        if self.fri_momssats() {
+            vald
+        } else {
+            Momssats::Noll
+        }
+    }
+
+    /// Intäktskontot som en rad får som förval: 3231 för bygg, 3308 för EU-tjänst, 3004 utan
+    /// momsregistrering och annars kontot som hör till satsen ([`intäktskonto`]).
+    pub fn intäktskonto(self, sats: Momssats) -> Kontonummer {
+        match self {
+            Momsläge::Moms => intäktskonto(sats),
+            Momsläge::Bygg => Kontonummer::konstant(3231),
+            Momsläge::EuTjänst => Kontonummer::konstant(3308),
+            Momsläge::UtanMoms => intäktskonto(Momssats::Noll),
+        }
+    }
+
+    /// Texten om omvänd betalningsskyldighet som fakturan ska ha, eller `None`.
+    pub fn fakturatext(self) -> Option<&'static str> {
+        match self {
+            Momsläge::Bygg => Some("Omvänd betalningsskyldighet för byggtjänster gäller."),
+            Momsläge::EuTjänst => Some(
+                "Omvänd betalningsskyldighet / Reverse charge, artikel 196 i \
+                 mervärdesskattedirektivet.",
+            ),
+            Momsläge::Moms | Momsläge::UtanMoms => None,
+        }
+    }
+}
+
+/// `ingen`, `bygg` eller `eu_tjanst`; tom text är ingen.
+fn tolka_omvänd(text: &str) -> Option<OmvändSkattskyldighet> {
+    match text.trim() {
+        "" => Some(OmvändSkattskyldighet::Ingen),
+        kod => OmvändSkattskyldighet::från_kod(kod),
+    }
 }
 
 /// En fakturarad som användaren skrev den.
@@ -67,6 +151,16 @@ impl Default for NyFakturarad {
 }
 
 impl NyFakturarad {
+    /// En tom rad med satsen och kontot som momsläget förväljer.
+    pub fn för(läge: Momsläge) -> Self {
+        let sats = läge.sats(Momssats::Tjugofem);
+        NyFakturarad {
+            momssats: sats.procent().to_string(),
+            konto: läge.intäktskonto(sats).to_string(),
+            ..NyFakturarad::default()
+        }
+    }
+
     /// En rad där inget är ifyllt utöver momssatsen och kontot, som formuläret förväljer.
     pub fn tom(&self) -> bool {
         [
@@ -96,6 +190,10 @@ pub struct NyKundfaktura {
     /// Första fakturanumret, som bara väljs innan företaget har utfärdat sin första faktura.
     /// Tom text är företagets sparade startnummer.
     pub startnummer: String,
+    /// `ingen`, `bygg` eller `eu_tjanst` ([`OmvändSkattskyldighet::kod`]); tom text är ingen.
+    /// Förvalet är kundens ([`NyKundfaktura::välj_kund`]).
+    #[serde(default)]
+    pub omvänd_skattskyldighet: String,
     /// Raderna i formulärets ordning. Helt tomma rader räknas inte.
     pub rader: Vec<NyFakturarad>,
 }
@@ -112,6 +210,9 @@ pub struct Fakturakund {
     pub momsregnr: String,
     /// Dagar från fakturadatum till förfallodag.
     pub betalningsvillkor: u16,
+    /// Kundens förval, som fylls i på utkastet när kunden väljs.
+    #[serde(default)]
+    pub omvänd_skattskyldighet: OmvändSkattskyldighet,
 }
 
 /// Företagets uppgifter som fakturan kopierar in: säljaren enligt momslagen, F-skatt,
@@ -173,6 +274,18 @@ impl Förutsättningar {
             .or(self.momsperioder.first())
             .is_some_and(|(_, period)| *period != Momsperiod::EjMomsregistrerad)
     }
+
+    /// Om företaget är momsregistrerat på dagen, eller enligt den senaste momsperioden när
+    /// dagen inte är känd.
+    fn momsregistrerat_på(&self, dag: Option<Date>) -> bool {
+        match dag {
+            Some(dag) => self.momsregistrerat(dag),
+            None => self
+                .momsperioder
+                .last()
+                .is_some_and(|(_, period)| *period != Momsperiod::EjMomsregistrerad),
+        }
+    }
 }
 
 /// Ett fält på en fakturarad.
@@ -194,6 +307,7 @@ pub enum Fält {
     Fakturadatum,
     Förfallodag,
     Startnummer,
+    OmvändSkattskyldighet,
     /// Raderna som helhet (inga rader).
     Rader,
     Rad(usize, Radfält),
@@ -211,6 +325,10 @@ pub const UTFÄRDANDESPÄRRAR: &[(&str, &str)] = &[
         "Fakturan har en aktiv kund ur kundregistret.",
     ),
     ("kund_adress_saknas", "Kunden har en adress."),
+    (
+        "kund_momsregnr_saknas",
+        "Vid omvänd skattskyldighet har köparen ett momsregistreringsnummer.",
+    ),
     ("fakturadatum_saknas", "Fakturadatum krävs."),
     (
         "fakturadatum_ogiltigt",
@@ -236,6 +354,10 @@ pub const UTFÄRDANDESPÄRRAR: &[(&str, &str)] = &[
     (
         "startnummer_ogiltigt",
         "Första fakturanumret är ett heltal från 1 till 999 999 999.",
+    ),
+    (
+        "omvand_ogiltig",
+        "Omvänd skattskyldighet är ingen, bygg inom Sverige eller EU-tjänst.",
     ),
     ("rader_saknas", "Fakturan har minst en rad."),
     ("rad_beskrivning_saknas", "Varje rad har en beskrivning."),
@@ -338,9 +460,21 @@ pub struct Utfärdbar {
     pub referens: String,
     /// Räkenskapsåret som fakturadatumet avgör.
     pub räkenskapsår: Årsval,
+    /// Moms med satserna, omvänd skattskyldighet eller ingen moms.
+    pub momsläge: Momsläge,
 }
 
 impl Utfärdbar {
+    /// Säljarens uppgifter som fakturan har dem: utan momsreg-nr när företaget inte är
+    /// momsregistrerat.
+    pub fn säljare_på_fakturan(&self, säljare: &Säljare) -> Säljare {
+        let mut s = säljare.clone();
+        if self.momsläge == Momsläge::UtanMoms {
+            s.momsregnr.clear();
+        }
+        s
+    }
+
     /// Verifikatets beskrivning, med motparten (VF2): "Kundfaktura 1007, Kund AB".
     pub fn beskrivning(&self) -> String {
         format!("Kundfaktura {}, {}", self.nummer, self.kund.namn)
@@ -406,20 +540,25 @@ struct Tolkad {
 }
 
 impl NyFakturarad {
-    fn tolka(&self) -> Tolkad {
+    /// Raden tolkad; utan fri momssats har den 0 % vad som än står i formuläret.
+    fn tolka(&self, läge: Momsläge) -> Tolkad {
         Tolkad {
             antal: Antal::tolka(&self.antal),
             à_pris: Belopp::tolka(self.à_pris.trim()).map(Belopp::öre),
             rabatt: Rabatt::tolka(&self.rabatt),
-            momssats: Momssats::tolka(&self.momssats),
+            momssats: if läge.fri_momssats() {
+                Momssats::tolka(&self.momssats)
+            } else {
+                Some(Momssats::Noll)
+            },
         }
     }
 
-    fn netto(&self) -> Option<(Momssats, i64)> {
+    fn netto(&self, läge: Momsläge) -> Option<(Momssats, i64)> {
         if self.tom() {
             return None;
         }
-        let t = self.tolka();
+        let t = self.tolka(läge);
         Some((
             t.momssats?,
             faktura::radnetto(t.antal?, t.à_pris?, t.rabatt?),
@@ -428,10 +567,71 @@ impl NyFakturarad {
 }
 
 impl NyKundfaktura {
-    /// Radernas netto, momsen per sats och totalen, med de rader som går att räkna.
+    /// Momsläget på fakturadatumet: utan moms om företaget inte är momsregistrerat då
+    /// (enligt den senaste momsperioden utan fakturadatum), annars efter den omvända
+    /// skattskyldigheten. Ett okänt val räknas som ingen och spärras vid utfärdande.
+    pub fn momsläge(&self, f: &Förutsättningar) -> Momsläge {
+        let dag = self.fakturadatum.trim().parse::<Date>().ok();
+        if f.momsregistrerat_på(dag) {
+            self.omvänt_momsläge()
+        } else {
+            Momsläge::UtanMoms
+        }
+    }
+
+    /// Momsläget efter den omvända skattskyldigheten, för ett momsregistrerat företag.
+    fn omvänt_momsläge(&self) -> Momsläge {
+        Momsläge::av(tolka_omvänd(&self.omvänd_skattskyldighet).unwrap_or_default())
+    }
+
+    /// Väljer kunden med id-texten `kund` och fyller i kundens förvalda omvända
+    /// skattskyldighet. Raderna följer det nya momsläget ([`NyKundfaktura::byt_momsläge`]).
+    pub fn välj_kund(&mut self, kund: &str, f: &Förutsättningar) {
+        let före = self.momsläge(f);
+        self.kund = kund.to_string();
+        if let Some(k) = kund
+            .trim()
+            .parse::<i64>()
+            .ok()
+            .and_then(|id| f.kunder.iter().find(|k| k.id == id))
+        {
+            self.omvänd_skattskyldighet = k.omvänd_skattskyldighet.kod().to_string();
+        }
+        let efter = self.momsläge(f);
+        if före != efter {
+            self.byt_momsläge(före, efter);
+        }
+    }
+
+    /// Anpassar raderna när momsläget byts: utan fri momssats får varje rad 0 %, och tillbaka
+    /// får den 25 %. Ett konto som är tomt eller det förra lägets förval byts till det nya
+    /// lägets; ett konto som användaren valt står kvar.
+    pub fn byt_momsläge(&mut self, från: Momsläge, till: Momsläge) {
+        for r in &mut self.rader {
+            let sats = Momssats::tolka(&r.momssats).unwrap_or(Momssats::Tjugofem);
+            let förval = från.intäktskonto(från.sats(sats)).to_string();
+            let ny = match (från.fri_momssats(), till.fri_momssats()) {
+                (_, false) => Momssats::Noll,
+                (true, true) => sats,
+                (false, true) => Momssats::Tjugofem,
+            };
+            if r.konto.trim().is_empty() || r.konto.trim() == förval {
+                r.konto = till.intäktskonto(ny).to_string();
+            }
+            r.momssats = ny.procent().to_string();
+        }
+    }
+
+    /// Radernas netto, momsen per sats och totalen, med de rader som går att räkna, som om
+    /// företaget är momsregistrerat. Formuläret använder [`NyKundfaktura::beräkna_med`].
     pub fn beräkna(&self) -> Beräkning {
+        self.beräkna_med(self.omvänt_momsläge())
+    }
+
+    /// Som [`NyKundfaktura::beräkna`] med momsläget `läge`.
+    pub fn beräkna_med(&self, läge: Momsläge) -> Beräkning {
         let netton: Vec<Option<(Momssats, i64)>> =
-            self.rader.iter().map(NyFakturarad::netto).collect();
+            self.rader.iter().map(|r| r.netto(läge)).collect();
         let momsrader = faktura::momsrader(netton.iter().flatten().copied());
         let netto = momsrader.iter().map(|m| m.underlag).sum();
         let moms = momsrader.iter().map(|m| m.moms).sum();
@@ -462,6 +662,24 @@ impl NyKundfaktura {
         });
         let förfallodag = self.kontrollera_förfallodag(fakturadatum, kund, &mut spärrar);
         let nummer = self.kontrollera_startnummer(f, &mut spärrar);
+        if tolka_omvänd(&self.omvänd_skattskyldighet).is_none() {
+            spärrar.push(omvänd_ogiltig());
+        }
+        let läge = self.momsläge(f);
+        if läge.omvänd() != OmvändSkattskyldighet::Ingen
+            && let Some(k) = kund
+            && k.momsregnr.trim().is_empty()
+        {
+            spärrar.push(Spärr::ny(
+                Fält::Kund,
+                "kund_momsregnr_saknas",
+                format!(
+                    "Omvänd skattskyldighet kräver köparens momsreg-nr. {} saknar det. Fyll i \
+                     det i kundregistret.",
+                    k.namn
+                ),
+            ));
+        }
 
         let ifyllda: Vec<(usize, &NyFakturarad)> = self
             .rader
@@ -479,7 +697,7 @@ impl NyKundfaktura {
         let antal_ifyllda = ifyllda.len();
         let mut rader = Vec::new();
         for (i, r) in ifyllda {
-            rader.extend(kontrollera_rad(i, r, f, &mut spärrar));
+            rader.extend(kontrollera_rad(i, r, läge, f, &mut spärrar));
         }
         let momsrader = faktura::momsrader(rader.iter().map(|r| (r.momssats, r.netto)));
         let netto: i64 = momsrader.iter().map(|m| m.underlag).sum();
@@ -526,6 +744,7 @@ impl NyKundfaktura {
                         nummer.to_string()
                     },
                     räkenskapsår,
+                    momsläge: läge,
                 })
             }
             _ => Err(spärrar),
@@ -675,9 +894,13 @@ impl NyKundfaktura {
                 None
             }
         };
+        let omvänd = tolka_omvänd(&self.omvänd_skattskyldighet).unwrap_or_else(|| {
+            spärrar.push(omvänd_ogiltig());
+            OmvändSkattskyldighet::Ingen
+        });
         let mut rader = Vec::new();
         for (i, r) in self.rader.iter().enumerate().filter(|(_, r)| !r.tom()) {
-            let t = r.tolka();
+            let t = r.tolka(Momsläge::av(omvänd));
             let mut fel = |fält, kod, text: &str| {
                 spärrar.push(Spärr::ny(Fält::Rad(i, fält), kod, text));
             };
@@ -737,9 +960,18 @@ impl NyKundfaktura {
             förfallodag,
             er_referens: self.er_referens.trim().to_string(),
             startnummer,
+            omvänd_skattskyldighet: omvänd,
             rader,
         })
     }
+}
+
+fn omvänd_ogiltig() -> Spärr {
+    Spärr::ny(
+        Fält::OmvändSkattskyldighet,
+        "omvand_ogiltig",
+        "Välj ingen, bygg inom Sverige eller EU-tjänst.",
+    )
 }
 
 const ANTAL_OGILTIGT: &str = "Ange ett antal större än noll med högst två decimaler.";
@@ -776,10 +1008,11 @@ fn fakturadatumets(text: &str) -> String {
 fn kontrollera_rad(
     i: usize,
     r: &NyFakturarad,
+    läge: Momsläge,
     f: &Förutsättningar,
     spärrar: &mut Vec<Spärr>,
 ) -> Option<Fakturarad> {
-    let t = r.tolka();
+    let t = r.tolka(läge);
     let mut fel = |fält, kod, text: String| spärrar.push(Spärr::ny(Fält::Rad(i, fält), kod, text));
     let beskrivning = r.beskrivning.trim();
     if beskrivning.is_empty() {
@@ -950,6 +1183,8 @@ pub struct Utkast {
     pub er_referens: String,
     /// Första fakturanumret, om det valdes i utkastet.
     pub startnummer: Option<u64>,
+    /// Med omvänd skattskyldighet har varje rad 0 %.
+    pub omvänd_skattskyldighet: OmvändSkattskyldighet,
     /// Raderna i formulärets ordning, utan helt tomma rader.
     pub rader: Vec<Utkastrad>,
 }
@@ -965,6 +1200,7 @@ impl Utkast {
             förfallodag: text(self.förfallodag),
             er_referens: self.er_referens.clone(),
             startnummer: self.startnummer.map(|n| n.to_string()).unwrap_or_default(),
+            omvänd_skattskyldighet: self.omvänd_skattskyldighet.kod().to_string(),
             rader: self
                 .rader
                 .iter()

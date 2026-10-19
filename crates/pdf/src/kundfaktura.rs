@@ -2,6 +2,7 @@
 
 use maya_domain::belopp::Saldo;
 use maya_domain::faktura::Rabatt;
+use maya_domain::kundfaktura::Momsläge;
 use serde_json::{Value, json};
 
 use crate::Kundfaktura;
@@ -31,8 +32,12 @@ pub(crate) fn kundfaktura(k: &Kundfaktura) -> Value {
         "image/svg+xml" => "svg",
         _ => "png",
     });
+    // Ett företag som inte är momsregistrerat har ingen moms och inget momsreg-nr på fakturan.
+    let med_moms = f.momsläge != Momsläge::UtanMoms;
     json!({
         "utkast": k.utkast,
+        "med_moms": med_moms,
+        "omvand": f.momsläge.fakturatext(),
         "logotyp": logotyp,
         "nummer": f.nummer.to_string(),
         "referens": f.referens,
@@ -46,14 +51,14 @@ pub(crate) fn kundfaktura(k: &Kundfaktura) -> Value {
             "orgnr": s.orgnr,
             "adress": [s.gatuadress.clone(), format!("{} {}", s.postnummer, s.postort)],
             "sate": s.säte,
-            "momsregnr": s.momsregnr,
+            "momsregnr": if med_moms { s.momsregnr.as_str() } else { "" },
             "f_skatt": s.f_skatt,
             "betalsatt": betalsätt,
         },
         "kund": {
             "namn": f.kund.namn,
             "adress": f.kund.adress.lines().collect::<Vec<_>>(),
-            "momsregnr": f.kund.momsregnr,
+            "momsregnr": if med_moms { f.kund.momsregnr.as_str() } else { "" },
         },
         "har_rabatt": har_rabatt,
         "rader": f.rader.iter().map(|r| json!({
