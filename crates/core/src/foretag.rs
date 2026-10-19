@@ -254,7 +254,7 @@ pub async fn företaget(
     Ok(läs_företag(&mut tx, id).await?)
 }
 
-async fn läs_företag(
+pub(crate) async fn läs_företag(
     conn: &mut SqliteConnection,
     id: FöretagsId,
 ) -> Result<Företag, DatabasFel> {
@@ -600,6 +600,10 @@ pub async fn radera(
         .await?;
     for sql in [
         "INSERT INTO foretag_radering (foretag_id) VALUES (?1)",
+        // #145 Leverantörsfakturautkast (en registrerad faktura är räkenskapsinformation).
+        "DELETE FROM leverantorsfakturarad
+         WHERE faktura_id IN (SELECT id FROM leverantorsfaktura WHERE foretag_id = ?1)",
+        "DELETE FROM leverantorsfaktura WHERE foretag_id = ?1",
         // Inga underlag finns (de är räkenskapsinformation), men listan täcker varje tabell
         // med företagets data.
         "DELETE FROM underlagskoppling
@@ -667,7 +671,9 @@ async fn har_räkenskapsinformation_i(
              OR EXISTS (SELECT 1 FROM underlag WHERE foretag_id = ?1)
              OR EXISTS (SELECT 1 FROM ingaende_balans b
                         JOIN rakenskapsar r ON r.id = b.rakenskapsar_id
-                        WHERE r.foretag_id = ?1)",
+                        WHERE r.foretag_id = ?1)
+             OR EXISTS (SELECT 1 FROM leverantorsfaktura
+                        WHERE foretag_id = ?1 AND status <> 'utkast')",
     )
     .bind(id.0)
     .fetch_one(conn)

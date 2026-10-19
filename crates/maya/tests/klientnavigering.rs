@@ -233,17 +233,35 @@ fn menylankarna_navigerar_pa_klienten_och_sidorna_visar_sina_data() {
     assert_eq!(samma_sida, Some(true.into()), "en länk laddade om sidan");
     assert_eq!(fel(&tab), Vec::<String>::new());
 
-    // #144: leverantörsregistret laddas för sig, tills länken från Leverantörsfakturor kommer
-    // (#145), och navigerar sedan i routern till dokumentet och formulären.
+    // #144: leverantörsregistret nås från fliken Leverantörsfakturor (#145) och navigerar i
+    // routern till dokumentet och formulären.
     posta(
         &tab,
         &format!("/foretag/{id}/leverantorer"),
         "namn=Kontorsvaror+AB&land=SE&bankgiro=5050-1055&standardkonto=5410",
     );
-    tab.navigate_to(&format!("{bas}/foretag/{id}/leverantorer"))
-        .unwrap();
+    // #145: ett utkast till leverantörsfaktura, uppladdat i fliken.
+    let utkast = tab
+        .evaluate(
+            &format!(
+                "(() => {{ const f = new FormData(); \
+                 f.append('fil', new Blob(['%PDF-1.4'], {{type: 'application/pdf'}}), 'faktura-8812.pdf'); \
+                 return fetch('/foretag/{id}/leverantorsfakturor', {{method: 'POST', body: f}}) \
+                 .then(r => r.ok ? r.url : Promise.reject(r.status + ' ' + r.url)); }})()"
+            ),
+            true,
+        )
+        .unwrap()
+        .value;
+    assert!(format!("{utkast:?}").contains("uppladdat=1"), "{utkast:?}");
+    tab.navigate_to(&format!("{bas}/foretag/{id}")).unwrap();
     vänta_på_hydreringen(&tab);
     tab.evaluate("window.__samma_sida = true", false).unwrap();
+    klicka(&tab, "nav.flikar a[href$='/leverantorsfakturor']");
+    vänta_på_text(&tab, "Ny leverantörsfaktura");
+    klicka(&tab, ".verifikatlista a[href*='/leverantorsfakturor?f=']");
+    vänta_på_text(&tab, "Bokförs som");
+    klicka(&tab, "a.leverantorsregister");
     klicka(&tab, ".verifikatlista a[href*='/leverantorer?l=']");
     vänta_på_text(&tab, "5050-1055");
     klicka(&tab, "a[href*='andra=1']");

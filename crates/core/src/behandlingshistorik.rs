@@ -90,6 +90,9 @@ händelser! {
     KundÄndrad => "kund ändrad",
     KundArkiverad => "kund arkiverad",
     KundRaderad => "kund raderad",
+    // #145 Leverantörsfakturor
+    LeverantörsfakturaRegistrerad => "leverantörsfaktura registrerad",
+    FakturautkastRaderat => "fakturautkast raderat",
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -598,6 +601,26 @@ impl Post {
                     .collect::<Vec<_>>()
                     .join(", ");
                 format!("{namn} raderad ur kundregistret")
+            }
+            // #145 Leverantörsfakturor
+            Händelse::LeverantörsfakturaRegistrerad => format!(
+                "Faktura {} från ”{}” daterad {}, förfaller {}, bokförd som {}",
+                f("fakturanummer"),
+                f("leverantörsnamn"),
+                f("fakturadatum"),
+                f("förfallodag"),
+                f("nummer")
+            ),
+            Händelse::FakturautkastRaderat => {
+                let mut text = format!("Utkast till {}", f("sort"));
+                for (namn, etikett) in [("fakturanummer", "nummer"), ("leverantörsnamn", "från")]
+                {
+                    if !f(namn).is_empty() {
+                        text.push_str(&format!(", {etikett} ”{}”", f(namn)));
+                    }
+                }
+                text.push_str(&format!(", {} rader", s(&b["antal_rader"])));
+                text
             }
         }
     }

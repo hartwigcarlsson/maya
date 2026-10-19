@@ -20,6 +20,7 @@ use crate::aktor::{Aktör, Handling};
 use crate::atkomst::{self, Ärende, ÅtkomstFel};
 use crate::behandlingshistorik::Händelse;
 use crate::foretag::FöretagsId;
+use crate::leverantorsfaktura::LeverantörsfakturaId;
 use crate::verifikat::{self, Signatur, VerifikatId, Verifikationsnummer};
 use crate::{Databas, DatabasFel, Klocka};
 
@@ -50,6 +51,9 @@ pub enum UnderlagFel {
     FinnsInte,
     #[error("underlaget hör till ett bokfört verifikat och kan inte tas bort")]
     HörTillBokfört,
+    /// Underlaget är original till en leverantörsfaktura (#145).
+    #[error("underlaget är original till en leverantörsfaktura och kan inte tas bort")]
+    HörTillFaktura,
     /// Komplettering gäller bara ett bokfört verifikat i företaget.
     #[error("verifikatet finns inte eller är inte bokfört")]
     IngetBokförtVerifikat,
@@ -101,12 +105,22 @@ pub struct Underlag {
     /// Verifikaten underlaget är kopplat till, i den ordning kopplingarna gjordes.
     pub kopplingar: Vec<Koppling>,
     pub dubbletter: Vec<Dubblett>,
+    /// Leverantörsfakturan som underlaget är original till (#145).
+    pub leverantörsfaktura: Option<LeverantörsfakturaId>,
 }
 
 impl Underlag {
-    /// Ett underlag som aldrig har hört till ett bokfört verifikat kan tas bort.
+    /// Ett underlag som aldrig har hört till ett bokfört verifikat, och inte är original till
+    /// en leverantörsfaktura, kan tas bort. Ett utkasts original tas bort genom att utkastet
+    /// raderas först.
     pub fn kan_tas_bort(&self) -> bool {
-        self.kopplingar.iter().all(|k| k.nummer.is_none())
+        self.kopplingar.iter().all(|k| k.nummer.is_none()) && self.leverantörsfaktura.is_none()
+    }
+
+    /// Ett *okopplat underlag*: inte kopplat till något verifikat och inte original till en
+    /// leverantörsfaktura.
+    pub fn okopplat(&self) -> bool {
+        self.kopplingar.is_empty() && self.leverantörsfaktura.is_none()
     }
 }
 
@@ -322,6 +336,9 @@ pub async fn ta_bort(
     else {
         return Err(UnderlagFel::FinnsInte);
     };
+    if u.leverantörsfaktura.is_some() {
+        return Err(UnderlagFel::HörTillFaktura);
+    }
     if !u.kan_tas_bort() {
         return Err(UnderlagFel::HörTillBokfört);
     }
@@ -421,10 +438,7 @@ pub async fn lista(
     let alla = läs(&mut tx, företag, None).await?;
     Ok(match urval {
         Urval::Alla => alla,
-        Urval::Okopplade => alla
-            .into_iter()
-            .filter(|u| u.kopplingar.is_empty())
-            .collect(),
+        Urval::Okopplade => alla.into_iter().filter(Underlag::okopplat).collect(),
     })
 }
 
@@ -439,6 +453,7 @@ struct UnderlagRad {
     uppladdad_kanal: String,
     uppladdad_av: Option<i64>,
     uppladdad_namn: Option<String>,
+    leverantorsfaktura: Option<i64>,
 }
 
 #[derive(sqlx::FromRow)]
@@ -461,7 +476,9 @@ async fn läs(
 ) -> Result<Vec<Underlag>, DatabasFel> {
     let rader: Vec<UnderlagRad> = sqlx::query_as(
         "SELECT u.id, u.filnamn, u.mime, u.storlek, u.sha256, u.uppladdad, u.uppladdad_kanal,
-                u.uppladdad_av, a.visningsnamn AS uppladdad_namn
+                u.uppladdad_av, a.visningsnamn AS uppladdad_namn,
+                (SELECT f.id FROM leverantorsfaktura f WHERE f.underlag_id = u.id)
+                    AS leverantorsfaktura
          FROM underlag u LEFT JOIN anvandare a ON a.id = u.uppladdad_av
          WHERE u.foretag_id = ?1 AND (?2 IS NULL OR u.id = ?2)
          ORDER BY u.uppladdad, u.id",
@@ -504,6 +521,7 @@ async fn läs(
         .map(|u| {
             Ok(Underlag {
                 id: UnderlagId(u.id),
+                leverantörsfaktura: u.leverantorsfaktura.map(LeverantörsfakturaId),
                 kopplingar: kopplingar
                     .iter()
                     .filter(|k| k.underlag_id == u.id)

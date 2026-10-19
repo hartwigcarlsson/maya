@@ -133,6 +133,28 @@ impl Ärende {
         .await
     }
 
+    /// Skriver en post med en annan aktör än ärendets, i samma transaktion. Används när Maya
+    /// gör något som följer av användarens ändring, t.ex. raderar en *ny* leverantör som inget
+    /// utkast längre hänvisar till.
+    pub async fn logga_som(
+        &mut self,
+        aktör: &Aktör,
+        händelse: Händelse,
+        objekt: &str,
+        beskrivning: serde_json::Value,
+    ) -> Result<(), sqlx::Error> {
+        behandlingshistorik::skriv(
+            &mut self.tx,
+            self.företag,
+            self.nu,
+            aktör,
+            händelse,
+            objekt,
+            beskrivning,
+        )
+        .await
+    }
+
     pub async fn slutför(self) -> Result<(), sqlx::Error> {
         self.tx.commit().await
     }
