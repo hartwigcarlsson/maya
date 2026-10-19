@@ -695,3 +695,41 @@ async fn ett_raderat_utkast_lämnar_originalet_som_ett_okopplat_underlag() {
         "Utkast till extern kundfaktura, nummer ”F-17”, till ”Kund AB”, 2 rader"
     );
 }
+
+#[tokio::test]
+async fn en_förfallen_extern_faktura_står_i_att_göra_tills_den_låses_upp() {
+    let (db, anna, id, kund) = företag().await;
+    let f = registrerad(&db, &anna, id, kund).await;
+    betala(&db, &anna, id, f, "120").await;
+    let fakturorna = |a: maya_core::att_gora::AttGöra| {
+        a.saker
+            .into_iter()
+            .filter_map(|s| match s {
+                maya_core::att_gora::Sak::Faktura(f) => Some(f),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+    };
+    let a = maya_core::att_gora::att_göra(&db, &klocka(), &testhjalp::config(), &anna, id)
+        .await
+        .unwrap();
+    let saker = fakturorna(a);
+    assert_eq!(saker.len(), 1);
+    assert_eq!(
+        saker[0].faktura,
+        maya_core::att_gora::Reskontrafaktura::Kund(f)
+    );
+    assert_eq!(saker[0].nummer, "F-17");
+    assert_eq!((saker[0].total, saker[0].återstår), (TOTAL, TOTAL - 12_000));
+
+    extern_kundfaktura::rätta_registrering(&db, &klocka(), &anna, id, f, "")
+        .await
+        .unwrap();
+    let a = maya_core::att_gora::att_göra(&db, &klocka(), &testhjalp::config(), &anna, id)
+        .await
+        .unwrap();
+    assert!(
+        fakturorna(a).is_empty(),
+        "en upplåst faktura är inte förfallen"
+    );
+}
