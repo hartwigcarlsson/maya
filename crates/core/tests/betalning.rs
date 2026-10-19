@@ -551,7 +551,7 @@ async fn betalningar_på_samma_faktura_samtidigt_överbetalar_aldrig() {
     let (anna, id, f) = faktura(&db).await;
     let mut jobb = Vec::new();
     for _ in 0..4 {
-        let (db, anna) = (db.clone(), anna.clone());
+        let db = db.clone();
         jobb.push(tokio::spawn(async move {
             betalning::registrera(
                 &db,
