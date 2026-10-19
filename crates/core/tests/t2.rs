@@ -564,6 +564,33 @@ async fn en_kredit_före_årets_slut_av_en_faktura_som_väntar_på_t2_bokförs_i
 }
 
 #[tokio::test]
+async fn en_betalning_i_året_som_rättas_efter_årets_slut_räknas_inte_som_betald_i_t2() {
+    let db = Databas::tillfällig().await;
+    let (anna, id, k, _) = kontantföretag(&db).await;
+    let januari = klocka("2027-01-10T09:00:00Z");
+    let b = betala(
+        &db,
+        &januari,
+        &anna,
+        id,
+        Faktura::Kund(k),
+        &betalning("2026-11-05", "1 875"),
+    )
+    .await;
+    t2::kör(&db, &januari).await.unwrap();
+    // Betalningen var fel och rättas i januari: den tas bort ur reskontran, så hela fakturan
+    // var obetald vid årets slut och T2 tar med hela fordran.
+    betalning::rätta(&db, &januari, &anna, id, b.id, "2027-01-10", "fel kund")
+        .await
+        .unwrap();
+    let v = utkastet(&db, &anna, id).await.unwrap();
+    assert_eq!(
+        rader(&db, &anna, id, v).await,
+        sorterat([KUNDRADER, LEVERANTÖRSRADER].concat())
+    );
+}
+
+#[tokio::test]
 async fn utkastet_står_under_utkast_i_att_göra_och_räknas_en_gång() {
     let db = Databas::tillfällig().await;
     let (anna, id, _, _) = kontantföretag(&db).await;

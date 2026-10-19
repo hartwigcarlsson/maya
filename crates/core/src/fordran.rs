@@ -103,7 +103,7 @@ pub(crate) async fn bokförd_efter_i(
     let Some(slut) = t2_inte_bokfört_i(&mut *conn, företag, datum(&fakturadatum)?).await? else {
         return Ok(None);
     };
-    Ok((obetalt_vid_i(conn, faktura, slut).await? > 0).then_some(slut))
+    Ok((obetalt_vid_årets_slut_i(conn, faktura, slut).await? > 0).then_some(slut))
 }
 
 /// Slutet på räkenskapsåret med `fakturadatum`, när årets T2-verifikat inte är bokfört.
@@ -188,18 +188,41 @@ pub(crate) async fn väntar_på_t2_vid_i(
     if dag <= slut {
         return Ok(None);
     }
-    let obetalt = obetalt_vid_i(conn, faktura, slut).await?;
+    let obetalt = obetalt_vid_årets_slut_i(conn, faktura, slut).await?;
     Ok((obetalt > 0).then_some(obetalt))
 }
 
 /// Det som var obetalt av fakturan vid utgången av `dag`, i öre, som bokföringen visade det
 /// då: totalen minus krediter med fakturadatum senast `dag`, betalningar med betaldag senast
 /// `dag` som inte var vända med en rättelse daterad senast `dag`, och (kundfaktura) en gällande
-/// kundförlust daterad senast `dag`. T2-verifikatet tar med det vid årets slut (#150).
+/// kundförlust daterad senast `dag`. Reskontran per datum (#151) visar det.
 pub(crate) async fn obetalt_vid_i(
     conn: &mut SqliteConnection,
     faktura: Faktura,
     dag: Date,
+) -> Result<i64, sqlx::Error> {
+    obetalt_i(conn, faktura, dag, true).await
+}
+
+/// Det som T2-verifikatet tar med för årets slut `slut` (#150): det som var obetalt då, som
+/// reskontran visar det nu. En betalning i året som har rättats efter årets slut var fel och
+/// räknas inte som betald, så att fordran eller skulden kommer med i T2 och står på 1510 eller
+/// 2440 när betalningen är borta ur reskontran.
+pub(crate) async fn obetalt_vid_årets_slut_i(
+    conn: &mut SqliteConnection,
+    faktura: Faktura,
+    slut: Date,
+) -> Result<i64, sqlx::Error> {
+    obetalt_i(conn, faktura, slut, false).await
+}
+
+/// Det som var obetalt vid utgången av `dag`. Med `per_datum` räknas en betalning som betald
+/// tills dagen för dess rättelse; annars räknas en rättad betalning aldrig.
+async fn obetalt_i(
+    conn: &mut SqliteConnection,
+    faktura: Faktura,
+    dag: Date,
+    per_datum: bool,
 ) -> Result<i64, sqlx::Error> {
     let sql = match faktura {
         Faktura::Kund(_) => {
@@ -212,7 +235,7 @@ pub(crate) async fn obetalt_vid_i(
                                AND NOT EXISTS (
                                    SELECT 1 FROM betalningsrattelse r
                                    JOIN verifikat v ON v.id = r.verifikat_id
-                                   WHERE r.betalning_id = b.id AND v.datum <= ?2)), 0)
+                                   WHERE r.betalning_id = b.id AND (?3 = 0 OR v.datum <= ?2))), 0)
                  - coalesce((SELECT sum(l.belopp) FROM kundforlust_i_reskontran l
                              WHERE l.kundfaktura_id = f.id AND l.datum <= ?2), 0)
              FROM kundfaktura f WHERE f.id = ?1"
@@ -228,7 +251,7 @@ pub(crate) async fn obetalt_vid_i(
                                AND NOT EXISTS (
                                    SELECT 1 FROM betalningsrattelse r
                                    JOIN verifikat v ON v.id = r.verifikat_id
-                                   WHERE r.betalning_id = b.id AND v.datum <= ?2)), 0)
+                                   WHERE r.betalning_id = b.id AND (?3 = 0 OR v.datum <= ?2))), 0)
              FROM leverantorsfaktura f WHERE f.id = ?1"
         }
     };
@@ -239,6 +262,7 @@ pub(crate) async fn obetalt_vid_i(
     let obetalt: Option<Option<i64>> = sqlx::query_scalar(sql)
         .bind(id)
         .bind(dag.to_string())
+        .bind(per_datum)
         .fetch_optional(conn)
         .await?;
     Ok(obetalt.flatten().unwrap_or(0))
@@ -441,7 +465,7 @@ pub(crate) async fn kreditens_kontering(
     // En kredit i året av en faktura som väntar på T2 minskar också det som T2 tar med.
     let del = match bokförd_efter_i(&mut *conn, företag, original).await? {
         Some(slut) if dag <= slut => {
-            let vid_årets_slut = obetalt_vid_i(&mut *conn, original, slut).await?;
+            let vid_årets_slut = obetalt_vid_årets_slut_i(&mut *conn, original, slut).await?;
             maya_domain::kontantmetoden::kreditens_bokförda_del_före_t2(
                 -total,
                 obetalt,

@@ -3,7 +3,7 @@
 //!
 //! Dagen efter räkenskapsårets slut skapar ett bakgrundsjobb ([`kör`]), med Maya som aktör, ett
 //! *T2-utkast* daterat på årets sista dag. Det har det obetalda beloppet vid årets slut
-//! ([`fordran::obetalt_vid_i`]) på varje kund- och leverantörsfaktura med fakturadatum i året vars
+//! ([`fordran::obetalt_vid_årets_slut_i`]) på varje kund- och leverantörsfaktura med fakturadatum i året vars
 //! fordran eller skuld inte är bokförd, fördelat proportionellt på fakturans konton och
 //! momssatser ([`maya_domain::kontantmetoden::Obokförd::kontering`]): 1510 mot intäkt och
 //! utgående moms, kostnad och ingående moms (och fiktiv moms) mot 2440. Finns inga obetalda
@@ -501,7 +501,7 @@ async fn obetalda_i(
         }));
     let mut poster = Vec::new();
     for (faktura, sort, nummer, motpart) in fakturor {
-        let obetalt = fordran::obetalt_vid_i(&mut *conn, faktura, år.slut).await?;
+        let obetalt = fordran::obetalt_vid_årets_slut_i(&mut *conn, faktura, år.slut).await?;
         if obetalt <= 0 {
             continue;
         }
