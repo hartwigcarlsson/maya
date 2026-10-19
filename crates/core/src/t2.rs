@@ -3,7 +3,7 @@
 //!
 //! Dagen efter räkenskapsårets slut skapar ett bakgrundsjobb ([`kör`]), med Maya som aktör, ett
 //! *T2-utkast* daterat på årets sista dag. Det har det obetalda beloppet vid årets slut
-//! ([`fordran::obetalt_vid_i`]) på varje kund- och leverantörsfaktura med fakturadatum i året vars
+//! ([`fordran::obetalt_vid_årets_slut_i`]) på varje kund- och leverantörsfaktura med fakturadatum i året vars
 //! fordran eller skuld inte är bokförd, fördelat proportionellt på fakturans konton och
 //! momssatser ([`maya_domain::kontantmetoden::Obokförd::kontering`]): 1510 mot intäkt och
 //! utgående moms, kostnad och ingående moms (och fiktiv moms) mot 2440. Finns inga obetalda
@@ -43,6 +43,11 @@ pub enum T2Fel {
     /// raderats av Maya för att inget längre var obetalt vid årets slut.
     #[error("T2-utkastet finns inte")]
     IngetUtkast,
+    /// En faktura med fakturadatum i året är upplåst med Rätta registrering eller Rätta
+    /// avskrift: utkastet tar inte med den, och T2 vänds aldrig, så den registreras om först
+    /// (#151). Texten är den första fakturan, t.ex. "leverantörsfaktura 8812".
+    #[error("{0} är upplåst")]
+    UpplåstFaktura(String),
     /// Verifikatet kunde inte bokföras, t.ex. ett inaktivt konto.
     #[error(transparent)]
     Verifikat(VerifikatFel),
@@ -177,6 +182,7 @@ async fn skapa_i_företaget(
 
 /// Bokför T2-utkastet `utkast`: räknar om det, bokför det med nästa nummer i årets V-serie och
 /// gör varje faktura i det bokförd, i en transaktion, och loggar det. Bara en användare bokför.
+/// Det spärras medan en faktura från året är upplåst ([`T2Fel::UpplåstFaktura`]).
 pub async fn bokför(
     db: &Databas,
     klocka: &Klocka,
@@ -201,6 +207,22 @@ pub async fn bokför(
         start: datum(&start)?,
         slut: datum(&slut)?,
     };
+    let upplåst: Option<String> = sqlx::query_scalar(
+        "SELECT 'kundfaktura ' || fakturanummer FROM kundfaktura
+         WHERE foretag_id = ?1 AND status = 'upplast' AND fakturadatum BETWEEN ?2 AND ?3
+         UNION ALL
+         SELECT 'leverantörsfaktura ' || fakturanummer FROM leverantorsfaktura
+         WHERE foretag_id = ?1 AND status = 'upplast' AND fakturadatum BETWEEN ?2 AND ?3
+         LIMIT 1",
+    )
+    .bind(företag.0)
+    .bind(&start)
+    .bind(&slut)
+    .fetch_optional(ärende.conn())
+    .await?;
+    if let Some(faktura) = upplåst {
+        return Err(T2Fel::UpplåstFaktura(faktura));
+    }
     let (utfall, poster) = räkna_om_i(&mut ärende, &år, Some((t2, utkast))).await?;
     if utfall == Utfall::Raderat {
         // Inget var obetalt längre; Maya har raderat utkastet, och det loggas.
@@ -501,7 +523,7 @@ async fn obetalda_i(
         }));
     let mut poster = Vec::new();
     for (faktura, sort, nummer, motpart) in fakturor {
-        let obetalt = fordran::obetalt_vid_i(&mut *conn, faktura, år.slut).await?;
+        let obetalt = fordran::obetalt_vid_årets_slut_i(&mut *conn, faktura, år.slut).await?;
         if obetalt <= 0 {
             continue;
         }

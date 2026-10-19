@@ -123,6 +123,21 @@ pub fn kreditens_bokförda_del(kredit: i64, obetalt: i64) -> i64 {
     (kredit - obetalt.max(0)).clamp(0, kredit.max(0))
 }
 
+/// Den del av en kredit på `kredit` öre (positivt), daterad senast räkenskapsårets slut, som
+/// bokförs när originalet väntar på årets T2-verifikat (#150): `obetalt` är det som återstår av
+/// originalet före krediten och `vid_årets_slut` det som var obetalt vid årets slut. Det som
+/// händer efter årets slut står redan på reskontrakontot, och det obetalda vid årets slut kommer
+/// dit med T2. Krediten minskar båda lika mycket, så den bokförs inte så länge något var obetalt
+/// vid årets slut. Överstiger den det, tar T2 inte längre med fakturan, och det som krediten då
+/// lämnar som tillgodohavande utöver det som redan står på kontot bokförs.
+pub fn kreditens_bokförda_del_före_t2(kredit: i64, obetalt: i64, vid_årets_slut: i64) -> i64 {
+    if vid_årets_slut - kredit > 0 {
+        return 0;
+    }
+    let på_kontot = obetalt - vid_årets_slut;
+    (på_kontot - (obetalt - kredit).min(0)).clamp(0, kredit.max(0))
+}
+
 fn rad(konto: u16, öre: i64) -> verifikat::Rad {
     let saldo = Saldo::från_öre(öre);
     verifikat::Rad {

@@ -119,6 +119,12 @@ pub enum BetalningFel {
     /// Betalningen är redan rättad.
     #[error("betalningen är redan rättad")]
     RedanRättad,
+    /// Något har bokförts på 1510 eller 2440 utifrån betalningen, t.ex. ett bokfört T2-verifikat
+    /// (som aldrig vänds) efter en betalning mot intäkt eller kostnad och moms, eller den del av
+    /// en senare kredit som översteg det obetalda. En rättelse skulle ge fakturan det betalda
+    /// tillbaka i reskontran men inte på kontot (#150, #151).
+    #[error("något har bokförts på reskontrakontot utifrån betalningen")]
+    BokförtUtifrån,
     /// Betalningens verifikat kunde inte bokföras eller rättas, t.ex. ett rättelsedatum före
     /// betaldagen.
     #[error(transparent)]
@@ -362,6 +368,7 @@ async fn läs_förutsättningar(
         originalvaluta: !fakturan.originalvaluta.trim().is_empty(),
         obokförd: crate::fordran::obokförd_i(&mut *conn, företag, faktura).await?,
         bokförd_efter: crate::fordran::bokförd_efter_i(&mut *conn, företag, faktura).await?,
+        återstod: crate::fordran::återstod_i(&mut *conn, faktura).await?,
     })
 }
 
@@ -505,6 +512,9 @@ pub async fn rätta(
         (None, None) => return Err(BetalningFel::IngenBetalning),
     };
     let fakturan = läs_fakturan(ärende.conn(), företag, faktura).await?;
+    // Rättelsen får ändra det som reskontran säger står på 1510 eller 2440 bara med det som
+    // den själv bokför där (#151).
+    let före = crate::reskontra::på_kontot_i(ärende.conn(), företag, faktura, Date::MAX).await?;
     let datum = rättelsedatum(datum)?;
     let rättelse = verifikat::rätta_i(&mut ärende, VerifikatId(verifikat_id), datum, orsak).await?;
     let (nu, kanal, av) = (
@@ -525,6 +535,12 @@ pub async fn rätta(
     .bind(av)
     .execute(ärende.conn())
     .await?;
+    if !crate::reskontra::följer_kontot_i(ärende.conn(), företag, faktura, före, Some(rättelse.id))
+        .await?
+    {
+        // Ärendet slutförs inte, så rättelsen rullas tillbaka.
+        return Err(BetalningFel::BokförtUtifrån);
+    }
     let återstår = återstår_i(ärende.conn(), faktura, fakturan.total).await?;
     let verifikatnummer = verifikat::länk(ärende.conn(), Some(verifikat_id))
         .await?

@@ -30,6 +30,7 @@ pub mod kundforlust;
 pub mod leverantor;
 pub mod leverantorsfaktura;
 pub mod rapport;
+pub mod reskontra;
 pub mod saldo;
 pub mod sie4;
 pub mod smtp;

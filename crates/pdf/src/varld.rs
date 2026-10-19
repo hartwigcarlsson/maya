@@ -32,6 +32,7 @@ const MALLAR: &[(&str, &str)] = &[
         include_str!("../mallar/systemdokumentation.typ"),
     ),
     ("kundfaktura.typ", include_str!("../mallar/kundfaktura.typ")),
+    ("reskontra.typ", include_str!("../mallar/reskontra.typ")),
 ];
 
 /// Typsnitten (SIL OFL respektive Bitstream Vera-licensen; båda tillåter inbäddning, som PDF/A

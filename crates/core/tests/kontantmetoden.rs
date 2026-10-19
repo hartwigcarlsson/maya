@@ -359,6 +359,33 @@ async fn rätta_betalning_vänder_betalningens_verifikat_under_båda_metoderna()
     }
 }
 
+#[tokio::test]
+async fn en_betalning_som_en_bokförd_kredit_bygger_på_rättas_inte_under_kontantmetoden() {
+    let db = Databas::tillfällig().await;
+    let (anna, id, f) = kundfaktura(&db, "kontant").await;
+    let r = betala(
+        &db,
+        &anna,
+        id,
+        Faktura::Kund(f),
+        &betalning("2026-04-01", "11 875"),
+    )
+    .await;
+    // Krediten av den betalda fakturan bokförs mot 1510, eftersom inget var obetalt.
+    let k = kreditera_hela(&db, &anna, id, f).await;
+    assert!(k.verifikat.is_some());
+    // Utan betalningen hade krediten rymts i det obetalda: en rättelse av betalningen skulle
+    // lämna krediten på 1510 fast fakturan inte längre har något tillgodo.
+    let fel = betalning::rätta(&db, &klocka(), &anna, id, r.id, "2026-10-18", "")
+        .await
+        .unwrap_err();
+    assert!(
+        matches!(fel, betalning::BetalningFel::BokförtUtifrån),
+        "{fel:?}"
+    );
+    assert_eq!(antal_verifikat(&db, &anna, id).await, 2);
+}
+
 // Kreditfaktura och återbetalning till kund
 
 async fn kreditera_hela(
@@ -383,6 +410,120 @@ async fn kreditera_hela(
     kundfaktura::utfärda(db, &klocka(), anna, id, utkast)
         .await
         .unwrap()
+}
+
+#[tokio::test]
+async fn en_rättad_betalning_ger_inget_tillgodohavande_att_återbetala_före_rättelsen() {
+    let db = Databas::tillfällig().await;
+    let (anna, id, f) = kundfaktura(&db, "kontant").await;
+    // En felregistrerad betalning i april rättas, och fakturan betalas sedan i oktober.
+    let fel = betala(
+        &db,
+        &anna,
+        id,
+        Faktura::Kund(f),
+        &betalning("2026-04-02", "11 875"),
+    )
+    .await;
+    betalning::rätta(&db, &klocka(), &anna, id, fel.id, "2026-10-18", "fel kund")
+        .await
+        .unwrap();
+    betala(
+        &db,
+        &anna,
+        id,
+        Faktura::Kund(f),
+        &betalning("2026-10-18", "11 875"),
+    )
+    .await;
+    // En timme krediteras med datum i maj: kunden har tillgodo från oktober, när fakturan
+    // betalades, inte från maj, eftersom aprilbetalningen var fel.
+    let utkast = kundfaktura::kreditera(
+        &db,
+        &klocka(),
+        &anna,
+        id,
+        f,
+        &NyKreditering {
+            hela: false,
+            antal: vec!["1".into()],
+        },
+    )
+    .await
+    .unwrap();
+    let mut formulär = kundfaktura::kundfakturan(&db, &anna, id, utkast)
+        .await
+        .unwrap()
+        .formulär;
+    formulär.fakturadatum = "2026-05-01".into();
+    kundfaktura::spara_utkast(&db, &klocka(), &anna, id, Some(utkast), &formulär)
+        .await
+        .unwrap();
+    kundfaktura::utfärda(&db, &klocka(), &anna, id, utkast)
+        .await
+        .unwrap();
+    let fel = betalning::registrera(
+        &db,
+        &klocka(),
+        &anna,
+        id,
+        Faktura::Kund(f),
+        &betalning("2026-06-01", "1 187,50"),
+    )
+    .await
+    .unwrap_err();
+    assert!(
+        matches!(&fel, betalning::BetalningFel::Spärrat(s) if s.iter().map(|s| s.kod).eq(["aterbetalning_fore_tillgodo"])),
+        "{fel:?}"
+    );
+    betala(
+        &db,
+        &anna,
+        id,
+        Faktura::Kund(f),
+        &betalning("2026-10-18", "1 187,50"),
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn en_återbetalning_dateras_inte_före_tillgodohavandet() {
+    for (metod, _) in METODER {
+        let db = Databas::tillfällig().await;
+        let (anna, id, f) = kundfaktura(&db, metod).await;
+        betala(
+            &db,
+            &anna,
+            id,
+            Faktura::Kund(f),
+            &betalning("2026-04-02", "11 875"),
+        )
+        .await;
+        // Krediten är daterad i dag (2026-10-18), så tillgodohavandet finns från då.
+        kreditera_hela(&db, &anna, id, f).await;
+        let fel = betalning::registrera(
+            &db,
+            &klocka(),
+            &anna,
+            id,
+            Faktura::Kund(f),
+            &betalning("2026-06-02", "11 875"),
+        )
+        .await
+        .unwrap_err();
+        assert!(
+            matches!(&fel, betalning::BetalningFel::Spärrat(s) if s.iter().map(|s| s.kod).eq(["aterbetalning_fore_tillgodo"])),
+            "{metod}: {fel:?}"
+        );
+        betala(
+            &db,
+            &anna,
+            id,
+            Faktura::Kund(f),
+            &betalning("2026-10-18", "11 875"),
+        )
+        .await;
+    }
 }
 
 #[tokio::test]
@@ -449,6 +590,37 @@ async fn kredit_bokförs_mot_1510_för_hela_krediten_eller_för_det_som_översti
 }
 
 // Kundförlust
+
+#[tokio::test]
+async fn en_kundförlust_som_en_bokförd_kredit_bygger_på_återkallas_inte_under_kontantmetoden() {
+    let db = Databas::tillfällig().await;
+    let (anna, id, f) = kundfaktura(&db, "kontant").await;
+    let förlust = kundforlust::bokför(
+        &db,
+        &klocka(),
+        &anna,
+        id,
+        f,
+        &NyKundförlust {
+            skäl: "konkurs".into(),
+            datum: "2026-06-01".into(),
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(förlust.verifikat, None);
+    // Inget är obetalt efter förlusten, så krediten bokförs mot 1510.
+    let k = kreditera_hela(&db, &anna, id, f).await;
+    assert!(k.verifikat.is_some());
+    let fel = kundforlust::återkalla(&db, &klocka(), &anna, id, förlust.id)
+        .await
+        .unwrap_err();
+    assert!(
+        matches!(fel, kundforlust::KundförlustFel::BokförtUtifrån),
+        "{fel:?}"
+    );
+}
 
 #[tokio::test]
 async fn kundförlust_bokförs_när_fordran_är_bokförd_och_ger_annars_bara_status() {
@@ -896,6 +1068,36 @@ async fn byt(db: &Databas, anna: &Aktör, id: FöretagsId, metod: &str) {
     )
     .await
     .unwrap();
+}
+
+#[tokio::test]
+async fn bokföringsmetoden_byts_inte_från_ett_år_som_redan_har_fakturor_utan_verifikat() {
+    let db = Databas::tillfällig().await;
+    let (anna, id) = testhjalp::fakturaföretag_med_metod(&db, "kontant").await;
+    // Utfärdad under kontantmetoden utan verifikat: efter ett byte till fakturametoden skulle
+    // fakturans fordran inte vara bokförd fast metoden på fakturadatumet säger att den är det.
+    let k = testhjalp::kund(&db, &anna, id, "Kund AB").await;
+    let utkast = testhjalp::kundfakturautkast(&db, &anna, id, k, "2027-01-20").await;
+    let u = kundfaktura::utfärda(&db, &klocka(), &anna, id, utkast)
+        .await
+        .unwrap();
+    assert_eq!(u.verifikat, None);
+    let fel = foretag::byt_bokföringsmetod(
+        &db,
+        &klocka(),
+        &anna,
+        id,
+        &maya_domain::foretag::Byte {
+            gäller_från: "2027-01-01".into(),
+            val: "faktura".into(),
+        },
+    )
+    .await
+    .unwrap_err();
+    assert!(
+        matches!(&fel, foretag::FöretagsFel::Ogiltigt(f) if f.iter().map(|f| f.kod).eq(["fakturor_efter"])),
+        "{fel:?}"
+    );
 }
 
 #[tokio::test]

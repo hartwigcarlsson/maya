@@ -34,6 +34,7 @@ fn förutsättningar(återstår: i64) -> Förutsättningar {
         originalvaluta: false,
         obokförd: None,
         bokförd_efter: None,
+        återstod: Vec::new(),
     }
 }
 
@@ -285,6 +286,14 @@ fn varje_spärr_vid_betalning_är_dokumenterad() {
         .chain(koder(&betalning("2026-11-02", "1"), &förutsättningar(0)))
         // #140: en återbetalning av mer än tillgodohavandet.
         .chain(koder(&betalning("2026-11-02", "2"), &förutsättningar(-100)))
+        // #151: en återbetalning före tillgodohavandet.
+        .chain(koder(
+            &betalning("2026-11-02", "1"),
+            &Förutsättningar {
+                återstod: vec![(date(2026, 11, 1), 50), (date(2026, 11, 3), -100)],
+                ..förutsättningar(-100)
+            },
+        ))
         .collect();
     sedda.sort();
     sedda.dedup();

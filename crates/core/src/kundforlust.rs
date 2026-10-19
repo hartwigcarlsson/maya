@@ -67,6 +67,11 @@ pub enum KundförlustFel {
     /// komma före den.
     #[error("kundförlusten är daterad efter i dag och kan återkallas först den dagen")]
     FöreFörlusten,
+    /// Något har bokförts på 1510 utifrån förlusten, t.ex. den del av en senare kredit som
+    /// översteg det obetalda när förlusten bara var en status: en återkallelse skulle ge
+    /// fakturan det bortskrivna tillbaka i reskontran men inte på 1510 (#151).
+    #[error("något har bokförts på 1510 utifrån kundförlusten")]
+    BokförtUtifrån,
     /// Förlustens verifikat kunde inte bokföras eller vändas, t.ex. en återkallelse i dag av
     /// en förlust daterad senare.
     #[error(transparent)]
@@ -407,6 +412,13 @@ pub async fn återkalla(
     }
     let faktura = KundfakturaId(faktura);
     let fakturan = läs_fakturan(ärende.conn(), företag, faktura).await?;
+    let före = crate::reskontra::på_kontot_i(
+        ärende.conn(),
+        företag,
+        Faktura::Kund(faktura),
+        jiff::civil::Date::MAX,
+    )
+    .await?;
     let bokfört = match förlustens {
         None => None,
         Some(v) => {
@@ -442,6 +454,19 @@ pub async fn återkalla(
     .bind(av)
     .execute(ärende.conn())
     .await?;
+    // Återkallelsen får ändra det som reskontran säger står på 1510 bara med det som den själv
+    // bokför där (#151); annars slutförs ärendet inte och allt rullas tillbaka.
+    if !crate::reskontra::följer_kontot_i(
+        ärende.conn(),
+        företag,
+        Faktura::Kund(faktura),
+        före,
+        bokfört.map(|b| b.id),
+    )
+    .await?
+    {
+        return Err(KundförlustFel::BokförtUtifrån);
+    }
     let återstår =
         betalning::återstår_i(ärende.conn(), Faktura::Kund(faktura), fakturan.total).await?;
     let förlustens_nummer = verifikat::länk(ärende.conn(), förlustens)

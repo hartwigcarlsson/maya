@@ -181,6 +181,9 @@ fn menylankarna_navigerar_pa_klienten_och_sidorna_visar_sina_data() {
     vänta_på_text(&tab, "125,00");
     klicka(&tab, ".rapportmeny a[href$='/rapporter/grundbok']");
     vänta_på_text(&tab, "Kaffe till kontoret");
+    // #151 Reskontran per datum, från Bokföringens meny.
+    klicka(&tab, ".installningsmeny a[href$='/rapporter/reskontra']");
+    vänta_på_text(&tab, "Leverantörsreskontra");
     // Underlag nås via sökningen, som navigerar i routern.
     klicka(&tab, ".sokfalt input");
     tab.wait_for_element(".palett input[name='q']")

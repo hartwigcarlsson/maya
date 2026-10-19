@@ -725,6 +725,17 @@ async fn ändringsläge_i(
     .bind(id.0)
     .fetch_one(&mut *conn)
     .await?;
+    let fakturerade: Option<String> = sqlx::query_scalar(
+        "SELECT max(fakturadatum) FROM (
+             SELECT fakturadatum FROM kundfaktura
+             WHERE foretag_id = ?1 AND status IN ('utfardad', 'registrerad', 'upplast')
+             UNION ALL
+             SELECT fakturadatum FROM leverantorsfaktura
+             WHERE foretag_id = ?1 AND status IN ('registrerad', 'upplast'))",
+    )
+    .bind(id.0)
+    .fetch_one(&mut *conn)
+    .await?;
     Ok(Ändringsläge {
         räkenskapsår: företag
             .räkenskapsår
@@ -735,6 +746,7 @@ async fn ändringsläge_i(
         momsperioder: företag.momsperioder,
         senast_bokförda: bokförda.as_deref().map(datum).transpose()?,
         senast_daterade: daterade.as_deref().map(datum).transpose()?,
+        senast_fakturerade: fakturerade.as_deref().map(datum).transpose()?,
     })
 }
 

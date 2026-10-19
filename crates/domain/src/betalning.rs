@@ -105,9 +105,23 @@ pub struct Förutsättningar {
     /// (#150): en betalning daterad efter det bokförs mot 1510 eller 2440 som om fordran eller
     /// skulden vore bokförd, också innan T2 är bokfört. `None` annars.
     pub bokförd_efter: Option<Date>,
+    /// Det som återstod av fakturan vid utgången av varje dag med en händelse på den, i
+    /// datumordning, som bokföringen visar det (#151): en återbetalning dateras tidigast den
+    /// dag då tillgodohavandet fanns. Tom: det prövas inte.
+    pub återstod: Vec<(Date, i64)>,
 }
 
 impl Förutsättningar {
+    /// Det som återstod vid utgången av `dag` enligt [`Förutsättningar::återstod`]: noll före
+    /// den första händelsen.
+    pub fn återstod_på(&self, dag: Date) -> i64 {
+        self.återstod
+            .iter()
+            .take_while(|(d, _)| *d <= dag)
+            .last()
+            .map_or(0, |(_, å)| *å)
+    }
+
     /// Fakturans kontering när fordran eller skulden inte är bokförd för en betalning daterad
     /// `betaldag`, eller `None` när betalningen bokförs mot reskontrakontot.
     pub fn obokförd_på(&self, betaldag: Date) -> Option<Obokförd> {
@@ -158,6 +172,10 @@ pub const BETALNINGSSPÄRRAR: &[(&str, &str)] = &[
     (
         "overaterbetalning",
         "En återbetalning är högst det som motparten har tillgodo.",
+    ),
+    (
+        "aterbetalning_fore_tillgodo",
+        "En återbetalning dateras tidigast den dag då tillgodohavandet fanns.",
     ),
     ("konto_saknas", "Betalkonto krävs."),
     ("konto_okant", "Kontot finns i företagets kontoplan."),
@@ -353,6 +371,20 @@ impl NyBetalning {
                 },
             }
         };
+
+        // #151: en återbetalning före tillgodohavandet skulle räknas in före krediten eller
+        // betalningen som gav det.
+        if let (Some(b), Some(d)) = (belopp, betaldag)
+            && b < 0
+            && !f.återstod.is_empty()
+            && f.återstod_på(d) > b
+        {
+            spärrar.push(Spärr::ny(
+                Fält::Betaldag,
+                "aterbetalning_fore_tillgodo",
+                "Återbetalningen dateras tidigast den dag då tillgodohavandet fanns.",
+            ));
+        }
 
         let konto = self.kontrollera_konto(f, &mut spärrar);
 

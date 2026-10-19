@@ -130,6 +130,11 @@ pub fn feltext(kod: &str) -> Option<&'static str> {
         "har_kreditfakturor" => {
             "Kreditfakturor krediterar fakturan. Registreringen kan inte rättas medan de finns."
         }
+        // #151
+        "i_t2" => {
+            "Fakturan är med i det bokförda T2-verifikatet, som inte vänds. Registreringen kan inte \
+             rättas."
+        }
         "extern_rattelse" => {
             "Registreringen kan inte rättas i dag: rättelsen dateras i dag, och det datumet måste \
              gå att bokföra på och vara tidigast registreringens datum."
@@ -664,6 +669,9 @@ pub(crate) mod server {
             }
             Err(ExternFel::HarKreditfakturor) => {
                 Redirect::to(&format!("{dokumentet}&fel=har_kreditfakturor")).into_response()
+            }
+            Err(ExternFel::IBokförtT2) => {
+                Redirect::to(&format!("{dokumentet}&fel=i_t2")).into_response()
             }
             Err(ExternFel::Rättelse(_)) => {
                 Redirect::to(&format!("{dokumentet}&fel=extern_rattelse")).into_response()

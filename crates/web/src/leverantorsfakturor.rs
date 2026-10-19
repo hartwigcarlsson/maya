@@ -257,6 +257,8 @@ pub struct Leverantörsfakturadata {
     pub okopplade: Vec<UnderlagVy>,
     /// Leverantörsskulderna: det som återstår på de registrerade fakturorna (#147).
     pub leverantörsskulder: String,
+    /// Differensen mot 2440 i dag när reskontran avviker från huvudboken (#151).
+    pub avviker: Option<String>,
 }
 
 /// Datan för `/foretag/<id>/leverantorsfakturor` och `/foretag/<id>/leverantorsfakturor/ny`.
@@ -369,6 +371,11 @@ fn feltext(kod: &str) -> Option<&'static str> {
         // #148 Rätta avskrift
         "inte_registrerad" => "Fakturan är inte registrerad, så avskriften kan inte rättas.",
         "rattelse" => "Registreringen kunde inte rättas i dag. Kontrollera räkenskapsåren.",
+        // #151
+        "i_t2" => {
+            "Fakturan är med i det bokförda T2-verifikatet, som inte vänds. Avskriften kan inte \
+             rättas."
+        }
         "ingen_fil" => "Välj originalet att ladda upp.",
         // #147 Betalningar
         kod => return crate::betalning::feltext(kod),
@@ -509,7 +516,13 @@ pub(crate) mod server {
             .filter(|r| r.status != Status::Utkast)
             .map(|r| r.återstår.max(0))
             .sum();
+        // #151: avstämningen mot 2440 i dag.
+        let differens = maya_core::reskontra::reskontran(db, aktör, företag, idag)
+            .await?
+            .leverantör
+            .differens;
         Ok(Leverantörsfakturadata {
+            avviker: (differens != 0).then(|| kr(differens)),
             idag: idag.to_string(),
             lista: lista
                 .iter()
@@ -806,6 +819,7 @@ pub(crate) mod server {
             FakturaFel::InteRegistrerad => {
                 Redirect::to(&format!("{sida}?fel=inte_registrerad")).into_response()
             }
+            FakturaFel::IBokförtT2 => Redirect::to(&format!("{sida}?fel=i_t2")).into_response(),
             FakturaFel::Rättelse(_) => {
                 Redirect::to(&format!("{sida}?fel=rattelse")).into_response()
             }
@@ -939,6 +953,9 @@ pub(crate) mod server {
             }
             Err(FakturaFel::InteRegistrerad) => {
                 Redirect::to(&format!("{sida}?f={f}&fel=inte_registrerad")).into_response()
+            }
+            Err(FakturaFel::IBokförtT2) => {
+                Redirect::to(&format!("{sida}?f={f}&fel=i_t2")).into_response()
             }
             Err(FakturaFel::Rättelse(_)) => {
                 Redirect::to(&format!("{sida}?f={f}&panel=ratta-avskrift&fel=rattelse"))
@@ -1079,6 +1096,19 @@ fn leverantörsfakturasida(data: Leverantörsfakturadata, ny: bool) -> AnyView {
                         <p class="diskret leverantorsskulder">
                             {format!("Leverantörsskulder {} kr", data.leverantörsskulder)}
                         </p>
+                        {data
+                            .avviker
+                            .clone()
+                            .map(|d| {
+                                view! {
+                                    <p class="fel avviker" role="alert">
+                                        <a href=format!(
+                                            "{bas}{}",
+                                            crate::reskontra::SÖKVÄG,
+                                        )>{format!("Avviker från 2440 med {d} kr")}</a>
+                                    </p>
+                                }
+                            })}
                     </div>
                     <span>
                         <a class="knapp knapp-diskret leverantorsregister" href=leverantörsregistret(&bas)>

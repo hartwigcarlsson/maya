@@ -25,6 +25,7 @@ pub mod kundforlust;
 pub mod leverantorer;
 pub mod leverantorsfakturor;
 pub mod rapporter;
+pub mod reskontra;
 pub mod sidodata;
 pub mod sok;
 pub mod systemdokumentation;
