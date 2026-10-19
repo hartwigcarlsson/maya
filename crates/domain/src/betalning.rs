@@ -63,8 +63,8 @@ impl Reskontra {
     /// Reskontrakontot: kundfordringar 1510 eller leverantörsskulder 2440.
     pub fn konto(self) -> Kontonummer {
         Kontonummer::konstant(match self {
-            Reskontra::Kund => 1510,
-            Reskontra::Leverantör => 2440,
+            Reskontra::Kund => crate::kundfaktura::KUNDFORDRINGAR,
+            Reskontra::Leverantör => crate::leverantorsfaktura::LEVERANTÖRSSKULDER,
         })
     }
 }

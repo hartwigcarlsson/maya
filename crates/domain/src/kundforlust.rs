@@ -20,14 +20,12 @@ use crate::belopp::{Belopp, Saldo};
 use crate::faktura::Momssats;
 use crate::fordelning::fördela;
 use crate::kontoplan::Kontonummer;
+use crate::kundfaktura::KUNDFORDRINGAR;
 use crate::rakenskapsar::Räkenskapsår;
 use crate::verifikat::{self, Rad, Årsval};
 
 /// Konstaterade kundförluster.
 pub const KUNDFÖRLUSTER: u16 = 6351;
-
-/// Kundfordringar.
-const KUNDFORDRINGAR: u16 = 1510;
 
 /// Skälet till att förlusten är konstaterad.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
