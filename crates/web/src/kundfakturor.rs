@@ -62,6 +62,8 @@ pub struct ListVy {
     // #139 Betalningar
     /// Det som återstår; för ett utkast totalen.
     pub återstår: String,
+    /// Det som återstår i öre, för gruppens summa i rubriken.
+    pub återstår_öre: i64,
     /// Märkets kod och namn för en utfärdad faktura.
     pub märke: Option<(String, String)>,
     /// Gruppen i listan.
@@ -568,6 +570,7 @@ pub(crate) mod server {
                     total: kr(f.total),
                     ny_kund: f.ny_kund,
                     återstår: kr(f.återstår),
+                    återstår_öre: f.återstår,
                     märke: match (f.status, utfärdad) {
                         (Status::Upplåst, _) => Some(maya_domain::reskontra::Märke::Upplåst),
                         (_, Some(d)) => Some(märke_för(&f, d, idag)),
@@ -1482,10 +1485,15 @@ fn kundfakturor_sida(data: Kundfakturadata, ny: bool) -> AnyView {
                 i_gruppen.sort_by(|a, b| a.förfallodag.cmp(&b.förfallodag));
             }
             let antal = i_gruppen.len();
+            // Berättelse 70: summan av fordringarna i rubriken.
+            let summa = kr(i_gruppen.iter().map(|f| f.återstår_öre).sum());
             let rader = i_gruppen.into_iter().map(rad).collect_view();
             Some(view! {
                 <li class="lista-grupp">
-                    <h2 class="per">{g.rubrik()} <span class="diskret">{format!(" · {antal}")}</span></h2>
+                    <h2 class="per">
+                        {g.rubrik()}
+                        <span class="diskret">{format!(" · {antal} · {summa} kr")}</span>
+                    </h2>
                     <ul class="verifikatlista">{rader}</ul>
                 </li>
             })

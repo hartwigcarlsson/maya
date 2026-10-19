@@ -41,6 +41,8 @@ pub struct ListradVy {
     // #147 Betalningar
     /// Det som återstår att betala; för ett utkast totalen.
     pub återstår: String,
+    /// Det som återstår i öre, för gruppens summa i rubriken.
+    pub återstår_öre: i64,
     /// Märkets kod och namn för en registrerad faktura.
     pub märke: Option<(String, String)>,
     /// Gruppen i listan.
@@ -539,6 +541,7 @@ pub(crate) mod server {
                         förfallodag: r.förfallodag.map(|d| d.to_string()).unwrap_or_default(),
                         total: r.total.map(kr).unwrap_or_default(),
                         återstår: kr(r.återstår),
+                        återstår_öre: r.återstår,
                         märke: match (r.status, registrerad) {
                             (Status::Upplåst, _) => Some(Märke::Upplåst),
                             (_, Some(_)) if r.kreditfaktura => Some(Märke::Kreditfaktura),
@@ -1196,11 +1199,14 @@ fn Lista(bas: &str, data: &Leverantörsfakturadata, valt: Option<&str>) -> AnyVi
                 i_gruppen.sort_by(|a, b| a.förfallodag.cmp(&b.förfallodag));
             }
             let antal = i_gruppen.len();
+            // Berättelse 70: summan av skulderna i rubriken.
+            let summa = Saldo::från_öre(i_gruppen.iter().map(|r| r.återstår_öre).sum());
             let rader = i_gruppen.into_iter().map(rad).collect_view();
             Some(view! {
                 <li class="lista-grupp">
                     <h2 class="per lf-grupp">
-                        {g.rubrik()} <span class="diskret">{format!(" · {antal}")}</span>
+                        {g.rubrik()}
+                        <span class="diskret">{format!(" · {antal} · {summa} kr")}</span>
                     </h2>
                     <ul class="verifikatlista">{rader}</ul>
                 </li>
