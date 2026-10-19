@@ -8,10 +8,12 @@ use maya_core::aktor::Aktör;
 use maya_core::att_gora::{self, Fakturasak, Reskontrafaktura, Sak};
 use maya_core::betalning::{self, Faktura};
 use maya_core::foretag::{self, FöretagsId};
+use maya_core::kundforlust;
 use maya_core::leverantorsfaktura::{self, LeverantörsfakturaId};
 use maya_core::{Databas, Klocka, testhjalp};
 use maya_domain::belopp::Saldo;
 use maya_domain::betalning::NyBetalning;
+use maya_domain::kundforlust::NyKundförlust;
 use maya_domain::leverantorsfaktura::{NyLeverantörsfaktura, NyRad};
 
 /// Onsdag 14 oktober 2026, förmiddag i Stockholm.
@@ -271,4 +273,48 @@ async fn under_kontantmetoden_är_nyckeltalen_reskontrans_obetalda_belopp() {
     assert!(n.leverantörsskulder.ur_reskontran);
     assert_eq!(n.leverantörsskulder.saldo, Saldo::från_öre(125_000));
     assert_eq!(n.leverantörsskulder.förfallet, Saldo::från_öre(125_000));
+}
+
+// #141 Kundförlust: en gällande kundförlust har skrivit bort det som återstår, så fakturan är
+// inte förfallen i Att göra; en återkallad förlust räknas inte.
+#[tokio::test]
+async fn en_kundfaktura_med_en_gällande_kundförlust_är_varken_förfallen_eller_obetald_i_att_göra() {
+    let db = Databas::tillfällig().await;
+    let (anna, id) = testhjalp::fakturaföretag(&db).await;
+    let förlust = || NyKundförlust {
+        skäl: "konkurs".into(),
+        annat: String::new(),
+        datum: "2026-09-30".into(),
+    };
+    // Förföll 2026-04-09; förlusten gäller.
+    let förlorad =
+        testhjalp::utfärdad_kundfaktura(&db, &anna, id, "Förlust AB", "2026-03-10").await;
+    kundforlust::bokför(&db, &i_dag(), &anna, id, förlorad.id, &förlust())
+        .await
+        .unwrap();
+    // Förföll 2026-04-10; förlusten är återkallad, så fakturan är förfallen igen.
+    let återkallad =
+        testhjalp::utfärdad_kundfaktura(&db, &anna, id, "Återkallad AB", "2026-03-11").await;
+    let b = kundforlust::bokför(&db, &i_dag(), &anna, id, återkallad.id, &förlust())
+        .await
+        .unwrap();
+    kundforlust::återkalla(&db, &i_dag(), &anna, id, b.id)
+        .await
+        .unwrap();
+
+    let a = att_gora::att_göra(&db, &i_dag(), &testhjalp::config(), &anna, id)
+        .await
+        .unwrap();
+    let ordning: Vec<Reskontrafaktura> = fakturorna(&a.saker).iter().map(|f| f.faktura).collect();
+    assert_eq!(ordning, [Reskontrafaktura::Kund(återkallad.id)]);
+    assert_eq!(
+        a.nyckeltal.kundfordringar.förfallet,
+        Saldo::från_öre(1_187_500)
+    );
+
+    testhjalp::backup(&db, &i_dag()).await;
+    let antal = att_gora::antal(&db, &i_dag(), &testhjalp::config(), &anna)
+        .await
+        .unwrap();
+    assert_eq!(antal.get(&id), Some(&1));
 }

@@ -240,8 +240,8 @@ pub async fn antal(
     let varningar = drift::driftvarningar(db, klocka, config).await?.len();
     let mut antal: BTreeMap<FöretagsId, usize> =
         företagen.iter().map(|f| (f.id, varningar)).collect();
-    // #152 Kundfakturorna räknas när de har förfallit och leverantörsfakturorna också när de
-    // förfaller inom 7 dagar, med det som återstår räknat som i `fakturor`.
+    // #152 Leverantörsfakturorna räknas också när de förfaller inom 7 dagar, med det som
+    // återstår räknat som i `fakturor`. Kundfakturorna räknas nedan.
     let rader: Vec<(i64, i64)> = sqlx::query_as(
         "SELECT foretag_id, count(*) FROM verifikat WHERE bokford IS NULL GROUP BY foretag_id
          UNION ALL
@@ -249,13 +249,6 @@ pub async fn antal(
          WHERE NOT EXISTS (SELECT 1 FROM underlagskoppling k WHERE k.underlag_id = u.id)
            AND NOT EXISTS (SELECT 1 FROM leverantorsfaktura f WHERE f.underlag_id = u.id)
          GROUP BY u.foretag_id
-         UNION ALL
-         SELECT f.foretag_id, count(*) FROM kundfaktura f
-         WHERE f.status <> 'utkast' AND f.forfallodag < ?1
-           AND f.total > coalesce((SELECT sum(b.belopp + b.oresutjamning + b.kursdifferens)
-                                   FROM betalning_i_reskontran b
-                                   WHERE b.kundfaktura_id = f.id), 0)
-         GROUP BY f.foretag_id
          UNION ALL
          SELECT f.foretag_id, count(*) FROM leverantorsfaktura f
          WHERE f.status <> 'utkast' AND f.forfallodag <= date(?1, '+7 days')
@@ -272,8 +265,23 @@ pub async fn antal(
             *a += usize::try_from(n).unwrap_or_default();
         }
     }
-    // Återställningsvarningen visas i alla användarens företag.
+    // #152 Kundfakturorna räknas när de har förfallit och något återstår, med det som återstår
+    // ur `kundfaktura::lista_i` som i `fakturor`: en gällande kundförlust (#141) har skrivit
+    // bort resten, så den fakturan räknas inte.
+    let idag = klocka.idag();
     let mut conn = db.pool().acquire().await?;
+    for (företag, a) in antal.iter_mut() {
+        *a += kundfaktura::lista_i(&mut conn, *företag, None)
+            .await?
+            .iter()
+            .filter(|f| {
+                f.status != kundfaktura::Status::Utkast
+                    && f.återstår > 0
+                    && f.förfallodag.is_some_and(|d| d < idag)
+            })
+            .count();
+    }
+    // Återställningsvarningen visas i alla användarens företag.
     let varningar = återställningar(&mut conn, aktör).await?.len();
     for a in antal.values_mut() {
         *a += varningar;
@@ -422,7 +430,8 @@ async fn nyckeltal(
 
 /// Reskontrornas fakturor med något kvar att betala, i förfallodagens ordning: de utfärdade
 /// kundfakturorna och de registrerade leverantörsfakturorna (#152). Det som återstår på en
-/// kundfaktura räknas av `kundfaktura::lista_i`, samma som i listan.
+/// kundfaktura räknas av `kundfaktura::lista_i`, samma som i listan: en gällande kundförlust
+/// (#141) har skrivit bort resten, så fakturan är varken obetald eller förfallen.
 async fn fakturor(
     conn: &mut SqliteConnection,
     företag: FöretagsId,
