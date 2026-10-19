@@ -145,7 +145,11 @@ fn en_överbetalning_spärras_och_hänvisas_till_ett_manuellt_verifikat() {
     assert_eq!(spärrar[0].kod, "overbetalning");
     assert_eq!(spärrar[0].fält, Fält::Belopp);
     assert!(spärrar[0].text.contains("12 500,00"), "{}", spärrar[0].text);
-    assert!(spärrar[0].text.contains("manuellt verifikat"), "{}", spärrar[0].text);
+    assert!(
+        spärrar[0].text.contains("manuellt verifikat"),
+        "{}",
+        spärrar[0].text
+    );
 }
 
 #[test]
@@ -161,11 +165,23 @@ fn betaldag_belopp_och_konto_prövas_vid_fälten() {
     let f = förutsättningar(10_000);
     assert_eq!(koder(&betalning("", "1"), &f), ["betaldag_saknas"]);
     assert_eq!(koder(&betalning("2/11", "1"), &f), ["betaldag_ogiltig"]);
-    assert_eq!(koder(&betalning("2028-01-01", "1"), &f), ["saknat_rakenskapsar"]);
-    assert_eq!(koder(&betalning("2025-12-31", "1"), &f), ["fore_forsta_aret"]);
+    assert_eq!(
+        koder(&betalning("2028-01-01", "1"), &f),
+        ["saknat_rakenskapsar"]
+    );
+    assert_eq!(
+        koder(&betalning("2025-12-31", "1"), &f),
+        ["fore_forsta_aret"]
+    );
     assert_eq!(koder(&betalning("2026-11-02", ""), &f), ["belopp_saknas"]);
-    assert_eq!(koder(&betalning("2026-11-02", "-5"), &f), ["belopp_ogiltigt"]);
-    assert_eq!(koder(&betalning("2026-11-02", "0"), &f), ["belopp_ogiltigt"]);
+    assert_eq!(
+        koder(&betalning("2026-11-02", "-5"), &f),
+        ["belopp_ogiltigt"]
+    );
+    assert_eq!(
+        koder(&betalning("2026-11-02", "0"), &f),
+        ["belopp_ogiltigt"]
+    );
     let med_konto = |k: &str| NyBetalning {
         konto: k.into(),
         ..betalning("2026-11-02", "1")

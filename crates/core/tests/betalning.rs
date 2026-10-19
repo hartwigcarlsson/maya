@@ -37,7 +37,9 @@ fn betalning(betaldag: &str, belopp: &str) -> NyBetalning {
     }
 }
 
-async fn rader(db: &Databas, anna: &Aktör, id: FöretagsId, v: VerifikatId) -> Vec<(u16, i64, i64)> {
+async fn rader(
+    db: &Databas, anna: &Aktör, id: FöretagsId, v: VerifikatId
+) -> Vec<(u16, i64, i64)> {
     verifikat::verifikatet(db, anna, id, v)
         .await
         .unwrap()
@@ -127,11 +129,24 @@ async fn betalningen_bokför_betalkontot_mot_1510_daterad_på_betaldagen_med_fak
         .find(|p| p.typ == "betalning registrerad")
         .expect("betalningen loggas");
     assert_eq!(registrerad.belopp().unwrap().öre(), TOTAL);
-    assert_eq!(registrerad.beskrivning["kundfaktura"], f.id.to_string().parse::<i64>().unwrap());
-    assert!(registrerad.text().contains("11 875,00"), "{}", registrerad.text());
+    assert_eq!(
+        registrerad.beskrivning["kundfaktura"],
+        f.id.to_string().parse::<i64>().unwrap()
+    );
+    assert!(
+        registrerad.text().contains("11 875,00"),
+        "{}",
+        registrerad.text()
+    );
     // Betalningen syns i fakturans historik.
-    let k = kundfaktura::kundfakturan(&db, &anna, id, f.id).await.unwrap();
-    assert!(k.historik.iter().any(|h| h.post.typ == "betalning registrerad"));
+    let k = kundfaktura::kundfakturan(&db, &anna, id, f.id)
+        .await
+        .unwrap();
+    assert!(
+        k.historik
+            .iter()
+            .any(|h| h.post.typ == "betalning registrerad")
+    );
 }
 
 #[tokio::test]
@@ -344,7 +359,10 @@ async fn rätta_betalning_vänder_verifikatet_och_återställer_det_som_återst�
     let rättelseinfo = post.betalningar[0].rättad.as_ref().expect("rättelsen");
     assert_eq!(rättelseinfo.verifikat.id, rättad.rättelse.id);
     assert_eq!(rättelseinfo.orsak, "fel belopp");
-    assert_eq!(kundfaktura::lista(&db, &anna, id).await.unwrap()[0].återstår, TOTAL);
+    assert_eq!(
+        kundfaktura::lista(&db, &anna, id).await.unwrap()[0].återstår,
+        TOTAL
+    );
 
     // En rättad betalning rättas inte igen.
     let fel = betalning::rätta(&db, &klocka(), &anna, id, r.id, "2026-10-18", "")
@@ -482,7 +500,9 @@ async fn triggrarna_avvisar_att_en_betalning_eller_dess_rättelse_ändras_eller_
         let fel = testhjalp::kör_sql(&db, sql).await.unwrap_err();
         assert!(fel.to_string().contains("går inte att ändra"), "{fel}");
     }
-    let fel = testhjalp::kör_sql(&db, "DELETE FROM betalning").await.unwrap_err();
+    let fel = testhjalp::kör_sql(&db, "DELETE FROM betalning")
+        .await
+        .unwrap_err();
     assert!(fel.to_string().contains("går inte att radera"), "{fel}");
 
     // En betalning utan bokfört verifikat, eller på ett utkast, går inte att lägga in.
@@ -495,7 +515,10 @@ async fn triggrarna_avvisar_att_en_betalning_eller_dess_rättelse_ändras_eller_
     )
     .await
     .unwrap_err();
-    assert!(fel.to_string().contains("kräver en utfärdad faktura"), "{fel}");
+    assert!(
+        fel.to_string().contains("kräver en utfärdad faktura"),
+        "{fel}"
+    );
     // En rättelse måste vända just betalningens verifikat.
     let fel = testhjalp::kör_sql(
         &db,
@@ -504,7 +527,10 @@ async fn triggrarna_avvisar_att_en_betalning_eller_dess_rättelse_ändras_eller_
     )
     .await
     .unwrap_err();
-    assert!(fel.to_string().contains("kräver en bokförd rättelse"), "{fel}");
+    assert!(
+        fel.to_string().contains("kräver en bokförd rättelse"),
+        "{fel}"
+    );
 
     betalning::rätta(&db, &klocka(), &anna, id, r.id, "2026-10-18", "")
         .await

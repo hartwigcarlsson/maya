@@ -65,13 +65,21 @@ fn delarna_summerar_exakt_och_avviker_högst_ett_öre_från_sin_exakta_andel() {
         assert_eq!(delar.len(), vikter.len());
         let summa_vikter: i128 = vikter.iter().map(|&v| i128::from(v)).sum();
         if summa_vikter == 0 {
-            assert!(delar.iter().all(|&d| d == 0), "{belopp} {vikter:?} {delar:?}");
+            assert!(
+                delar.iter().all(|&d| d == 0),
+                "{belopp} {vikter:?} {delar:?}"
+            );
             continue;
         }
-        assert_eq!(delar.iter().sum::<i64>(), belopp, "{belopp} {vikter:?} {delar:?}");
+        assert_eq!(
+            delar.iter().sum::<i64>(),
+            belopp,
+            "{belopp} {vikter:?} {delar:?}"
+        );
         for (del, vikt) in delar.iter().zip(&vikter) {
             // |del − belopp·vikt/summa| ≤ 1 öre, utan avrundning: |del·summa − belopp·vikt| ≤ |summa|.
-            let avvikelse = i128::from(*del) * summa_vikter - i128::from(belopp) * i128::from(*vikt);
+            let avvikelse =
+                i128::from(*del) * summa_vikter - i128::from(belopp) * i128::from(*vikt);
             assert!(
                 avvikelse.abs() <= summa_vikter.abs(),
                 "{belopp} {vikter:?} {delar:?}"
@@ -84,10 +92,15 @@ fn delarna_summerar_exakt_och_avviker_högst_ett_öre_från_sin_exakta_andel() {
 fn med_positiva_andelar_följer_varje_del_beloppets_tecken() {
     let mut slump = Slump(42);
     for _ in 0..5_000 {
-        let vikter: Vec<i64> = (0..slump.mellan(1, 6)).map(|_| slump.mellan(0, 100_000)).collect();
+        let vikter: Vec<i64> = (0..slump.mellan(1, 6))
+            .map(|_| slump.mellan(0, 100_000))
+            .collect();
         let belopp = slump.mellan(-1_000_000, 1_000_000);
         for del in fördela(belopp, &vikter) {
-            assert!(del == 0 || del.signum() == belopp.signum(), "{belopp} {vikter:?}");
+            assert!(
+                del == 0 || del.signum() == belopp.signum(),
+                "{belopp} {vikter:?}"
+            );
         }
     }
 }

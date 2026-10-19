@@ -649,8 +649,14 @@ pub(crate) async fn rätta_i(
     }
     .kan_rättas()
     .map_err(VerifikatFel::InteRättbart)?;
-    let (bokfört, rättelsedatum) =
-        bokför_rättelsen(ärende, (original, original_nummer), &som_original, datum, orsak).await?;
+    let (bokfört, rättelsedatum) = bokför_rättelsen(
+        ärende,
+        (original, original_nummer),
+        &som_original,
+        datum,
+        orsak,
+    )
+    .await?;
     ärende
         .logga(
             Händelse::VerifikatRättat,

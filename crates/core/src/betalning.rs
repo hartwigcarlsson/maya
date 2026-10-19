@@ -25,7 +25,9 @@ use crate::atkomst::{self, Ärende, ÅtkomstFel};
 use crate::behandlingshistorik::Händelse;
 use crate::foretag::{FöretagsId, datum};
 use crate::kundfaktura::KundfakturaId;
-use crate::verifikat::{self, Bokfört, Flöde, Länk, Signatur, VerifikatFel, VerifikatId, signatur};
+use crate::verifikat::{
+    self, Bokfört, Flöde, Länk, Signatur, VerifikatFel, VerifikatId, signatur
+};
 use crate::{Databas, DatabasFel, Klocka};
 
 /// En betalnings id i installationen.
@@ -368,8 +370,7 @@ pub async fn rätta(
         None => return Err(BetalningFel::IngenBetalning),
     };
     let fakturan = läs_fakturan(ärende.conn(), företag, faktura).await?;
-    let rättelse =
-        verifikat::rätta_i(&mut ärende, VerifikatId(verifikat_id), datum, orsak).await?;
+    let rättelse = verifikat::rätta_i(&mut ärende, VerifikatId(verifikat_id), datum, orsak).await?;
     let (nu, kanal, av) = (
         ärende.nu.to_string(),
         ärende.aktör.kanal.namn(),
@@ -410,7 +411,9 @@ pub async fn rätta(
         .logga(Händelse::BetalningRättad, &fakturan.nummer, post)
         .await?;
     ärende.slutför().await?;
-    Ok(Rättad { rättelse, återstår })
+    Ok(Rättad {
+        rättelse, återstår
+    })
 }
 
 /// Fakturan i reskontran med det som återstår och varje betalning, också de rättade.

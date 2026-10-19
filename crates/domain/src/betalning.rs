@@ -185,7 +185,11 @@ impl NyBetalning {
         let mut spärrar = Vec::new();
         let betaldag = match self.betaldag.trim() {
             "" => {
-                spärrar.push(Spärr::ny(Fält::Betaldag, "betaldag_saknas", "Ange betaldag."));
+                spärrar.push(Spärr::ny(
+                    Fält::Betaldag,
+                    "betaldag_saknas",
+                    "Ange betaldag.",
+                ));
                 None
             }
             text => match text.parse::<Date>() {
@@ -204,7 +208,11 @@ impl NyBetalning {
             let mut fel = Vec::new();
             let val = verifikat::välj_år(d, &f.räkenskapsår, &mut fel);
             spärrar.extend(fel.into_iter().map(|s| {
-                Spärr::ny(Fält::Betaldag, s.kod, s.text.replace("Datumet", "Betaldagen"))
+                Spärr::ny(
+                    Fält::Betaldag,
+                    s.kod,
+                    s.text.replace("Datumet", "Betaldagen"),
+                )
             }));
             val
         });
@@ -293,7 +301,11 @@ impl NyBetalning {
         }
     }
 
-    fn kontrollera_konto(&self, f: &Förutsättningar, spärrar: &mut Vec<Spärr>) -> Option<Kontonummer> {
+    fn kontrollera_konto(
+        &self,
+        f: &Förutsättningar,
+        spärrar: &mut Vec<Spärr>,
+    ) -> Option<Kontonummer> {
         let text = self.konto.trim();
         if text.is_empty() {
             spärrar.push(Spärr::ny(Fält::Konto, "konto_saknas", "Välj betalkonto."));

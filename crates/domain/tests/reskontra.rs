@@ -62,7 +62,16 @@ fn förfallotexten_räknar_dagarna() {
     let idag = date(2026, 10, 19);
     assert_eq!(förfallotext(date(2026, 10, 19), idag), "förfaller i dag");
     assert_eq!(förfallotext(date(2026, 10, 20), idag), "förfaller om 1 dag");
-    assert_eq!(förfallotext(date(2026, 10, 24), idag), "förfaller om 5 dagar");
-    assert_eq!(förfallotext(date(2026, 10, 18), idag), "förföll för 1 dag sedan");
-    assert_eq!(förfallotext(date(2026, 10, 9), idag), "förföll för 10 dagar sedan");
+    assert_eq!(
+        förfallotext(date(2026, 10, 24), idag),
+        "förfaller om 5 dagar"
+    );
+    assert_eq!(
+        förfallotext(date(2026, 10, 18), idag),
+        "förföll för 1 dag sedan"
+    );
+    assert_eq!(
+        förfallotext(date(2026, 10, 9), idag),
+        "förföll för 10 dagar sedan"
+    );
 }
