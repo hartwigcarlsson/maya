@@ -252,14 +252,14 @@ pub async fn antal(
          UNION ALL
          SELECT f.foretag_id, count(*) FROM kundfaktura f
          WHERE f.status <> 'utkast' AND f.forfallodag < ?1
-           AND f.total > coalesce((SELECT sum(b.belopp + b.oresutjamning)
+           AND f.total > coalesce((SELECT sum(b.belopp + b.oresutjamning + b.kursdifferens)
                                    FROM betalning_i_reskontran b
                                    WHERE b.kundfaktura_id = f.id), 0)
          GROUP BY f.foretag_id
          UNION ALL
          SELECT f.foretag_id, count(*) FROM leverantorsfaktura f
          WHERE f.status <> 'utkast' AND f.forfallodag <= date(?1, '+7 days')
-           AND f.total > coalesce((SELECT sum(b.belopp + b.oresutjamning)
+           AND f.total > coalesce((SELECT sum(b.belopp + b.oresutjamning + b.kursdifferens)
                                    FROM betalning_i_reskontran b
                                    WHERE b.leverantorsfaktura_id = f.id), 0)
          GROUP BY f.foretag_id",
@@ -451,8 +451,8 @@ async fn fakturor(
             kontakt: kontakt.unwrap_or_default(),
         });
     }
-    // Det som återstår på en leverantörsfaktura: totalen minus betalningarna i reskontran,
-    // samma regel som `betalning::reskontrapost`.
+    // Det som återstår på en leverantörsfaktura: totalen minus betalningarna i reskontran med
+    // öresutjämning och kursdifferens (#147), samma regel som `betalning::betalt_i`.
     type Rad = (
         i64,
         String,
@@ -467,7 +467,7 @@ async fn fakturor(
     );
     let rader: Vec<Rad> = sqlx::query_as(
         "SELECT f.id, f.fakturanummer, l.namn, f.total,
-                f.total - coalesce((SELECT sum(b.belopp + b.oresutjamning)
+                f.total - coalesce((SELECT sum(b.belopp + b.oresutjamning + b.kursdifferens)
                                     FROM betalning_i_reskontran b
                                     WHERE b.leverantorsfaktura_id = f.id), 0),
                 f.forfallodag, l.bankgiro, l.plusgiro, l.iban, f.referens
