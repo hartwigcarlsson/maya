@@ -396,3 +396,151 @@ async fn en_ny_kund_läggs_upp_på_utkastet_och_hamnar_i_kundregistret_när_fakt
     let register = hämta(&db, &session, &format!("{bas}/kunder")).await;
     assert!(register.contains("Nya Kunden AB"));
 }
+
+// #136 Omvänd skattskyldighet och företag utan momsregistrering
+
+/// En kund med förvald omvänd skattskyldighet för bygg och momsreg-nr `momsregnr`.
+async fn byggkund(db: &TillfälligDatabas, session: &str, bas: &str, momsregnr: &str) -> String {
+    let kund = plats(
+        &posta(
+            db,
+            session,
+            &format!("{bas}/kunder"),
+            &format!(
+                "namn=Bergstr%C3%B6m+Bygg+AB&identitet=&adress=Industriv%C3%A4gen+3\
+                 &epost=&momsregnr={momsregnr}&betalningsvillkor=30\
+                 &omvand_skattskyldighet=bygg"
+            ),
+        )
+        .await,
+    );
+    parameter(&kund, "k")
+}
+
+fn omvänt_utkast(kund: &str) -> String {
+    format!(
+        "kund={kund}&fakturadatum=2026-03-10&leveransdatum=&forfallodag=&er_referens=\
+         &startnummer=&omvand_skattskyldighet=bygg\
+         &beskrivning_0=Elinstallation&antal_0=1&enhet_0=st&a_pris_0=62000&rabatt_0=\
+         &momssats_0=0&konto_0=3231"
+    )
+}
+
+/// Väljaren `<select name="<namn>" …>…</select>` i sidan.
+fn väljaren<'a>(sida: &'a str, namn: &str) -> &'a str {
+    let start = sida
+        .find(&format!(r#"name="{namn}""#))
+        .unwrap_or_else(|| panic!("{namn} saknas"));
+    let väljaren = &sida[start..];
+    &väljaren[..väljaren.find("</select>").unwrap()]
+}
+
+#[tokio::test]
+async fn omvänd_skattskyldighet_väljs_på_utkastet_och_spärras_vid_kunden_utan_momsregistreringsnummer()
+ {
+    let db = Databas::tillfällig().await;
+    let (session, bas, _) = fakturaföretag(&db).await;
+    let kund = byggkund(&db, &session, &bas, "").await;
+
+    let ny = hämta(&db, &session, &format!("{bas}/kundfakturor/ny")).await;
+    let val = väljaren(&ny, "omvand_skattskyldighet");
+    assert!(
+        val.contains("Bygg inom Sverige") && val.contains("EU-tjänst"),
+        "{val}"
+    );
+
+    let plats = plats(
+        &posta(
+            &db,
+            &session,
+            &format!("{bas}/kundfakturor"),
+            &format!("{}&handling=spara", omvänt_utkast(&kund)),
+        )
+        .await,
+    );
+    let sida = hämta(&db, &session, &plats).await;
+    assert!(
+        väljaren(&sida, "omvand_skattskyldighet").contains(r#"value="bygg" selected"#),
+        "valet står kvar"
+    );
+    let kundfältet =
+        &sida[sida.find(r#"name="kund""#).unwrap()..sida.find(r#"for="fakturadatum""#).unwrap()];
+    assert!(
+        kundfältet.contains(r#"data-kod="kund_momsregnr_saknas""#),
+        "{kundfältet}"
+    );
+    assert!(kundfältet.contains("Omvänd skattskyldighet kräver köparens momsreg-nr."));
+    // Raden har bara 0 %.
+    let moms = väljaren(&sida, "momssats_0");
+    assert!(
+        moms.contains(r#"value="0""#) && !moms.contains(r#"value="25""#),
+        "{moms}"
+    );
+}
+
+#[tokio::test]
+async fn en_utfärdad_faktura_med_omvänd_skattskyldighet_visar_valet_och_texten() {
+    let db = Databas::tillfällig().await;
+    let (session, bas, _) = fakturaföretag(&db).await;
+    let kund = byggkund(&db, &session, &bas, "SE559100445501").await;
+    let granska = plats(
+        &posta(
+            &db,
+            &session,
+            &format!("{bas}/kundfakturor"),
+            &format!("{}&handling=granska", omvänt_utkast(&kund)),
+        )
+        .await,
+    );
+    let f = parameter(&granska, "f");
+    let formulär = hämta(&db, &session, &format!("{bas}/kundfakturor?f={f}")).await;
+    assert!(
+        formulär.contains(
+            "Omvänd skattskyldighet (Bygg inom Sverige): ingen moms på fakturan, intäkten på 3231."
+        ),
+        "{formulär}"
+    );
+    let utfärdad = plats(
+        &posta(
+            &db,
+            &session,
+            &format!("{bas}/kundfakturor/{f}/utfarda"),
+            "",
+        )
+        .await,
+    );
+    let sida = hämta(&db, &session, &utfärdad).await;
+    let dokument = &sida[sida.find(r#"class="dokument"#).unwrap()..];
+    assert!(dokument.contains("Bygg inom Sverige"), "{dokument}");
+    assert!(
+        dokument.contains("Omvänd betalningsskyldighet"),
+        "{dokument}"
+    );
+    assert!(dokument.contains("SE559100445501"), "köparens momsreg-nr");
+}
+
+#[tokio::test]
+async fn ett_företag_utan_momsregistrering_kan_inte_välja_momssats() {
+    let db = Databas::tillfällig().await;
+    let session = inloggad(&db).await;
+    let bas = plats(
+        &posta(
+            &db,
+            &session,
+            "/foretag",
+            "orgnr=556036-0793&namn=Exempel+AB&start=2026-01-01&slut=2026-12-31\
+             &bokforingsmetod=faktura&momsperiod=ej_momsregistrerad",
+        )
+        .await,
+    );
+    let ny = hämta(&db, &session, &format!("{bas}/kundfakturor/ny")).await;
+    assert!(ny.contains("Företaget är inte momsregistrerat"), "{ny}");
+    let moms = väljaren(&ny, "momssats_0");
+    assert!(
+        moms.contains(r#"value="0""#) && !moms.contains(r#"value="25""#),
+        "{moms}"
+    );
+    let konto = &ny[ny.find(r#"name="konto_0""#).unwrap()..];
+    let konto = &konto[..konto.find('>').unwrap()];
+    assert!(konto.contains(r#"value="3004""#), "kontot för 0 %: {konto}");
+}

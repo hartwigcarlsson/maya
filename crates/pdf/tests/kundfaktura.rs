@@ -41,6 +41,7 @@ fn faktura() -> Utfärdbar {
             epost: String::new(),
             momsregnr: String::new(),
             betalningsvillkor: 30,
+            omvänd_skattskyldighet: Default::default(),
         }],
         säljare: säljare(),
         konton: [3001, 3003]
@@ -62,6 +63,7 @@ fn faktura() -> Utfärdbar {
         förfallodag: String::new(),
         er_referens: "Bo Ek".into(),
         startnummer: String::new(),
+        omvänd_skattskyldighet: String::new(),
         rader: vec![
             NyFakturarad {
                 beskrivning: "Konsulttimmar".into(),

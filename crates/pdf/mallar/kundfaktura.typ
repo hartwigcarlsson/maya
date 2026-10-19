@@ -80,12 +80,12 @@
 )
 
 #v(1.5em)
-#let kolumner = if f.har_rabatt { (1fr, auto, auto, auto, auto, auto) } else { (1fr, auto, auto, auto, auto) }
-#let rubriker = if f.har_rabatt {
-  ([Beskrivning], [Antal], [À-pris], [Rabatt], [Moms], [Belopp])
-} else {
-  ([Beskrivning], [Antal], [À-pris], [Moms], [Belopp])
-}
+// Ett företag som inte är momsregistrerat har ingen momskolumn och inga momsrader.
+#let rubriker = ([Beskrivning], [Antal], [À-pris])
+#if f.har_rabatt { rubriker.push([Rabatt]) }
+#if f.med_moms { rubriker.push([Moms]) }
+#rubriker.push([Belopp])
+#let kolumner = (1fr,) + (auto,) * (rubriker.len() - 1)
 #table(
   columns: kolumner,
   align: (col, _) => if col == 0 { left } else { right },
@@ -94,11 +94,12 @@
   ..f.rader.map(r => {
     let celler = ([#r.beskrivning], [#r.antal], [#r.a_pris])
     if f.har_rabatt { celler.push([#r.rabatt]) }
-    celler + ([#r.moms], [#r.netto])
+    if f.med_moms { celler.push([#r.moms]) }
+    celler + ([#r.netto],)
   }).flatten(),
   table.hline(stroke: 0.5pt),
 )
-#text(size: 8.5pt, fill: luma(80))[À-pris och belopp är exklusive moms.]
+#if f.med_moms [#text(size: 8.5pt, fill: luma(80))[À-pris och belopp är exklusive moms.]]
 
 #v(0.6em)
 #align(right, grid(
@@ -106,12 +107,18 @@
   column-gutter: 2em,
   row-gutter: 0.55em,
   align: (left, right),
-  [Summa exklusive moms], [#f.netto],
-  ..f.momsrader.map(m => ([#m.text], [#m.moms])).flatten(),
+  ..if f.med_moms { ([Summa exklusive moms], [#f.netto]) } else { ([Summa], [#f.netto]) },
+  ..if f.med_moms { f.momsrader.map(m => ([#m.text], [#m.moms])).flatten() } else { () },
   grid.hline(stroke: 0.5pt),
   pad(top: 0.3em, text(size: 12pt, weight: "bold")[Att betala]),
   pad(top: 0.3em, text(size: 12pt, weight: "bold")[#f.total kr]),
 ))
+
+// Vid omvänd skattskyldighet: texten som momslagen kräver (17 kap. 24 §).
+#if f.omvand != none {
+  v(1em)
+  block(width: 100%, inset: 8pt, stroke: (left: 2pt + luma(60)), text(weight: "bold")[#f.omvand])
+}
 
 #v(1.5em)
 #block(

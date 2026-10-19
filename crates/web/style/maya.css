@@ -2657,3 +2657,10 @@ kbd {
 .utskick-fel {
   color: var(--destructive);
 }
+
+/* Omvänd skattskyldighet på kundfakturor (#136): texten på förhandsvisningen och dokumentet. */
+.papper-omvand {
+  border-left: 3px solid var(--border);
+  padding: 4px 8px;
+  font-weight: 600;
+}

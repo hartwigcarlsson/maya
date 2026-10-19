@@ -2,10 +2,10 @@ use jiff::civil::date;
 use maya_domain::faktura::Momssats;
 use maya_domain::foretag::Momsperiod;
 use maya_domain::kontoplan::Kontonummer;
-use maya_domain::kund::{self, NyKund};
+use maya_domain::kund::{self, NyKund, OmvändSkattskyldighet};
 use maya_domain::kundfaktura::{
-    Fakturakund, Fält, Förutsättningar, NY, NyFakturarad, NyKundfaktura, Radfält, Spärr, Säljare,
-    UTFÄRDANDESPÄRRAR, intäktskonto,
+    Fakturakund, Fält, Förutsättningar, Momsläge, NY, NyFakturarad, NyKundfaktura,
+    OMVÄND_BETALNINGSSKYLDIGHET, Radfält, Spärr, Säljare, UTFÄRDANDESPÄRRAR, intäktskonto,
 };
 use maya_domain::rakenskapsar::Räkenskapsår;
 use maya_domain::verifikat::Årsval;
@@ -23,6 +23,7 @@ fn kund() -> Fakturakund {
         epost: "ekonomi@kund.se".into(),
         momsregnr: "SE556677889901".into(),
         betalningsvillkor: 30,
+        omvänd_skattskyldighet: OmvändSkattskyldighet::Ingen,
     }
 }
 
@@ -48,11 +49,13 @@ fn förutsättningar() -> Förutsättningar {
     Förutsättningar {
         kunder: vec![kund()],
         säljare: säljare(),
-        konton: [1510, 2611, 2621, 2631, 3001, 3002, 3003, 3004, 3041]
-            .into_iter()
-            .map(|n| (nr(n), true))
-            .chain([(nr(3011), false), (nr(1930), true)])
-            .collect(),
+        konton: [
+            1510, 2611, 2621, 2631, 3001, 3002, 3003, 3004, 3041, 3231, 3308,
+        ]
+        .into_iter()
+        .map(|n| (nr(n), true))
+        .chain([(nr(3011), false), (nr(1930), true)])
+        .collect(),
         räkenskapsår: vec![Räkenskapsår::befintligt(
             date(2026, 1, 1),
             date(2026, 12, 31),
@@ -83,6 +86,7 @@ fn faktura() -> NyKundfaktura {
         förfallodag: String::new(),
         er_referens: "Bo Ek".into(),
         startnummer: String::new(),
+        omvänd_skattskyldighet: String::new(),
         rader: vec![
             rad("Konsulttimmar", "10", "950", "25", "3001"),
             rad("Bok", "2", "200", "6", "3003"),
@@ -505,6 +509,15 @@ fn varje_spärr_vid_utfärdande_är_dokumenterad_och_ingen_annan() {
     let mut ny = faktura();
     ny.kund = NY.into();
     fall.push((ny, förutsättningar()));
+    // #136: omvänd skattskyldighet utan köparens momsreg-nr, och ett okänt val.
+    let mut omvänd = faktura();
+    omvänd.omvänd_skattskyldighet = "bygg".into();
+    let mut utan_momsregnr = förutsättningar();
+    utan_momsregnr.kunder[0].momsregnr = String::new();
+    fall.push((omvänd, utan_momsregnr));
+    let mut okänd = faktura();
+    okänd.omvänd_skattskyldighet = "export".into();
+    fall.push((okänd, förutsättningar()));
 
     let mut koder: Vec<&str> = fall
         .iter()
@@ -668,4 +681,213 @@ fn kunden_är_den_valda_i_registret_eller_den_nya() {
         Some(10)
     );
     assert_eq!(med_ny_kund(NyKund::default()).kunden(&f), None);
+}
+
+// #136 Omvänd skattskyldighet och företag utan momsregistrering
+
+fn omvänd(kod: &str) -> NyKundfaktura {
+    NyKundfaktura {
+        omvänd_skattskyldighet: kod.into(),
+        rader: vec![
+            rad("Elinstallation", "1", "62000", "0", "3231"),
+            rad("Material", "2", "500", "0", "3231"),
+        ],
+        ..faktura()
+    }
+}
+
+fn ej_momsregistrerat() -> Förutsättningar {
+    let mut ff = förutsättningar();
+    ff.momsperioder = vec![(date(2026, 1, 1), Momsperiod::EjMomsregistrerad)];
+    ff.säljare.momsregnr = String::new();
+    ff
+}
+
+#[test]
+fn intäktskontot_vid_omvänd_skattskyldighet_är_3231_för_bygg_och_3308_för_eu_tjänst() {
+    for sats in Momssats::ALLA {
+        assert_eq!(Momsläge::Bygg.intäktskonto(sats), nr(3231));
+        assert_eq!(Momsläge::EuTjänst.intäktskonto(sats), nr(3308));
+        assert_eq!(Momsläge::UtanMoms.intäktskonto(sats), nr(3004));
+        assert_eq!(Momsläge::Moms.intäktskonto(sats), intäktskonto(sats));
+    }
+}
+
+#[test]
+fn omvänd_skattskyldighet_ger_noll_procent_på_varje_rad_och_ingen_momsrad_i_konteringen() {
+    let mut f = omvänd("bygg");
+    // En sats som står kvar i formuläret gäller inte: raderna får 0 %.
+    f.rader[1].momssats = "25".into();
+    let u = f.kontrollera(&förutsättningar()).unwrap();
+    assert_eq!(u.momsläge, Momsläge::Bygg);
+    assert!(u.rader.iter().all(|r| r.momssats == Momssats::Noll));
+    assert_eq!(u.netto, 6_300_000);
+    assert_eq!(u.moms, 0);
+    assert_eq!(u.total, 6_300_000);
+    let kontering: Vec<(u16, i64, i64)> = u
+        .kontering()
+        .iter()
+        .map(|r| (r.konto.get(), r.debet.öre(), r.kredit.öre()))
+        .collect();
+    assert_eq!(kontering, [(1510, 6_300_000, 0), (3231, 0, 6_300_000)]);
+
+    let mut eu = omvänd("eu_tjanst");
+    for r in &mut eu.rader {
+        r.konto = "3308".into();
+    }
+    let u = eu.kontrollera(&förutsättningar()).unwrap();
+    assert_eq!(u.momsläge, Momsläge::EuTjänst);
+    let konton: Vec<u16> = u.kontering().iter().map(|r| r.konto.get()).collect();
+    assert_eq!(konton, [1510, 3308]);
+}
+
+#[test]
+fn fakturan_med_omvänd_skattskyldighet_får_texten_om_omvänd_betalningsskyldighet() {
+    for läge in [Momsläge::Bygg, Momsläge::EuTjänst] {
+        assert!(
+            läge
+                .fakturatext()
+                .unwrap()
+                .starts_with(OMVÄND_BETALNINGSSKYLDIGHET)
+        );
+    }
+    assert_eq!(OMVÄND_BETALNINGSSKYLDIGHET, "Omvänd betalningsskyldighet");
+    assert_eq!(Momsläge::Moms.fakturatext(), None);
+    assert_eq!(Momsläge::UtanMoms.fakturatext(), None);
+}
+
+#[test]
+fn omvänd_skattskyldighet_spärras_vid_kunden_när_köparens_momsregistreringsnummer_saknas() {
+    let mut ff = förutsättningar();
+    ff.kunder[0].momsregnr = "  ".into();
+    assert_eq!(
+        spärrar(&omvänd("eu_tjanst"), &ff),
+        [(Fält::Kund, "kund_momsregnr_saknas")]
+    );
+    let text = &omvänd("bygg").kontrollera(&ff).unwrap_err()[0].text;
+    assert_eq!(
+        text,
+        "Omvänd skattskyldighet kräver köparens momsreg-nr. Kund AB saknar det. Fyll i det i \
+         kundregistret."
+    );
+    // Utan omvänd skattskyldighet krävs inte köparens momsreg-nr.
+    assert!(faktura().kontrollera(&ff).is_ok());
+}
+
+#[test]
+fn ett_okänt_val_av_omvänd_skattskyldighet_spärras_vid_fältet() {
+    let f = omvänd("export");
+    assert_eq!(
+        spärrar(&f, &förutsättningar()),
+        [(Fält::OmvändSkattskyldighet, "omvand_ogiltig")]
+    );
+    let koder: Vec<_> = f
+        .som_utkast()
+        .unwrap_err()
+        .iter()
+        .map(|s| (s.fält, s.kod))
+        .collect();
+    assert_eq!(koder, [(Fält::OmvändSkattskyldighet, "omvand_ogiltig")]);
+}
+
+#[test]
+fn ett_företag_utan_momsregistrering_får_en_faktura_utan_moms_och_utan_momsregistreringsnummer() {
+    let ff = ej_momsregistrerat();
+    // Momssatserna i formuläret gäller inte, och omvänd skattskyldighet kan inte väljas.
+    let mut f = faktura();
+    f.omvänd_skattskyldighet = "bygg".into();
+    assert_eq!(f.momsläge(&ff), Momsläge::UtanMoms);
+    let u = f.kontrollera(&ff).unwrap();
+    assert_eq!(u.momsläge, Momsläge::UtanMoms);
+    assert!(u.rader.iter().all(|r| r.momssats == Momssats::Noll));
+    assert_eq!(u.moms, 0);
+    assert_eq!(u.total, 995_000);
+    assert!(
+        u.kontering()
+            .iter()
+            .all(|r| !(2600..2700).contains(&r.konto.get()))
+    );
+    // Säljarens momsreg-nr står inte på fakturan, också om det finns kvar i inställningarna.
+    let mut säljare = säljare();
+    assert_eq!(u.säljare_på_fakturan(&säljare).momsregnr, "");
+    säljare.momsregnr = String::new();
+    assert_eq!(u.säljare_på_fakturan(&säljare), säljare);
+    assert_eq!(f.beräkna_med(f.momsläge(&ff)).moms, 0);
+}
+
+#[test]
+fn momsläget_följer_momsperiodens_historik_på_fakturadatumet() {
+    let mut ff = förutsättningar();
+    ff.momsperioder = vec![
+        (date(2026, 1, 1), Momsperiod::EjMomsregistrerad),
+        (date(2026, 4, 1), Momsperiod::Kvartal),
+    ];
+    let mut f = omvänd("bygg");
+    assert_eq!(f.momsläge(&ff), Momsläge::UtanMoms);
+    f.fakturadatum = "2026-04-01".into();
+    assert_eq!(f.momsläge(&ff), Momsläge::Bygg);
+    f.omvänd_skattskyldighet = "ingen".into();
+    assert_eq!(f.momsläge(&ff), Momsläge::Moms);
+    // Tom text är ingen omvänd skattskyldighet.
+    f.omvänd_skattskyldighet = String::new();
+    assert_eq!(f.momsläge(&ff), Momsläge::Moms);
+}
+
+#[test]
+fn kundens_förvalda_omvända_skattskyldighet_fylls_i_när_kunden_väljs() {
+    let mut ff = förutsättningar();
+    ff.kunder.push(Fakturakund {
+        id: 8,
+        namn: "Bergström Bygg AB".into(),
+        omvänd_skattskyldighet: OmvändSkattskyldighet::Bygg,
+        ..kund()
+    });
+    let mut f = NyKundfaktura {
+        kund: String::new(),
+        rader: vec![
+            rad("Timmar", "1", "100", "25", "3001"),
+            NyFakturarad::default(),
+        ],
+        ..faktura()
+    };
+    f.välj_kund("8", &ff);
+    assert_eq!(f.kund, "8");
+    assert_eq!(f.omvänd_skattskyldighet, "bygg");
+    // Raderna följer: 0 % och 3231 där kontot var satsens konto.
+    assert!(
+        f.rader
+            .iter()
+            .all(|r| r.momssats == "0" && r.konto == "3231")
+    );
+
+    f.välj_kund("7", &ff);
+    assert_eq!(f.omvänd_skattskyldighet, "ingen");
+    assert!(
+        f.rader
+            .iter()
+            .all(|r| r.momssats == "25" && r.konto == "3001")
+    );
+}
+
+#[test]
+fn ett_eget_konto_på_en_rad_står_kvar_när_momsläget_byts() {
+    let mut f = faktura();
+    f.rader = vec![rad("Hyra", "1", "100", "25", "3041")];
+    f.byt_momsläge(Momsläge::Moms, Momsläge::EuTjänst);
+    assert_eq!(f.rader[0].konto, "3041");
+    assert_eq!(f.rader[0].momssats, "0");
+    assert_eq!(NyFakturarad::för(Momsläge::EuTjänst).konto, "3308");
+    assert_eq!(NyFakturarad::för(Momsläge::Moms), NyFakturarad::default());
+}
+
+#[test]
+fn ett_utkast_med_omvänd_skattskyldighet_sparas_med_noll_procent_och_blir_samma_formulär_igen() {
+    let mut f = omvänd("bygg");
+    f.rader[0].momssats = "25".into();
+    let u = f.som_utkast().unwrap();
+    assert_eq!(u.omvänd_skattskyldighet, OmvändSkattskyldighet::Bygg);
+    assert!(u.rader.iter().all(|r| r.momssats == Momssats::Noll));
+    let igen = u.som_formulär();
+    assert_eq!(igen.omvänd_skattskyldighet, "bygg");
+    assert_eq!(igen.som_utkast().unwrap(), u);
 }
