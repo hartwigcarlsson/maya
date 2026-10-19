@@ -60,6 +60,23 @@ pub struct Kunddata {
     pub valt: Option<KundVy>,
     /// Den valda kunden saknar fakturor och kan raderas.
     pub kan_raderas: bool,
+    /// Den valda kundens fakturor och vad som är obetalt (#139).
+    pub fakturor: Vec<KundensFakturaVy>,
+    pub obetalt: String,
+}
+
+/// En faktura i kundens detalj (#139).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct KundensFakturaVy {
+    pub id: String,
+    /// Tomt för ett utkast.
+    pub nummer: String,
+    pub fakturadatum: String,
+    pub förfallodag: String,
+    pub total: String,
+    pub återstår: String,
+    /// Märkets kod och namn; `utkast` för ett utkast.
+    pub märke: (String, String),
 }
 
 /// Datan för `/foretag/<id>/kunder` och `/foretag/<id>/kunder/ny`.
@@ -129,9 +146,10 @@ pub(crate) mod server {
     use maya_core::foretag::FöretagsId;
     use maya_core::inloggning::Inloggad;
     use maya_core::kund::{self, Kund, KundFel, KundId, Kundstatus};
+    use maya_core::kundfaktura::{self, Status};
     use maya_core::{Databas, Klocka};
 
-    use super::{FÄLT, KundVy, Kunddata, ur_fält};
+    use super::{FÄLT, KundVy, Kunddata, KundensFakturaVy, ur_fält};
     use crate::sidodata::{self, Sidbegäran};
     use crate::svar::{ingen_åtkomst, serverfel, text};
     use crate::verifikat::server::tid;
@@ -168,6 +186,7 @@ pub(crate) mod server {
         } else {
             b.värde("k").and_then(|k| k.parse::<KundId>().ok())
         };
+        let valt_id = valt;
         let aktör = &b.inloggad.aktör;
         let resultat = async {
             let lista = kund::kunder(&b.db, aktör, företag).await?;
@@ -182,6 +201,38 @@ pub(crate) mod server {
                 },
                 None => (None, false),
             };
+            // #139: kundens fakturor och vad som är obetalt.
+            let fakturor = match (&valt, valt_id) {
+                (Some(_), Some(k)) => {
+                    kundfaktura::kundens_fakturor(&b.db, aktör, företag, k).await?
+                }
+                _ => Vec::new(),
+            };
+            let idag = b.klocka.idag();
+            let kr = |öre: i64| maya_domain::belopp::Saldo::från_öre(öre).to_string();
+            let obetalt: i64 = fakturor
+                .iter()
+                .filter(|f| f.status != Status::Utkast)
+                .map(|f| f.återstår.max(0))
+                .sum();
+            let fakturor = fakturor
+                .iter()
+                .map(|f| KundensFakturaVy {
+                    id: f.id.to_string(),
+                    nummer: f.nummer.map(|n| n.to_string()).unwrap_or_default(),
+                    fakturadatum: f.fakturadatum.map(|d| d.to_string()).unwrap_or_default(),
+                    förfallodag: f.förfallodag.map(|d| d.to_string()).unwrap_or_default(),
+                    total: kr(f.total),
+                    återstår: kr(f.återstår),
+                    märke: match (f.status, f.förfallodag) {
+                        (Status::Utfärdad, Some(d)) => {
+                            let m = maya_domain::reskontra::märke(f.total, f.återstår, d, idag);
+                            (m.kod().into(), m.namn().into())
+                        }
+                        _ => ("utkast".into(), "Utkast".into()),
+                    },
+                })
+                .collect();
             Ok::<_, KundFel>(Kunddata {
                 lista: lista
                     .iter()
@@ -190,6 +241,8 @@ pub(crate) mod server {
                     .collect(),
                 valt,
                 kan_raderas,
+                fakturor,
+                obetalt: kr(obetalt),
             })
         }
         .await;
@@ -493,6 +546,7 @@ fn kundregistret_sida(data: Kunddata, ny: bool) -> AnyView {
                 arkivera=fråga("arkivera").is_some()
                 radera=fråga("radera").is_some()
             />
+            <KundensFakturor bas=bas.clone() fakturor=data.fakturor.clone() obetalt=data.obetalt.clone() />
         }
         .into_any(),
         None => view! {
@@ -766,5 +820,63 @@ fn KundFormulär(
                 </button>
             </p>
         </form>
+    }
+}
+
+// #139 Betalningar
+/// Kundens fakturor med status och det som återstår, och summan som är obetald (story 11).
+#[component]
+fn KundensFakturor(bas: String, fakturor: Vec<KundensFakturaVy>, obetalt: String) -> impl IntoView {
+    let lista = crate::kundfakturor::kundfakturorna(&bas);
+    let rader = fakturor
+        .iter()
+        .map(|f| {
+            let nummer = if f.nummer.is_empty() {
+                "Utkast".to_string()
+            } else {
+                f.nummer.clone()
+            };
+            view! {
+                <tr>
+                    <td>
+                        <a href=format!("{lista}?f={}", f.id)>{nummer}</a>
+                    </td>
+                    <td>{f.fakturadatum.clone()}</td>
+                    <td>{f.förfallodag.clone()}</td>
+                    <td>
+                        <crate::betalning::Märke kod=f.märke.0.clone() namn=f.märke.1.clone() />
+                    </td>
+                    <td class="belopp">{f.total.clone()}</td>
+                    <td class="belopp">{f.återstår.clone()}</td>
+                </tr>
+            }
+        })
+        .collect_view();
+    let innehåll = if fakturor.is_empty() {
+        view! { <p class="diskret">"Kunden har inga fakturor än."</p> }.into_any()
+    } else {
+        view! {
+            <table class="rader">
+                <thead>
+                    <tr>
+                        <th>"Faktura"</th>
+                        <th>"Fakturadatum"</th>
+                        <th>"Förfallodag"</th>
+                        <th>"Status"</th>
+                        <th class="belopp">"Totalt"</th>
+                        <th class="belopp">"Återstår"</th>
+                    </tr>
+                </thead>
+                <tbody>{rader}</tbody>
+            </table>
+        }
+        .into_any()
+    };
+    view! {
+        <section class="dokument kundens-fakturor">
+            <h3>"Fakturor"</h3>
+            <p>{format!("Obetalt {obetalt} kr")}</p>
+            {innehåll}
+        </section>
     }
 }

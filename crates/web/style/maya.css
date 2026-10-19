@@ -2599,3 +2599,92 @@ kbd {
     position: static;
   }
 }
+
+/* Betalningar (#139): märkena för reskontrans status, listans grupper, betalningspanelen och
+   betalningarna i dokumentet. Märkena delas av kund- och leverantörsfakturor. */
+.badge-obetald {
+  background: var(--muted);
+  color: var(--foreground);
+}
+
+.badge-delbetald {
+  background: color-mix(in oklch, var(--primary) 12%, transparent);
+  color: var(--primary);
+}
+
+.badge-forfallen {
+  background: color-mix(in oklch, var(--destructive) 14%, transparent);
+  color: var(--destructive);
+}
+
+.badge-betald {
+  background: color-mix(in oklch, var(--success) 14%, transparent);
+  color: var(--success);
+}
+
+.kundfordringar {
+  margin: 0;
+}
+
+.listgrupper,
+.lista-grupp {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.lista-grupp h2.per {
+  margin: 0;
+  font-size: 11px;
+}
+
+.dokument-handlingar {
+  margin: 0.5rem 0;
+}
+
+.panel {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  margin: 0.75rem 0;
+  padding: 14px;
+  border-radius: var(--radius);
+  box-shadow: 0 0 0 2px var(--ring);
+}
+
+.panel h3 {
+  margin: 0;
+}
+
+.panel .falt-grupp {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 0.75rem;
+}
+
+.panel .falt-grupp label {
+  display: block;
+}
+
+.panel .falt-grupp input,
+.panel .falt-grupp select {
+  width: 100%;
+}
+
+.kont h4 {
+  margin: 0 0 0.25rem;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted-foreground);
+}
+
+.betalningar tr.rattad td:nth-child(-n + 4) {
+  color: var(--muted-foreground);
+  text-decoration: line-through;
+}
+
+.kundens-fakturor {
+  margin-top: 1rem;
+}
