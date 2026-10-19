@@ -75,7 +75,8 @@
     column-gutter: 1em,
     row-gutter: 0.55em,
     [Fakturadatum], [#f.fakturadatum],
-    [Förfallodag], [*#f.forfallodag*],
+    // En kreditfaktura förfaller inte.
+    ..if f.kredit == none { ([Förfallodag], [*#f.forfallodag*]) } else { () },
     [Leveransdatum], [#f.leveransdatum],
     ..if f.er_referens != "" { ([Er referens], [#f.er_referens]) } else { () },
     ..if f.ocr { ([OCR], [#text(font: mono)[#f.referens]]) } else { ([Fakturanummer], [#f.nummer]) },

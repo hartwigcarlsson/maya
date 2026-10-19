@@ -612,7 +612,12 @@ pub(crate) mod server {
                     nummer: f.fakturanummer.clone(),
                     kund: f.kund.clone(),
                     fakturadatum: f.fakturadatum.map(|d| d.to_string()).unwrap_or_default(),
-                    förfallodag: f.förfallodag.map(|d| d.to_string()).unwrap_or_default(),
+                    // #140: en kreditfaktura förfaller inte, så listan visar ingen förfallodag.
+                    förfallodag: f
+                        .förfallodag
+                        .filter(|_| f.krediterar.is_none())
+                        .map(|d| d.to_string())
+                        .unwrap_or_default(),
                     total: kr(f.total),
                     ny_kund: f.ny_kund,
                     återstår: kr(f.återstår),
@@ -2102,8 +2107,8 @@ fn FakturaFormulär(
         }
     };
     // En kreditfaktura visar det som kunden får tillbaka utan minustecken, som PDF:en.
-    let kredit = start.krediterar.is_some();
-    let att_betala = if kredit {
+    let är_kredit = start.krediterar.is_some();
+    let att_betala = if är_kredit {
         "Att få tillbaka"
     } else {
         "Att betala"
@@ -2132,7 +2137,7 @@ fn FakturaFormulär(
                 {moms}
                 <tr class="summa">
                     <td colspan="7">{att_betala}</td>
-                    <td class="belopp">{kr(if kredit { -b.total } else { b.total })}</td>
+                    <td class="belopp">{kr(if är_kredit { -b.total } else { b.total })}</td>
                 </tr>
             }
         })
@@ -2380,27 +2385,30 @@ fn FakturaFormulär(
                             on:input=move |ev| faktura.update(|f| f.leveransdatum = event_target_value(&ev))
                         />
                     </div>
-                    <div>
-                        <label for="forfallodag">"Förfallodag"</label>
-                        <input
-                            id="forfallodag"
-                            name="forfallodag"
-                            type="date"
-                            value=värde(|f| f.förfallodag.clone())
-                            on:input=move |ev| faktura.update(|f| f.förfallodag = event_target_value(&ev))
-                        />
-                        <p class="diskret">
-                            {move || {
-                                let förvald = förfallo_platshållare();
-                                if förvald.is_empty() {
-                                    "Fakturadatumet plus kundens villkor".to_string()
-                                } else {
-                                    format!("Tom: {förvald} enligt kunden")
-                                }
-                            }}
-                        </p>
-                        {spärr_vid(Fält::Förfallodag)}
-                    </div>
+                    // En kreditfaktura (#140) förfaller inte och har ingen förfallodag att fylla i.
+                    {(!är_kredit).then(|| view! {
+                        <div>
+                            <label for="forfallodag">"Förfallodag"</label>
+                            <input
+                                id="forfallodag"
+                                name="forfallodag"
+                                type="date"
+                                value=värde(|f| f.förfallodag.clone())
+                                on:input=move |ev| faktura.update(|f| f.förfallodag = event_target_value(&ev))
+                            />
+                            <p class="diskret">
+                                {move || {
+                                    let förvald = förfallo_platshållare();
+                                    if förvald.is_empty() {
+                                        "Fakturadatumet plus kundens villkor".to_string()
+                                    } else {
+                                        format!("Tom: {förvald} enligt kunden")
+                                    }
+                                }}
+                            </p>
+                            {spärr_vid(Fält::Förfallodag)}
+                        </div>
+                    })}
                     <div>
                         <label for="er_referens">"Er referens"</label>
                         <input
@@ -2922,6 +2930,13 @@ fn Fakturadokument(bas: String, d: FakturaVy) -> impl IntoView {
         ),
         None => betalpanel,
     };
+    // En kreditfaktura (#140) förfaller inte.
+    let förfallodag = d.krediterar.is_none().then(|| {
+        view! {
+            <dt>"Förfallodag"</dt>
+            <dd>{d.förfallodag.clone()}</dd>
+        }
+    });
     let krediterar = d.krediterar.clone().map(|(id, text)| {
         view! {
             <dt>"Krediterar"</dt>
@@ -3108,8 +3123,7 @@ fn Fakturadokument(bas: String, d: FakturaVy) -> impl IntoView {
                     {momsläget}
                     <dt>"Fakturadatum"</dt>
                     <dd>{d.fakturadatum.clone()}</dd>
-                    <dt>"Förfallodag"</dt>
-                    <dd>{d.förfallodag.clone()}</dd>
+                    {förfallodag}
                     <dt>"Leveransdatum"</dt>
                     <dd>{d.leveransdatum.clone()}</dd>
                     {er_referens}

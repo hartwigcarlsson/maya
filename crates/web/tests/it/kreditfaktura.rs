@@ -243,6 +243,9 @@ async fn kreditfaktura_i_panelen_ger_ett_utkast_som_utfärdas_och_länkar_åt_b�
     );
     assert!(utkast.contains("Krediterar faktura 1007 daterad 2026-03-10"));
     assert!(utkast.contains(r#"value="-10""#));
+    // En kreditfaktura förfaller inte: utkastet har ingen förfallodag att fylla i.
+    assert!(!utkast.contains(r#"id="forfallodag""#), "{utkast}");
+    assert!(!utkast.contains("enligt kunden"), "{utkast}");
     // Granska och utfärda säger det som kunden får tillbaka, som utkastet och PDF:en.
     let granska = hämta(
         &db,
@@ -279,8 +282,15 @@ async fn kreditfaktura_i_panelen_ger_ett_utkast_som_utfärdas_och_länkar_åt_b�
     );
     assert!(original.contains("kreditfaktura utfärdad"), "historiken");
 
+    assert!(!efter(&kredit, "Kreditfaktura 1008").contains("<dt>Förfallodag</dt>"));
+
     let lista = hämta(&db, &session, &format!("{bas}/kundfakturor")).await;
     assert!(lista.contains("badge-kreditfaktura"));
+    // Kreditfakturans rad i listan har fakturadatumet men ingen förfallodag.
+    let rad = efter(&lista, &format!("kundfakturor?f={k}\""));
+    let rad = &rad[..rad.find("</a>").unwrap()];
+    assert!(rad.contains("badge-kreditfaktura"), "{rad}");
+    assert!(!rad.contains("förfaller"), "{rad}");
 }
 
 #[tokio::test]

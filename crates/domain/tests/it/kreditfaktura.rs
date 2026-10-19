@@ -156,6 +156,22 @@ fn hela_fakturan_ger_ett_utkast_med_negativa_rader_och_en_hänvisning() {
 }
 
 #[test]
+fn en_kreditfaktura_förfaller_inte_utan_har_fakturadatumet_som_förfallodag() {
+    // Kunden är inte skyldig något på en kreditfaktura, så kundens betalningsvillkor eller en
+    // förfallodag i utkastet gäller inte.
+    let o = original();
+    let h = hänvisning(&o);
+    for förfallodag in ["", "2026-05-02"] {
+        let utkast = NyKundfaktura {
+            förfallodag: förfallodag.into(),
+            ..kreditera(&o, &h, hela())
+        };
+        let k = utkast.kontrollera(&förutsättningar()).unwrap();
+        assert_eq!(k.förfallodag, date(2026, 4, 2), "{förfallodag:?}");
+    }
+}
+
+#[test]
 fn ett_antal_per_rad_krediterar_den_delen_av_raderna() {
     let o = original();
     let h = hänvisning(&o);

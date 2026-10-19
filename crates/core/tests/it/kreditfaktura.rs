@@ -187,6 +187,8 @@ async fn kreditfakturans_pdf_har_hänvisningen_till_originalet() {
     ] {
         assert!(innehåller(&text, uppgift), "{uppgift} saknas i {text}");
     }
+    // En kreditfaktura förfaller inte.
+    assert!(!innehåller(&text, "Förfallodag"), "{text}");
 }
 
 #[tokio::test]
