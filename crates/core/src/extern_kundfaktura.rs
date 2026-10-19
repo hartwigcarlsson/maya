@@ -13,6 +13,10 @@
 //! som aldrig ändras, och registreras med negativa belopp. *Rätta registrering…*
 //! ([`rätta_registrering`]) vänder registreringens verifikat med en rättelse (R1), låser upp
 //! fakturan och behåller betalningarna; den skrivs av och registreras om med samma regler.
+//!
+//! En *ny kund* som läggs upp på utkastet ("+ Ny kund…", #153) har status `ny` som på Mayas egna
+//! utkast (#137): den syns inte i kundregistret, blir verklig i registreringens transaktion och
+//! raderas, med Maya som aktör, när inget utkast längre hänvisar till den.
 
 use maya_domain::extern_kundfaktura::{
     Förutsättningar, Krediterar, NyExternFaktura, Spärr, Utkast, Utkastrad,
@@ -28,7 +32,8 @@ use crate::aktor::{Aktör, Handling};
 use crate::atkomst::{self, Ärende, ÅtkomstFel};
 use crate::behandlingshistorik::{self, Händelse};
 use crate::foretag::{self, FöretagsId, datum};
-use crate::kundfaktura::{KundfakturaId, Status, bokföringsmetod, kontonummer};
+use crate::kund::{self, KundId};
+use crate::kundfaktura::{KundfakturaId, Status, bokföringsmetod, kontonummer, ny_kund_på};
 use crate::underlag::{self, UnderlagFel, UnderlagId, Uppladdat};
 use crate::verifikat::{self, Bokfört, Historikpost, Signatur, VerifikatFel, VerifikatId};
 use crate::{Databas, DatabasFel, Klocka};
@@ -235,6 +240,7 @@ pub async fn spara_utkast(
     let mut ärende =
         Ärende::börja(db, klocka, aktör, företag, Handling::HanteraFakturautkast).await?;
     spara_i(&mut ärende, id, formulär).await?;
+    kund::rensa_nya_i(&mut ärende).await?;
     ärende.slutför().await?;
     Ok(())
 }
@@ -247,10 +253,15 @@ async fn spara_i(
     let företag = ärende.företag;
     let (status, krediterar) = kräv_avskrift(ärende, id).await?;
     let u = formulär.som_utkast().map_err(ExternFel::Spärrat)?;
-    // En kreditfaktura behåller originalets kund; annars en kund ur registret.
-    let kund = match krediterar {
-        Some(_) => None,
-        None => match u.kund {
+    // En kreditfaktura behåller originalets kund; annars en ny kund från utkastet, som skrivs
+    // om om utkastet redan har en, eller en kund ur registret.
+    let kund = match (krediterar, &u.ny_kund) {
+        (Some(_), _) => None,
+        (None, Some(ny)) => {
+            let nuvarande = ny_kund_på(ärende, id).await?;
+            Some(kund::spara_ny_i(ärende, nuvarande, ny).await?.0)
+        }
+        (None, None) => match u.kund {
             Some(k) => sqlx::query_scalar::<_, i64>(
                 "SELECT id FROM kund WHERE id = ? AND foretag_id = ?
                      AND status IN ('aktiv', 'arkiverad')",
@@ -329,6 +340,10 @@ pub async fn radera_utkast(
     }
     let utkast = läs_utkast(ärende.conn(), id).await?;
     let kundnamn = kundens_namn(ärende.conn(), id).await?;
+    let kund_id = match &utkast.ny_kund {
+        Some(_) => ny_kund_på(&mut ärende, id).await?.map(|k| k.0),
+        None => utkast.kund,
+    };
     let summa = utkast.som_formulär().beräkna().total;
     sqlx::query("DELETE FROM kundfakturarad WHERE faktura_id = ?")
         .bind(id.0)
@@ -349,8 +364,9 @@ pub async fn radera_utkast(
             json!({
                 "sort": "extern kundfaktura",
                 "kundfaktura": id.0,
-                "kund": utkast.kund,
+                "kund": kund_id,
                 "kundnamn": kundnamn,
+                "ny_kund": utkast.ny_kund.is_some(),
                 "fakturanummer": utkast.fakturanummer,
                 "fakturadatum": utkast.fakturadatum.map(|d| d.to_string()),
                 "summa_öre": summa,
@@ -358,6 +374,7 @@ pub async fn radera_utkast(
             }),
         )
         .await?;
+    kund::rensa_nya_i(&mut ärende).await?;
     ärende.slutför().await?;
     Ok(())
 }
@@ -377,7 +394,7 @@ pub async fn registrera(
     let mut ärende = Ärende::börja(db, klocka, aktör, företag, Handling::RegistreraFaktura).await?;
     kräv_avskrift(&mut ärende, id).await?;
     let förutsättningar = läs_förutsättningar(ärende.conn(), företag, Some(id)).await?;
-    let r = formulär
+    let mut r = formulär
         .kontrollera(&förutsättningar)
         .map_err(ExternFel::Spärrat)?;
     if bokföringsmetod(ärende.conn(), företag, r.fakturadatum).await? != Bokföringsmetod::Faktura
@@ -385,6 +402,14 @@ pub async fn registrera(
         return Err(ExternFel::Kontantmetoden);
     }
     let status = spara_i(&mut ärende, id, formulär).await?;
+    // En ny kund från utkastet blir verklig i samma transaktion, och fakturan får dess id.
+    if let Some(ny) = &r.ny_kund {
+        let kund_id: KundId = ny_kund_på(&mut ärende, id)
+            .await?
+            .ok_or_else(|| DatabasFel::Korrupt(format!("kundfaktura {}: ny kund", id.0)))?;
+        kund::gör_verklig_i(&mut ärende, kund_id, ny).await?;
+        r.kund.id = kund_id.0;
+    }
     let underlag = UnderlagId(
         sqlx::query_scalar("SELECT underlag_id FROM kundfaktura WHERE id = ?")
             .bind(id.0)
@@ -914,17 +939,25 @@ async fn kundens_namn(
 
 /// Det sparade utkastet (eller den registrerade fakturans fält) som det lagrades.
 async fn läs_utkast(conn: &mut SqliteConnection, id: KundfakturaId) -> Result<Utkast, DatabasFel> {
-    let (kund, fakturanummer, fakturadatum, förfallodag): (
+    let (företag, kund, fakturanummer, fakturadatum, förfallodag): (
+        i64,
         Option<i64>,
         String,
         Option<String>,
         Option<String>,
     ) = sqlx::query_as(
-        "SELECT kund_id, fakturanummer, fakturadatum, forfallodag FROM kundfaktura WHERE id = ?",
+        "SELECT foretag_id, kund_id, fakturanummer, fakturadatum, forfallodag
+         FROM kundfaktura WHERE id = ?",
     )
     .bind(id.0)
     .fetch_one(&mut *conn)
     .await?;
+    // En ny kund från utkastet läses som utkastets egen, inte som en kund ur registret.
+    let ny_kund = match kund {
+        Some(k) => kund::ny_i(&mut *conn, FöretagsId(företag), KundId(k)).await?,
+        None => None,
+    };
+    let kund = if ny_kund.is_some() { None } else { kund };
     let rader: Vec<(i64, Option<i64>, Option<i64>)> = sqlx::query_as(
         "SELECT momssats, konto, netto FROM kundfakturarad WHERE faktura_id = ? ORDER BY radnr",
     )
@@ -934,6 +967,7 @@ async fn läs_utkast(conn: &mut SqliteConnection, id: KundfakturaId) -> Result<U
     let korrupt = |vad: &str| DatabasFel::Korrupt(format!("kundfaktura {}: {vad}", id.0));
     Ok(Utkast {
         kund,
+        ny_kund,
         fakturanummer,
         fakturadatum: fakturadatum.as_deref().map(datum).transpose()?,
         förfallodag: förfallodag.as_deref().map(datum).transpose()?,

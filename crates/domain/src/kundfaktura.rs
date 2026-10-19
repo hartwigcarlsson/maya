@@ -1112,7 +1112,7 @@ fn ny_kunds_spärrar(fel: Vec<kund::Fältfel>) -> impl Iterator<Item = Spärr> {
 }
 
 /// Den nya kunden som fakturans kund, med id 0 tills den finns i registret.
-fn fakturakund(k: &GiltigKund) -> Fakturakund {
+pub(crate) fn fakturakund(k: &GiltigKund) -> Fakturakund {
     Fakturakund {
         id: 0,
         namn: k.namn.clone(),

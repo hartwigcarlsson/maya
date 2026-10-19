@@ -557,6 +557,7 @@ pub async fn registrerad_extern_kundfaktura(
                 konto: "3001".into(),
                 belopp: "10 000".into(),
             }],
+            ..Default::default()
         },
     )
     .await
