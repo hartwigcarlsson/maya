@@ -96,6 +96,10 @@ händelser! {
     // #135 Kundfakturor
     KundfakturaUtfärdad => "kundfaktura utfärdad",
     StartnummerÄndrat => "startnummer ändrat",
+    // #138 Utskick
+    UtskickGjort => "utskick gjort",
+    UtskickMisslyckat => "utskick misslyckat",
+    UtskickLämnatPåAnnatSätt => "utskick lämnat på annat sätt",
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -641,6 +645,19 @@ impl Post {
             }
             Händelse::StartnummerÄndrat => {
                 format!("Första fakturanummer: {} → {}", f("från"), f("till"))
+            }
+            // #138 Utskick
+            Händelse::UtskickGjort => {
+                format!("Faktura {} skickad till {}", f("nummer"), f("till"))
+            }
+            Händelse::UtskickMisslyckat => format!(
+                "Faktura {} kunde inte skickas till {}: {}",
+                f("nummer"),
+                f("till"),
+                f("fel")
+            ),
+            Händelse::UtskickLämnatPåAnnatSätt => {
+                format!("Faktura {} lämnad på annat sätt: {}", f("nummer"), f("hur"))
             }
         }
     }

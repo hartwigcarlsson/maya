@@ -32,6 +32,7 @@ pub mod systemdokumentation;
 #[cfg(feature = "test-support")]
 pub mod testhjalp;
 pub mod underlag;
+pub mod utskick;
 pub mod utskrift;
 pub mod verifikat;
 
