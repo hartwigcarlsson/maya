@@ -29,7 +29,7 @@ fn automatkonteringarna_återges_ordagrant_som_i_specen() {
             Tabellrad::Rubrik(r) => panic!("rubrik {r}"),
         })
         .collect();
-    assert_eq!(rader.len(), 3);
+    assert_eq!(rader.len(), 23);
     assert_eq!(rader[0][0], "Rättelse av ett bokfört verifikat");
     assert_eq!(
         rader[0][1],
@@ -42,6 +42,17 @@ fn automatkonteringarna_återges_ordagrant_som_i_specen() {
         "IB(k, n) = UB(k, n−1) för varje konto k i klass 1–2"
     );
     assert!(rader[2][3].starts_with("år n−1 finns i Maya och är inte stängt; därtill IB(2099, n)"));
+    assert_eq!(
+        rader[3],
+        [
+            "Utfärda eller registrera kundfaktura",
+            "1510 totalen",
+            "intäktskontot per rad netto; 2611/2621/2631 moms",
+            "fakturametoden; datum = fakturadatum; omvänd skattskyldighet och 0 % ger ingen \
+             momsrad",
+        ]
+    );
+    assert_eq!(rader[22][0], "T2-samlingsverifikat");
 
     // Fetstil och kursiv följer med.
     let Tabellrad::Rad(första) = &tabell.rader[0] else {
@@ -70,6 +81,12 @@ fn automatkonteringarna_återges_ordagrant_som_i_specen() {
         stycken
             .iter()
             .any(|s| s.contains("Saldo räknas med debet som positivt."))
+    );
+    assert!(
+        stycken
+            .iter()
+            .any(|s| s.contains("Utgående moms är 2611 (25 %), 2621 (12 %) och 2631 (6 %).")),
+        "{stycken:?}"
     );
 }
 
@@ -235,4 +252,147 @@ fn behandlingsreglerna_har_spärrarna_när_en_kreditfaktura_skapas() {
         tabell.rader.len(),
         maya_domain::kreditfaktura::KREDITERINGSSPÄRRAR.len()
     );
+}
+
+// #155 Fakturaflödena i behandlingsreglerna
+
+/// Blocken under underrubriken `rubrik` fram till nästa underrubrik, som text.
+fn under(rubrik: &str) -> String {
+    let blocken = behandlingsregler();
+    let i = blocken
+        .iter()
+        .position(|b| matches!(b, Block::Underrubrik(t) if t == rubrik))
+        .unwrap_or_else(|| panic!("underrubriken {rubrik} saknas"));
+    blocken[i + 1..]
+        .iter()
+        .take_while(|b| !matches!(b, Block::Underrubrik(_)))
+        .map(|b| match b {
+            Block::Stycke(t) => t.ren(),
+            Block::Lista(l) => l.iter().map(Text::ren).collect::<Vec<_>>().join("\n"),
+            Block::Tabell(t) => t
+                .rader
+                .iter()
+                .map(|r| match r {
+                    Tabellrad::Rad(c) => c.iter().map(Text::ren).collect::<Vec<_>>().join(" | "),
+                    Tabellrad::Rubrik(r) => r.clone(),
+                })
+                .collect::<Vec<_>>()
+                .join("\n"),
+            b => format!("{b:?}"),
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+#[test]
+fn intäktskontot_följer_momssatsen_och_den_omvända_skattskyldigheten() {
+    let t = under("Intäktskonto per momssats");
+    for väntat in [
+        "25 % | 3001",
+        "12 % | 3002",
+        "6 % | 3003",
+        "0 % | 3004",
+        "Omvänd skattskyldighet, bygg | 3231",
+        "Omvänd skattskyldighet, EU-tjänst | 3308",
+        "Företaget är inte momsregistrerat | 3004",
+        "aktivt intäktskonto i klass 3",
+    ] {
+        assert!(t.contains(väntat), "saknar {väntat:?}:\n{t}");
+    }
+}
+
+#[test]
+fn behandlingsreglerna_beskriver_fakturaflödenas_regler() {
+    for (rubrik, väntade) in [
+        (
+            "Proportionell fördelning",
+            &[
+                "Under kontantmetoden, vid delkredit, kundförlust och T2",
+                "största rest",
+                "exakt",
+            ][..],
+        ),
+        (
+            "Leverantörens standardkonto",
+            &[
+                "automatkontering",
+                "standardkonto ändrat",
+                "rader utan konto",
+            ][..],
+        ),
+        (
+            "Kunder och leverantörer",
+            &["kopieras in", "statusen ny", "Maya som aktör", "arkiveras"][..],
+        ),
+        (
+            "Bokföringsmetoden och reskontrakontot",
+            &[
+                "1510",
+                "2440",
+                "fakturadatumet",
+                "fakturor_efter",
+                "efter räkenskapsårets slut",
+            ][..],
+        ),
+        (
+            "T2 under kontantmetoden",
+            &[
+                "årets sista dag",
+                "Maya",
+                "räknas om",
+                "upplåst",
+                "vänds aldrig",
+            ][..],
+        ),
+        (
+            "Status i reskontran",
+            &[
+                "obetald",
+                "delbetald",
+                "förfallen",
+                "tillgodo",
+                "lagras inte",
+            ][..],
+        ),
+        (
+            "Spärrar som håller reskontran i takt med bokföringen",
+            &[
+                "Rätta registrering",
+                "Rätta avskrift",
+                "bokfört T2-verifikat",
+                "Rätta betalning",
+                "Återkalla kundförlust",
+                "aterbetalning_fore_tillgodo",
+                "fakturor_efter",
+                "upplåst",
+            ][..],
+        ),
+    ] {
+        let t = under(rubrik);
+        for väntat in väntade {
+            assert!(t.contains(väntat), "{rubrik}: saknar {väntat:?}:\n{t}");
+        }
+    }
+}
+
+#[test]
+fn ändringsloggen_för_0_2_beskriver_de_nya_delsystemen_och_automatkonteringarna() {
+    let logg = ändringslogg();
+    let versioner: Vec<&str> = logg.iter().map(|r| r.version).collect();
+    assert_eq!(versioner, ["0.1", "0.2"]);
+    let text = logg[1].ändringar.join("\n");
+    for väntat in [
+        "Kundreskontra och leverantörsreskontra som delsystem",
+        "Automatkonteringarna för fakturaflödena",
+        "Fakturaserien",
+        "startnummer",
+        "1510",
+        "7960",
+        "4599",
+        "T2",
+        "Leverantörens standardkonto",
+        "Avstämningen",
+    ] {
+        assert!(text.contains(väntat), "saknar {väntat:?}:\n{text}");
+    }
 }

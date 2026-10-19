@@ -392,10 +392,135 @@ async fn systemdokumentationen_skrivs_som_pdf_a_2b() {
         "Arkivplan",
         "Version och ändringslogg",
         "Första versionen av behandlingsreglerna.",
+        // #155 Fakturaflödena
+        "T2-samlingsverifikat",
+        "Intäktskonto per momssats",
+        "Fakturaserien",
+        "Reskontrorna som delsystem",
+        "Avstämningen mot 1510 och 2440",
+        "Kundreskontra och leverantörsreskontra som delsystem",
     ] {
         assert!(
             maya_pdf::testhjalp::innehåller(&alla, väntat),
             "saknar {väntat}"
         );
+    }
+}
+
+// #155 Fakturaflödena
+
+#[tokio::test]
+async fn samlingsplanen_visar_fakturaserien_och_reskontrorna_som_delsystem() {
+    let db = Databas::tillfällig().await;
+    let (anna, företag) = testhjalp::fakturaföretag(&db).await;
+
+    let dok = systemdokumentation(&db, &testhjalp::config(), &anna, företag)
+        .await
+        .unwrap();
+    let t = text(avsnitt(&dok, "samlingsplan"));
+    assert!(t.contains("Startnummer: 1"), "{t}");
+    assert!(t.contains("Utfärdade: inga"), "{t}");
+
+    testhjalp::utfärdad_kundfaktura(&db, &anna, företag, "Kund AB", "2026-03-10").await;
+    testhjalp::utfärdad_kundfaktura(&db, &anna, företag, "Kund 2 AB", "2026-03-11").await;
+    let dok = systemdokumentation(&db, &testhjalp::config(), &anna, företag)
+        .await
+        .unwrap();
+    let t = text(avsnitt(&dok, "samlingsplan"));
+    for väntat in [
+        "Fakturaserien",
+        "obruten",
+        "kreditfakturor",
+        "Externa kundfakturor",
+        "Startnummer: 1",
+        "Utfärdade: 1–2",
+        "Nästa nummer: 3",
+        "Kundreskontran",
+        "Leverantörsreskontran",
+        "delsystem",
+        "Reskontran per datum",
+        &format!("/foretag/{företag}/rapporter/reskontra"),
+        &format!("/foretag/{företag}/kundfakturor"),
+        &format!("/foretag/{företag}/leverantorsfakturor"),
+    ] {
+        assert!(t.contains(väntat), "saknar {väntat:?}:\n{t}");
+    }
+}
+
+#[tokio::test]
+async fn behandlingsreglerna_säger_vad_bokföringsmetoden_avgör_för_fakturorna() {
+    let db = Databas::tillfällig().await;
+    let (anna, företag) = testhjalp::företag_med_metod(&db, "kontant").await;
+
+    let dok = systemdokumentation(&db, &testhjalp::config(), &anna, företag)
+        .await
+        .unwrap();
+
+    let t = text(avsnitt(&dok, "behandlingsregler"));
+    assert!(
+        t.contains("Bokföringsmetod: Kontantmetoden från 2026-01-01"),
+        "{t}"
+    );
+    assert!(!t.contains("kommer i senare versioner"), "{t}");
+    for väntat in [
+        "Bokföringsmetoden på fakturadatumet avgör",
+        "Momsperioden",
+        "Intäktskonto per momssats",
+        "T2 under kontantmetoden",
+        "Leverantörens standardkonto",
+        "Utfärda eller registrera kundfaktura | 1510 totalen",
+    ] {
+        assert!(t.contains(väntat), "saknar {väntat:?}:\n{t}");
+    }
+}
+
+#[tokio::test]
+async fn verifieringskedjan_beskriver_fakturornas_kedja_och_avstämningen() {
+    let db = Databas::tillfällig().await;
+    let (anna, företag) = testhjalp::fakturaföretag(&db).await;
+    testhjalp::utfärdad_kundfaktura(&db, &anna, företag, "Kund AB", "2026-03-10").await;
+
+    let dok = systemdokumentation(&db, &testhjalp::config(), &anna, företag)
+        .await
+        .unwrap();
+
+    let t = text(avsnitt(&dok, "verifieringskedja"));
+    for väntat in [
+        "Underlag eller utfärdad PDF",
+        "SHA-256",
+        "Faktura i reskontran",
+        "Verifikat",
+        "Huvudbok",
+        "båda hållen",
+        "Avstämningen mot 1510 och 2440",
+        "Bokförd",
+        "Inte bokförd",
+        "Väntar på T2",
+        "Upplåst",
+        "Kundfakturor: 1",
+        &format!("/foretag/{företag}/rapporter/reskontra"),
+    ] {
+        assert!(t.contains(väntat), "saknar {väntat:?}:\n{t}");
+    }
+    assert!(!t.contains("allt för hand"), "{t}");
+}
+
+#[tokio::test]
+async fn utskriften_tar_med_fakturorna_och_reskontran() {
+    let db = Databas::tillfällig().await;
+    let (anna, företag) = testhjalp::företag(&db).await;
+
+    let dok = systemdokumentation(&db, &testhjalp::config(), &anna, företag)
+        .await
+        .unwrap();
+
+    let t = text(avsnitt(&dok, "utskrift"));
+    for väntat in [
+        "Kundfaktura | ",
+        "Leverantörsfaktura | ",
+        "Reskontran per datum | Rapporter → Reskontran per datum → PDF eller CSV",
+        &format!("/foretag/{företag}/rapporter/reskontra"),
+    ] {
+        assert!(t.contains(väntat), "saknar {väntat:?}:\n{t}");
     }
 }

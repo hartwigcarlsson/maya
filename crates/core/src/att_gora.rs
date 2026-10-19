@@ -39,10 +39,10 @@ use crate::{Databas, DatabasFel, Klocka};
 const FÖRETAGSKONTOT: u16 = 1930;
 /// Årets resultat, som inte räknas in i resultatet.
 const ÅRETS_RESULTAT: u16 = 8999;
-/// Kundfordringar i BAS: kundreskontrans konto.
-const KUNDFORDRINGAR: u16 = 1510;
-/// Leverantörsskulder i BAS: leverantörsreskontrans konto.
-const LEVERANTÖRSSKULDER: u16 = 2440;
+// Kundfordringar i BAS: kundreskontrans konto, som flödena bokför på.
+use maya_domain::kundfaktura::KUNDFORDRINGAR;
+// Leverantörsskulder i BAS: leverantörsreskontrans konto, som flödena bokför på.
+use maya_domain::leverantorsfaktura::LEVERANTÖRSSKULDER;
 
 /// Det som Att göra visar för ett företag.
 #[derive(Debug, Clone, PartialEq)]
