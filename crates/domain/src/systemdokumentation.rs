@@ -205,6 +205,12 @@ const RÄTTELSESPÄRRAR: &[(&str, &str)] = &[
         "fran_flode",
         "Ett verifikat från ett av Mayas flöden (en faktura) rättas i fakturan.",
     ),
+    // #150
+    (
+        "t2_vands_inte",
+        "T2-verifikatet under kontantmetoden vänds inte; fakturorna i det betalas mot 1510 och \
+         2440.",
+    ),
 ];
 
 fn kodtabell(koder: &[(&str, &str)]) -> Block {

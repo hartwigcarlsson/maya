@@ -130,6 +130,8 @@ pub enum Sort {
     NyKund,
     /// #153: en ny leverantör från ett utkast.
     NyLeverantör,
+    /// #150: T2-utkastet under kontantmetoden.
+    T2Utkast,
 }
 
 /// Ett kort i agendan.
@@ -729,6 +731,7 @@ pub(crate) mod server {
             Fakturautkast::Kundfaktura(id) => format!("kundfakturautkast-{id}"),
             Fakturautkast::ExternKundfaktura(id) => format!("externutkast-{id}"),
             Fakturautkast::Leverantörsfaktura(id) => format!("leverantorsfakturautkast-{id}"),
+            Fakturautkast::T2(id) => format!("t2-{id}"),
         }
     }
 
@@ -754,6 +757,8 @@ pub(crate) mod server {
                 format!("{bas}/leverantorsfakturor?f={id}"),
                 "Granska och registrera",
             ),
+            // #150: T2-utkastet bokförs i fliken Verifikat.
+            Fakturautkast::T2(id) => (format!("{bas}/verifikat?v={id}"), "Granska och bokför"),
         }
     }
 
@@ -769,6 +774,7 @@ pub(crate) mod server {
             Fakturautkast::Leverantörsfaktura(_) => {
                 (Sort::Leverantörsfakturautkast, "Leverantörsfaktura")
             }
+            Fakturautkast::T2(_) => (Sort::T2Utkast, "Obetalda fakturor vid årets slut"),
         };
         let rubrik = [
             sorten.to_string(),
@@ -795,9 +801,10 @@ pub(crate) mod server {
             sort,
             rubrik,
             belopp: f.total.map(|t| Saldo::från_öre(t).to_string()),
-            när: match f.fakturadatum {
-                Some(d) => format!("fakturadatum {}", dag_lång(d)),
-                None => "inget fakturadatum".into(),
+            när: match (f.utkast, f.fakturadatum) {
+                (Fakturautkast::T2(_), Some(d)) => format!("verifikatdatum {}", dag_lång(d)),
+                (_, Some(d)) => format!("fakturadatum {}", dag_lång(d)),
+                (_, None) => "inget fakturadatum".into(),
             },
             när_klass: match f.fakturadatum {
                 Some(d) if dagar_mellan(d, idag) > 50 => "hot",
@@ -881,7 +888,11 @@ pub(crate) mod server {
             uppgifter.push(("Fakturanummer".into(), f.fakturanummer.clone()));
         }
         uppgifter.push((
-            "Fakturadatum".into(),
+            match f.utkast {
+                Fakturautkast::T2(_) => "Verifikatdatum",
+                _ => "Fakturadatum",
+            }
+            .into(),
             f.fakturadatum
                 .map(|d| d.to_string())
                 .unwrap_or_else(|| "inte ifyllt".into()),
@@ -898,6 +909,12 @@ pub(crate) mod server {
             }
             Fakturautkast::Leverantörsfaktura(_) => {
                 "Registreringen görs med originalet bredvid formuläret i Leverantörsfakturor."
+            }
+            Fakturautkast::T2(_) => {
+                "Maya skapade utkastet med det som var obetalt vid årets slut på fakturorna \
+                 under kontantmetoden och räknar om det när fakturorna och betalningarna \
+                 ändras. Det kan inte ändras för hand. När det är bokfört betalas fakturorna \
+                 mot 1510 och 2440, och verifikatet vänds inte i det nya året."
             }
         };
         Öppet::Granska(Box::new(GranskaVy {
@@ -1635,6 +1652,8 @@ fn Kort(bas: String, k: KortVy, öppet: Option<Öppet>) -> impl IntoView {
         Sort::NyLeverantör => {
             view! { <span class="badge badge-ny">"ny leverantör"</span> }.into_any()
         }
+        // #150
+        Sort::T2Utkast => view! { <span class="badge badge-utkast">"T2-utkast"</span> }.into_any(),
     };
     let märken = k
         .märken

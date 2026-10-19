@@ -440,7 +440,9 @@ pub async fn registrera(
         Some(k) => (
             fordran::kreditens_kontering(
                 ärende.conn(),
+                företag,
                 Faktura::Kund(KundfakturaId(k.faktura)),
+                r.fakturadatum,
                 r.total,
                 r.kontering(),
             )

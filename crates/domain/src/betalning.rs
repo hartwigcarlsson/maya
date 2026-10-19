@@ -101,6 +101,21 @@ pub struct Förutsättningar {
     /// Fakturans kontering när dess fordran eller skuld inte är bokförd (kontantmetoden,
     /// #149); `None` när den är bokförd på 1510 eller 2440.
     pub obokförd: Option<Obokförd>,
+    /// Årets slut när fakturan var obetald vid räkenskapsårets slut och väntar på T2-verifikatet
+    /// (#150): en betalning daterad efter det bokförs mot 1510 eller 2440 som om fordran eller
+    /// skulden vore bokförd, också innan T2 är bokfört. `None` annars.
+    pub bokförd_efter: Option<Date>,
+}
+
+impl Förutsättningar {
+    /// Fakturans kontering när fordran eller skulden inte är bokförd för en betalning daterad
+    /// `betaldag`, eller `None` när betalningen bokförs mot reskontrakontot.
+    pub fn obokförd_på(&self, betaldag: Date) -> Option<Obokförd> {
+        match self.bokförd_efter {
+            Some(slut) if betaldag > slut => None,
+            _ => self.obokförd.clone(),
+        }
+    }
 }
 
 /// Fälten i panelen, där spärrarna visas.
@@ -417,7 +432,7 @@ impl NyBetalning {
                     kursdifferens,
                     återstår_efter: f.återstår - belopp - öresutjämning - kursdifferens,
                     räkenskapsår,
-                    obokförd: f.obokförd.clone(),
+                    obokförd: f.obokförd_på(betaldag),
                 })
             }
             _ => Err(spärrar),

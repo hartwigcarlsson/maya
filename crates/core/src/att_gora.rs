@@ -134,10 +134,6 @@ pub struct MisslyckatUtskick {
 }
 
 /// Utkastet i en [`Fakturautkastsak`], eller det som en [`NyPartsak`] hör till.
-///
-/// #150 lägger till T2-utkastet här som en egen variant: det är ett verifikatutkast som Maya
-/// räknar om och som inte kan ändras för hand, så `utkast` ska då inte ta med det bland de
-/// vanliga verifikatutkasten.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Fakturautkast {
     /// Ett utkast till en av Mayas egna kundfakturor eller kreditfakturor.
@@ -146,6 +142,10 @@ pub enum Fakturautkast {
     ExternKundfaktura(KundfakturaId),
     /// Ett utkast till en leverantörsfaktura, eller en upplåst.
     Leverantörsfaktura(LeverantörsfakturaId),
+    /// #150: T2-utkastet under kontantmetoden, ett verifikatutkast som Maya räknar om och som
+    /// inte kan ändras för hand. Det står därför inte bland verifikatutkasten ([`Sak::Utkast`]).
+    /// Fakturadatumet är årets sista dag, och totalen summan av debet.
+    T2(VerifikatId),
 }
 
 /// Ett fakturautkast i spalten Utan datum (#153), per period efter fakturadatumet.
@@ -343,7 +343,9 @@ pub async fn antal(
     // #152 Leverantörsfakturorna räknas också när de förfaller inom 7 dagar, med det som
     // återstår räknat som i `fakturor`. Kundfakturorna räknas nedan.
     let rader: Vec<(i64, i64)> = sqlx::query_as(
-        "SELECT foretag_id, count(*) FROM verifikat WHERE bokford IS NULL GROUP BY foretag_id
+        "SELECT foretag_id, count(*) FROM verifikat v
+         WHERE bokford IS NULL AND NOT EXISTS (SELECT 1 FROM t2 WHERE t2.verifikat_id = v.id)
+         GROUP BY foretag_id
          UNION ALL
          SELECT u.foretag_id, count(*) FROM underlag u
          WHERE NOT EXISTS (SELECT 1 FROM underlagskoppling k WHERE k.underlag_id = u.id)
@@ -632,6 +634,7 @@ async fn utkast(
                 (SELECT count(*) FROM underlagskoppling WHERE verifikat_id = v.id)
          FROM verifikat v
          WHERE v.foretag_id = ? AND v.bokford IS NULL
+           AND NOT EXISTS (SELECT 1 FROM t2 WHERE t2.verifikat_id = v.id)
          ORDER BY v.id",
     )
     .bind(företag.0)
@@ -794,6 +797,30 @@ async fn fakturautkast_i(
             kreditfaktura: krediterar.is_some(),
             upplåst: status == "upplast",
             ny_motpart: lstatus.as_deref() == Some("ny"),
+        });
+    }
+    // #150 T2-utkastet
+    let t2: Vec<(i64, String, i64)> = sqlx::query_as(
+        "SELECT v.id, r.slut,
+                coalesce((SELECT sum(debet) FROM verifikatrad WHERE verifikat_id = v.id), 0)
+         FROM t2 JOIN verifikat v ON v.id = t2.verifikat_id
+         JOIN rakenskapsar r ON r.id = t2.rakenskapsar_id
+         WHERE t2.foretag_id = ? AND v.bokford IS NULL
+         ORDER BY r.start",
+    )
+    .bind(företag.0)
+    .fetch_all(&mut *conn)
+    .await?;
+    for (id, slut, summa) in t2 {
+        utkast.push(Fakturautkastsak {
+            utkast: Fakturautkast::T2(VerifikatId(id)),
+            motpart: String::new(),
+            fakturanummer: String::new(),
+            fakturadatum: Some(foretag::datum(&slut)?),
+            total: Some(summa),
+            kreditfaktura: false,
+            upplåst: false,
+            ny_motpart: false,
         });
     }
     Ok(utkast)

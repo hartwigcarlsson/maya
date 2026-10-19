@@ -485,7 +485,15 @@ pub async fn registrera(
         .map(|k| Faktura::Leverantör(LeverantörsfakturaId(k)));
     let (kontering, skulden_bokförs) = match original {
         Some(o) => (
-            crate::fordran::kreditens_kontering(ärende.conn(), o, r.total, r.kontering()).await?,
+            crate::fordran::kreditens_kontering(
+                ärende.conn(),
+                företag,
+                o,
+                r.fakturadatum,
+                r.total,
+                r.kontering(),
+            )
+            .await?,
             false,
         ),
         None if r.total < 0

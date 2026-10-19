@@ -149,13 +149,18 @@ pub enum Handling {
     RegistreraBetalning,
     /// Bokföra och återkalla en kundförlust (#141). Bara webben.
     BokföraKundförlust,
+    /// Skapa och räkna om T2-utkastet dagen efter räkenskapsårets slut under kontantmetoden
+    /// (#150). Bara Maya självt.
+    SkapaT2Utkast,
+    /// Bokföra T2-utkastet (#150). En användare bokför det; bara webben.
+    BokföraT2,
 }
 
 /// Kanalpolicyn: om `kanal` får utföra `handling`.
 pub fn tillåter(kanal: Kanal, handling: Handling) -> bool {
     match handling {
         Handling::HanteraAnvändare | Handling::Återställa => kanal == Kanal::Cli,
-        Handling::TaBackup | Handling::SkickaLarm => kanal == Kanal::Maya,
+        Handling::TaBackup | Handling::SkickaLarm | Handling::SkapaT2Utkast => kanal == Kanal::Maya,
         Handling::LäsaInstallation => matches!(kanal, Kanal::Webb | Kanal::Cli),
         Handling::VerifieraBackup => matches!(kanal, Kanal::Maya | Kanal::Cli),
         Handling::LäggaUppFöretag
@@ -179,6 +184,7 @@ pub fn tillåter(kanal: Kanal, handling: Handling) -> bool {
         | Handling::RättaFlöde
         | Handling::SkickaFaktura
         | Handling::RegistreraBetalning
-        | Handling::BokföraKundförlust => kanal == Kanal::Webb,
+        | Handling::BokföraKundförlust
+        | Handling::BokföraT2 => kanal == Kanal::Webb,
     }
 }

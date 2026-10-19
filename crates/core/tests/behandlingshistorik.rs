@@ -657,6 +657,51 @@ async fn fakturaändringar(db: &Databas, anna: &Aktör, id: FöretagsId, tid: &s
     maya_core::extern_kundfaktura::rätta_registrering(db, &senare, anna, id, externa, "")
         .await
         .unwrap();
+    // #150 T2: kontantmetoden gäller från 2027-07-01 (`alla_ändringar`). En obetald
+    // leverantörsfaktura i året 2027-07-01 – 2028-06-30 kommer med i T2-utkastet som Maya skapar
+    // dagen efter årets slut, och Anna bokför det.
+    let l = testhjalp::leverantör(db, anna, id, "Kontantleverantör AB").await;
+    let (faktura, _) = maya_core::leverantorsfaktura::ladda_upp(
+        db,
+        &k,
+        anna,
+        id,
+        ("T-1.pdf", "application/pdf", b"%PDF-1.4 T-1"),
+    )
+    .await
+    .unwrap();
+    maya_core::leverantorsfaktura::registrera(
+        db,
+        &k,
+        anna,
+        id,
+        faktura,
+        &maya_domain::leverantorsfaktura::NyLeverantörsfaktura {
+            leverantör: l.to_string(),
+            fakturanummer: "T-1".into(),
+            fakturadatum: "2027-08-10".into(),
+            förfallodag: "2027-09-09".into(),
+            totalbelopp: "1 250,00".into(),
+            rader: vec![maya_domain::leverantorsfaktura::NyRad {
+                konto: "5410".into(),
+                netto: "1 000".into(),
+                momssats: "25".into(),
+                moms: String::new(),
+            }],
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
+    let skapade = maya_core::t2::kör(db, &klocka("2028-07-01T03:00:00Z"))
+        .await
+        .unwrap();
+    let [(_, t2)] = skapade.as_slice() else {
+        panic!("ett T2-utkast: {skapade:?}");
+    };
+    maya_core::t2::bokför(db, &klocka("2028-07-02T08:00:00Z"), anna, id, *t2)
+        .await
+        .unwrap();
 }
 
 #[tokio::test]
@@ -676,11 +721,16 @@ async fn varje_typ_som_har_en_kodväg_ger_en_post() {
     let mut väntade: Vec<&str> = Händelse::ALLA.iter().map(|h| h.namn()).collect();
     väntade.sort();
     assert_eq!(typer, väntade);
-    // BAS-tillägget, migreringen och versionsbytet gör Maya självt; resten gör Anna i webben.
+    // BAS-tillägget, migreringen, versionsbytet och T2-utkastet (#150) gör Maya självt; resten
+    // gör Anna i webben.
     for post in &historik.poster {
         let maya = matches!(
             post.typ.as_str(),
-            "BAS-tillägg" | "migrering körd" | "migrering misslyckad" | "programversion bytt"
+            "BAS-tillägg"
+                | "migrering körd"
+                | "migrering misslyckad"
+                | "programversion bytt"
+                | "T2-utkast skapat"
         );
         assert_eq!(post.aktör.kanal == Kanal::Maya, maya, "{post:?}");
     }

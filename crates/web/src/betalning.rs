@@ -64,6 +64,10 @@ pub struct BetalningsVy {
     /// så att "Bokförs som" visar intäkt eller kostnad och moms.
     #[serde(default)]
     pub obokförd: Option<maya_domain::kontantmetoden::Obokförd>,
+    /// Årets slut när fakturan väntar på T2-verifikatet (#150): en betalning daterad efter det
+    /// bokförs mot 1510 eller 2440.
+    #[serde(default)]
+    pub bokförd_efter: Option<String>,
 }
 
 impl BetalningsVy {
@@ -84,6 +88,7 @@ impl BetalningsVy {
                 .collect(),
             originalvaluta: !self.originalvaluta.trim().is_empty(),
             obokförd: self.obokförd.clone(),
+            bokförd_efter: self.bokförd_efter.as_deref().and_then(datum),
         }
     }
 }
@@ -744,6 +749,7 @@ pub(crate) mod server {
                     fel: tillbaka.then(|| feltext("betalning").unwrap_or_default().into()),
                     originalvaluta: post.originalvaluta.clone(),
                     obokförd: f.obokförd.clone(),
+                    bokförd_efter: f.bokförd_efter.map(|d| d.to_string()),
                 });
             }
             Some("ratta-betalning") => {

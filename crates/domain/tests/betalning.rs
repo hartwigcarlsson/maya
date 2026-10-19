@@ -33,6 +33,7 @@ fn förutsättningar(återstår: i64) -> Förutsättningar {
         )],
         originalvaluta: false,
         obokförd: None,
+        bokförd_efter: None,
     }
 }
 
@@ -453,6 +454,30 @@ fn betalning_när_fordran_inte_är_bokförd_bokför_intäkt_och_moms_proportione
     assert_eq!(g.återstår_efter, 750_000);
     assert_eq!(
         g.kontering(),
+        vec![
+            rad(1930, 500_000, 0),
+            rad(3001, 0, 400_000),
+            rad(2611, 0, 100_000)
+        ]
+    );
+}
+
+#[test]
+fn en_betalning_efter_årets_slut_av_en_faktura_som_väntar_på_t2_bokförs_mot_1510() {
+    // #150: fakturan var obetald vid årets slut 2026-12-31 och kommer med i T2-verifikatet.
+    let f = Förutsättningar {
+        obokförd: Some(obokförd_kundfaktura()),
+        bokförd_efter: Some(date(2026, 12, 31)),
+        ..förutsättningar(1_250_000)
+    };
+    let efter = betalning("2027-01-05", "5000").kontrollera(&f).unwrap();
+    assert_eq!(
+        efter.kontering(),
+        vec![rad(1930, 500_000, 0), rad(1510, 0, 500_000)]
+    );
+    let på_årets_sista_dag = betalning("2026-12-31", "5000").kontrollera(&f).unwrap();
+    assert_eq!(
+        på_årets_sista_dag.kontering(),
         vec![
             rad(1930, 500_000, 0),
             rad(3001, 0, 400_000),
