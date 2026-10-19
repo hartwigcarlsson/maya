@@ -25,6 +25,11 @@ jobs:
       # för hela jobbet, så att cargo leptos build och cargo test bygger med samma flaggor.
       CARGO_PROFILE_DEV_DEBUG: line-tables-only
       CARGO_PROFILE_TEST_DEBUG: line-tables-only
+      # Ooptimerad hydrerings-WASM hann inte hydrera stora sidor (kontoplanen, fakturorna)
+      # inom webbläsartesternas 20 s på runnern. opt-level 1 räcker och gör även testbinärerna
+      # mindre. Även här samma värde för cargo leptos build och cargo test.
+      CARGO_PROFILE_DEV_OPT_LEVEL: 1
+      CARGO_PROFILE_TEST_OPT_LEVEL: 1
     steps:
       # Avbildningens Android SDK, .NET, GHC och CodeQL används inte här och tar över 20 GB.
       # Google Chrome (/opt/google) blir kvar, webbläsartesterna behöver den.
@@ -69,7 +74,7 @@ jobs:
       # En testtråd per binär: varje rök-test (crates/maya/tests/rok.rs) startar en server och
       # en Chrome med debug-WASM:en, och redan två samtidigt hinner inte hydrera inom
       # testernas väntetid på runnerns fyra kärnor. Övriga binärer tar sekunder ändå.
-      - run: cargo test --workspace --locked -- --test-threads=1
+      - run: cargo test --workspace --locked --no-fail-fast -- --test-threads=1
       - if: always()
         run: df -h /
 
