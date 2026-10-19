@@ -195,6 +195,14 @@ _Avoid_: Inkorgsdokument, obehandlat kvitto, lös bilaga
 Det ett företag anger under Inställningar → Företag för sina kundfakturor utöver adress, säte, momsreg-nr och F-skatt: betalsätt, OCR-referens på eller av, logotyp, svarsadress och standardmeddelande för fakturamejl; en utfärdad kundfaktura kopierar in det den använder.
 _Avoid_: Fakturaprofil, fakturahuvud
 
+**Omvänd skattskyldighet**:
+Att köparen och inte säljaren redovisar momsen på en faktura: för en kundfaktura bygg inom Sverige eller EU-tjänst (0 % moms, intäkten på 3231 eller 3308, köparens momsreg-nr och texten "Omvänd betalningsskyldighet" på fakturan), för en leverantörsfaktura dessutom EU-vara och tjänst från land utanför EU; kunden och leverantören har ett förval.
+_Avoid_: Reverse charge, omvänd moms
+
+**Momsläge**:
+Hur en kundfaktura har moms: med momssatserna, med omvänd skattskyldighet, eller utan moms för ett företag som inte är momsregistrerat på fakturadatumet; den utfärdade fakturan bär sitt momsläge.
+_Avoid_: Momstyp, momskod
+
 **Betalsätt**:
 Ett sätt som en faktura kan betalas på: bankgiro, plusgiro eller IBAN med BIC.
 _Avoid_: Betalningsmetod, betalkanal
