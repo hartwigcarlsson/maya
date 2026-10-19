@@ -572,14 +572,6 @@ pub async fn rätta(
     Ok(Rättad { rättelse, kopia })
 }
 
-/// En rättelse som ett fakturaflöde har bokfört inne i sitt ärende.
-#[derive(Debug, Clone)]
-pub(crate) struct Vänt {
-    pub rättelse: Bokfört,
-    /// Verifikatet som rättelsen vänder, som det var före rättelsen.
-    pub original: Verifikat,
-}
-
 /// Rättar det bokförda verifikatet `original` inne i ärendet utan att committa, för
 /// fakturaflödenas Rätta kontering, avskrift, registrering och betalning: en rättelse som vänder
 /// varje rad (R1), daterad `datum`, bokförd och loggad som av [`rätta`] (R2, VF7). Spärren mot
@@ -591,17 +583,14 @@ pub(crate) async fn rätta_i(
     original: VerifikatId,
     datum: Date,
     orsak: &str,
-) -> Result<Vänt, VerifikatFel> {
+) -> Result<Bokfört, VerifikatFel> {
     let (o, som_original) = läs_original(ärende, original).await?;
     som_original
         .kan_rättas_i_flödet()
         .map_err(VerifikatFel::InteRättbart)?;
     let (rättelse, datum) = vänd_i(ärende, &o, &som_original, &datum.to_string(), orsak).await?;
     logga_rättat(ärende, &o, rättelse, datum, orsak, None).await?;
-    Ok(Vänt {
-        rättelse,
-        original: o,
-    })
+    Ok(rättelse)
 }
 
 /// Det bokförda verifikatet `id` i ärendets företag, också som original till en rättelse.
@@ -1086,7 +1075,7 @@ pub async fn verifikatet(
 }
 
 /// Ett verifikat i företaget med rader, underlag, länkar och historik, eller `None`.
-async fn läs_verifikat(
+pub(crate) async fn läs_verifikat(
     tx: &mut SqliteConnection,
     företag: FöretagsId,
     id: VerifikatId,

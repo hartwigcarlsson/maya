@@ -107,18 +107,21 @@ pub async fn rätta(
         .map_err(KundfakturaFel::Spärrat)?;
 
     let idag = maya_domain::tid::datum(ärende.nu);
-    let vänt = verifikat::rätta_i(&mut ärende, gällande.verifikat, idag, &formulär.orsak).await?;
-    let nuvarande = vänt
-        .original
-        .som_original()
-        .ok_or(VerifikatFel::IngetVerifikat)?
-        .rader;
+    let original = verifikat::läs_verifikat(ärende.conn(), företag, gällande.verifikat)
+        .await?
+        .ok_or(VerifikatFel::IngetVerifikat)?;
+    let (Some(original_nummer), Some(nuvarande)) = (original.nummer, original.som_original())
+    else {
+        return Err(VerifikatFel::IngetVerifikat.into());
+    };
+    let rättelse =
+        verifikat::rätta_i(&mut ärende, gällande.verifikat, idag, &formulär.orsak).await?;
     let bokfört = verifikat::bokför_i_ärende(
         &mut ärende,
         &verifikat::formulär_av(
             idag,
-            &vänt.original.beskrivning,
-            &ny_kontering(&nuvarande, &gällande.rader, &nya),
+            &original.beskrivning,
+            &ny_kontering(&nuvarande.rader, &gällande.rader, &nya),
         ),
         &[gällande.pdf],
     )
@@ -135,7 +138,7 @@ pub async fn rätta(
          VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING id",
     )
     .bind(faktura_id(faktura))
-    .bind(vänt.rättelse.id.0)
+    .bind(rättelse.id.0)
     .bind(bokfört.id.0)
     .bind(formulär.orsak.trim())
     .bind(nu)
@@ -163,7 +166,6 @@ pub async fn rätta(
             json!({ "rad": i + 1, "beskrivning": r.beskrivning, "från": r.konto.get(), "till": k.get() })
         })
         .collect();
-    let vänt_nummer = vänt.original.nummer.ok_or(VerifikatFel::IngetVerifikat)?;
     ärende
         .logga(
             crate::behandlingshistorik::Händelse::KonteringRättad,
@@ -172,8 +174,8 @@ pub async fn rätta(
                 "kundfaktura": faktura_id(faktura),
                 "nummer": gällande.nummer,
                 "kontering": kontering,
-                "vänt": { "id": vänt.original.id.0, "nummer": vänt_nummer.to_string() },
-                "rättelse": { "id": vänt.rättelse.id.0, "nummer": vänt.rättelse.nummer.to_string() },
+                "vänt": { "id": original.id.0, "nummer": original_nummer.to_string() },
+                "rättelse": { "id": rättelse.id.0, "nummer": rättelse.nummer.to_string() },
                 "verifikat": { "id": bokfört.id.0, "nummer": bokfört.nummer.to_string() },
                 "datum": idag.to_string(),
                 "orsak": formulär.orsak.trim(),
@@ -183,7 +185,7 @@ pub async fn rätta(
         .await?;
     ärende.slutför().await?;
     Ok(KonteringRättad {
-        rättelse: vänt.rättelse,
+        rättelse,
         verifikat: bokfört,
     })
 }
