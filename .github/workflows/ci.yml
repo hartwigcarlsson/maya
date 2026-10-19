@@ -78,8 +78,11 @@ jobs:
       - if: always()
         run: df -h /
 
+  # Imagen byggs parallellt med test i stället för efter: ingen `needs: test`, eftersom `needs`
+  # inte kan villkoras på ref. För en versionstagg pushar image bara per digest, utan tagg, och
+  # det är publish som sätter taggarna. publish kräver både test och image, så ingenting blir
+  # publicerat under en tagg om testerna inte gick igenom.
   image:
-    needs: test
     strategy:
       matrix:
         include:
@@ -130,7 +133,7 @@ jobs:
 
   publish:
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: image
+    needs: [test, image]
     runs-on: ubuntu-latest
     permissions:
       contents: read
