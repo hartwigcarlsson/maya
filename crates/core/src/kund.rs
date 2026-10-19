@@ -1,7 +1,8 @@
 //! Kundregistret: företagets kunder, som kundfakturorna hänvisar till. En kund kan ändras när
 //! som helst, arkiveras så att den inte visas i väljarna, och raderas om den saknar fakturor.
 //! Varje skapande, ändring, arkivering och radering loggas i behandlingshistoriken (H2).
-//! Reglerna för formuläret finns i [`maya_domain::kund`].
+//! Reglerna för formuläret finns i [`maya_domain::kund`]. En ny kund från ett fakturautkast
+//! (status `ny`) hör inte till registret förrän fakturan utfärdas (#137).
 
 use std::fmt;
 use std::str::FromStr;
@@ -431,4 +432,138 @@ fn uppgifter(id: i64, k: &GiltigKund) -> Value {
         "betalningsvillkor": k.betalningsvillkor,
         "omvänd_skattskyldighet": k.omvänd_skattskyldighet.kod(),
     })
+}
+
+// #137 Nya kunder från ett kundfakturautkast: status `ny`, inte i registret. En ny kund blir
+// verklig när fakturan utfärdas och raderas, loggat med Maya som aktör, när ingen faktura
+// längre hänvisar till den.
+
+/// Sparar den nya kunden på ett utkast: skriver om `id` om den finns och är ny, annars en ny
+/// rad med status `ny`. Loggas inte; den är en del av utkastet tills fakturan utfärdas.
+pub(crate) async fn spara_ny_i(
+    ärende: &mut Ärende,
+    id: Option<KundId>,
+    k: &GiltigKund,
+) -> Result<KundId, sqlx::Error> {
+    let företag = ärende.företag;
+    if let Some(id) = id {
+        sqlx::query(
+            "UPDATE kund SET namn = ?, identitet = ?, adress = ?, epost = ?, momsregnr = ?,
+                 betalningsvillkor = ?, omvand_skattskyldighet = ?
+             WHERE foretag_id = ? AND id = ? AND status = 'ny'",
+        )
+        .bind(&k.namn)
+        .bind(&k.identitet)
+        .bind(&k.adress)
+        .bind(&k.epost)
+        .bind(&k.momsregnr)
+        .bind(i64::from(k.betalningsvillkor))
+        .bind(k.omvänd_skattskyldighet.kod())
+        .bind(företag.0)
+        .bind(id.0)
+        .execute(ärende.conn())
+        .await?;
+        return Ok(id);
+    }
+    let (aktör, nu) = (ärende.aktör, ärende.nu);
+    let id: i64 = sqlx::query_scalar(
+        "INSERT INTO kund (foretag_id, namn, identitet, adress, epost, momsregnr,
+             betalningsvillkor, omvand_skattskyldighet, status, skapad, skapad_kanal, skapad_av)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'ny', ?, ?, ?)
+         RETURNING id",
+    )
+    .bind(företag.0)
+    .bind(&k.namn)
+    .bind(&k.identitet)
+    .bind(&k.adress)
+    .bind(&k.epost)
+    .bind(&k.momsregnr)
+    .bind(i64::from(k.betalningsvillkor))
+    .bind(k.omvänd_skattskyldighet.kod())
+    .bind(nu.to_string())
+    .bind(aktör.kanal.namn())
+    .bind(aktör.användare.map(|a| a.0))
+    .fetch_one(ärende.conn())
+    .await?;
+    Ok(KundId(id))
+}
+
+/// Den nya kunden `id`, eller `None` om den inte finns i företaget eller inte är ny.
+pub(crate) async fn ny_i(
+    conn: &mut SqliteConnection,
+    företag: FöretagsId,
+    id: KundId,
+) -> Result<Option<GiltigKund>, DatabasFel> {
+    let rad: Option<Rad> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
+        "SELECT {KOLUMNER} FROM kund WHERE id = ? AND foretag_id = ? AND status = 'ny'"
+    )))
+    .bind(id.0)
+    .bind(företag.0)
+    .fetch_optional(conn)
+    .await?;
+    let Some(mut rad) = rad else {
+        return Ok(None);
+    };
+    // Statusen `ny` är ingen av registrets; kunden läses i övrigt som de andra.
+    rad.8 = Kundstatus::Aktiv.kod().into();
+    let k = kund(rad)?;
+    Ok(Some(GiltigKund {
+        namn: k.namn,
+        identitet: k.identitet,
+        adress: k.adress,
+        epost: k.epost,
+        momsregnr: k.momsregnr,
+        betalningsvillkor: k.betalningsvillkor,
+        omvänd_skattskyldighet: k.omvänd_skattskyldighet,
+    }))
+}
+
+/// Gör den nya kunden `id` verklig med uppgifterna `k` och loggar `kund skapad` med
+/// utfärdandets aktör, i utfärdandets transaktion.
+pub(crate) async fn gör_verklig_i(
+    ärende: &mut Ärende,
+    id: KundId,
+    k: &GiltigKund,
+) -> Result<(), sqlx::Error> {
+    spara_ny_i(ärende, Some(id), k).await?;
+    sqlx::query(
+        "UPDATE kund SET status = 'aktiv' WHERE foretag_id = ? AND id = ? AND status = 'ny'",
+    )
+    .bind(ärende.företag.0)
+    .bind(id.0)
+    .execute(ärende.conn())
+    .await?;
+    ärende
+        .logga(Händelse::KundSkapad, &k.namn, uppgifter(id.0, k))
+        .await
+}
+
+/// Raderar företagets nya kunder som ingen faktura längre hänvisar till (enligt
+/// [`KUNDENS_FAKTUROR`]) och loggar varje radering som `kund raderad` med Maya som aktör.
+pub(crate) async fn rensa_nya_i(ärende: &mut Ärende) -> Result<(), DatabasFel> {
+    let företag = ärende.företag;
+    let nya: Vec<i64> =
+        sqlx::query_scalar("SELECT id FROM kund WHERE foretag_id = ? AND status = 'ny'")
+            .bind(företag.0)
+            .fetch_all(ärende.conn())
+            .await?;
+    for id in nya.into_iter().map(KundId) {
+        if antal_fakturor(ärende.conn(), id).await? > 0 {
+            continue;
+        }
+        let Some(k) = ny_i(ärende.conn(), företag, id).await? else {
+            continue;
+        };
+        sqlx::query("DELETE FROM kund WHERE id = ? AND status = 'ny'")
+            .bind(id.0)
+            .execute(ärende.conn())
+            .await?;
+        let mut beskrivning = uppgifter(id.0, &k);
+        beskrivning["status"] = "ny".into();
+        beskrivning["skäl"] = "inget utkast hänvisar längre till den".into();
+        ärende
+            .logga_som(&Aktör::maya(), Händelse::KundRaderad, &k.namn, beskrivning)
+            .await?;
+    }
+    Ok(())
 }

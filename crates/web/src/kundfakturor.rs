@@ -18,8 +18,9 @@ use maya_domain::belopp::Saldo;
 use maya_domain::faktura::Momssats;
 use maya_domain::foretag::Momsperiod;
 use maya_domain::kontoplan::Kontonummer;
+use maya_domain::kund::{self, NyKund};
 use maya_domain::kundfaktura::{
-    Fakturakund, Fält, Förutsättningar, NyFakturarad, NyKundfaktura, Radfält, Spärr, Säljare,
+    Fakturakund, Fält, Förutsättningar, NY, NyFakturarad, NyKundfaktura, Radfält, Spärr, Säljare,
     intäktskonto,
 };
 use maya_domain::rakenskapsar::Räkenskapsår;
@@ -52,6 +53,8 @@ pub struct ListVy {
     pub fakturadatum: String,
     pub förfallodag: String,
     pub total: String,
+    /// Kunden är ny från utkastet (#137).
+    pub ny_kund: bool,
 }
 
 /// Det som formuläret prövas mot, i webbläsaren med samma regler som på servern.
@@ -232,14 +235,54 @@ fn radens<'a>(r: &'a mut NyFakturarad, namn: &str) -> &'a mut String {
     }
 }
 
+/// Fälten för en ny kund i det streckade kortet (#137): formulärets namn, etikett och fält.
+const NYA_KUNDFÄLT: [(&str, &str, kund::Fält); 6] = [
+    ("ny_namn", "Namn", kund::Fält::Namn),
+    (
+        "ny_identitet",
+        "Orgnr eller personnr",
+        kund::Fält::Identitet,
+    ),
+    (
+        "ny_adress",
+        "Adress (gata, postnr, ort)",
+        kund::Fält::Adress,
+    ),
+    ("ny_epost", "E-post", kund::Fält::Epost),
+    ("ny_momsregnr", "Momsreg-nr", kund::Fält::Momsregnr),
+    (
+        "ny_betalningsvillkor",
+        "Betalningsvillkor, dagar",
+        kund::Fält::Betalningsvillkor,
+    ),
+];
+
+fn ny_kunds<'a>(k: &'a mut NyKund, namn: &str) -> &'a mut String {
+    match namn {
+        "ny_namn" => &mut k.namn,
+        "ny_identitet" => &mut k.identitet,
+        "ny_adress" => &mut k.adress,
+        "ny_epost" => &mut k.epost,
+        "ny_momsregnr" => &mut k.momsregnr,
+        _ => &mut k.betalningsvillkor,
+    }
+}
+
 /// Formuläret ur fälten i ett inskickat formulär eller i adressen.
 fn ur_fält(värde: impl Fn(&str) -> Option<String>) -> NyKundfaktura {
     let fält = |namn: &str| värde(namn).unwrap_or_default();
     let antal = (0..500)
         .take_while(|i| värde(&format!("beskrivning_{i}")).is_some())
         .count();
+    let mut ny_kund = NyKund::default();
+    for (namn, _, _) in NYA_KUNDFÄLT {
+        if let Some(v) = värde(namn) {
+            *ny_kunds(&mut ny_kund, namn) = v;
+        }
+    }
     NyKundfaktura {
         kund: fält("kund"),
+        ny_kund,
         fakturadatum: fält("fakturadatum"),
         leveransdatum: fält("leveransdatum"),
         förfallodag: fält("forfallodag"),
@@ -353,6 +396,7 @@ pub(crate) mod server {
                 fakturadatum: f.fakturadatum.map(|d| d.to_string()).unwrap_or_default(),
                 förfallodag: f.förfallodag.map(|d| d.to_string()).unwrap_or_default(),
                 total: kr(f.total),
+                ny_kund: f.ny_kund,
             })
             .collect();
         let mut data = Kundfakturadata {
@@ -812,6 +856,14 @@ fn kundfakturor_sida(data: Kundfakturadata, ny: bool) -> AnyView {
             } else {
                 f.kund.clone()
             };
+            let ny = f.ny_kund.then(|| {
+                view! {
+                    " "
+                    <span class="badge badge-ny" title="Läggs i kundregistret när fakturan utfärdas">
+                        "Ny kund"
+                    </span>
+                }
+            });
             let datum = if f.förfallodag.is_empty() {
                 f.fakturadatum.clone()
             } else {
@@ -821,7 +873,7 @@ fn kundfakturor_sida(data: Kundfakturadata, ny: bool) -> AnyView {
                 <li>
                     <a href=format!("{lista}?f={}", f.id) aria-current=aktuellt>
                         <span class="verifikatlista-topp">
-                            <span>{märke} " " {kund}</span>
+                            <span>{märke} " " {kund} {ny}</span>
                             <span class="belopp">{f.total.clone()}</span>
                         </span>
                         <span class="diskret">{datum}</span>
@@ -960,13 +1012,8 @@ fn Granska(lista: String, id: String, g: GranskningVy) -> impl IntoView {
 }
 
 /// Förvald förfallodag: fakturadatumet plus kundens betalningsvillkor.
-fn förvald_förfallodag(f: &NyKundfaktura, kunder: &[Fakturakund]) -> String {
-    let kund = f
-        .kund
-        .trim()
-        .parse::<i64>()
-        .ok()
-        .and_then(|id| kunder.iter().find(|k| k.id == id));
+fn förvald_förfallodag(f: &NyKundfaktura, förutsättningar: &Förutsättningar) -> String {
+    let kund = f.kunden(förutsättningar);
     match (f.fakturadatum.trim().parse::<Date>(), kund) {
         (Ok(d), Some(k)) => d
             .checked_add(jiff::Span::new().days(i64::from(k.betalningsvillkor)))
@@ -1095,6 +1142,31 @@ fn FakturaFormulär(
 
     let kunder = f.kunder.clone();
     let vald_kund = start.kund.clone();
+    let ny_vald = Memo::new(move |_| faktura.with(|f| f.kund.trim() == NY));
+    let nya_fält = NYA_KUNDFÄLT
+        .into_iter()
+        .map(|(namn, etikett, fält)| {
+            let fel = spärr_vid(Fält::NyKund(fält));
+            let värde = faktura.with_untracked(|f| ny_kunds(&mut f.ny_kund.clone(), namn).clone());
+            let sätt = move |ev: leptos::ev::Event| {
+                faktura.update(|f| *ny_kunds(&mut f.ny_kund, namn) = event_target_value(&ev));
+            };
+            let fältet = if namn == "ny_adress" {
+                view! { <textarea id=namn name=namn rows="3" on:input=sätt>{värde}</textarea> }
+                    .into_any()
+            } else {
+                view! { <input id=namn name=namn type="text" value=värde on:input=sätt /> }
+                    .into_any()
+            };
+            view! {
+                <div>
+                    <label for=namn>{etikett}</label>
+                    {fältet}
+                    {fel}
+                </div>
+            }
+        })
+        .collect_view();
     let kundval = kunder
         .iter()
         .map(|k| {
@@ -1107,10 +1179,14 @@ fn FakturaFormulär(
         })
         .collect_view();
     let kundinfo = {
-        let kunder = kunder.clone();
+        let förutsättningar = förutsättningar.clone();
         move || {
-            let id = faktura.with(|f| f.kund.trim().parse::<i64>().ok());
-            kunder.iter().find(|k| Some(k.id) == id).map(|k| {
+            let kund = faktura.with(|f| {
+                (f.kund.trim() != NY)
+                    .then(|| f.kunden(&förutsättningar))
+                    .flatten()
+            });
+            kund.map(|k| {
                 let delar: Vec<String> = [k.identitet.clone(), k.epost.clone()]
                     .into_iter()
                     .filter(|d| !d.is_empty())
@@ -1121,8 +1197,8 @@ fn FakturaFormulär(
         }
     };
     let förfallo_platshållare = {
-        let kunder = kunder.clone();
-        move || faktura.with(|f| förvald_förfallodag(f, &kunder))
+        let förutsättningar = förutsättningar.clone();
+        move || faktura.with(|f| förvald_förfallodag(f, &förutsättningar))
     };
     let nummerfält = match f.nästa_nummer {
         None => view! {
@@ -1342,13 +1418,14 @@ fn FakturaFormulär(
         None => (lista.clone(), "Ny kundfaktura", None, None),
     };
     let rubrik_namn = {
-        let kunder = kunder.clone();
+        let förutsättningar = förutsättningar.clone();
         move || {
-            let id = faktura.with(|f| f.kund.trim().parse::<i64>().ok());
-            kunder
-                .iter()
-                .find(|k| Some(k.id) == id)
-                .map_or_else(|| rubrik.to_string(), |k| k.namn.clone())
+            faktura.with(|f| match f.kund.trim() {
+                NY if !f.ny_kund.namn.trim().is_empty() => f.ny_kund.namn.trim().to_string(),
+                _ => f
+                    .kunden(&förutsättningar)
+                    .map_or_else(|| rubrik.to_string(), |k| k.namn),
+            })
         }
     };
     let visa_länk = match &utkast {
@@ -1361,11 +1438,16 @@ fn FakturaFormulär(
     };
     let förhandsvisning = {
         let säljare = f.säljare.clone();
-        let kunder = kunder.clone();
+        let förutsättningar = förutsättningar.clone();
         move || {
             visa.get().then(|| {
                 view! {
-                    <Papper faktura=faktura beräkning=beräkning säljare=säljare.clone() kunder=kunder.clone() />
+                    <Papper
+                        faktura=faktura
+                        beräkning=beräkning
+                        säljare=säljare.clone()
+                        förutsättningar=förutsättningar.clone()
+                    />
                 }
             })
         }
@@ -1401,6 +1483,9 @@ fn FakturaFormulär(
                         >
                             <option value="">"Välj kund…"</option>
                             {kundval}
+                            <option value=NY selected=vald_kund.trim() == NY>
+                                "+ Ny kund…"
+                            </option>
                         </select>
                         {kundinfo}
                         {spärr_vid(Fält::Kund)}
@@ -1408,6 +1493,13 @@ fn FakturaFormulär(
                             <a href=format!("{}/ny", kundregistret(&bas))>"Lägg upp en kund i kundregistret"</a>
                         </p>
                     </div>
+                </div>
+                <div class="kort-streckat ny-kund" class:dold=move || !ny_vald.get()>
+                    <b>"Ny kund"</b>
+                    <div class="lf-rutnat">{nya_fält}</div>
+                    <p class="diskret">
+                        "Läggs i kundregistret när fakturan utfärdas. Raderas utkastet försvinner förslaget."
+                    </p>
                 </div>
                 <div class="falt-rad">
                     <div>
@@ -1524,12 +1616,9 @@ fn Papper(
     faktura: RwSignal<NyKundfaktura>,
     beräkning: Memo<maya_domain::kundfaktura::Beräkning>,
     säljare: Säljare,
-    kunder: Vec<Fakturakund>,
+    förutsättningar: Förutsättningar,
 ) -> impl IntoView {
-    let kund = move || {
-        let id = faktura.with(|f| f.kund.trim().parse::<i64>().ok());
-        kunder.iter().find(|k| Some(k.id) == id).cloned()
-    };
+    let kund = move || faktura.with(|f| f.kunden(&förutsättningar));
     let köpare = move || {
         kund().map(|k| {
             let adress = k
