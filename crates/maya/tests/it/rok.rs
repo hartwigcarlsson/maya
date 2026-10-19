@@ -851,8 +851,17 @@ fn kundfaktura_krediteras() {
     vänta_på_text(&tab, "Kvar att kreditera 11 875,00 kr");
     vänta_på_hydreringen(&tab);
     klicka(&tab, ".panel.kreditera input[name='hela'][value='']");
+    // Fler timmar än som finns kvar spärras vid raden medan man skriver, som en överbetalning.
+    fyll(&tab, ".panel.kreditera input[name='antal_0']", "11");
+    vänta_på_text(&tab, "Ange ett antal från 0 till 10.");
+    tab.wait_for_element(".panel.kreditera button[type='submit'][disabled]")
+        .unwrap();
     fyll(&tab, ".panel.kreditera input[name='antal_0']", "4");
-    klicka(&tab, ".panel.kreditera button[type='submit']");
+    vänta_på_text_borta(&tab, "Ange ett antal från 0 till 10.");
+    klicka(
+        &tab,
+        ".panel.kreditera button[type='submit']:not([disabled])",
+    );
     // Utkastet: hänvisningen, raden med negativt antal och verifikatet som speglar originalet.
     vänta_på_text(&tab, "Kreditfakturans utkast skapades");
     vänta_på_text(&tab, "Krediterar faktura 1 daterad 2026-03-10");

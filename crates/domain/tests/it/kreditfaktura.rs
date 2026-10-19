@@ -293,3 +293,58 @@ fn valet_i_panelen_prövas_mot_originalets_rader_och_det_som_finns_kvar() {
     );
     assert_eq!(h.text(), "Krediterar faktura 1007 daterad 2026-03-10");
 }
+
+#[test]
+fn det_som_finns_kvar_per_rad_är_originalets_antal_minus_det_som_redan_krediterats() {
+    use maya_domain::faktura::Antal;
+    use maya_domain::kreditfaktura::kvar_per_rad;
+    use maya_domain::kundfaktura::Fakturarad;
+    let o = original();
+    // En utfärdad kreditrad: originalraden med negativt antal, på det konto som gällde då.
+    let krediterad = |i: usize, hundradelar: i64| Fakturarad {
+        antal: Antal::från_hundradelar(-hundradelar),
+        konto: nr(3001),
+        ..o.rader[i].clone()
+    };
+    let ändrad = Fakturarad {
+        beskrivning: "Något annat".into(),
+        ..krediterad(2, 100)
+    };
+    let kvar = kvar_per_rad(
+        &o.rader,
+        &[
+            krediterad(0, 400),
+            krediterad(1, 100),
+            krediterad(0, 100),
+            ändrad,
+        ],
+    );
+    let antal: Vec<i64> = kvar.iter().map(|r| r.antal.hundradelar()).collect();
+    assert_eq!(antal, [500, 200, 100]);
+    // Nettot följer antalet: 5 × 950 kr och 2 × 200 kr minus 10 %.
+    assert_eq!(kvar[0].netto, 475_000);
+    assert_eq!(kvar[1].netto, 36_000);
+    assert_eq!(kvar[0].konto, o.rader[0].konto);
+
+    // Hela fakturan krediterar det som finns kvar på varje rad.
+    let mut h = hänvisning(&o);
+    h.kvar = 475_000 + 118_750 + 36_000 + 2_160 + 5_000;
+    let utkast = hela().utkast(&h, &kvar, date(2026, 4, 2)).unwrap();
+    let antal: Vec<&str> = utkast.rader.iter().map(|r| r.antal.as_str()).collect();
+    assert_eq!(antal, ["-5", "-2", "-1"]);
+
+    // Ett antal över det som finns kvar på raden spärras vid raden.
+    let för_mycket = NyKreditering {
+        hela: false,
+        antal: vec!["6".into(), String::new(), String::new()],
+    };
+    let spärrar = för_mycket.utkast(&h, &kvar, date(2026, 4, 2)).unwrap_err();
+    assert_eq!(spärrar[0].rad, Some(0));
+    assert_eq!(spärrar[0].kod, "kredit_antal_ogiltigt");
+    assert_eq!(spärrar[0].text, "Ange ett antal från 0 till 5.");
+
+    // En rad som är helt krediterad finns kvar med antalet 0.
+    let kvar = kvar_per_rad(&o.rader, &[krediterad(2, 100)]);
+    assert_eq!(kvar[2].antal.hundradelar(), 0);
+    assert_eq!(kvar[2].netto, 0);
+}

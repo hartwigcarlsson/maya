@@ -301,6 +301,19 @@ async fn ett_antal_per_rad_krediteras_och_för_många_spärras_vid_raden() {
         original.contains("Kreditfaktura…"),
         "6 timmar finns kvar att kreditera"
     );
+
+    // Panelen visar och förväljer det som finns kvar på raden, inte originalets 10 timmar.
+    let panel = hämta(&db, &session, &format!("{här}&panel=kreditera")).await;
+    let panel = efter(&panel, "kreditera-rubrik");
+    assert!(panel.contains("10 tim"), "originalets antal: {panel}");
+    assert!(panel.contains("6 tim"), "det som finns kvar: {panel}");
+    assert!(panel.contains("5 700,00"), "nettot för det som finns kvar");
+    assert!(panel.contains(r#"value="6""#), "{panel}");
+    assert!(!panel.contains(r#"value="10""#), "{panel}");
+    // Hela fakturan krediterar det som finns kvar.
+    let k = kreditutkast(&db, &session, &bas, &f, "hela=1").await;
+    let utkast = hämta(&db, &session, &format!("{bas}/kundfakturor?f={k}")).await;
+    assert!(utkast.contains(r#"value="-6""#), "{utkast}");
 }
 
 #[tokio::test]
