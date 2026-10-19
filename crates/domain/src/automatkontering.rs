@@ -1,6 +1,6 @@
 //! Tabellen över automatkonteringar (S2): för varje flöde vad som debiteras och krediteras och
-//! när. Systemdokumentationen återger den ordagrant som specen skriver den
-//! (`tests/golden/automatkonteringar.md`).
+//! när. Systemdokumentationen återger tabellens rader ordagrant som specen skriver dem
+//! (`tests/golden/automatkonteringar.md`), med egna stycken runt om för den som läser den.
 //!
 //! Tabellen byggs här ur samma konstanter och funktioner som flödena konterar med
 //! ([`KUNDFORDRINGAR`], [`Momssats::utgående_momskonto`], [`fiktiv_utgående_moms`] och de andra),
@@ -590,7 +590,8 @@ pub fn tabell() -> Vec<Automatkontering> {
     ]
 }
 
-/// Styckena före tabellen, som Markdown: etapp 1:s och etapp 2:s inledning ur specen.
+/// Styckena före tabellen, som Markdown, skrivna för den som läser Systemdokumentationen.
+/// Tabellens rader är specens, ordagrant.
 pub fn inledning() -> Vec<String> {
     let moms = satser_med_moms()
         .filter_map(|s| s.utgående_momskonto().map(|k| format!("{} ({s})", k.get())))
@@ -600,14 +601,13 @@ pub fn inledning() -> Vec<String> {
         .map(|k| k.get().to_string())
         .collect::<Vec<_>>();
     vec![
-        "Tabellen är spec:en för bygget och återges ordagrant i Systemdokumentationen. Belopp är \
-         i SEK. Saldo räknas med debet som positivt."
+        "Tabellen visar vad Maya debiterar och krediterar i varje flöde, och när. Belopp är i \
+         SEK. Saldo räknas med debet som positivt."
             .into(),
         format!(
-            "Tabellen läggs till i tabellen från etapp 1 och återges ordagrant i \
-             Systemdokumentationen. Belopp är i SEK. *Netto* är radernas belopp exklusive moms, \
-             *moms* är momsbeloppet per sats. Utgående moms är {}. Fiktiv utgående moms vid \
-             omvänd skattskyldighet är {} efter momssats.",
+            "*Netto* är radernas belopp exklusive moms, *moms* är momsbeloppet per sats. \
+             Utgående moms bokförs på {}. Fiktiv utgående moms vid omvänd skattskyldighet \
+             bokförs på {} efter momssats.",
             uppräkning(&moms),
             uppräkning(&fiktiv)
         ),
@@ -615,8 +615,8 @@ pub fn inledning() -> Vec<String> {
 }
 
 /// Stycket efter tabellen.
-pub const AVSLUTNING: &str =
-    "Senare etapper lägger till sina rader (moms, lön, avskrivningar, stängning) i samma tabell.";
+pub const AVSLUTNING: &str = "Senare versioner av Maya lägger till sina rader (moms, lön, \
+     avskrivningar, stängning) i samma tabell.";
 
 /// `a, b och c`.
 fn uppräkning(delar: &[String]) -> String {
@@ -627,7 +627,7 @@ fn uppräkning(delar: &[String]) -> String {
     }
 }
 
-/// Hela avsnittet som Markdown, som specen skriver det.
+/// Hela avsnittet som Markdown: styckena och tabellen.
 pub fn som_markdown() -> String {
     let mut ut = Vec::new();
     for stycke in inledning() {

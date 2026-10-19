@@ -85,7 +85,32 @@ fn automatkonteringarna_återges_ordagrant_som_i_specen() {
     assert!(
         stycken
             .iter()
-            .any(|s| s.contains("Utgående moms är 2611 (25 %), 2621 (12 %) och 2631 (6 %).")),
+            .any(|s| s.contains("2611 (25 %), 2621 (12 %) och 2631 (6 %)")),
+        "{stycken:?}"
+    );
+}
+
+#[test]
+fn styckena_runt_automatkonteringarna_är_skrivna_för_den_som_läser_dokumentationen() {
+    // Specens stycken talar om bygget ("spec:en för bygget", "tabellen från etapp 1"). Den som
+    // läser Systemdokumentationen har ingen spec och inga etapper.
+    let stycken: Vec<String> = automatkonteringar()
+        .iter()
+        .filter_map(|b| match b {
+            Block::Stycke(t) => Some(t.ren()),
+            _ => None,
+        })
+        .collect();
+    for ord in ["spec", "etapp", "ordagrant", "läggs till i tabellen"] {
+        assert!(
+            stycken.iter().all(|s| !s.to_lowercase().contains(ord)),
+            "{ord}: {stycken:?}"
+        );
+    }
+    assert!(
+        stycken
+            .iter()
+            .any(|s| s.contains("Fiktiv utgående moms vid omvänd skattskyldighet")),
         "{stycken:?}"
     );
 }

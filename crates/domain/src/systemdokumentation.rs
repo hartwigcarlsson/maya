@@ -151,8 +151,8 @@ impl From<String> for Text {
     }
 }
 
-/// Tabellen över automatkonteringar med styckena runt den, ordagrant som i specen. Den byggs ur
-/// [`crate::automatkontering`], alltså ur kontona som flödena konterar med.
+/// Tabellen över automatkonteringar med styckena runt den. Raderna är specens, ordagrant. Den
+/// byggs ur [`crate::automatkontering`], alltså ur kontona som flödena konterar med.
 pub fn automatkonteringar() -> Vec<Block> {
     let mut block: Vec<Block> = automatkontering::inledning()
         .iter()
