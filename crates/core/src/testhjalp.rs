@@ -96,6 +96,11 @@ pub async fn kör_sql(db: &Databas, sql: &'static str) -> Result<(), sqlx::Error
 /// Ett företag med kalenderåret 2026 som första räkenskapsår, upplagt av en ny användare
 /// `anna@example.se`, som returneras.
 pub async fn företag(db: &Databas) -> (Aktör, FöretagsId) {
+    företag_med_metod(db, "faktura").await
+}
+
+/// Ett företag som [`företag`] med bokföringsmetoden `metod` (`faktura` eller `kontant`, #149).
+pub async fn företag_med_metod(db: &Databas, metod: &str) -> (Aktör, FöretagsId) {
     let anna = användare(db, "anna@example.se").await;
     let id = foretag::lägg_upp(
         db,
@@ -106,7 +111,7 @@ pub async fn företag(db: &Databas) -> (Aktör, FöretagsId) {
             namn: "Exempel AB".into(),
             första_år_start: "2026-01-01".into(),
             första_år_slut: "2026-12-31".into(),
-            bokföringsmetod: "faktura".into(),
+            bokföringsmetod: metod.into(),
             momsperiod: "kvartal".into(),
         },
     )
@@ -284,7 +289,12 @@ pub async fn leverantör(
 /// Ett företag som [`företag`], med de uppgifter som en kundfaktura kräver: adress, säte,
 /// momsregistreringsnummer, F-skatt och bankgiro 5050-1055.
 pub async fn fakturaföretag(db: &Databas) -> (Aktör, FöretagsId) {
-    let (anna, id) = företag(db).await;
+    fakturaföretag_med_metod(db, "faktura").await
+}
+
+/// Ett företag som [`fakturaföretag`] med bokföringsmetoden `metod` (#149).
+pub async fn fakturaföretag_med_metod(db: &Databas, metod: &str) -> (Aktör, FöretagsId) {
+    let (anna, id) = företag_med_metod(db, metod).await;
     let klocka = Klocka::system();
     foretag::ändra_uppgifter(
         db,

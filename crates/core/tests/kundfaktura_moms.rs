@@ -89,7 +89,7 @@ async fn kontering(
     id: FöretagsId,
     u: &Utfärdad,
 ) -> Vec<(u16, i64, i64)> {
-    verifikat::verifikatet(db, anna, id, u.verifikat.id)
+    verifikat::verifikatet(db, anna, id, u.verifikat.as_ref().unwrap().id)
         .await
         .unwrap()
         .unwrap()

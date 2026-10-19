@@ -151,7 +151,7 @@ async fn registreringen_bokför_1510_mot_intäkt_och_moms_med_originalet_som_und
         .await
         .unwrap();
     assert_eq!(
-        rader(&db, &anna, id, r.verifikat.id).await,
+        rader(&db, &anna, id, r.verifikat.as_ref().unwrap().id).await,
         [
             (1510, TOTAL, 0),
             (3001, 0, 800_000),
@@ -160,7 +160,7 @@ async fn registreringen_bokför_1510_mot_intäkt_och_moms_med_originalet_som_und
             (2621, 0, 12_000),
         ]
     );
-    let v = verifikat::verifikatet(&db, &anna, id, r.verifikat.id)
+    let v = verifikat::verifikatet(&db, &anna, id, r.verifikat.as_ref().unwrap().id)
         .await
         .unwrap()
         .unwrap();
@@ -182,7 +182,7 @@ async fn registreringen_bokför_1510_mot_intäkt_och_moms_med_originalet_som_und
         &klocka(),
         &anna,
         id,
-        r.verifikat.id,
+        r.verifikat.as_ref().unwrap().id,
         "2026-10-18",
         "",
         Rättelseval::BaraRättelse,
@@ -210,7 +210,10 @@ async fn registreringen_bokför_1510_mot_intäkt_och_moms_med_originalet_som_und
         .unwrap();
     assert_eq!(ext.status, Status::Registrerad);
     assert_eq!(ext.total, Some(TOTAL));
-    assert_eq!(ext.verifikat.map(|l| l.id), Some(r.verifikat.id));
+    assert_eq!(
+        ext.verifikat.map(|l| l.id),
+        Some(r.verifikat.as_ref().unwrap().id)
+    );
     assert!(ext.registrerad.is_some());
     let historik = behandlingshistorik::läs(&db, &anna, id).await.unwrap();
     let post = historik
@@ -224,7 +227,7 @@ async fn registreringen_bokför_1510_mot_intäkt_och_moms_med_originalet_som_und
         format!(
             "Extern faktura F-17 till ”Kund AB” daterad 2026-03-10, förfaller 2026-04-09, \
              11 120,00 kr, bokförd som {}",
-            r.verifikat.nummer
+            r.verifikat.as_ref().unwrap().nummer
         )
     );
     // Mayas flöden för egna fakturor rör inte den externa.
@@ -398,7 +401,7 @@ async fn en_extern_kreditfaktura_registreras_och_minskar_det_som_återstår() {
         .await
         .unwrap();
     assert_eq!(
-        rader(&db, &anna, id, r.verifikat.id).await,
+        rader(&db, &anna, id, r.verifikat.as_ref().unwrap().id).await,
         [(1510, 0, 250_000), (3001, 200_000, 0), (2611, 50_000, 0)]
     );
     assert_eq!(återstår(&db, &anna, id, f).await, TOTAL - 250_000);
@@ -534,9 +537,9 @@ async fn rätta_registrering_vänder_verifikatet_och_låser_upp_fakturan_med_bet
     let om = extern_kundfaktura::registrera(&db, &klocka(), &anna, id, f, &nytt)
         .await
         .unwrap();
-    assert_ne!(om.verifikat.id, första.id);
+    assert_ne!(om.verifikat.as_ref().unwrap().id, första.id);
     assert_eq!(
-        rader(&db, &anna, id, om.verifikat.id).await,
+        rader(&db, &anna, id, om.verifikat.as_ref().unwrap().id).await,
         [(1510, 1_125_000, 0), (3001, 0, 900_000), (2611, 0, 225_000)]
     );
     assert_eq!(återstår(&db, &anna, id, f).await, 1_125_000 - 500_000);

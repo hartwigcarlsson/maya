@@ -15,6 +15,7 @@ pub mod drift;
 pub mod export;
 pub mod extern_kundfaktura;
 pub mod fakturauppgifter;
+pub(crate) mod fordran;
 pub mod foretag;
 pub mod inloggning;
 pub mod installation;

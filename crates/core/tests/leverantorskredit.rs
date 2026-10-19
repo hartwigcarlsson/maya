@@ -78,7 +78,7 @@ async fn registrera_kredit(
     let r = leverantorsfaktura::registrera(db, &klocka(), anna, id, k, formulär)
         .await
         .unwrap();
-    (k, r.verifikat.id)
+    (k, r.verifikat.as_ref().unwrap().id)
 }
 
 fn betalning(betaldag: &str, belopp: &str) -> NyBetalning {
@@ -487,14 +487,17 @@ async fn en_upplåst_faktura_registreras_om_med_samma_regler_och_ett_nytt_verifi
     )
     .await
     .unwrap();
-    assert_ne!(r.verifikat.id, första);
+    assert_ne!(r.verifikat.as_ref().unwrap().id, första);
     assert_eq!(
-        rader(&db, &anna, id, r.verifikat.id).await,
+        rader(&db, &anna, id, r.verifikat.as_ref().unwrap().id).await,
         [(5410, 120_000, 0), (2641, 30_000, 0), (2440, 0, 150_000)]
     );
     let omregistrerad = fakturan(&db, &anna, id, f).await;
     assert_eq!(omregistrerad.status, Status::Registrerad);
-    assert_eq!(omregistrerad.verifikat.map(|v| v.0), Some(r.verifikat.id));
+    assert_eq!(
+        omregistrerad.verifikat.map(|v| v.0),
+        Some(r.verifikat.as_ref().unwrap().id)
+    );
     assert_eq!(återstår_i_listan(&db, &anna, id, f).await, 150_000 - 50_000);
     // Den första registreringen länkar fortfarande till fakturan.
     let v = verifikat::verifikatet(&db, &anna, id, första)

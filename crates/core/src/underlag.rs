@@ -107,7 +107,8 @@ pub struct Underlag {
     pub dubbletter: Vec<Dubblett>,
     /// Leverantörsfakturan som underlaget är original till (#145).
     pub leverantörsfaktura: Option<LeverantörsfakturaId>,
-    /// Den externa kundfakturan som underlaget är original till (#143).
+    /// Den externa kundfakturan som underlaget är original till (#143), eller Mayas kundfaktura
+    /// vars arkiverade PDF det är; under kontantmetoden har PDF:en inget verifikat (#149).
     pub kundfaktura: Option<crate::kundfaktura::KundfakturaId>,
 }
 
@@ -122,7 +123,7 @@ impl Underlag {
     }
 
     /// Ett *okopplat underlag*: inte kopplat till något verifikat och inte original till en
-    /// leverantörsfaktura eller en extern kundfaktura.
+    /// leverantörsfaktura eller en kundfaktura.
     pub fn okopplat(&self) -> bool {
         self.kopplingar.is_empty()
             && self.leverantörsfaktura.is_none()
@@ -486,7 +487,7 @@ async fn läs(
                 u.uppladdad_av, a.visningsnamn AS uppladdad_namn,
                 (SELECT f.id FROM leverantorsfaktura f WHERE f.underlag_id = u.id)
                     AS leverantorsfaktura,
-                (SELECT f.id FROM kundfaktura f WHERE f.underlag_id = u.id AND f.extern = 1)
+                (SELECT f.id FROM kundfaktura f WHERE f.underlag_id = u.id)
                     AS kundfaktura
          FROM underlag u LEFT JOIN anvandare a ON a.id = u.uppladdad_av
          WHERE u.foretag_id = ?1 AND (?2 IS NULL OR u.id = ?2)

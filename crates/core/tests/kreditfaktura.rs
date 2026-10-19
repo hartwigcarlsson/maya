@@ -90,7 +90,7 @@ async fn hel_kredit_får_nästa_nummer_och_vänder_utfärdandets_kontering() {
     let k = kreditera(&db, &anna, id, f.id, hela()).await.unwrap();
     assert_eq!(k.nummer, f.nummer + 1);
 
-    let v = verifikat::verifikatet(&db, &anna, id, k.verifikat.id)
+    let v = verifikat::verifikatet(&db, &anna, id, k.verifikat.as_ref().unwrap().id)
         .await
         .unwrap()
         .unwrap();
@@ -103,7 +103,7 @@ async fn hel_kredit_får_nästa_nummer_och_vänder_utfärdandets_kontering() {
         )
     );
     assert_eq!(
-        rader(&db, &anna, id, k.verifikat.id).await,
+        rader(&db, &anna, id, k.verifikat.as_ref().unwrap().id).await,
         [(1510, 0, TOTAL), (3001, 950_000, 0), (2611, 237_500, 0)]
     );
     let flöde = v.flöde.expect("länken till kreditfakturan");
@@ -194,7 +194,7 @@ async fn delvis_kredit_krediterar_antalet_och_högst_det_som_finns_kvar() {
     let (anna, id, f) = faktura(&db).await;
     let k = kreditera(&db, &anna, id, f.id, antal("4")).await.unwrap();
     assert_eq!(
-        rader(&db, &anna, id, k.verifikat.id).await,
+        rader(&db, &anna, id, k.verifikat.as_ref().unwrap().id).await,
         [(1510, 0, 475_000), (3001, 380_000, 0), (2611, 95_000, 0)]
     );
     assert_eq!(återstår(&db, &anna, id, f.id).await, TOTAL - 475_000);
@@ -260,7 +260,7 @@ async fn kreditfakturan_följer_en_rättad_kontering_och_kan_inte_krediteras_sj�
     .unwrap();
     let k = kreditera(&db, &anna, id, f.id, hela()).await.unwrap();
     assert_eq!(
-        rader(&db, &anna, id, k.verifikat.id).await,
+        rader(&db, &anna, id, k.verifikat.as_ref().unwrap().id).await,
         [(1510, 0, TOTAL), (3002, 950_000, 0), (2611, 237_500, 0)]
     );
     for original in [k.id, f.id] {
