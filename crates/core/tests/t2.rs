@@ -590,6 +590,48 @@ async fn en_betalning_i_året_som_rättas_efter_årets_slut_räknas_inte_som_bet
     );
 }
 
+#[tokio::test]
+async fn t2_bokförs_inte_medan_en_faktura_från_året_är_upplåst() {
+    let db = Databas::tillfällig().await;
+    let (anna, id, _, l) = kontantföretag(&db).await;
+    let januari = klocka("2027-01-10T09:00:00Z");
+    // Betald efter årets slut mot 2440, sedan upplåst: utkastet tar inte med den upplåsta
+    // fakturan, och bokfördes T2 nu skulle fakturan aldrig komma med.
+    betala(
+        &db,
+        &januari,
+        &anna,
+        id,
+        Faktura::Leverantör(l),
+        &betalning("2027-01-05", "250"),
+    )
+    .await;
+    t2::kör(&db, &januari).await.unwrap();
+    maya_core::leverantorsfaktura::rätta_avskrift(&db, &januari, &anna, id, l, "")
+        .await
+        .unwrap();
+    let v = utkastet(&db, &anna, id).await.unwrap();
+    let fel = t2::bokför(&db, &januari, &anna, id, v).await.unwrap_err();
+    assert!(
+        matches!(fel, T2Fel::UpplåstFaktura(ref f) if f == "leverantörsfaktura 8812"),
+        "{fel:?}"
+    );
+    // Registrerad igen kommer den med, och T2 bokförs.
+    let formulär = maya_core::leverantorsfaktura::fakturan(&db, &anna, id, l)
+        .await
+        .unwrap()
+        .unwrap()
+        .formulär;
+    maya_core::leverantorsfaktura::registrera(&db, &januari, &anna, id, l, &formulär)
+        .await
+        .unwrap();
+    t2::bokför(&db, &januari, &anna, id, v).await.unwrap();
+    assert_eq!(
+        rader(&db, &anna, id, v).await,
+        sorterat([KUNDRADER, LEVERANTÖRSRADER].concat())
+    );
+}
+
 /// Bokför T2 för 2026 i januari 2027.
 async fn bokför_t2(db: &Databas, anna: &Aktör, id: FöretagsId) {
     let januari = klocka("2027-01-10T09:00:00Z");

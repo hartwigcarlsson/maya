@@ -870,6 +870,9 @@ pub(crate) mod server {
                 let kod = spärrar.first().map(|s| s.kod).unwrap_or_default();
                 Redirect::to(&format!("{sida}?v={utkast}&t2_fel={kod}")).into_response()
             }
+            Err(T2Fel::UpplåstFaktura(_)) => {
+                Redirect::to(&format!("{sida}?v={utkast}&t2_fel=upplast")).into_response()
+            }
             Err(T2Fel::IngetUtkast) => inget_utkast(),
             Err(T2Fel::Åtkomst(ÅtkomstFel::IngenÅtkomst | ÅtkomstFel::KanalenFårInte)) => {
                 ingen_åtkomst()
@@ -1408,10 +1411,17 @@ fn Dokument(bas: String, d: DokumentVy, okopplade: Vec<UnderlagVy>) -> impl Into
         let fel = use_query_map()
             .with_untracked(|q| q.get("t2_fel"))
             .map(|kod| {
-                let text = format!(
-                    "T2-utkastet kan inte bokföras ({kod}). Kontrollera att radernas konton är \
-                     aktiva."
-                );
+                // #151
+                let text = if kod == "upplast" {
+                    "T2-utkastet kan inte bokföras medan en faktura från året är upplåst med \
+                     Rätta registrering eller Rätta avskrift. Registrera om den först."
+                        .to_string()
+                } else {
+                    format!(
+                        "T2-utkastet kan inte bokföras ({kod}). Kontrollera att radernas konton \
+                         är aktiva."
+                    )
+                };
                 view! {
                     <p class="fel" role="alert" data-kod=kod>
                         {text}
