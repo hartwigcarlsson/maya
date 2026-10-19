@@ -2,8 +2,9 @@ use jiff::civil::date;
 use maya_domain::faktura::Momssats;
 use maya_domain::foretag::Momsperiod;
 use maya_domain::kontoplan::Kontonummer;
+use maya_domain::kund::{self, NyKund};
 use maya_domain::kundfaktura::{
-    Fakturakund, Fält, Förutsättningar, NyFakturarad, NyKundfaktura, Radfält, Spärr, Säljare,
+    Fakturakund, Fält, Förutsättningar, NY, NyFakturarad, NyKundfaktura, Radfält, Spärr, Säljare,
     UTFÄRDANDESPÄRRAR, intäktskonto,
 };
 use maya_domain::rakenskapsar::Räkenskapsår;
@@ -87,6 +88,7 @@ fn faktura() -> NyKundfaktura {
             rad("Bok", "2", "200", "6", "3003"),
             rad("Utlägg", "1", "50", "0", "3004"),
         ],
+        ny_kund: NyKund::default(),
     }
 }
 
@@ -500,6 +502,9 @@ fn varje_spärr_vid_utfärdande_är_dokumenterad_och_ingen_annan() {
         ..rad("x", "1", "1", "25", "3001")
     }];
     fall.push((noll, förutsättningar()));
+    let mut ny = faktura();
+    ny.kund = NY.into();
+    fall.push((ny, förutsättningar()));
 
     let mut koder: Vec<&str> = fall
         .iter()
@@ -562,4 +567,105 @@ fn beräkningen_visar_summorna_också_när_något_saknas() {
     let b = f.beräkna();
     assert_eq!(b.rader, [Some(950_000), Some(40_000), Some(5_000), None]);
     assert_eq!(b.total, 1_234_900);
+}
+
+// #137 Ny kund från fakturautkastet
+
+fn ny_kund() -> NyKund {
+    NyKund {
+        namn: "Nya Kunden AB".into(),
+        adress: "Lillgatan 2\n222 33 Malmö".into(),
+        epost: "faktura@nya.se".into(),
+        betalningsvillkor: "10".into(),
+        ..NyKund::default()
+    }
+}
+
+fn med_ny_kund(k: NyKund) -> NyKundfaktura {
+    NyKundfaktura {
+        kund: NY.into(),
+        ny_kund: k,
+        ..faktura()
+    }
+}
+
+#[test]
+fn en_ny_kund_från_utkastet_utfärdas_med_sina_egna_uppgifter() {
+    let u = med_ny_kund(ny_kund())
+        .kontrollera(&förutsättningar())
+        .unwrap();
+
+    assert_eq!(u.kund.namn, "Nya Kunden AB");
+    assert_eq!(u.kund.adress, "Lillgatan 2\n222 33 Malmö");
+    assert_eq!(u.kund.epost, "faktura@nya.se");
+    // Förfallodagen följer den nya kundens 10 dagar.
+    assert_eq!(u.förfallodag, date(2026, 3, 20));
+    assert_eq!(u.ny_kund.map(|k| k.namn).as_deref(), Some("Nya Kunden AB"));
+    // En kund ur registret är ingen ny kund.
+    assert_eq!(
+        faktura().kontrollera(&förutsättningar()).unwrap().ny_kund,
+        None
+    );
+}
+
+#[test]
+fn en_ny_kund_som_inte_klarar_kundregistrets_regler_spärras_vid_sitt_fält() {
+    let mut k = ny_kund();
+    k.epost = "inte en adress".into();
+    assert_eq!(
+        spärrar(&med_ny_kund(k), &förutsättningar()),
+        [(Fält::NyKund(kund::Fält::Epost), "ny_kund")]
+    );
+    assert_eq!(
+        spärrar(&med_ny_kund(NyKund::default()), &förutsättningar()),
+        [(Fält::NyKund(kund::Fält::Namn), "ny_kund")]
+    );
+    let mut utan_adress = ny_kund();
+    utan_adress.adress = String::new();
+    assert_eq!(
+        spärrar(&med_ny_kund(utan_adress), &förutsättningar()),
+        [(Fält::NyKund(kund::Fält::Adress), "kund_adress_saknas")]
+    );
+}
+
+#[test]
+fn ett_utkast_med_en_ny_kund_sparar_kunden_och_blir_samma_formulär_igen() {
+    let u = med_ny_kund(ny_kund()).som_utkast().unwrap();
+    assert_eq!(u.kund, None);
+    assert_eq!(
+        u.ny_kund.as_ref().map(|k| k.namn.as_str()),
+        Some("Nya Kunden AB")
+    );
+    let igen = u.som_formulär();
+    assert_eq!(igen.kund, NY);
+    assert_eq!(igen.ny_kund.namn, "Nya Kunden AB");
+    assert_eq!(igen.ny_kund.betalningsvillkor, "10");
+    assert_eq!(igen.som_utkast().unwrap(), u);
+
+    // Utan namn finns ingen ny kund att spara, och utkastet saknar kund.
+    let tom = med_ny_kund(NyKund::default()).som_utkast().unwrap();
+    assert_eq!((tom.kund, tom.ny_kund), (None, None));
+
+    let mut fel = ny_kund();
+    fel.identitet = "123".into();
+    let koder: Vec<_> = med_ny_kund(fel)
+        .som_utkast()
+        .unwrap_err()
+        .iter()
+        .map(|s| (s.fält, s.kod))
+        .collect();
+    assert_eq!(koder, [(Fält::NyKund(kund::Fält::Identitet), "ny_kund")]);
+}
+
+#[test]
+fn kunden_är_den_valda_i_registret_eller_den_nya() {
+    let f = förutsättningar();
+    assert_eq!(faktura().kunden(&f).map(|k| k.namn), Some("Kund AB".into()));
+    assert_eq!(
+        med_ny_kund(ny_kund())
+            .kunden(&f)
+            .map(|k| k.betalningsvillkor),
+        Some(10)
+    );
+    assert_eq!(med_ny_kund(NyKund::default()).kunden(&f), None);
 }

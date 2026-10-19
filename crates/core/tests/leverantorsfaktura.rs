@@ -11,7 +11,7 @@ use maya_core::underlag::{self, UnderlagFel, UnderlagId};
 use maya_core::verifikat::{self, Flöde, VerifikatFel};
 use maya_core::{Databas, Klocka, behandlingshistorik, testhjalp};
 use maya_domain::foretag::NyttFöretag;
-use maya_domain::leverantor::NyLeverantör;
+use maya_domain::leverantor::{NyLeverantör, OmvändSkattskyldighet};
 use maya_domain::leverantorsfaktura::{NY, NyLeverantörsfaktura, NyRad};
 use maya_domain::rattelse::Rättelsespärr;
 
@@ -575,4 +575,177 @@ async fn den_som_saknar_åtkomst_får_inte_röra_leverantörsfakturorna() {
         leverantorsfaktura::fakturan(&db, &bo, id, f).await,
         Err(ÅtkomstFel::IngenÅtkomst)
     ));
+}
+
+// #146 omvänd skattskyldighet
+
+/// Fakturan från [`formulär`] med omvänd skattskyldighet `kod`: totalen är nettot.
+fn omvänt_formulär(leverantör: &str, kod: &str) -> NyLeverantörsfaktura {
+    NyLeverantörsfaktura {
+        omvänd_skattskyldighet: kod.into(),
+        totalbelopp: "1 100,00".into(),
+        ..formulär(leverantör)
+    }
+}
+
+#[tokio::test]
+async fn varje_variant_av_omvänd_skattskyldighet_bokför_fiktiv_moms_enligt_tabellen() {
+    for (kod, ingående) in [
+        ("eu_tjanst", 2645),
+        ("eu_vara", 2645),
+        ("utanfor_eu", 2645),
+        ("bygg", 2647),
+    ] {
+        let (db, anna, id, l, f) = utkast().await;
+        let r =
+            leverantorsfaktura::registrera(&db, &klocka(), &anna, id, f, &omvänt_formulär(&l, kod))
+                .await
+                .unwrap_or_else(|e| panic!("{kod}: {e:?}"));
+        assert_eq!(
+            rader(&db, &anna, id, r.verifikat.id).await,
+            [
+                (5410, 100_000, 0),
+                (6250, 10_000, 0),
+                (ingående, 26_200, 0),
+                (2440, 0, 110_000),
+                (2614, 0, 25_000),
+                (2624, 0, 1_200),
+            ],
+            "{kod}"
+        );
+        let faktura = leverantorsfaktura::fakturan(&db, &anna, id, f)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(faktura.formulär.omvänd_skattskyldighet, kod);
+        assert_eq!(faktura.formulär.rader[0].moms, "250,00");
+        let post = faktura.historik.last().unwrap();
+        assert_eq!(post.beskrivning["omvänd_skattskyldighet"], kod);
+    }
+}
+
+#[tokio::test]
+async fn leverantörens_förval_föreslås_på_utkastet_och_bokförs() {
+    let (db, anna, id, _, f) = utkast().await;
+    let l = leverantor::skapa(
+        &db,
+        &klocka(),
+        &anna,
+        id,
+        &NyLeverantör {
+            namn: "Byggfirman AB".into(),
+            bankgiro: "5050-1055".into(),
+            standardkonto: "5410".into(),
+            omvänd_skattskyldighet: "bygg".into(),
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap()
+    .to_string();
+    let mut utkastet = omvänt_formulär(&l, "");
+    leverantorsfaktura::spara_utkast(&db, &klocka(), &anna, id, f, &utkastet)
+        .await
+        .unwrap();
+
+    // Utkastet har inget eget val, så leverantörens förval föreslås.
+    let sparat = leverantorsfaktura::fakturan(&db, &anna, id, f)
+        .await
+        .unwrap()
+        .unwrap()
+        .formulär;
+    assert_eq!(sparat.omvänd_skattskyldighet, "");
+    let fö = leverantorsfaktura::förutsättningar(&db, &anna, id, Some(f))
+        .await
+        .unwrap();
+    assert_eq!(
+        sparat.omvänd_skattskyldighet(&fö),
+        OmvändSkattskyldighet::Bygg
+    );
+
+    // Ett val på utkastet sparas och går före förvalet.
+    utkastet.omvänd_skattskyldighet = "ingen".into();
+    leverantorsfaktura::spara_utkast(&db, &klocka(), &anna, id, f, &utkastet)
+        .await
+        .unwrap();
+    let sparat = leverantorsfaktura::fakturan(&db, &anna, id, f)
+        .await
+        .unwrap()
+        .unwrap()
+        .formulär;
+    assert_eq!(sparat.omvänd_skattskyldighet, "ingen");
+
+    // Registreras utkastet utan eget val bokförs förvalet.
+    utkastet.omvänd_skattskyldighet = String::new();
+    let r = leverantorsfaktura::registrera(&db, &klocka(), &anna, id, f, &utkastet)
+        .await
+        .unwrap();
+    assert_eq!(
+        rader(&db, &anna, id, r.verifikat.id).await[2],
+        (2647, 26_200, 0)
+    );
+    let registrerad = leverantorsfaktura::fakturan(&db, &anna, id, f)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(registrerad.formulär.omvänd_skattskyldighet, "bygg");
+}
+
+#[tokio::test]
+async fn ett_företag_utan_momsregistrering_kan_inte_registrera_omvänd_skattskyldighet() {
+    let db = Databas::tillfällig().await;
+    let anna = testhjalp::användare(&db, "anna@example.se").await;
+    let id = foretag::lägg_upp(
+        &db,
+        &klocka(),
+        &anna,
+        &NyttFöretag {
+            orgnr: "556677-8899".into(),
+            namn: "Liten AB".into(),
+            första_år_start: "2026-01-01".into(),
+            första_år_slut: "2026-12-31".into(),
+            bokföringsmetod: "faktura".into(),
+            momsperiod: "ej_momsregistrerad".into(),
+        },
+    )
+    .await
+    .unwrap();
+    let l = testhjalp::leverantör(&db, &anna, id, "Kontorsvaror AB").await;
+    let u = ladda_upp(&db, &anna, id).await;
+    let f = leverantorsfaktura::skapa_utkast(&db, &klocka(), &anna, id, u)
+        .await
+        .unwrap();
+    let fel = leverantorsfaktura::registrera(
+        &db,
+        &klocka(),
+        &anna,
+        id,
+        f,
+        &omvänt_formulär(&l.to_string(), "eu_tjanst"),
+    )
+    .await
+    .unwrap_err();
+    assert_eq!(spärrkoder(fel)[0], "omvand_ej_momsregistrerad");
+}
+
+#[tokio::test]
+async fn en_okänd_kod_för_omvänd_skattskyldighet_sparas_inte() {
+    let (db, anna, id, l, f) = utkast().await;
+    let fel = leverantorsfaktura::spara_utkast(
+        &db,
+        &klocka(),
+        &anna,
+        id,
+        f,
+        &omvänt_formulär(&l, "import"),
+    )
+    .await
+    .unwrap_err();
+    assert_eq!(spärrkoder(fel), ["omvand_ogiltig"]);
+    let svar = testhjalp::kör_sql(
+        &db,
+        "UPDATE leverantorsfaktura SET omvand_skattskyldighet = 'import'",
+    )
+    .await;
+    assert!(svar.is_err(), "schemat avvisar en okänd kod");
 }

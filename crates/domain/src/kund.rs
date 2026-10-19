@@ -45,7 +45,7 @@ impl OmvändSkattskyldighet {
 }
 
 /// Fälten i kundformuläret.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Fält {
     Namn,
     Identitet,
@@ -133,6 +133,21 @@ pub struct GiltigKund {
     pub momsregnr: String,
     pub betalningsvillkor: u16,
     pub omvänd_skattskyldighet: OmvändSkattskyldighet,
+}
+
+impl GiltigKund {
+    /// Kunden som formulär, för att fortsätta skriva på den.
+    pub fn som_formulär(&self) -> NyKund {
+        NyKund {
+            namn: self.namn.clone(),
+            identitet: self.identitet.clone(),
+            adress: self.adress.clone(),
+            epost: self.epost.clone(),
+            momsregnr: self.momsregnr.clone(),
+            betalningsvillkor: self.betalningsvillkor.to_string(),
+            omvänd_skattskyldighet: self.omvänd_skattskyldighet.kod().into(),
+        }
+    }
 }
 
 impl NyKund {
