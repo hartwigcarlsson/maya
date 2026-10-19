@@ -8,13 +8,13 @@
 
 use leptos::prelude::*;
 use leptos_router::hooks::use_query_map;
-use maya_domain::belopp::Belopp;
+use maya_domain::belopp::{Saldo, tolka_med_tecken};
 use maya_domain::foretag::Momsperiod;
 use maya_domain::kontoplan::Kontonummer;
 use maya_domain::leverantor::{self, NyLeverantör, OmvändSkattskyldighet};
 use maya_domain::leverantorsfaktura::{
-    Fält, Förutsättningar, Leverantörsval, MOMSSATSER, NY, NyLeverantörsfaktura, NyRad,
-    Registrerad, Spärr, moms, Åtgärd,
+    Fält, Förutsättningar, Krediterbar, Leverantörsval, MOMSSATSER, NY, NyLeverantörsfaktura,
+    NyRad, Rad, Registrerad, Spärr, moms_med_tecken, Åtgärd,
 };
 use maya_domain::rakenskapsar::Räkenskapsår;
 use maya_domain::reskontra::Grupp;
@@ -89,6 +89,29 @@ pub struct FakturaVy {
     /// Betaluppgifterna som betalningen görs med: leverantörens bankgiro, plusgiro eller
     /// IBAN/BIC och fakturans OCR eller meddelande, som etikett och värde.
     pub betaluppgifter: Vec<(String, String)>,
+    // #148 Kreditfaktura och Rätta avskrift
+    /// Registreringen är vänd med Rätta avskrift, och fakturan skrivs av igen.
+    pub upplåst: bool,
+    /// Totalen är negativ.
+    pub kreditfaktura: bool,
+    /// Originalet som kreditfakturan hänvisar till: id och fakturanummer.
+    pub krediterar: Option<(String, String)>,
+    /// Kreditfakturorna som hänvisar hit: id, fakturanummer och total.
+    pub krediteras_av: Vec<(String, String, String)>,
+    /// Upplåsningarna: registreringens verifikat, rättelsen (id och nummer), orsaken, tid och namn.
+    pub avskrifter: Vec<AvskriftVy>,
+}
+
+/// En upplåsning med Rätta avskrift (#148).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AvskriftVy {
+    /// Registreringens verifikat: id och nummer.
+    pub verifikat: Option<(String, String)>,
+    /// Rättelsen: id och nummer.
+    pub rättelse: Option<(String, String)>,
+    pub orsak: String,
+    /// Tid och namn.
+    pub rättad: (String, String),
 }
 
 /// Det som formuläret prövar spärrarna mot, i webbläsaren.
@@ -103,6 +126,24 @@ pub struct FörutsättningarVy {
     pub leverantörer: Vec<(String, String, Option<u16>, String)>,
     /// Id, leverantör, nummer, fakturadatum och total i öre.
     pub registrerade: Vec<(String, String, String, String, i64)>,
+    /// Fakturorna som en kreditfaktura kan hänvisa till (#148).
+    pub krediterbara: Vec<KrediterbarVy>,
+    /// Det som redan har betalats av en upplåst faktura, i öre (#148).
+    pub betalt: i64,
+}
+
+/// En faktura som en kreditfaktura kan hänvisa till, med raderna som registrerades (#148).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct KrediterbarVy {
+    pub id: String,
+    pub leverantör: String,
+    pub fakturanummer: String,
+    /// I öre.
+    pub total: i64,
+    /// Koden för den omvända skattskyldigheten.
+    pub omvänd: String,
+    /// Konto, netto i öre, momssats och moms i öre.
+    pub rader: Vec<(u16, i64, u8, i64)>,
 }
 
 impl FörutsättningarVy {
@@ -152,7 +193,31 @@ impl FörutsättningarVy {
                     })
                 })
                 .collect(),
-            ..Förutsättningar::default()
+            krediterbara: self
+                .krediterbara
+                .iter()
+                .map(|k| Krediterbar {
+                    id: k.id.clone(),
+                    leverantör: k.leverantör.clone(),
+                    fakturanummer: k.fakturanummer.clone(),
+                    total: k.total,
+                    omvänd_skattskyldighet: OmvändSkattskyldighet::från_kod(&k.omvänd)
+                        .unwrap_or_default(),
+                    rader: k
+                        .rader
+                        .iter()
+                        .filter_map(|(konto, netto, sats, moms)| {
+                            Some(Rad {
+                                konto: Kontonummer::new(*konto)?,
+                                netto: *netto,
+                                momssats: *sats,
+                                moms: *moms,
+                            })
+                        })
+                        .collect(),
+                })
+                .collect(),
+            betalt: self.betalt,
         }
     }
 
@@ -302,6 +367,9 @@ fn feltext(kod: &str) -> Option<&'static str> {
         "inte_okopplat" => "Underlaget är redan kopplat eller original till en annan faktura.",
         "inget_utkast" => "Utkastet finns inte längre, eller är redan registrerat.",
         "for_stort" => "Ett underlag får vara högst 25 MB.",
+        // #148 Rätta avskrift
+        "inte_registrerad" => "Fakturan är inte registrerad, så avskriften kan inte rättas.",
+        "rattelse" => "Registreringen kunde inte rättas i dag. Kontrollera räkenskapsåren.",
         "ingen_fil" => "Välj originalet att ladda upp.",
         // #147 Betalningar
         kod => return crate::betalning::feltext(kod),
@@ -327,11 +395,12 @@ pub(crate) mod server {
     };
     use maya_core::underlag::{self, UnderlagFel};
     use maya_core::{Databas, Klocka, kontoplan, verifikat};
+    use maya_domain::reskontra::{Märke, märke_med_kredit};
     use maya_domain::tid::minut;
 
     use super::{
-        FakturaVy, FörutsättningarVy, HistorikVy, KonteringVy, Leverantörsfakturadata, ListradVy,
-        formulär, fält,
+        AvskriftVy, FakturaVy, FörutsättningarVy, HistorikVy, KonteringVy, KrediterbarVy,
+        Leverantörsfakturadata, ListradVy, formulär, fält,
     };
     use crate::sidodata::{self, Sidbegäran};
     use crate::svar::{ingen_åtkomst, serverfel};
@@ -357,6 +426,11 @@ pub(crate) mod server {
             .route(
                 "/foretag/{id}/leverantorsfakturor/{f}/betalningar/{b}/ratta",
                 post(crate::betalning::server::rätta_leverantörsbetalning),
+            )
+            // #148 Rätta avskrift
+            .route(
+                "/foretag/{id}/leverantorsfakturor/{f}/ratta-avskrift",
+                post(rätta_avskrift),
             )
             .layer(DefaultBodyLimit::max(STÖRSTA_BEGÄRAN))
             .with_state(Arc::new(state))
@@ -441,7 +515,8 @@ pub(crate) mod server {
             lista: lista
                 .iter()
                 .map(|r| {
-                    let registrerad = r.förfallodag.filter(|_| r.status != Status::Utkast);
+                    // En upplåst faktura står bland utkasten tills den registreras om (#148).
+                    let registrerad = r.förfallodag.filter(|_| r.status == Status::Registrerad);
                     let total = r.total.unwrap_or_default();
                     ListradVy {
                         id: r.id.to_string(),
@@ -452,10 +527,15 @@ pub(crate) mod server {
                         förfallodag: r.förfallodag.map(|d| d.to_string()).unwrap_or_default(),
                         total: r.total.map(kr).unwrap_or_default(),
                         återstår: kr(r.återstår),
-                        märke: registrerad.map(|d| {
-                            let m = maya_domain::reskontra::märke(total, r.återstår, d, idag);
-                            (m.kod().to_string(), m.namn().to_string())
-                        }),
+                        märke: match (r.status, registrerad) {
+                            (Status::Upplåst, _) => Some(Märke::Upplåst),
+                            (_, Some(_)) if r.kreditfaktura => Some(Märke::Kreditfaktura),
+                            (_, Some(d)) => {
+                                Some(märke_med_kredit(total, r.krediterat, r.återstår, d, idag))
+                            }
+                            _ => None,
+                        }
+                        .map(|m| (m.kod().to_string(), m.namn().to_string())),
                         grupp: Some(match registrerad {
                             Some(d) => maya_domain::reskontra::grupp(r.återstår, d, idag),
                             None => maya_domain::reskontra::Grupp::Utkast,
@@ -518,6 +598,23 @@ pub(crate) mod server {
                         )
                     })
                     .collect(),
+                krediterbara: förutsättningar
+                    .krediterbara
+                    .iter()
+                    .map(|k| KrediterbarVy {
+                        id: k.id.clone(),
+                        leverantör: k.leverantör.clone(),
+                        fakturanummer: k.fakturanummer.clone(),
+                        total: k.total,
+                        omvänd: k.omvänd_skattskyldighet.kod().to_string(),
+                        rader: k
+                            .rader
+                            .iter()
+                            .map(|r| (r.konto.get(), r.netto, r.momssats, r.moms))
+                            .collect(),
+                    })
+                    .collect(),
+                betalt: förutsättningar.betalt,
             },
             okopplade,
         })
@@ -555,7 +652,7 @@ pub(crate) mod server {
             None => Vec::new(),
         };
         // #147 Betalningar: status, betalningarna och panelerna, och betaluppgifterna.
-        let reskontra = match f.status {
+        let mut reskontra = match f.status {
             Status::Utkast => None,
             Status::Registrerad | Status::Upplåst => Some(
                 crate::betalning::server::reskontra(
@@ -590,6 +687,18 @@ pub(crate) mod server {
                 }
             }
         }
+        // #148: en kreditfaktura med hänvisning och en upplåst faktura har egna märken.
+        if let Some(r) = reskontra.as_mut() {
+            let märke = match f.status {
+                Status::Upplåst => Some(Märke::Upplåst),
+                _ if f.krediterar.is_some() => Some(Märke::Kreditfaktura),
+                _ => None,
+            };
+            if let Some(m) = märke {
+                r.märke = (m.kod().into(), m.namn().into());
+            }
+        }
+        let kr = |öre: i64| maya_domain::belopp::Saldo::från_öre(öre).to_string();
         if reskontra.is_some() && !f.formulär.referens.trim().is_empty() {
             betaluppgifter.push((
                 "OCR eller meddelande".to_string(),
@@ -621,6 +730,37 @@ pub(crate) mod server {
             kontering,
             reskontra,
             betaluppgifter,
+            upplåst: f.status == Status::Upplåst,
+            kreditfaktura: f.total.is_some_and(|t| t < 0),
+            krediterar: f
+                .krediterar
+                .as_ref()
+                .map(|k| (k.id.to_string(), k.fakturanummer.clone())),
+            krediteras_av: f
+                .krediteras_av
+                .iter()
+                .map(|k| (k.id.to_string(), k.fakturanummer.clone(), kr(k.total)))
+                .collect(),
+            avskrifter: f
+                .avskrifter
+                .iter()
+                .map(|a| {
+                    let länk = |l: &Option<maya_core::verifikat::Länk>| {
+                        l.as_ref().map(|l| {
+                            (
+                                l.id.to_string(),
+                                l.nummer.map(|n| n.to_string()).unwrap_or_default(),
+                            )
+                        })
+                    };
+                    AvskriftVy {
+                        verifikat: länk(&a.verifikat),
+                        rättelse: länk(&a.rättelse),
+                        orsak: a.orsak.clone(),
+                        rättad: (minut(a.rättad.tid), a.rättad.namn.clone()),
+                    }
+                })
+                .collect(),
         })
     }
 
@@ -653,6 +793,13 @@ pub(crate) mod server {
                 Redirect::to(&format!("{sida}/ny?fel=for_stort")).into_response()
             }
             FakturaFel::Underlag(e) => underlagsfel(e),
+            // #148 Rätta avskrift
+            FakturaFel::InteRegistrerad => {
+                Redirect::to(&format!("{sida}?fel=inte_registrerad")).into_response()
+            }
+            FakturaFel::Rättelse(_) => {
+                Redirect::to(&format!("{sida}?fel=rattelse")).into_response()
+            }
             FakturaFel::Åtkomst(ÅtkomstFel::IngenÅtkomst | ÅtkomstFel::KanalenFårInte) => {
                 ingen_åtkomst()
             }
@@ -744,6 +891,50 @@ pub(crate) mod server {
         }
     }
 
+    /// Rätta avskrift… (#148): vänder registreringen och låser upp fakturan.
+    async fn rätta_avskrift(
+        State(state): State<Arc<LeverantörsfakturaState>>,
+        Path((id, f)): Path<(String, String)>,
+        inloggad: Option<Extension<Inloggad>>,
+        Form(fält): Form<Fält>,
+    ) -> Response {
+        let Some(Extension(inloggad)) = inloggad else {
+            return Redirect::to("/").into_response();
+        };
+        let (Ok(företag), Ok(f)) = (id.parse::<FöretagsId>(), f.parse::<LeverantörsfakturaId>())
+        else {
+            return ingen_åtkomst();
+        };
+        let sida = format!("/foretag/{företag}/leverantorsfakturor");
+        let orsak = värde(&fält, "orsak").unwrap_or_default();
+        match leverantorsfaktura::rätta_avskrift(
+            &state.db,
+            &state.klocka,
+            &inloggad.aktör,
+            företag,
+            f,
+            &orsak,
+        )
+        .await
+        {
+            Ok(r) => {
+                let nummer = r
+                    .rättelse
+                    .map(|b| b.nummer.to_string())
+                    .unwrap_or_else(|| "1".into());
+                Redirect::to(&format!("{sida}?f={f}&avskrift_rattad={nummer}")).into_response()
+            }
+            Err(FakturaFel::InteRegistrerad) => {
+                Redirect::to(&format!("{sida}?f={f}&fel=inte_registrerad")).into_response()
+            }
+            Err(FakturaFel::Rättelse(_)) => {
+                Redirect::to(&format!("{sida}?f={f}&panel=ratta-avskrift&fel=rattelse"))
+                    .into_response()
+            }
+            Err(e) => fakturafel(e, &sida),
+        }
+    }
+
     async fn radera(
         State(state): State<Arc<LeverantörsfakturaState>>,
         Path((id, f)): Path<(String, String)>,
@@ -808,6 +999,18 @@ fn leverantörsfakturasida(data: Leverantörsfakturadata, ny: bool) -> AnyView {
     } else if fråga("betald").is_some() {
         // #147 Betalningar
         Some("Betalningen registrerades och verifikatet bokfördes.".into())
+    } else if let Some(nummer) = fråga("avskrift_rattad") {
+        // #148 Rätta avskrift
+        Some(if nummer == "1" {
+            "Avskriften rättades. Fakturan är upplåst; skriv av den och registrera om.".to_string()
+        } else {
+            format!(
+                "Avskriften rättades. Registreringen vändes med {nummer}, och fakturan är upplåst; \
+                 skriv av den och registrera om."
+            )
+        })
+    } else if fråga("aterbetald").is_some() {
+        Some("Återbetalningen registrerades och verifikatet bokfördes.".into())
     } else if fråga("betalning_rattad").is_some() {
         Some("Betalningen rättades. Rättelsen bokfördes och betalningen räknas inte längre.".into())
     } else if fråga("raderat").is_some() {
@@ -837,7 +1040,7 @@ fn leverantörsfakturasida(data: Leverantörsfakturadata, ny: bool) -> AnyView {
         view! { <NyFaktura bas=bas.clone() okopplade=data.okopplade.clone() /> }.into_any()
     } else {
         match data.valt.clone() {
-            Some(f) if f.utkast => view! {
+            Some(f) if f.utkast || f.upplåst => view! {
                 <Utkast bas=bas.clone() f=f förutsättningar=data.förutsättningar.clone() />
             }
             .into_any(),
@@ -1064,6 +1267,7 @@ fn Utkast(bas: String, f: FakturaVy, förutsättningar: FörutsättningarVy) -> 
                     start=start
                     förutsättningar=förutsättningar
                     skapad=f.skapad.clone()
+                    upplåst=f.upplåst
                 />
             </div>
         </div>
@@ -1079,6 +1283,8 @@ fn Formulär(
     start: NyLeverantörsfaktura,
     förutsättningar: FörutsättningarVy,
     skapad: (String, String),
+    /// Registreringen är vänd med Rätta avskrift (#148): fakturan registreras om och raderas inte.
+    upplåst: bool,
 ) -> impl IntoView {
     let faktura = RwSignal::new(start.clone());
     let fö = förutsättningar.förutsättningar();
@@ -1267,10 +1473,10 @@ fn Formulär(
                     let beräknad = move || {
                         faktura.with(|f| {
                             let r = &f.rader[i];
-                            let netto = Belopp::tolka(r.netto.trim());
+                            let netto = tolka_med_tecken(&r.netto);
                             let sats = r.momssats.trim().parse::<u8>().ok();
                             match (netto, sats) {
-                                (Some(n), Some(s)) => moms(n, s).to_string(),
+                                (Some(n), Some(s)) => Saldo::från_öre(moms_med_tecken(n, s)).to_string(),
                                 _ => String::new(),
                             }
                         })
@@ -1285,6 +1491,7 @@ fn Formulär(
                                     list="konton"
                                     aria-label="Konto"
                                     placeholder=move || standardkonto.get()
+                                    prop:value=move || faktura.with(|f| f.rader.get(i).map(|r| r.konto.clone()).unwrap_or_default())
                                     value=fält(|r| &r.konto)
                                     on:input=move |ev| {
                                         faktura.update(|f| f.rader[i].konto = event_target_value(&ev))
@@ -1300,6 +1507,7 @@ fn Formulär(
                                     inputmode="decimal"
                                     class="belopp"
                                     aria-label="Netto"
+                                    prop:value=move || faktura.with(|f| f.rader.get(i).map(|r| r.netto.clone()).unwrap_or_default())
                                     value=fält(|r| &r.netto)
                                     on:input=move |ev| {
                                         faktura.update(|f| f.rader[i].netto = event_target_value(&ev))
@@ -1311,6 +1519,7 @@ fn Formulär(
                                 <select
                                     name=format!("momssats_{i}")
                                     aria-label="Momssats"
+                                    prop:value=move || faktura.with(|f| f.rader.get(i).map(|r| r.momssats.clone()).unwrap_or_default())
                                     on:change=move |ev| {
                                         faktura
                                             .update(|f| f.rader[i].momssats = event_target_value(&ev))
@@ -1329,6 +1538,7 @@ fn Formulär(
                                     aria-label="Momsbelopp"
                                     title="Ändra om fakturans moms avviker"
                                     placeholder=beräknad
+                                    prop:value=move || faktura.with(|f| f.rader.get(i).map(|r| r.moms.clone()).unwrap_or_default())
                                     value=fält(|r| &r.moms)
                                     on:input=move |ev| {
                                         faktura.update(|f| f.rader[i].moms = event_target_value(&ev))
@@ -1409,17 +1619,17 @@ fn Formulär(
                 .rader
                 .iter()
                 .filter_map(|r| {
-                    let netto = Belopp::tolka(r.netto.trim())?;
+                    let netto = tolka_med_tecken(&r.netto)?;
                     let sats = r.momssats.trim().parse::<u8>().ok()?;
                     let m = match r.moms.trim() {
-                        "" => moms(netto, sats),
-                        t => Belopp::tolka(t)?,
+                        "" => moms_med_tecken(netto, sats),
+                        t => tolka_med_tecken(t)?,
                     };
-                    Some(netto.öre() + if omvänd { 0 } else { m.öre() })
+                    Some(netto + if omvänd { 0 } else { m })
                 })
                 .sum();
-            match Belopp::tolka(f.totalbelopp.trim()) {
-                Some(t) if t.öre() == summa && summa > 0 => {
+            match tolka_med_tecken(&f.totalbelopp) {
+                Some(t) if t == summa && summa != 0 => {
                     view! { <span class="diff-ok">"Summerar till totalen"</span> }.into_any()
                 }
                 Some(_) => view! {
@@ -1427,7 +1637,7 @@ fn Formulär(
                         {format!(
                             "{}: {} kr",
                             if omvänd { "Raderna" } else { "Raderna med moms" },
-                            Belopp::från_öre(summa),
+                            Saldo::från_öre(summa),
                         )}
                     </span>
                 }
@@ -1496,6 +1706,87 @@ fn Formulär(
             }
         })
     };
+    // #148: hänvisningen till originalet för en kreditfaktura, med leverantörens registrerade
+    // fakturor, och Kontera som originalet som fyller raderna proportionellt.
+    let hänvisning = {
+        let krediterbara = förutsättningar.krediterbara.clone();
+        let spärr = spärr_vid(Fält::Krediterar);
+        let fö = fö.clone();
+        move || {
+            let leverantör = faktura.with(|f| f.leverantör.trim().to_string());
+            let vald = faktura.with_untracked(|f| f.krediterar.trim().to_string());
+            let val: Vec<KrediterbarVy> = krediterbara
+                .iter()
+                .filter(|k| k.leverantör == leverantör)
+                .cloned()
+                .collect();
+            if val.is_empty() && vald.is_empty() {
+                return None;
+            }
+            let alternativ = val
+                .into_iter()
+                .map(|k| {
+                    view! {
+                        <option value=k.id.clone() selected=k.id == vald>
+                            {format!(
+                                "Faktura {} · {} kr",
+                                k.fakturanummer,
+                                Saldo::från_öre(k.total),
+                            )}
+                        </option>
+                    }
+                })
+                .collect_view();
+            let fö = fö.clone();
+            let kontera = move |_| {
+                faktura.update(|f| {
+                    if let Some(ny) = f.kontera_som_originalet(&fö) {
+                        *f = ny;
+                    }
+                })
+            };
+            Some(view! {
+                <div class="bred hanvisning-val">
+                    <label for="krediterar">"Krediterar (kreditfaktura)"</label>
+                    <select
+                        id="krediterar"
+                        name="krediterar"
+                        on:change=move |ev| faktura.update(|f| f.krediterar = event_target_value(&ev))
+                    >
+                        <option value="" selected=vald.is_empty()>
+                            "Ingen hänvisning"
+                        </option>
+                        {alternativ}
+                    </select>
+                    " "
+                    <button
+                        class="knapp knapp-diskret"
+                        type="button"
+                        on:click=kontera
+                        title="Fyller raderna ur originalet, proportionellt mot den negativa totalen"
+                    >
+                        "Kontera som originalet"
+                    </button>
+                    {spärr.clone()}
+                </div>
+            })
+        }
+    };
+    let betalt = förutsättningar.betalt;
+    let upplåst_info = upplåst.then(|| {
+        let text = if betalt == 0 {
+            "Upplåst med Rätta avskrift. Skriv av fakturan och registrera om den.".to_string()
+        } else {
+            format!(
+                "Upplåst med Rätta avskrift. {} kr är redan betalt, och totalen får inte bli lägre.",
+                Saldo::från_öre(betalt)
+            )
+        };
+        view! { <p class="notis" role="status">{text}</p> }
+    });
+    let kreditfaktura = Memo::new(move |_| {
+        faktura.with(|f| tolka_med_tecken(&f.totalbelopp).is_some_and(|t| t < 0))
+    });
     let aktiva = förutsättningar
         .konton
         .iter()
@@ -1529,10 +1820,16 @@ fn Formulär(
             action=format!("{bas}/leverantorsfakturor/{id}")
             novalidate
         >
-            <p class="dokument-nummer">"Leverantörsfaktura"</p>
+            <p class="dokument-nummer">
+                {move || if kreditfaktura.get() { "Kreditfaktura" } else { "Leverantörsfaktura" }}
+            </p>
             <h2>{rubrik}</h2>
             <p>
-                <UtkastBadge />
+                {if upplåst {
+                    view! { <span class="badge badge-upplast">"Upplåst"</span> }.into_any()
+                } else {
+                    view! { <UtkastBadge /> }.into_any()
+                }}
                 " "
                 <span class="diskret">"Skapat av " {skapad.1.clone()} " · " {skapad.0.clone()}</span>
             </p>
@@ -1616,6 +1913,7 @@ fn Formulär(
                     |f, v| f.totalbelopp = v,
                 )}
                 {omvänd_val}
+                {hänvisning}
                 {textfält(
                     "originalvaluta",
                     "Originalvaluta (fritext)",
@@ -1625,6 +1923,7 @@ fn Formulär(
                     |f, v| f.originalvaluta = v,
                 )}
             </div>
+            {upplåst_info}
             <datalist id="konton">{aktiva}</datalist>
             <table class="rader">
                 <thead>
@@ -1662,14 +1961,19 @@ fn Formulär(
                     {registrera_text}
                 </button>
                 <button class="knapp" type="submit" name="handling" value="utkast">
-                    "Spara utkast"
+                    {if upplåst { "Spara" } else { "Spara utkast" }}
                 </button>
-                <a
-                    class="knapp knapp-fara-diskret"
-                    href=format!("{bas}/leverantorsfakturor?f={id}&radera=1")
-                >
-                    "Radera utkast"
-                </a>
+                {(!upplåst)
+                    .then(|| {
+                        view! {
+                            <a
+                                class="knapp knapp-fara-diskret"
+                                href=format!("{bas}/leverantorsfakturor?f={id}&radera=1")
+                            >
+                                "Radera utkast"
+                            </a>
+                        }
+                    })}
             </p>
             <p class="diskret">
                 "Registrera låser fakturan och bokför den på fakturadatumet med originalet som underlag."
@@ -1739,6 +2043,60 @@ fn Registrerad(bas: String, f: FakturaVy) -> impl IntoView {
             }
         })
     };
+    // #148: hänvisningarna åt båda hållen och upplåsningarna.
+    let krediterar = f.krediterar.clone().map(|(id, nummer)| {
+        view! {
+            <dt>"Krediterar"</dt>
+            <dd>
+                <a href=format!("{bas}/leverantorsfakturor?f={id}")>{format!("Faktura {nummer}")}</a>
+            </dd>
+        }
+    });
+    let krediteras_av = (!f.krediteras_av.is_empty()).then(|| {
+        let länkar = f
+            .krediteras_av
+            .iter()
+            .map(|(id, nummer, total)| {
+                view! {
+                    <a href=format!("{bas}/leverantorsfakturor?f={id}")>
+                        {format!("Kreditfaktura {nummer}")}
+                    </a>
+                    <span class="diskret">{format!(" {total} kr")}</span>
+                    <br />
+                }
+            })
+            .collect_view();
+        view! {
+            <dt>"Krediteras av"</dt>
+            <dd>{länkar}</dd>
+        }
+    });
+    let avskrifter = (!f.avskrifter.is_empty()).then(|| {
+        let rader = f
+            .avskrifter
+            .iter()
+            .map(|a| {
+                let rättelse = a.rättelse.clone().map(|(id, nummer)| {
+                    view! {
+                        "Rättad med "
+                        <a href=format!("{bas}/verifikat?v={id}")>{nummer}</a>
+                        " "
+                    }
+                });
+                let orsak = (!a.orsak.is_empty()).then(|| format!("· {} ", a.orsak));
+                view! {
+                    {rättelse}
+                    {orsak}
+                    <span class="diskret">{format!("· {} av {}", a.rättad.0, a.rättad.1)}</span>
+                    <br />
+                }
+            })
+            .collect_view();
+        view! {
+            <dt>"Rättad avskrift"</dt>
+            <dd>{rader}</dd>
+        }
+    });
     let verifikat = f.verifikat.clone().map(|(id, nummer)| {
         view! {
             <dt>"Verifikat"</dt>
@@ -1790,11 +2148,15 @@ fn Registrerad(bas: String, f: FakturaVy) -> impl IntoView {
         Some(r) => {
             let status =
                 view! { <Märke kod=r.märke.0.clone() namn=r.märke.1.clone() /> }.into_any();
-            let kvar = (r.återstår_öre > 0).then(|| {
-                view! { <span class="diskret">{format!(" · {} kvar", r.återstår)}</span> }
-            });
+            let kvar = match r.återstår_öre {
+                0 => None,
+                ö if ö > 0 => Some(format!(" · {} kvar", r.återstår)),
+                // #148: ett tillgodohavande hos leverantören.
+                ö => Some(format!(" · {} tillgodo", Saldo::från_öre(-ö))),
+            }
+            .map(|text| view! { <span class="diskret">{text}</span> });
             let panel = match (vald_panel.as_deref(), r.betalning.clone(), r.rätta.clone()) {
-                (Some("betalning"), Some(v), _) => Some(
+                (Some("betalning" | "aterbetala"), Some(v), _) => Some(
                     view! {
                         <Betalningspanel
                             action=format!("{lista}/{}/betalning", f.id)
@@ -1814,13 +2176,44 @@ fn Registrerad(bas: String, f: FakturaVy) -> impl IntoView {
                     }
                     .into_any(),
                 ),
+                // #148 Rätta avskrift
+                (Some("ratta-avskrift"), _, _) => Some(
+                    view! {
+                        <RättaAvskriftpanel
+                            action=format!("{lista}/{}/ratta-avskrift", f.id)
+                            stäng=här.clone()
+                            kontering=f.kontering.clone()
+                            verifikat=f.verifikat.clone().map(|(_, n)| n).unwrap_or_default()
+                        />
+                    }
+                    .into_any(),
+                ),
                 _ => None,
             };
-            let handlingar = (panel.is_none() && r.återstår_öre > 0).then(|| {
+            let betala = (r.återstår_öre > 0).then(|| {
+                view! {
+                    <a class="knapp knapp-primar" href=format!("{här}&panel=betalning")>
+                        "Registrera betalning"
+                    </a>
+                    " "
+                }
+            });
+            // #148: ett tillgodohavande återbetalas, och avskriften rättas.
+            let återbetala = (r.återstår_öre < 0).then(|| {
+                view! {
+                    <a class="knapp knapp-primar" href=format!("{här}&panel=aterbetala")>
+                        "Återbetala…"
+                    </a>
+                    " "
+                }
+            });
+            let handlingar = panel.is_none().then(|| {
                 view! {
                     <p class="dokument-handlingar">
-                        <a class="knapp knapp-primar" href=format!("{här}&panel=betalning")>
-                            "Registrera betalning"
+                        {betala}
+                        {återbetala}
+                        <a class="knapp" href=format!("{här}&panel=ratta-avskrift")>
+                            "Rätta avskrift…"
                         </a>
                     </p>
                 }
@@ -1865,7 +2258,11 @@ fn Registrerad(bas: String, f: FakturaVy) -> impl IntoView {
             <article class="dokument">
                 <header>
                     <p class="dokument-nummer">
-                        {format!("Leverantörsfaktura {}", värde("fakturanummer"))}
+                        {format!(
+                            "{} {}",
+                            if f.kreditfaktura { "Kreditfaktura" } else { "Leverantörsfaktura" },
+                            värde("fakturanummer"),
+                        )}
                     </p>
                     <h2>{f.leverantörsnamn.clone()}</h2>
                     <p>
@@ -1890,8 +2287,11 @@ fn Registrerad(bas: String, f: FakturaVy) -> impl IntoView {
                             .unwrap_or_default(),
                     )}
                     {rad("Originalvaluta", värde("originalvaluta"))}
+                    {krediterar}
+                    {krediteras_av}
                     {verifikat}
                     {registrerad}
+                    {avskrifter}
                     {rad("Original", f.original.filnamn.clone())}
                 </dl>
                 <h3>"Kontering"</h3>
@@ -1913,5 +2313,69 @@ fn Registrerad(bas: String, f: FakturaVy) -> impl IntoView {
                 </section>
             </article>
         </div>
+    }
+}
+
+/// Panelen Rätta avskrift… (#148): orsaken är valfri, och rutan visar rättelsen som vänder
+/// registreringens verifikat i dag. Fakturan blir upplåst med betalningarna kvar.
+#[component]
+fn RättaAvskriftpanel(
+    action: String,
+    stäng: String,
+    kontering: Vec<KonteringVy>,
+    verifikat: String,
+) -> impl IntoView {
+    let rader = kontering
+        .into_iter()
+        .map(|r| {
+            view! {
+                <tr>
+                    <td>{r.konto}</td>
+                    <td class="diskret">{r.kontonamn}</td>
+                    <td class="belopp">{r.kredit}</td>
+                    <td class="belopp">{r.debet}</td>
+                </tr>
+            }
+        })
+        .collect_view();
+    view! {
+        <section class="panel avskriftspanel" aria-labelledby="avskrift-rubrik">
+            <header class="panelhuvud">
+                <h3 id="avskrift-rubrik">"Rätta avskrift"</h3>
+                <a class="knapp knapp-diskret" href=stäng>
+                    "Avbryt"
+                </a>
+            </header>
+            <p class="diskret">
+                {format!(
+                    "Registreringen {verifikat} vänds med en rättelse daterad i dag. Fakturan låses upp med betalningarna kvar, och du registrerar om den med samma regler.",
+                )}
+            </p>
+            <form method="post" action=action>
+                <div class="falt-grupp">
+                    <div>
+                        <label for="orsak">"Orsak (valfri)"</label>
+                        <input id="orsak" name="orsak" type="text" />
+                    </div>
+                </div>
+                <h4>"Bokförs som rättelse"</h4>
+                <table class="rader">
+                    <thead>
+                        <tr>
+                            <th>"Konto"</th>
+                            <th>"Kontonamn"</th>
+                            <th class="belopp">"Debet"</th>
+                            <th class="belopp">"Kredit"</th>
+                        </tr>
+                    </thead>
+                    <tbody>{rader}</tbody>
+                </table>
+                <p class="knappar">
+                    <button class="knapp knapp-primar" type="submit">
+                        "Rätta avskrift"
+                    </button>
+                </p>
+            </form>
+        </section>
     }
 }

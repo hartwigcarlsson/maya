@@ -27,6 +27,9 @@ pub enum Märke {
     Tillgodo,
     /// Fakturan är en kreditfaktura, som räknas av mot originalet.
     Kreditfaktura,
+    // #148 Rätta avskrift
+    /// Leverantörsfakturans registrering är vänd med Rätta avskrift, och den registreras om.
+    Upplåst,
 }
 
 impl Märke {
@@ -39,6 +42,7 @@ impl Märke {
             Märke::Krediterad => "Krediterad",
             Märke::Tillgodo => "Tillgodo",
             Märke::Kreditfaktura => "Kreditfaktura",
+            Märke::Upplåst => "Upplåst",
         }
     }
 
@@ -52,6 +56,7 @@ impl Märke {
             Märke::Krediterad => "krediterad",
             Märke::Tillgodo => "tillgodo",
             Märke::Kreditfaktura => "kreditfaktura",
+            Märke::Upplåst => "upplast",
         }
     }
 }
