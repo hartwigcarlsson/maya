@@ -595,3 +595,52 @@ async fn en_kundförlust_på_en_delkrediterad_faktura_gäller_det_som_återstår
     assert_eq!(rad.återstår, kvar);
     assert!(!rad.kundförlust);
 }
+
+#[tokio::test]
+async fn fakturaserien_är_obruten_över_två_räkenskapsår_med_fakturor_och_kreditfakturor() {
+    // Fakturaserien är en enda serie (VF3): numren fortsätter in i nästa räkenskapsår, och
+    // kreditfakturorna tar nästa nummer i samma serie.
+    let db = Databas::tillfällig().await;
+    let (anna, id, f1) = faktura(&db).await;
+    let kreditera_den = |f: KundfakturaId, idag: &'static str| {
+        let (db, anna) = (&db, &anna);
+        async move {
+            let klocka = Klocka::fast(idag.parse().unwrap());
+            let utkast = kundfaktura::kreditera(db, &klocka, anna, id, f, &antal("1"))
+                .await
+                .unwrap();
+            kundfaktura::utfärda(db, &klocka, anna, id, utkast)
+                .await
+                .unwrap()
+        }
+    };
+    let k1 = kreditera_den(f1.id, "2026-10-18T08:00:00Z").await;
+    let f2 = testhjalp::utfärdad_kundfaktura(&db, &anna, id, "Kund 2 AB", "2027-01-10").await;
+    let k2 = kreditera_den(f2.id, "2027-02-01T08:00:00Z").await;
+    let f3 = testhjalp::utfärdad_kundfaktura(&db, &anna, id, "Kund 3 AB", "2027-03-01").await;
+
+    let år: Vec<String> = maya_core::foretag::företaget(&db, &anna, id)
+        .await
+        .unwrap()
+        .räkenskapsår
+        .iter()
+        .map(|å| å.start.to_string())
+        .collect();
+    assert_eq!(år, ["2026-01-01", "2027-01-01"]);
+    let n = f1.nummer;
+    assert_eq!(
+        [f1.nummer, k1.nummer, f2.nummer, k2.nummer, f3.nummer],
+        [n, n + 1, n + 2, n + 3, n + 4]
+    );
+    let mut listan: Vec<String> = kundfaktura::lista(&db, &anna, id)
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|f| f.fakturanummer)
+        .collect();
+    listan.sort();
+    assert_eq!(
+        listan,
+        (n..n + 5).map(|n| n.to_string()).collect::<Vec<_>>()
+    );
+}
