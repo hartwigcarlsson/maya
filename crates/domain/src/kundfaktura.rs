@@ -287,7 +287,7 @@ pub struct Spärr {
 }
 
 impl Spärr {
-    fn ny(fält: Fält, kod: &'static str, text: impl ToString) -> Self {
+    pub(crate) fn ny(fält: Fält, kod: &'static str, text: impl ToString) -> Self {
         Spärr {
             fält,
             kod,
@@ -370,7 +370,7 @@ impl Utfärdbar {
 }
 
 /// En verifikatrad med `belopp` i debet om det är positivt och i kredit om det är negativt.
-fn rad(konto: Kontonummer, belopp: i64) -> verifikat::Rad {
+pub(crate) fn rad(konto: Kontonummer, belopp: i64) -> verifikat::Rad {
     let (debet, kredit) = if belopp >= 0 {
         (belopp, 0)
     } else {
@@ -821,46 +821,12 @@ fn kontrollera_rad(
             MOMSSATS_OGILTIG.into(),
         );
     }
-    let konto = match r.konto.trim() {
-        "" => {
-            fel(
-                Radfält::Konto,
-                "rad_konto_saknas",
-                "Välj ett intäktskonto.".into(),
-            );
+    let konto = match intäktskontot(&r.konto, &f.konton) {
+        Ok(konto) => Some(konto),
+        Err((kod, text)) => {
+            fel(Radfält::Konto, kod, text);
             None
         }
-        text => match text
-            .parse::<Kontonummer>()
-            .ok()
-            .and_then(|k| f.konton.iter().find(|(n, _)| *n == k))
-        {
-            None => {
-                fel(
-                    Radfält::Konto,
-                    "konto_okant",
-                    format!("Konto {text} finns inte i kontoplanen."),
-                );
-                None
-            }
-            Some((konto, _)) if konto.klass() != 3 => {
-                fel(
-                    Radfält::Konto,
-                    "konto_inte_intakt",
-                    format!("Konto {konto} är inget intäktskonto. Välj ett konto i klass 3."),
-                );
-                None
-            }
-            Some((konto, false)) => {
-                fel(
-                    Radfält::Konto,
-                    "konto_inaktivt",
-                    format!("Konto {konto} är inaktivt. Aktivera det för att bokföra på det."),
-                );
-                None
-            }
-            Some((konto, true)) => Some(*konto),
-        },
     };
     let (antal, à_pris, rabatt, momssats, konto) =
         (antal?, à_pris?, t.rabatt?, t.momssats?, konto?);
@@ -877,6 +843,37 @@ fn kontrollera_rad(
         konto,
         netto: faktura::radnetto(antal, à_pris, rabatt),
     })
+}
+
+/// Intäktskontot i texten: ett aktivt konto i klass 3 i kontoplanen `konton`. Annars spärrens
+/// kod och text: `rad_konto_saknas`, `konto_okant`, `konto_inte_intakt` eller `konto_inaktivt`.
+pub(crate) fn intäktskontot(
+    text: &str,
+    konton: &[(Kontonummer, bool)],
+) -> Result<Kontonummer, (&'static str, String)> {
+    let text = text.trim();
+    if text.is_empty() {
+        return Err(("rad_konto_saknas", "Välj ett intäktskonto.".into()));
+    }
+    match text
+        .parse::<Kontonummer>()
+        .ok()
+        .and_then(|k| konton.iter().find(|(n, _)| *n == k))
+    {
+        None => Err((
+            "konto_okant",
+            format!("Konto {text} finns inte i kontoplanen."),
+        )),
+        Some((konto, _)) if konto.klass() != 3 => Err((
+            "konto_inte_intakt",
+            format!("Konto {konto} är inget intäktskonto. Välj ett konto i klass 3."),
+        )),
+        Some((konto, false)) => Err((
+            "konto_inaktivt",
+            format!("Konto {konto} är inaktivt. Aktivera det för att bokföra på det."),
+        )),
+        Some((konto, true)) => Ok(*konto),
+    }
 }
 
 fn kontrollera_säljaren(
