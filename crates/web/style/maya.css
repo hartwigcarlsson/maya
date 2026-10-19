@@ -2747,3 +2747,56 @@ kbd {
   padding: 4px 8px;
   font-weight: 600;
 }
+
+/* Att göra med fakturorna (#152): nedtonade kort längre fram, kopieringschipsen och kortets
+   uppgifter. */
+.acard.nedtonad {
+  opacity: 0.6;
+}
+
+.acard.nedtonad:hover {
+  opacity: 1;
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.copy {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 24px;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: calc(var(--radius) * 0.8);
+  background: var(--background);
+  color: inherit;
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+  user-select: all;
+}
+
+.copy:hover {
+  background: var(--muted);
+}
+
+.copy .k {
+  color: var(--muted-foreground);
+  font-size: 11px;
+  user-select: none;
+}
+
+.fakturakort {
+  display: grid;
+  grid-template-columns: 130px 1fr;
+  gap: 6px 16px;
+  margin: 0;
+}
+
+.fakturakort dd {
+  margin: 0;
+}
