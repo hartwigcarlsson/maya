@@ -2,7 +2,7 @@
 //! förfallodagen och dagens datum. Inget av det lagras.
 
 use jiff::civil::date;
-use maya_domain::reskontra::{Grupp, Märke, förfallotext, grupp, märke};
+use maya_domain::reskontra::{Grupp, Märke, förfallotext, grupp, kopieringschips, märke};
 
 #[test]
 fn märket_följer_det_som_återstår() {
@@ -74,4 +74,30 @@ fn förfallotexten_räknar_dagarna() {
         förfallotext(date(2026, 10, 9), idag),
         "förföll för 10 dagar sedan"
     );
+}
+
+// #152 Att göra: kopieringschipsen för en leverantörsfaktura att betala
+#[test]
+fn kopieringschipsen_visar_betalsätten_och_referensen_som_ocr_eller_meddelande() {
+    assert_eq!(
+        kopieringschips("5050-1055", "", "", "8812 0044 711"),
+        [
+            ("BG", "5050-1055".to_string()),
+            ("OCR", "88120044711".to_string())
+        ]
+    );
+    assert_eq!(
+        kopieringschips(
+            "",
+            "12 34 56-7",
+            "SE45 5000 0000 0583 9825 7466",
+            " Hyra nov, objekt 0412 "
+        ),
+        [
+            ("PG", "12 34 56-7".to_string()),
+            ("IBAN", "SE45 5000 0000 0583 9825 7466".to_string()),
+            ("Meddelande", "Hyra nov, objekt 0412".to_string())
+        ]
+    );
+    assert!(kopieringschips(" ", "", "", "  ").is_empty());
 }
