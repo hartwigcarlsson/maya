@@ -177,6 +177,17 @@ impl Config {
         }
     }
 
+    /// Adressen som Mayas mejl skickas från: `MAYA_SMTP_FROM`, annars `maya@<publik värd>`.
+    /// `None` utan SMTP.
+    pub fn smtp_från(&self) -> Option<String> {
+        let smtp = self.smtp.as_ref()?;
+        Some(
+            smtp.from.clone().unwrap_or_else(|| {
+                format!("maya@{}", self.public_url.host_str().unwrap_or("maya"))
+            }),
+        )
+    }
+
     pub fn is_trusted_proxy(&self, ip: IpAddr) -> bool {
         self.trusted_proxies.iter().any(|net| net.contains(&ip))
     }

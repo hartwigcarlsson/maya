@@ -27,7 +27,7 @@ pub mod leverantorsfaktura;
 pub mod rapport;
 pub mod saldo;
 pub mod sie4;
-mod smtp;
+pub mod smtp;
 pub mod systemdokumentation;
 #[cfg(feature = "test-support")]
 pub mod testhjalp;
