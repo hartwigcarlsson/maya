@@ -167,9 +167,12 @@ async fn läs_fakturan(
     företag: FöretagsId,
     faktura: KundfakturaId,
 ) -> Result<Fakturan, KundförlustFel> {
-    let rad: Option<(i64, String, i64, String)> = sqlx::query_as(
-        "SELECT nummer, kunduppgifter ->> '$.namn', total, fakturadatum FROM kundfaktura
-         WHERE id = ? AND foretag_id = ? AND status <> 'utkast'",
+    // #143: en extern faktura har det andra systemets nummer; en upplåst skrivs inte av.
+    let rad: Option<(String, String, i64, String)> = sqlx::query_as(
+        "SELECT coalesce(CAST(nummer AS TEXT), fakturanummer), kunduppgifter ->> '$.namn',
+                total, fakturadatum
+         FROM kundfaktura
+         WHERE id = ? AND foretag_id = ? AND status IN ('utfardad', 'registrerad')",
     )
     .bind(faktura.0)
     .bind(företag.0)
@@ -177,7 +180,7 @@ async fn läs_fakturan(
     .await?;
     let (nummer, kund, total, fakturadatum) = rad.ok_or(KundförlustFel::FinnsInte)?;
     Ok(Fakturan {
-        nummer: nummer.to_string(),
+        nummer,
         kund,
         total,
         fakturadatum: datum(&fakturadatum)?,
@@ -222,8 +225,19 @@ async fn läs_förutsättningar(
         betalning::återstår_i(&mut *conn, Faktura::Kund(faktura), fakturan.total).await?;
     let kundförlust = förlorat_i(&mut *conn, faktura).await? != 0;
     // Utfärdandet bokförs alltid under fakturametoden; kontantmetoden (#149) ger `None` här.
-    let gällande = crate::kontering::gällande_i(&mut *conn, företag, faktura).await?;
-    let utfärdandet = domänrader(&mut *conn, företag, gällande.verifikat).await?;
+    // #143: en extern fakturas fordran bokfördes av registreringen.
+    let bokföringen =
+        match crate::extern_kundfaktura::registreringens_verifikat_i(&mut *conn, företag, faktura)
+            .await?
+        {
+            Some(v) => v,
+            None => {
+                crate::kontering::gällande_i(&mut *conn, företag, faktura)
+                    .await?
+                    .verifikat
+            }
+        };
+    let utfärdandet = domänrader(&mut *conn, företag, bokföringen).await?;
     let räkenskapsår = verifikat::läs_förutsättningar(&mut *conn, företag)
         .await?
         .räkenskapsår;
@@ -527,8 +541,9 @@ pub(crate) async fn fakturan_för_verifikat(
     conn: &mut SqliteConnection,
     verifikat: VerifikatId,
 ) -> Result<Option<(Flöde, i64, String)>, DatabasFel> {
-    let rad: Option<(i64, i64, String)> = sqlx::query_as(
-        "SELECT k.id, k.nummer, k.kunduppgifter ->> '$.namn'
+    let rad: Option<(i64, String, String)> = sqlx::query_as(
+        "SELECT k.id, coalesce(CAST(k.nummer AS TEXT), k.fakturanummer),
+                k.kunduppgifter ->> '$.namn'
          FROM kundforlust f JOIN kundfaktura k ON k.id = f.kundfaktura_id
          WHERE f.verifikat_id = ?1
             OR f.id IN (SELECT kundforlust_id FROM kundforlust_aterkallelse WHERE verifikat_id = ?1)",

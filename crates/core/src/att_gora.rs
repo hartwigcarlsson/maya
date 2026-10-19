@@ -248,6 +248,7 @@ pub async fn antal(
          SELECT u.foretag_id, count(*) FROM underlag u
          WHERE NOT EXISTS (SELECT 1 FROM underlagskoppling k WHERE k.underlag_id = u.id)
            AND NOT EXISTS (SELECT 1 FROM leverantorsfaktura f WHERE f.underlag_id = u.id)
+           AND NOT EXISTS (SELECT 1 FROM kundfaktura f WHERE f.underlag_id = u.id)
          GROUP BY u.foretag_id
          UNION ALL
          SELECT f.foretag_id, count(*) FROM leverantorsfaktura f
@@ -275,7 +276,7 @@ pub async fn antal(
             .await?
             .iter()
             .filter(|f| {
-                f.status != kundfaktura::Status::Utkast
+                f.status.i_reskontran()
                     && f.krediterar.is_none()
                     && f.återstår > 0
                     && f.förfallodag.is_some_and(|d| d < idag)
@@ -441,10 +442,13 @@ async fn fakturor(
 ) -> Result<Vec<Fakturasak>, DatabasFel> {
     let mut fakturor = Vec::new();
     for f in kundfaktura::lista_i(&mut *conn, företag, None).await? {
-        let (Some(nummer), Some(förfallodag)) = (f.nummer, f.förfallodag) else {
+        // #143: en extern faktura har det andra systemets nummer, och en upplåst står bland
+        // utkasten tills den registreras om.
+        let Some(förfallodag) = f.förfallodag else {
             continue;
         };
-        if f.status == kundfaktura::Status::Utkast || f.krediterar.is_some() || f.återstår <= 0 {
+        let nummer = f.fakturanummer.clone();
+        if !f.status.i_reskontran() || f.krediterar.is_some() || f.återstår <= 0 {
             continue;
         }
         let kontakt: Option<String> =

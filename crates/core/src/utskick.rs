@@ -211,7 +211,8 @@ async fn läs_fakturan(
     else {
         return Err(UtskickFel::FinnsInte);
     };
-    if status == "utkast" {
+    // #143: bara Mayas egna fakturor utfärdas och skickas; en extern har status registrerad.
+    if status != "utfardad" {
         return Err(UtskickFel::InteUtfärdad);
     }
     let korrupt = |vad: &str| DatabasFel::Korrupt(format!("kundfaktura {}: {vad}", id.0));

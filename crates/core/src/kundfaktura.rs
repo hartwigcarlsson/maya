@@ -69,15 +69,28 @@ impl FromStr for KundfakturaId {
 pub enum Status {
     Utkast,
     Utfärdad,
+    /// En extern kundfaktura som är registrerad (#143).
+    Registrerad,
+    /// En extern kundfaktura vars registrering är vänd med Rätta registrering och som skrivs
+    /// av igen (#143).
+    Upplåst,
 }
 
 impl Status {
-    fn från_kod(kod: &str) -> Option<Self> {
+    pub(crate) fn från_kod(kod: &str) -> Option<Self> {
         match kod {
             "utkast" => Some(Status::Utkast),
             "utfardad" => Some(Status::Utfärdad),
+            "registrerad" => Some(Status::Registrerad),
+            "upplast" => Some(Status::Upplåst),
             _ => None,
         }
+    }
+
+    /// Fakturan är utfärdad eller registrerad: dess fordran står i reskontran och den kan
+    /// betalas, krediteras och skrivas av (#143).
+    pub fn i_reskontran(self) -> bool {
+        matches!(self, Status::Utfärdad | Status::Registrerad)
     }
 }
 
@@ -158,7 +171,13 @@ pub struct Utfärdad {
 pub struct Kundfakturarad {
     pub id: KundfakturaId,
     pub status: Status,
+    /// Numret i fakturaserien; `None` för ett utkast och en extern faktura.
     pub nummer: Option<u64>,
+    /// Numret som fakturan visar: numret i serien, eller det andra systemets för en extern
+    /// faktura (#143). Tomt för ett utkast till Mayas egen faktura.
+    pub fakturanummer: String,
+    /// Fakturan har skapats i ett annat system (#143).
+    pub är_extern: bool,
     /// Kundens namn, som det kopierades in vid utfärdandet; tomt för ett utkast utan kund.
     pub kund: String,
     pub fakturadatum: Option<Date>,
@@ -172,8 +191,8 @@ pub struct Kundfakturarad {
     pub återstår: i64,
     /// En kundförlust som inte är återkallad gäller fakturan (#141).
     pub kundförlust: bool,
-    /// Originalets nummer när fakturan är en kreditfaktura (#140).
-    pub krediterar: Option<u64>,
+    /// Originalets nummer när fakturan är en kreditfaktura (#140, extern #143).
+    pub krediterar: Option<String>,
     /// Det som utfärdade kreditfakturor har krediterat av fakturan, i öre och positivt (#140).
     pub krediterat: i64,
 }
@@ -773,7 +792,7 @@ async fn skriv_pdf(
 }
 
 /// Bokföringsmetoden på dagen: den senaste som gäller från dagen eller tidigare.
-async fn bokföringsmetod(
+pub(crate) async fn bokföringsmetod(
     conn: &mut SqliteConnection,
     företag: FöretagsId,
     dag: Date,
@@ -804,7 +823,10 @@ async fn status(
     id: KundfakturaId,
 ) -> Result<Status, KundfakturaFel> {
     let kod: Option<String> =
-        sqlx::query_scalar("SELECT status FROM kundfaktura WHERE id = ? AND foretag_id = ?")
+        // #143: en extern faktura har sina egna användningsfall i `extern_kundfaktura`.
+        sqlx::query_scalar(
+            "SELECT status FROM kundfaktura WHERE id = ? AND foretag_id = ? AND extern = 0",
+        )
             .bind(id.0)
             .bind(företag.0)
             .fetch_optional(conn)
@@ -950,8 +972,10 @@ pub(crate) async fn lista_i(
         bool,
         Option<i64>,
         bool,
-        Option<i64>,
+        Option<String>,
         i64,
+        bool,
+        String,
     );
     // Det som återstår: totalen minus krediteringarna (#140), betalningarna i reskontran
     // (#139) och det som en gällande kundförlust skrev av (#141), samma regel som
@@ -965,14 +989,18 @@ pub(crate) async fn lista_i(
                                         FROM betalning_i_reskontran b
                                         WHERE b.kundfaktura_id = f.id), 0)
                             + coalesce((SELECT sum(c.total) FROM kundfaktura c
-                                        WHERE c.krediterar = f.id AND c.status <> 'utkast'), 0)
+                                        WHERE c.krediterar = f.id
+                                          AND c.status IN ('utfardad', 'registrerad')), 0)
                             - coalesce((SELECT sum(l.belopp) FROM kundforlust_i_reskontran l
                                         WHERE l.kundfaktura_id = f.id), 0)
                 END,
                 EXISTS (SELECT 1 FROM kundforlust_i_reskontran l WHERE l.kundfaktura_id = f.id),
-                (SELECT o.nummer FROM kundfaktura o WHERE o.id = f.krediterar),
+                (SELECT coalesce(CAST(o.nummer AS TEXT), o.fakturanummer) FROM kundfaktura o
+                 WHERE o.id = f.krediterar),
                 -coalesce((SELECT sum(c.total) FROM kundfaktura c
-                           WHERE c.krediterar = f.id AND c.status <> 'utkast'), 0)
+                           WHERE c.krediterar = f.id
+                             AND c.status IN ('utfardad', 'registrerad')), 0),
+                f.extern, coalesce(CAST(f.nummer AS TEXT), f.fakturanummer)
          FROM kundfaktura f LEFT JOIN kund k ON k.id = f.kund_id
          WHERE f.foretag_id = ?1 AND (?2 IS NULL OR f.kund_id = ?2)
          ORDER BY f.status = 'utkast' DESC, f.nummer DESC, f.id DESC",
@@ -995,12 +1023,18 @@ pub(crate) async fn lista_i(
         kundförlust,
         krediterar,
         krediterat,
+        är_extern,
+        fakturanummer,
     ) in rader
     {
         let status = Status::från_kod(&status)
             .ok_or_else(|| DatabasFel::Korrupt("kundfaktura.status".into()))?;
         let total = match total {
             Some(total) => total,
+            // #143: ett externt utkast har belopp per rad.
+            None if är_extern => {
+                crate::extern_kundfaktura::utkastets_total_i(&mut *conn, KundfakturaId(id)).await?
+            }
             None => {
                 läs_utkast(&mut *conn, KundfakturaId(id))
                     .await?
@@ -1013,18 +1047,20 @@ pub(crate) async fn lista_i(
             id: KundfakturaId(id),
             status,
             nummer: nummer.map(i64::unsigned_abs),
+            fakturanummer,
+            är_extern,
             kund: kund.unwrap_or_default(),
             fakturadatum: fakturadatum.as_deref().map(datum).transpose()?,
             förfallodag: förfallodag.as_deref().map(datum).transpose()?,
             total,
             ny_kund,
             // Ett kreditutkast räknas inte av mot originalet förrän det är utfärdat.
-            återstår: match (status, krediterar) {
-                (Status::Utkast, _) => total,
+            återstår: match status {
+                Status::Utkast => total,
                 _ => återstår.unwrap_or(total),
             },
             kundförlust,
-            krediterar: krediterar.map(i64::unsigned_abs),
+            krediterar,
             krediterat,
         });
     }
@@ -1220,20 +1256,27 @@ pub(crate) async fn fakturan_för_verifikat(
     conn: &mut SqliteConnection,
     verifikat: VerifikatId,
 ) -> Result<Option<(i64, String)>, DatabasFel> {
-    let rad: Option<(i64, i64, String, bool)> = sqlx::query_as(
-        "SELECT id, nummer, kunduppgifter ->> '$.namn', krediterar IS NOT NULL FROM kundfaktura
+    // #143: en extern fakturas registreringar och deras rättelser länkar också hit.
+    let rad: Option<(i64, String, String, bool, bool)> = sqlx::query_as(
+        "SELECT id, coalesce(CAST(nummer AS TEXT), fakturanummer), kunduppgifter ->> '$.namn',
+                krediterar IS NOT NULL, extern
+         FROM kundfaktura
          WHERE status <> 'utkast' AND (verifikat_id = ?1 OR id IN (
              SELECT faktura_id FROM kundfaktura_kontering
+             WHERE rattelse_id = ?1 OR verifikat_id = ?1
+             UNION ALL
+             SELECT faktura_id FROM kundfaktura_registrering
              WHERE rattelse_id = ?1 OR verifikat_id = ?1))",
     )
     .bind(verifikat.0)
     .fetch_optional(conn)
     .await?;
-    Ok(rad.map(|(id, nummer, kund, kredit)| {
-        let sort = if kredit {
-            "kreditfaktura"
-        } else {
-            "kundfaktura"
+    Ok(rad.map(|(id, nummer, kund, kredit, är_extern)| {
+        let sort = match (är_extern, kredit) {
+            (false, true) => "kreditfaktura",
+            (false, false) => "kundfaktura",
+            (true, true) => "extern kreditfaktura",
+            (true, false) => "extern kundfaktura",
         };
         (id, format!("{sort} {nummer} till {kund}"))
     }))
@@ -1285,7 +1328,7 @@ pub(crate) async fn krediterat_i(
 ) -> Result<i64, sqlx::Error> {
     sqlx::query_scalar(
         "SELECT -coalesce(sum(total), 0) FROM kundfaktura
-         WHERE krediterar = ? AND status <> 'utkast'",
+         WHERE krediterar = ? AND status IN ('utfardad', 'registrerad')",
     )
     .bind(faktura.0)
     .fetch_one(conn)
@@ -1305,7 +1348,8 @@ pub(crate) async fn hänvisning_i(
         "SELECT nummer, fakturadatum, kunduppgifter, total, omvand_skattskyldighet,
                 momsregistrerat
          FROM kundfaktura
-         WHERE id = ? AND foretag_id = ? AND status <> 'utkast' AND krediterar IS NULL",
+         WHERE id = ? AND foretag_id = ? AND status <> 'utkast' AND krediterar IS NULL
+           AND extern = 0",
     )
     .bind(original)
     .bind(företag.0)
@@ -1472,7 +1516,7 @@ async fn läs_utfärdade_rader(
         .collect()
 }
 
-fn kontonummer(nummer: i64) -> Result<Kontonummer, DatabasFel> {
+pub(crate) fn kontonummer(nummer: i64) -> Result<Kontonummer, DatabasFel> {
     u16::try_from(nummer)
         .ok()
         .and_then(Kontonummer::new)

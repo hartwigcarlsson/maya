@@ -231,7 +231,9 @@ async fn läs_fakturan(
     let rad: Option<(String, String, i64, String, String)> =
         match faktura {
             Faktura::Kund(id) => sqlx::query_as(
-                "SELECT CAST(nummer AS TEXT), kunduppgifter ->> '$.namn', total, forfallodag, ''
+                // #143: en extern faktura har det andra systemets nummer.
+                "SELECT coalesce(CAST(nummer AS TEXT), fakturanummer), kunduppgifter ->> '$.namn',
+                        total, forfallodag, ''
                  FROM kundfaktura
                  WHERE id = ? AND foretag_id = ? AND status <> 'utkast' AND krediterar IS NULL",
             )
@@ -346,6 +348,18 @@ pub async fn registrera(
     let mut ärende =
         Ärende::börja(db, klocka, aktör, företag, Handling::RegistreraBetalning).await?;
     let fakturan = läs_fakturan(ärende.conn(), företag, faktura).await?;
+    // #143: en upplåst extern faktura tar inte emot betalningar förrän den registreras om.
+    if let Faktura::Kund(id) = faktura {
+        let upplåst: bool = sqlx::query_scalar(
+            "SELECT EXISTS (SELECT 1 FROM kundfaktura WHERE id = ? AND status = 'upplast')",
+        )
+        .bind(id.0)
+        .fetch_one(ärende.conn())
+        .await?;
+        if upplåst {
+            return Err(BetalningFel::FinnsInte);
+        }
+    }
     let f = läs_förutsättningar(ärende.conn(), företag, faktura).await?;
     let b = formulär.kontrollera(&f).map_err(BetalningFel::Spärrat)?;
     // En betalning åt andra hållet återbetalar ett tillgodohavande (#140).
@@ -638,8 +652,9 @@ pub(crate) async fn fakturan_för_verifikat(
     conn: &mut SqliteConnection,
     verifikat: VerifikatId,
 ) -> Result<Option<(Flöde, i64, String)>, DatabasFel> {
-    let rad: Option<(i64, i64, String, bool)> = sqlx::query_as(
-        "SELECT k.id, k.nummer, k.kunduppgifter ->> '$.namn', b.belopp < 0
+    let rad: Option<(i64, String, String, bool)> = sqlx::query_as(
+        "SELECT k.id, coalesce(CAST(k.nummer AS TEXT), k.fakturanummer),
+                k.kunduppgifter ->> '$.namn', b.belopp < 0
          FROM betalning b JOIN kundfaktura k ON k.id = b.kundfaktura_id
          WHERE b.verifikat_id = ?1
             OR b.id IN (SELECT betalning_id FROM betalningsrattelse WHERE verifikat_id = ?1)",

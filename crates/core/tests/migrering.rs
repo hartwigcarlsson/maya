@@ -485,3 +485,50 @@ async fn fakturaflödenas_konton_aktiveras_i_befintliga_företag_och_aktiveringe
     assert_eq!(post.aktör, Aktör::maya());
     db.stäng().await;
 }
+
+// #143 Externa kundfakturor
+#[tokio::test]
+async fn ombyggnaden_av_kundfakturorna_behåller_fakturorna_och_deras_rader() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("maya.db");
+    let gammal = Migreringar::före("20261021143143").migrator().await;
+    let db = Databas::öppna_som(&path, VERSION, &gammal, None)
+        .await
+        .unwrap();
+    let (anna, företag) = testhjalp::fakturaföretag(&db).await;
+    // Ett utkast som det gamla schemat lagrade det: 10 timmar à 950 kr med 25 % moms.
+    testhjalp::kör_sql(
+        &db,
+        "INSERT INTO kundfaktura (foretag_id, status, fakturadatum, er_referens,
+             omvand_skattskyldighet, skapad, skapad_kanal)
+         SELECT id, 'utkast', '2026-03-10', 'Anna', 'bygg', '2026-10-18T08:00:00Z', 'webb'
+         FROM foretag",
+    )
+    .await
+    .unwrap();
+    testhjalp::kör_sql(
+        &db,
+        "INSERT INTO kundfakturarad
+             (faktura_id, radnr, beskrivning, antal, enhet, a_pris, momssats, konto)
+         SELECT id, 1, 'Konsulttimmar', 1000, 'tim', 95000, 0, 3231 FROM kundfaktura",
+    )
+    .await
+    .unwrap();
+    db.stäng().await;
+
+    let ny = Migreringar::nya(&[]).migrator().await;
+    let db = Databas::öppna_som(&path, VERSION, &ny, None).await.unwrap();
+    let lista = maya_core::kundfaktura::lista(&db, &anna, företag)
+        .await
+        .unwrap();
+    assert_eq!(lista.len(), 1);
+    assert!(!lista[0].är_extern);
+    assert_eq!(lista[0].total, 950_000);
+    let f = maya_core::kundfaktura::kundfakturan(&db, &anna, företag, lista[0].id)
+        .await
+        .unwrap();
+    assert_eq!(f.formulär.er_referens, "Anna");
+    assert_eq!(f.formulär.omvänd_skattskyldighet, "bygg");
+    assert_eq!(f.formulär.rader[0].beskrivning, "Konsulttimmar");
+    db.stäng().await;
+}

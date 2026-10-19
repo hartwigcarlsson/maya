@@ -111,6 +111,10 @@ händelser! {
     // #140 Kreditfakturor
     KreditfakturaUtfärdad => "kreditfaktura utfärdad",
     Återbetalning => "återbetalning",
+    // #143 Externa kundfakturor
+    ExternKundfakturaRegistrerad => "extern kundfaktura registrerad",
+    KreditfakturaRegistrerad => "kreditfaktura registrerad",
+    RegistreringRättad => "registrering rättad",
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -799,6 +803,77 @@ impl Post {
                 s(&b["verifikat"]["nummer"]),
                 kronor(&b["återstår_öre"])
             ),
+            // #143 Externa kundfakturor
+            Händelse::ExternKundfakturaRegistrerad => {
+                let mut text = format!(
+                    "Extern faktura {} till ”{}” daterad {}, förfaller {}, {} kr",
+                    f("fakturanummer"),
+                    f("kundnamn"),
+                    f("fakturadatum"),
+                    f("förfallodag"),
+                    kronor(&b["summa_öre"])
+                );
+                if b["verifikat"].is_object() {
+                    text.push_str(&format!(", bokförd som {}", s(&b["verifikat"]["nummer"])));
+                }
+                if b["omregistrerad"].as_bool() == Some(true) {
+                    text.push_str(", registrerad om");
+                }
+                text
+            }
+            // Gemensam för externa kreditfakturor (#143) och leverantörens (#148).
+            Händelse::KreditfakturaRegistrerad => {
+                let (riktning, motpart) = match b["leverantörsnamn"].as_str() {
+                    Some(namn) => ("från", namn.to_string()),
+                    None => ("till", f("kundnamn")),
+                };
+                let mut text = format!(
+                    "Kreditfaktura {} {riktning} ”{motpart}” daterad {}, {} kr",
+                    f("fakturanummer"),
+                    f("fakturadatum"),
+                    kronor(&b["summa_öre"])
+                );
+                if b["krediterar"].is_object() {
+                    text.push_str(&format!(
+                        ", krediterar faktura {}",
+                        s(&b["krediterar"]["fakturanummer"])
+                    ));
+                } else if !f("krediterar_nummer").is_empty() {
+                    text.push_str(&format!(", krediterar faktura {}", f("krediterar_nummer")));
+                }
+                match &b["verifikat"] {
+                    Value::Object(v) => text.push_str(&format!(
+                        ", bokförd som {}",
+                        s(v.get("nummer").unwrap_or(&Value::Null))
+                    )),
+                    _ if !f("nummer").is_empty() => {
+                        text.push_str(&format!(", bokförd som {}", f("nummer")))
+                    }
+                    _ => {}
+                }
+                text
+            }
+            Händelse::RegistreringRättad => {
+                let mut text = format!(
+                    "Registreringen av faktura {} till ”{}”",
+                    f("fakturanummer"),
+                    f("kundnamn")
+                );
+                if b["rättelse"].is_object() {
+                    text.push_str(&format!(
+                        " rättad med {} av {}",
+                        s(&b["rättelse"]["nummer"]),
+                        s(&b["verifikat"]["nummer"])
+                    ));
+                } else {
+                    text.push_str(" rättad");
+                }
+                if !f("orsak").is_empty() {
+                    text.push_str(&format!(", {}", f("orsak")));
+                }
+                text.push_str(", fakturan är upplåst");
+                text
+            }
         }
     }
 
