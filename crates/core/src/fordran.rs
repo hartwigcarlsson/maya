@@ -100,20 +100,96 @@ pub(crate) async fn bokförd_efter_i(
     let Some(Some(fakturadatum)) = fakturadatum else {
         return Ok(None);
     };
+    let Some(slut) = t2_inte_bokfört_i(&mut *conn, företag, datum(&fakturadatum)?).await? else {
+        return Ok(None);
+    };
+    Ok((obetalt_vid_i(conn, faktura, slut).await? > 0).then_some(slut))
+}
+
+/// Slutet på räkenskapsåret med `fakturadatum`, när årets T2-verifikat inte är bokfört.
+async fn t2_inte_bokfört_i(
+    conn: &mut SqliteConnection,
+    företag: FöretagsId,
+    fakturadatum: Date,
+) -> Result<Option<Date>, DatabasFel> {
     let år: Option<(String, bool)> = sqlx::query_as(
         "SELECT r.slut, EXISTS (SELECT 1 FROM t2 JOIN verifikat v ON v.id = t2.verifikat_id
                                 WHERE t2.rakenskapsar_id = r.id AND v.bokford IS NOT NULL)
          FROM rakenskapsar r WHERE r.foretag_id = ?1 AND r.start <= ?2 AND r.slut >= ?2",
     )
     .bind(företag.0)
-    .bind(&fakturadatum)
+    .bind(fakturadatum.to_string())
     .fetch_optional(&mut *conn)
     .await?;
-    let Some((slut, false)) = år else {
+    match år {
+        Some((slut, false)) => Ok(Some(datum(&slut)?)),
+        _ => Ok(None),
+    }
+}
+
+/// Om fakturans fordran eller skuld var bokförd vid utgången av `dag`, som bokföringen visar
+/// det: ett verifikat daterat senast `dag` bokförde den och var inte vänt med en rättelse
+/// daterad senast `dag` (reskontran per datum, #151).
+pub(crate) async fn bokförd_vid_i(
+    conn: &mut SqliteConnection,
+    faktura: Faktura,
+    dag: Date,
+) -> Result<bool, sqlx::Error> {
+    let (kund, leverantör) = faktura.kolumner();
+    sqlx::query_scalar(
+        "SELECT EXISTS (
+             SELECT 1 FROM bokford_reskontrapost b JOIN verifikat v ON v.id = b.verifikat_id
+             WHERE (b.kundfaktura_id = ?1 OR b.leverantorsfaktura_id = ?2) AND v.datum <= ?3
+               AND NOT EXISTS (SELECT 1 FROM verifikat r
+                               WHERE r.rattar = b.verifikat_id AND r.bokford IS NOT NULL
+                                 AND r.datum <= ?3))",
+    )
+    .bind(kund)
+    .bind(leverantör)
+    .bind(dag.to_string())
+    .fetch_one(conn)
+    .await
+}
+
+/// Om ett verifikat daterat senast `dag` har bokfört fakturans fordran eller skuld, vänt eller
+/// inte: en upplåst faktura som var bokförd (#151).
+pub(crate) async fn var_bokförd_vid_i(
+    conn: &mut SqliteConnection,
+    faktura: Faktura,
+    dag: Date,
+) -> Result<bool, sqlx::Error> {
+    let (kund, leverantör) = faktura.kolumner();
+    sqlx::query_scalar(
+        "SELECT EXISTS (
+             SELECT 1 FROM bokford_reskontrapost b JOIN verifikat v ON v.id = b.verifikat_id
+             WHERE (b.kundfaktura_id = ?1 OR b.leverantorsfaktura_id = ?2) AND v.datum <= ?3)",
+    )
+    .bind(kund)
+    .bind(leverantör)
+    .bind(dag.to_string())
+    .fetch_one(conn)
+    .await
+}
+
+/// Det obetalda vid årets slut som väntar på årets T2-verifikat vid utgången av `dag`, för en
+/// faktura vars fordran eller skuld inte är bokförd då: `dag` ligger efter slutet på
+/// räkenskapsåret med `fakturadatum`, årets T2 är inte bokfört och något var obetalt vid årets
+/// slut. Det är regeln i [`bokförd_efter_i`] per datum (#151).
+pub(crate) async fn väntar_på_t2_vid_i(
+    conn: &mut SqliteConnection,
+    företag: FöretagsId,
+    faktura: Faktura,
+    fakturadatum: Date,
+    dag: Date,
+) -> Result<Option<i64>, DatabasFel> {
+    let Some(slut) = t2_inte_bokfört_i(&mut *conn, företag, fakturadatum).await? else {
         return Ok(None);
     };
-    let slut = datum(&slut)?;
-    Ok((obetalt_vid_i(conn, faktura, slut).await? > 0).then_some(slut))
+    if dag <= slut {
+        return Ok(None);
+    }
+    let obetalt = obetalt_vid_i(conn, faktura, slut).await?;
+    Ok((obetalt > 0).then_some(obetalt))
 }
 
 /// Det som var obetalt av fakturan vid utgången av `dag`, i öre, som bokföringen visade det
