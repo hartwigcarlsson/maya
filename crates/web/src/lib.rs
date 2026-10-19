@@ -14,6 +14,7 @@ pub mod foretag;
 pub mod ingaende_balans;
 pub mod installation;
 pub mod installningar;
+pub mod kontering;
 pub mod konto;
 pub mod kontoplan;
 pub mod kunder;

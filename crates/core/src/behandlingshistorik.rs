@@ -96,6 +96,8 @@ händelser! {
     // #135 Kundfakturor
     KundfakturaUtfärdad => "kundfaktura utfärdad",
     StartnummerÄndrat => "startnummer ändrat",
+    // #142 Rätta kontering
+    KonteringRättad => "kontering rättad",
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -641,6 +643,34 @@ impl Post {
             }
             Händelse::StartnummerÄndrat => {
                 format!("Första fakturanummer: {} → {}", f("från"), f("till"))
+            }
+            // #142 Rätta kontering
+            Händelse::KonteringRättad => {
+                let rader = b["rader"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .map(|r| {
+                        format!(
+                            "rad {} från {} till {}",
+                            s(&r["rad"]),
+                            s(&r["från"]),
+                            s(&r["till"])
+                        )
+                    })
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                let mut text = format!(
+                    "Faktura {}: {} vänt av {} och bokförd som {}, {rader}",
+                    f("nummer"),
+                    s(&b["vänt"]["nummer"]),
+                    s(&b["rättelse"]["nummer"]),
+                    s(&b["verifikat"]["nummer"])
+                );
+                if !f("orsak").is_empty() {
+                    text.push_str(&format!(" ({})", f("orsak")));
+                }
+                text
             }
         }
     }

@@ -174,6 +174,10 @@ pub struct FakturaVy {
     pub utfärdad: (String, String, String),
     /// Tid, händelse och namn.
     pub historik: Vec<(String, String, String)>,
+    /// #142: om utfärdandet har ett verifikat, så att konteringen kan rättas.
+    pub kan_rätta_kontering: bool,
+    /// #142: panelen Rätta kontering, när den är öppen.
+    pub rätta_kontering: Option<crate::kontering::RättaKonteringVy>,
 }
 
 /// Det som Kundfakturor visar.
@@ -208,6 +212,13 @@ fn feltext(kod: &str) -> Option<&'static str> {
         }
         "startnummer" => "Startnumret kan inte ändras efter första utfärdandet.",
         "finns_inte" => "Utkastet finns inte längre eller är redan utfärdat.",
+        // #142 Rätta kontering
+        "kontering" => "Konteringen kunde inte rättas. Rätta det som är markerat.",
+        "rattelse" => {
+            "Konteringen kan inte rättas i dag: rättelsen och det nya verifikatet dateras i dag, \
+             och det datumet måste gå att bokföra på och vara tidigast utfärdandets datum."
+        }
+        "ingen_kontering" => "Fakturans utfärdande har inget verifikat att rätta.",
         _ => return None,
     })
 }
@@ -304,11 +315,17 @@ fn ur_fält(värde: impl Fn(&str) -> Option<String>) -> NyKundfaktura {
 /// lägger till en handling (betalning #139, skicka #138, kredit #140, kundförlust #141, rätta
 /// kontering #142) lägger till en variant, dess kod och dess panel.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Panel {}
+pub enum Panel {
+    /// Rätta kontering (#142): `?panel=ratta`.
+    RättaKontering,
+}
 
 impl Panel {
-    pub fn från_kod(_kod: &str) -> Option<Self> {
-        None
+    pub fn från_kod(kod: &str) -> Option<Self> {
+        match kod {
+            "ratta" => Some(Panel::RättaKontering),
+            _ => None,
+        }
     }
 }
 
@@ -350,6 +367,11 @@ pub(crate) mod server {
             .route(
                 "/foretag/{id}/kundfakturor/{f}/forhandsvisning",
                 get(förhandsvisning),
+            )
+            // #142 Rätta kontering
+            .route(
+                "/foretag/{id}/kundfakturor/{f}/ratta-kontering",
+                post(crate::kontering::server::rätta),
             )
             .with_state(Arc::new(state))
     }
@@ -422,7 +444,40 @@ pub(crate) mod server {
         if let Some(f) = &faktura {
             data.valt = Some(f.id.to_string());
             match &f.utfärdad {
-                Some(u) => data.dokument = Some(dokument(företag, f, u)),
+                Some(u) => {
+                    let mut d = dokument(företag, f, u);
+                    // #142 Rätta kontering: verifikatet och kontona som de är bokförda nu.
+                    if let Some(k) =
+                        crate::kontering::server::gällande(&b.db, aktör, företag, f.id).await?
+                    {
+                        d.verifikat = (
+                            k.verifikat.id.to_string(),
+                            k.verifikat
+                                .nummer
+                                .map(|n| n.to_string())
+                                .unwrap_or_default(),
+                        );
+                        for (rad, r) in d.rader.iter_mut().zip(&k.rader) {
+                            rad.konto = r.konto.to_string();
+                        }
+                        d.kan_rätta_kontering = true;
+                        if b.värde("panel").and_then(|p| Panel::från_kod(&p))
+                            == Some(Panel::RättaKontering)
+                        {
+                            d.rätta_kontering = Some(
+                                crate::kontering::server::panelen(
+                                    &b.db,
+                                    aktör,
+                                    företag,
+                                    &k,
+                                    b.klocka.idag(),
+                                )
+                                .await?,
+                            );
+                        }
+                    }
+                    data.dokument = Some(d);
+                }
                 None => {
                     data.utkast = Some(UtkastVy {
                         id: f.id.to_string(),
@@ -566,6 +621,8 @@ pub(crate) mod server {
                 .iter()
                 .map(|h| (tid(h.post.tid), h.post.typ.clone(), h.namn.clone()))
                 .collect(),
+            kan_rätta_kontering: false,
+            rätta_kontering: None,
         }
     }
 
@@ -576,7 +633,7 @@ pub(crate) mod server {
     }
 
     /// Den inloggade och företaget i sökvägen, eller svaret om något saknas.
-    fn tolka(
+    pub(crate) fn tolka(
         id: &str,
         inloggad: Option<Extension<Inloggad>>,
     ) -> Result<(Inloggad, FöretagsId), Box<Response>> {
@@ -744,7 +801,7 @@ pub(crate) mod server {
         }
     }
 
-    fn fakturafel(e: KundfakturaFel) -> Response {
+    pub(crate) fn fakturafel(e: KundfakturaFel) -> Response {
         match e {
             KundfakturaFel::FinnsInte | KundfakturaFel::IngetUtkast => finns_inte(),
             KundfakturaFel::Åtkomst(ÅtkomstFel::IngenÅtkomst | ÅtkomstFel::KanalenFårInte) => {
@@ -754,7 +811,7 @@ pub(crate) mod server {
         }
     }
 
-    fn finns_inte() -> Response {
+    pub(crate) fn finns_inte() -> Response {
         text(StatusCode::NOT_FOUND, "Kundfakturan finns inte.\n")
     }
 }
@@ -788,6 +845,10 @@ fn kundfakturor_sida(data: Kundfakturadata, ny: bool) -> AnyView {
             "Fakturan utfärdades, PDF:en arkiverades och verifikatet bokfördes.",
         ),
         ("raderad", "Utkastet raderades och raderingen loggades."),
+        (
+            "rattad",
+            "Konteringen rättades: utfärdandets verifikat vändes och ett nytt bokfördes.",
+        ),
     ]
     .into_iter()
     .find(|(namn, _)| fråga(namn).is_some())
@@ -1768,6 +1829,25 @@ fn Fakturadokument(bas: String, d: FakturaVy) -> impl IntoView {
         })
         .collect_view();
     let (verifikat_id, verifikat_nummer) = d.verifikat.clone();
+    // Handlingarna som paneler (`?panel=<kod>`); raden döljs medan en panel är öppen.
+    let panel = match d.rätta_kontering.clone() {
+        // #142 Rätta kontering
+        Some(p) => Some(
+            view! { <crate::kontering::RättaKonteringPanel lista=lista.clone() id=d.id.clone() p=p /> }
+                .into_any(),
+        ),
+        None => None,
+    };
+    let handlingar = panel.is_none().then(|| {
+        let rätta_kontering = d.kan_rätta_kontering.then(|| {
+            view! {
+                <a class="knapp knapp-diskret" href=format!("{lista}?f={}&panel=ratta", d.id)>
+                    "Rätta kontering…"
+                </a>
+            }
+        });
+        view! { <p class="dokument-handlingar">{rätta_kontering}</p> }
+    });
     view! {
         <div class="fakturaformular-ram" class:med-forhandsvisning=visa>
             {förhandsvisning}
@@ -1784,6 +1864,8 @@ fn Fakturadokument(bas: String, d: FakturaVy) -> impl IntoView {
                     </div>
                     {visa_länk}
                 </header>
+                {handlingar}
+                {panel}
                 <dl class="metadata">
                     <dt>"Kund"</dt>
                     <dd>{adress}</dd>

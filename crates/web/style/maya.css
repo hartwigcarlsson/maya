@@ -2599,3 +2599,16 @@ kbd {
     position: static;
   }
 }
+
+/* Rätta kontering (#142): handlingarna på en utfärdad faktura och panelen. */
+.dokument-handlingar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin: 0.5rem 0 1rem;
+}
+
+.dialog.rattelse label {
+  display: block;
+  margin: 0.75rem 0;
+}

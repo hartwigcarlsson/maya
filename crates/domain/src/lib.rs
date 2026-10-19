@@ -13,6 +13,7 @@ pub mod faktura;
 pub mod fakturauppgifter;
 pub mod foretag;
 pub mod ingaende_balans;
+pub mod kontering;
 pub mod kontoplan;
 pub mod kontourval;
 pub mod kund;
