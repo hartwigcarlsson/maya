@@ -7,7 +7,8 @@ use jiff::civil::Date;
 use leptos::prelude::*;
 use maya_domain::belopp::Saldo;
 use maya_domain::betalning::{
-    Fält, Förutsättningar, NyBetalning, Reskontra, STÖRSTA_ÖRESUTJÄMNING, Spärr,
+    Fält, Förutsättningar, KURSFÖRLUST, KURSVINST, NyBetalning, Reskontra, STÖRSTA_ÖRESUTJÄMNING,
+    Spärr,
 };
 use maya_domain::kontoplan::Kontonummer;
 use maya_domain::rakenskapsar::Räkenskapsår;
@@ -40,6 +41,9 @@ pub struct BetalningsVy {
     pub start: NyBetalning,
     /// Felet från servern, om betalningen avvisades.
     pub fel: Option<String>,
+    /// Leverantörsfakturans originalvaluta i fritext, t.ex. "EUR 109,50", eller tom (#147).
+    #[serde(default)]
+    pub originalvaluta: String,
 }
 
 impl BetalningsVy {
@@ -58,6 +62,7 @@ impl BetalningsVy {
                 .iter()
                 .filter_map(|(s, e)| Some(Räkenskapsår::befintligt(datum(s)?, datum(e)?)))
                 .collect(),
+            originalvaluta: !self.originalvaluta.trim().is_empty(),
         }
     }
 }
@@ -70,6 +75,9 @@ pub struct BetalningsradVy {
     pub belopp: String,
     /// Tom text utan öresutjämning.
     pub öresutjämning: String,
+    /// "50,00 kursförlust" eller "20,00 kursvinst"; tom utan kursdifferens (#147).
+    #[serde(default)]
+    pub kursdifferens: String,
     pub konto: String,
     /// Verifikatets id och nummer.
     pub verifikat: (String, String),
@@ -167,6 +175,9 @@ pub fn Betalningar(bas: String, här: String, r: ReskontraVy) -> impl IntoView {
                     <span class="diskret">{format!(" + {} öresutjämning", b.öresutjämning)}</span>
                 }
             });
+            let kursdifferens = (!b.kursdifferens.is_empty()).then(|| {
+                view! { <span class="diskret">{format!(" + {}", b.kursdifferens)}</span> }
+            });
             view! {
                 <tr class:rattad=b.rättad.is_some()>
                     <td>{b.betaldag.clone()}</td>
@@ -174,7 +185,7 @@ pub fn Betalningar(bas: String, här: String, r: ReskontraVy) -> impl IntoView {
                     <td>
                         <a href=format!("{bas}/verifikat?v={vid}")>{vnr}</a>
                     </td>
-                    <td class="belopp">{b.belopp.clone()} {öresutjämning}</td>
+                    <td class="belopp">{b.belopp.clone()} {öresutjämning} {kursdifferens}</td>
                     <td>{läge}</td>
                 </tr>
             }
@@ -287,7 +298,7 @@ pub fn Betalningspanel(action: String, stäng: String, v: BetalningsVy) -> impl 
         .collect_view();
     let delbetalning = move || {
         rest.get()
-            .filter(|r| *r > 0)
+            .filter(|r| *r > 0 && !betalning.with(|b| b.kursdifferens))
             .map(|r| view! { <p class="diskret delbetalning">{format!("Delbetalning, {} kr återstår.", kr(r))}</p> })
     };
     let öresutjämning = move || {
@@ -309,6 +320,51 @@ pub fn Betalningspanel(action: String, stäng: String, v: BetalningsVy) -> impl 
                 </label>
             }
         })
+    };
+    // #147: på en leverantörsfaktura med originalvaluta stängs en avvikelse åt båda hållen.
+    let med_valuta = !v.originalvaluta.trim().is_empty();
+    let kursdifferens = move || {
+        let r = rest.get().unwrap_or_default();
+        let vald = betalning.with(|b| b.kursdifferens);
+        // Visas alltid på en faktura i originalvaluta, så att den finns också utan JavaScript.
+        med_valuta.then(|| {
+            let text = match r {
+                0 => format!(
+                    " Stäng en avvikelse mot kursdifferens (vinst {KURSVINST}, förlust \
+                     {KURSFÖRLUST})"
+                ),
+                r if r < 0 => format!(
+                    " Stäng avvikelsen {} kr mot kursförlust ({KURSFÖRLUST})",
+                    kr(-r)
+                ),
+                r => format!(" Stäng avvikelsen {} kr mot kursvinst ({KURSVINST})", kr(r)),
+            };
+            view! {
+                <label class="kryss">
+                    <input
+                        type="checkbox"
+                        name="kursdifferens"
+                        value="1"
+                        checked=vald
+                        on:change=move |ev| {
+                            betalning.update(|b| b.kursdifferens = event_target_checked(&ev))
+                        }
+                    />
+                    {text}
+                </label>
+            }
+        })
+    };
+    let valuta = med_valuta.then(|| {
+        view! {
+            <p class="diskret">
+                {format!("Originalvaluta {}, registrerad i SEK.", v.originalvaluta.trim())}
+            </p>
+        }
+    });
+    let konto_etikett = match v.reskontra {
+        Reskontra::Kund => "Till konto",
+        Reskontra::Leverantör => "Från konto",
     };
     let kontonamn = v.kontonamn.clone();
     let bokförs_som = move || {
@@ -360,6 +416,7 @@ pub fn Betalningspanel(action: String, stäng: String, v: BetalningsVy) -> impl 
             <p class="diskret">
                 {format!("Återstår {} kr · förfallodag {}", kr(v.återstår), v.förfallodag)}
             </p>
+            {valuta}
             {fel}
             <form method="post" action=action novalidate>
                 <div class="falt-grupp">
@@ -389,7 +446,7 @@ pub fn Betalningspanel(action: String, stäng: String, v: BetalningsVy) -> impl 
                         {spärr_vid(Fält::Belopp)}
                     </div>
                     <div>
-                        <label for="konto">"Till konto"</label>
+                        <label for="konto">{konto_etikett}</label>
                         <select
                             id="konto"
                             name="konto"
@@ -403,6 +460,8 @@ pub fn Betalningspanel(action: String, stäng: String, v: BetalningsVy) -> impl 
                 {delbetalning}
                 {öresutjämning}
                 {spärr_vid(Fält::Öresutjämning)}
+                {kursdifferens}
+                {spärr_vid(Fält::Kursdifferens)}
                 {bokförs_som}
                 <p class="knappar">
                     <button
@@ -492,6 +551,7 @@ pub fn ur_fält(värde: impl Fn(&str) -> Option<String>) -> NyBetalning {
         belopp: värde("belopp").unwrap_or_default(),
         konto: värde("konto").unwrap_or_default(),
         öresutjämning: värde("oresutjamning").is_some_and(|v| !v.is_empty()),
+        kursdifferens: värde("kursdifferens").is_some_and(|v| !v.is_empty()),
     }
 }
 
@@ -500,6 +560,7 @@ pub(crate) mod server {
     use std::sync::Arc;
 
     use axum::extract::{Path, State};
+    use axum::http::StatusCode;
     use axum::response::{IntoResponse, Redirect, Response};
     use axum::{Extension, Form};
     use maya_core::atkomst::ÅtkomstFel;
@@ -507,14 +568,16 @@ pub(crate) mod server {
     use maya_core::foretag::FöretagsId;
     use maya_core::inloggning::Inloggad;
     use maya_core::kundfaktura::KundfakturaId;
-    use maya_core::{kontoplan, verifikat};
+    use maya_core::leverantorsfaktura::LeverantörsfakturaId;
+    use maya_core::{Databas, Klocka, kontoplan, verifikat};
     use maya_domain::betalning::NyBetalning;
     use maya_domain::reskontra::märke;
 
     use super::*;
     use crate::kundfakturor::server::KundfakturaState;
+    use crate::leverantorsfakturor::server::LeverantörsfakturaState;
     use crate::sidodata::Sidbegäran;
-    use crate::svar::{ingen_åtkomst, serverfel};
+    use crate::svar::{ingen_åtkomst, serverfel, text};
     use crate::verifikat::server::tid;
 
     /// Fakturan i reskontran för dokumentet, med panelen som `?panel=` öppnar.
@@ -543,6 +606,11 @@ pub(crate) mod server {
                         String::new()
                     } else {
                         kr(p.öresutjämning)
+                    },
+                    kursdifferens: match p.kursdifferens {
+                        0 => String::new(),
+                        k if k > 0 => format!("{} kursvinst", kr(k)),
+                        k => format!("{} kursförlust", kr(-k)),
                     },
                     konto: p.konto.to_string(),
                     verifikat: (
@@ -592,7 +660,10 @@ pub(crate) mod server {
                         .collect(),
                     kontonamn: konton
                         .iter()
-                        .filter(|k| k.nummer.klass() == 1 || [2440, 3740].contains(&k.nummer.get()))
+                        .filter(|k| {
+                            k.nummer.klass() == 1
+                                || [2440, 3740, KURSVINST, KURSFÖRLUST].contains(&k.nummer.get())
+                        })
                         .map(|k| (k.nummer.get(), k.namn.clone()))
                         .collect(),
                     start: if tillbaka {
@@ -601,6 +672,7 @@ pub(crate) mod server {
                         NyBetalning::förvald(f.återstår, idag)
                     },
                     fel: tillbaka.then(|| feltext("betalning").unwrap_or_default().into()),
+                    originalvaluta: post.originalvaluta.clone(),
                 });
             }
             Some("ratta-betalning") => {
@@ -683,17 +755,17 @@ pub(crate) mod server {
         Redirect::to(&format!("{sida}&{}", query.finish())).into_response()
     }
 
+    /// Den inloggade och företaget ur adressen, eller svaret om något saknas.
     fn tolka(
         id: &str,
-        f: &str,
         inloggad: Option<Extension<Inloggad>>,
-    ) -> Result<(Inloggad, FöretagsId, KundfakturaId), Box<Response>> {
+    ) -> Result<(Inloggad, FöretagsId), Box<Response>> {
         let Some(Extension(inloggad)) = inloggad else {
             return Err(Box::new(Redirect::to("/").into_response()));
         };
-        match (id.parse::<FöretagsId>(), f.parse::<KundfakturaId>()) {
-            (Ok(företag), Ok(f)) => Ok((inloggad, företag, f)),
-            _ => Err(Box::new(ingen_åtkomst())),
+        match id.parse::<FöretagsId>() {
+            Ok(företag) => Ok((inloggad, företag)),
+            Err(_) => Err(Box::new(ingen_åtkomst())),
         }
     }
 
@@ -706,67 +778,52 @@ pub(crate) mod server {
         }
     }
 
-    /// `POST /foretag/{id}/kundfakturor/{f}/betalning`: registrerar betalningen och visar
-    /// fakturan, eller panelen igen med spärrarna vid fälten.
-    pub(crate) async fn registrera_kundbetalning(
-        State(state): State<Arc<KundfakturaState>>,
-        Path((id, f)): Path<(String, String)>,
-        inloggad: Option<Extension<Inloggad>>,
-        Form(fält): Form<Fält>,
+    /// Fakturan som en POST gäller: dokumentets adress och svaret när fakturan inte finns.
+    struct Mål {
+        faktura: Faktura,
+        här: String,
+        finns_inte: fn() -> Response,
+    }
+
+    /// Registrerar betalningen och visar fakturan, eller panelen igen med spärrarna vid fälten.
+    async fn registrera(
+        (db, klocka): (&Databas, &Klocka),
+        inloggad: &Inloggad,
+        företag: FöretagsId,
+        mål: Mål,
+        fält: &Fält,
     ) -> Response {
-        let (inloggad, företag, f) = match tolka(&id, &f, inloggad) {
-            Ok(t) => t,
-            Err(r) => return *r,
-        };
-        let här = format!("/foretag/{företag}/kundfakturor?f={f}");
-        let formulär = ur_fält(|namn| värde(&fält, namn));
-        match betalning::registrera(
-            &state.db,
-            &state.klocka,
-            &inloggad.aktör,
-            företag,
-            Faktura::Kund(f),
-            &formulär,
-        )
-        .await
+        let formulär = ur_fält(|namn| värde(fält, namn));
+        match betalning::registrera(db, klocka, &inloggad.aktör, företag, mål.faktura, &formulär)
+            .await
         {
-            Ok(_) => Redirect::to(&format!("{här}&betald=1")).into_response(),
-            Err(BetalningFel::Spärrat(_) | BetalningFel::Verifikat(_)) => {
-                tillbaka(&här, &fält, &[("panel", "betalning"), ("fel", "betalning")])
-            }
-            Err(BetalningFel::FinnsInte) => crate::kundfakturor::server::finns_inte(),
+            Ok(_) => Redirect::to(&format!("{}&betald=1", mål.här)).into_response(),
+            Err(BetalningFel::Spärrat(_) | BetalningFel::Verifikat(_)) => tillbaka(
+                &mål.här,
+                fält,
+                &[("panel", "betalning"), ("fel", "betalning")],
+            ),
+            Err(BetalningFel::FinnsInte) => (mål.finns_inte)(),
             Err(e) => betalningsfel(e),
         }
     }
 
-    /// `POST /foretag/{id}/kundfakturor/{f}/betalningar/{b}/ratta`: rättar betalningen.
-    pub(crate) async fn rätta_kundbetalning(
-        State(state): State<Arc<KundfakturaState>>,
-        Path((id, f, b)): Path<(String, String, String)>,
-        inloggad: Option<Extension<Inloggad>>,
-        Form(fält): Form<Fält>,
+    /// Rättar betalningen `b` och visar fakturan, eller panelen igen med felet.
+    async fn rätta(
+        (db, klocka): (&Databas, &Klocka),
+        inloggad: &Inloggad,
+        företag: FöretagsId,
+        mål: Mål,
+        b: &str,
+        fält: &Fält,
     ) -> Response {
-        let (inloggad, företag, f) = match tolka(&id, &f, inloggad) {
-            Ok(t) => t,
-            Err(r) => return *r,
-        };
         let Ok(b) = b.parse::<BetalningsId>() else {
-            return crate::kundfakturor::server::finns_inte();
+            return (mål.finns_inte)();
         };
-        let här = format!("/foretag/{företag}/kundfakturor?f={f}");
-        let datum = värde(&fält, "datum").unwrap_or_default();
-        let orsak = värde(&fält, "orsak").unwrap_or_default();
-        match betalning::rätta(
-            &state.db,
-            &state.klocka,
-            &inloggad.aktör,
-            företag,
-            b,
-            &datum,
-            &orsak,
-        )
-        .await
-        {
+        let här = &mål.här;
+        let datum = värde(fält, "datum").unwrap_or_default();
+        let orsak = värde(fält, "orsak").unwrap_or_default();
+        match betalning::rätta(db, klocka, &inloggad.aktör, företag, b, &datum, &orsak).await {
             Ok(_) => Redirect::to(&format!("{här}&betalning_rattad=1")).into_response(),
             Err(BetalningFel::Verifikat(maya_core::verifikat::VerifikatFel::Spärrat(s))) => {
                 let text = s
@@ -776,8 +833,8 @@ pub(crate) mod server {
                     .join(" ");
                 let b = b.to_string();
                 tillbaka(
-                    &här,
-                    &fält,
+                    här,
+                    fält,
                     &[
                         ("panel", "ratta-betalning"),
                         ("b", &b),
@@ -789,8 +846,113 @@ pub(crate) mod server {
             Err(BetalningFel::RedanRättad) => {
                 Redirect::to(&format!("{här}&fel=redan_rattad")).into_response()
             }
-            Err(BetalningFel::IngenBetalning) => crate::kundfakturor::server::finns_inte(),
+            Err(BetalningFel::IngenBetalning) => (mål.finns_inte)(),
             Err(e) => betalningsfel(e),
         }
+    }
+
+    fn kundmål(företag: FöretagsId, f: &str) -> Option<Mål> {
+        let f = f.parse::<KundfakturaId>().ok()?;
+        Some(Mål {
+            faktura: Faktura::Kund(f),
+            här: format!("/foretag/{företag}/kundfakturor?f={f}"),
+            finns_inte: crate::kundfakturor::server::finns_inte,
+        })
+    }
+
+    /// `POST /foretag/{id}/kundfakturor/{f}/betalning`: registrerar betalningen och visar
+    /// fakturan, eller panelen igen med spärrarna vid fälten.
+    pub(crate) async fn registrera_kundbetalning(
+        State(state): State<Arc<KundfakturaState>>,
+        Path((id, f)): Path<(String, String)>,
+        inloggad: Option<Extension<Inloggad>>,
+        Form(fält): Form<Fält>,
+    ) -> Response {
+        let (inloggad, företag) = match tolka(&id, inloggad) {
+            Ok(t) => t,
+            Err(r) => return *r,
+        };
+        let Some(mål) = kundmål(företag, &f) else {
+            return ingen_åtkomst();
+        };
+        registrera((&state.db, &state.klocka), &inloggad, företag, mål, &fält).await
+    }
+
+    /// `POST /foretag/{id}/kundfakturor/{f}/betalningar/{b}/ratta`: rättar betalningen.
+    pub(crate) async fn rätta_kundbetalning(
+        State(state): State<Arc<KundfakturaState>>,
+        Path((id, f, b)): Path<(String, String, String)>,
+        inloggad: Option<Extension<Inloggad>>,
+        Form(fält): Form<Fält>,
+    ) -> Response {
+        let (inloggad, företag) = match tolka(&id, inloggad) {
+            Ok(t) => t,
+            Err(r) => return *r,
+        };
+        let Some(mål) = kundmål(företag, &f) else {
+            return ingen_åtkomst();
+        };
+        rätta(
+            (&state.db, &state.klocka),
+            &inloggad,
+            företag,
+            mål,
+            &b,
+            &fält,
+        )
+        .await
+    }
+
+    // #147 Leverantörsfakturor
+    fn leverantörsmål(företag: FöretagsId, f: &str) -> Option<Mål> {
+        let f = f.parse::<LeverantörsfakturaId>().ok()?;
+        Some(Mål {
+            faktura: Faktura::Leverantör(f),
+            här: format!("/foretag/{företag}/leverantorsfakturor?f={f}"),
+            finns_inte: || text(StatusCode::NOT_FOUND, "Leverantörsfakturan finns inte.\n"),
+        })
+    }
+
+    /// `POST /foretag/{id}/leverantorsfakturor/{f}/betalning`: registrerar betalningen och
+    /// visar fakturan, eller panelen igen med spärrarna vid fälten.
+    pub(crate) async fn registrera_leverantörsbetalning(
+        State(state): State<Arc<LeverantörsfakturaState>>,
+        Path((id, f)): Path<(String, String)>,
+        inloggad: Option<Extension<Inloggad>>,
+        Form(fält): Form<Fält>,
+    ) -> Response {
+        let (inloggad, företag) = match tolka(&id, inloggad) {
+            Ok(t) => t,
+            Err(r) => return *r,
+        };
+        let Some(mål) = leverantörsmål(företag, &f) else {
+            return ingen_åtkomst();
+        };
+        registrera((&state.db, &state.klocka), &inloggad, företag, mål, &fält).await
+    }
+
+    /// `POST /foretag/{id}/leverantorsfakturor/{f}/betalningar/{b}/ratta`: rättar betalningen.
+    pub(crate) async fn rätta_leverantörsbetalning(
+        State(state): State<Arc<LeverantörsfakturaState>>,
+        Path((id, f, b)): Path<(String, String, String)>,
+        inloggad: Option<Extension<Inloggad>>,
+        Form(fält): Form<Fält>,
+    ) -> Response {
+        let (inloggad, företag) = match tolka(&id, inloggad) {
+            Ok(t) => t,
+            Err(r) => return *r,
+        };
+        let Some(mål) = leverantörsmål(företag, &f) else {
+            return ingen_åtkomst();
+        };
+        rätta(
+            (&state.db, &state.klocka),
+            &inloggad,
+            företag,
+            mål,
+            &b,
+            &fält,
+        )
+        .await
     }
 }

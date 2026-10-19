@@ -17,9 +17,11 @@ use maya_domain::leverantorsfaktura::{
     Registrerad, Spärr, moms, Åtgärd,
 };
 use maya_domain::rakenskapsar::Räkenskapsår;
+use maya_domain::reskontra::Grupp;
 use serde::{Deserialize, Serialize};
 
 use crate::app::LoggaIn;
+use crate::betalning::{Betalningar, Betalningspanel, Märke, ReskontraVy, RättaBetalningspanel};
 use crate::foretag::IngenÅtkomst;
 use crate::sidodata::sida;
 use crate::underlag::{Förhandsvisning, Gem, UnderlagVy};
@@ -36,6 +38,15 @@ pub struct ListradVy {
     /// `ÅÅÅÅ-MM-DD`, eller tomt.
     pub förfallodag: String,
     pub total: String,
+    // #147 Betalningar
+    /// Det som återstår att betala; för ett utkast totalen.
+    pub återstår: String,
+    /// Märkets kod och namn för en registrerad faktura.
+    pub märke: Option<(String, String)>,
+    /// Gruppen i listan.
+    pub grupp: Option<Grupp>,
+    /// "förfaller om 5 dagar" för en öppen registrerad faktura, annars tomt.
+    pub förfallotext: String,
 }
 
 /// En post i fakturans historik.
@@ -72,6 +83,12 @@ pub struct FakturaVy {
     pub registrerad: Option<(String, String)>,
     pub historik: Vec<HistorikVy>,
     pub kontering: Vec<KonteringVy>,
+    // #147 Betalningar
+    /// Status, betalningar och det som återstår för en registrerad faktura.
+    pub reskontra: Option<ReskontraVy>,
+    /// Betaluppgifterna som betalningen görs med: leverantörens bankgiro, plusgiro eller
+    /// IBAN/BIC och fakturans OCR eller meddelande, som etikett och värde.
+    pub betaluppgifter: Vec<(String, String)>,
 }
 
 /// Det som formuläret prövar spärrarna mot, i webbläsaren.
@@ -169,6 +186,8 @@ pub struct Leverantörsfakturadata {
     pub förutsättningar: FörutsättningarVy,
     /// De okopplade underlagen, för en ny faktura.
     pub okopplade: Vec<UnderlagVy>,
+    /// Leverantörsskulderna: det som återstår på de registrerade fakturorna (#147).
+    pub leverantörsskulder: String,
 }
 
 /// Datan för `/foretag/<id>/leverantorsfakturor` och `/foretag/<id>/leverantorsfakturor/ny`.
@@ -281,7 +300,8 @@ fn feltext(kod: &str) -> Option<&'static str> {
         "inget_utkast" => "Utkastet finns inte längre, eller är redan registrerat.",
         "for_stort" => "Ett underlag får vara högst 25 MB.",
         "ingen_fil" => "Välj originalet att ladda upp.",
-        _ => return None,
+        // #147 Betalningar
+        kod => return crate::betalning::feltext(kod),
     })
 }
 
@@ -295,8 +315,10 @@ pub(crate) mod server {
     use axum::{Extension, Form, Router};
     use leptos::prelude::ServerFnError;
     use maya_core::atkomst::ÅtkomstFel;
+    use maya_core::betalning::{BetalningFel, Faktura};
     use maya_core::foretag::FöretagsId;
     use maya_core::inloggning::Inloggad;
+    use maya_core::leverantor;
     use maya_core::leverantorsfaktura::{
         self, FakturaFel, Leverantörsfaktura, LeverantörsfakturaId, Status,
     };
@@ -324,6 +346,15 @@ pub(crate) mod server {
             .route("/foretag/{id}/leverantorsfakturor", post(ladda_upp))
             .route("/foretag/{id}/leverantorsfakturor/{f}", post(skicka))
             .route("/foretag/{id}/leverantorsfakturor/{f}/radera", post(radera))
+            // #147 Betalningar
+            .route(
+                "/foretag/{id}/leverantorsfakturor/{f}/betalning",
+                post(crate::betalning::server::registrera_leverantörsbetalning),
+            )
+            .route(
+                "/foretag/{id}/leverantorsfakturor/{f}/betalningar/{b}/ratta",
+                post(crate::betalning::server::rätta_leverantörsbetalning),
+            )
             .layer(DefaultBodyLimit::max(STÖRSTA_BEGÄRAN))
             .with_state(Arc::new(state))
     }
@@ -395,20 +426,45 @@ pub(crate) mod server {
         } else {
             Vec::new()
         };
+        let idag = b.klocka.idag();
+        let kr = |öre: i64| maya_domain::belopp::Saldo::från_öre(öre).to_string();
+        let leverantörsskulder: i64 = lista
+            .iter()
+            .filter(|r| r.status != Status::Utkast)
+            .map(|r| r.återstår.max(0))
+            .sum();
         Ok(Leverantörsfakturadata {
-            idag: b.klocka.idag().to_string(),
+            idag: idag.to_string(),
             lista: lista
                 .iter()
-                .map(|r| ListradVy {
-                    id: r.id.to_string(),
-                    utkast: r.status == Status::Utkast,
-                    leverantör: r.leverantörsnamn.clone(),
-                    ny_leverantör: r.ny_leverantör,
-                    fakturanummer: r.fakturanummer.clone(),
-                    förfallodag: r.förfallodag.map(|d| d.to_string()).unwrap_or_default(),
-                    total: r.total.map(|t| t.to_string()).unwrap_or_default(),
+                .map(|r| {
+                    let registrerad = r.förfallodag.filter(|_| r.status != Status::Utkast);
+                    let total = r.total.map(|t| t.öre()).unwrap_or_default();
+                    ListradVy {
+                        id: r.id.to_string(),
+                        utkast: r.status == Status::Utkast,
+                        leverantör: r.leverantörsnamn.clone(),
+                        ny_leverantör: r.ny_leverantör,
+                        fakturanummer: r.fakturanummer.clone(),
+                        förfallodag: r.förfallodag.map(|d| d.to_string()).unwrap_or_default(),
+                        total: r.total.map(|t| t.to_string()).unwrap_or_default(),
+                        återstår: kr(r.återstår),
+                        märke: registrerad.map(|d| {
+                            let m = maya_domain::reskontra::märke(total, r.återstår, d, idag);
+                            (m.kod().to_string(), m.namn().to_string())
+                        }),
+                        grupp: Some(match registrerad {
+                            Some(d) => maya_domain::reskontra::grupp(r.återstår, d, idag),
+                            None => maya_domain::reskontra::Grupp::Utkast,
+                        }),
+                        förfallotext: registrerad
+                            .filter(|_| r.återstår > 0)
+                            .map(|d| maya_domain::reskontra::förfallotext(d, idag))
+                            .unwrap_or_default(),
+                    }
                 })
                 .collect(),
+            leverantörsskulder: kr(leverantörsskulder),
             valt,
             förutsättningar: FörutsättningarVy {
                 konton: konton
@@ -495,6 +551,48 @@ pub(crate) mod server {
                 .unwrap_or_default(),
             None => Vec::new(),
         };
+        // #147 Betalningar: status, betalningarna och panelerna, och betaluppgifterna.
+        let reskontra = match f.status {
+            Status::Utkast => None,
+            Status::Registrerad => Some(
+                crate::betalning::server::reskontra(
+                    b,
+                    företag,
+                    Faktura::Leverantör(f.id),
+                    b.värde("panel").as_deref(),
+                )
+                .await
+                .map_err(|e| match e {
+                    BetalningFel::Åtkomst(e) => e,
+                    e => ÅtkomstFel::Databas(maya_core::DatabasFel::Korrupt(e.to_string())),
+                })?,
+            ),
+        };
+        let mut betaluppgifter = Vec::new();
+        if let Some(l) = match (f.status, f.leverantör) {
+            (Status::Registrerad, Some(l)) => {
+                leverantor::leverantören(db, aktör, företag, l).await?
+            }
+            _ => None,
+        } {
+            let u = &l.uppgifter;
+            for (etikett, v) in [
+                ("Bankgiro", &u.bankgiro),
+                ("Plusgiro", &u.plusgiro),
+                ("IBAN", &u.iban),
+                ("BIC", &u.bic),
+            ] {
+                if !v.is_empty() {
+                    betaluppgifter.push((etikett.to_string(), v.clone()));
+                }
+            }
+        }
+        if reskontra.is_some() && !f.formulär.referens.trim().is_empty() {
+            betaluppgifter.push((
+                "OCR eller meddelande".to_string(),
+                f.formulär.referens.trim().to_string(),
+            ));
+        }
         Ok(FakturaVy {
             id: f.id.to_string(),
             utkast: f.status == Status::Utkast,
@@ -518,6 +616,8 @@ pub(crate) mod server {
                 })
                 .collect(),
             kontering,
+            reskontra,
+            betaluppgifter,
         })
     }
 
@@ -702,6 +802,11 @@ fn leverantörsfakturasida(data: Leverantörsfakturadata, ny: bool) -> AnyView {
         Some(format!("Registrerad och bokförd som {nummer}."))
     } else if fråga("sparat").is_some() {
         Some("Utkastet sparades.".into())
+    } else if fråga("betald").is_some() {
+        // #147 Betalningar
+        Some("Betalningen registrerades och verifikatet bokfördes.".into())
+    } else if fråga("betalning_rattad").is_some() {
+        Some("Betalningen rättades. Rättelsen bokfördes och betalningen räknas inte längre.".into())
     } else if fråga("raderat").is_some() {
         Some(
             "Utkastet raderades och raderingen loggades. Originalet är ett okopplat underlag igen."
@@ -746,7 +851,12 @@ fn leverantörsfakturasida(data: Leverantörsfakturadata, ny: bool) -> AnyView {
         <div class="verifikat-delad">
             <div class="verifikat-spalt">
                 <div class="verifikat-spalt-rubrik">
-                    <h1>"Leverantörsfakturor"</h1>
+                    <div>
+                        <h1>"Leverantörsfakturor"</h1>
+                        <p class="diskret leverantorsskulder">
+                            {format!("Leverantörsskulder {} kr", data.leverantörsskulder)}
+                        </p>
+                    </div>
                     <span>
                         <a class="knapp knapp-diskret leverantorsregister" href=leverantörsregistret(&bas)>
                             "Leverantörer"
@@ -765,94 +875,86 @@ fn leverantörsfakturasida(data: Leverantörsfakturadata, ny: bool) -> AnyView {
     .into_any()
 }
 
-/// Listan i grupper: förfallna, förfaller inom 7 dagar, senare och utkast.
+/// Listan i grupper (#147, som kundfakturorna): Förfallna, Förfaller inom 7 dagar, Senare,
+/// Utkast och Avslutade, med märket och det som återstår på en registrerad faktura.
 #[allow(non_snake_case)]
 fn Lista(bas: &str, data: &Leverantörsfakturadata, valt: Option<&str>) -> AnyView {
-    let idag: Option<jiff::civil::Date> = data.idag.parse().ok();
-    let om_7 = idag.and_then(|d| d.checked_add(jiff::Span::new().days(7)).ok());
-    let grupp = |r: &ListradVy| -> usize {
-        if r.utkast {
-            return 3;
-        }
-        match (r.förfallodag.parse::<jiff::civil::Date>().ok(), idag, om_7) {
-            (Some(d), Some(i), _) if d < i => 0,
-            (Some(d), _, Some(s)) if d <= s => 1,
-            _ => 2,
-        }
-    };
-    let rubriker = ["Förfallna", "Förfaller inom 7 dagar", "Senare", "Utkast"];
     if data.lista.is_empty() {
         return view! { <p class="diskret">"Inga leverantörsfakturor än."</p> }.into_any();
     }
-    rubriker
-        .into_iter()
-        .enumerate()
-        .filter_map(|(g, rubrik)| {
-            let rader: Vec<&ListradVy> = data.lista.iter().filter(|r| grupp(r) == g).collect();
-            if rader.is_empty() {
+    let rad = |r: &ListradVy| {
+        let aktuellt = (Some(r.id.as_str()) == valt).then_some("page");
+        let namn = if r.leverantör.is_empty() {
+            "Ny leverantörsfaktura".to_string()
+        } else {
+            r.leverantör.clone()
+        };
+        let förfaller = match (r.förfallotext.is_empty(), r.förfallodag.is_empty()) {
+            (false, _) => r.förfallotext.clone(),
+            (true, false) => format!("förfaller {}", r.förfallodag),
+            (true, true) => String::new(),
+        };
+        let under = [r.fakturanummer.clone(), förfaller]
+            .into_iter()
+            .filter(|t| !t.is_empty())
+            .collect::<Vec<_>>()
+            .join(" · ");
+        let märke = match (&r.märke, r.utkast) {
+            (_, true) => view! { <UtkastBadge /> }.into_any(),
+            (Some((kod, namn)), _) => {
+                view! { <Märke kod=kod.clone() namn=namn.clone() /> }.into_any()
+            }
+            (None, _) => ().into_any(),
+        };
+        // Det som återstår för en öppen faktura, annars totalen.
+        let belopp = if r.förfallotext.is_empty() {
+            r.total.clone()
+        } else {
+            r.återstår.clone()
+        };
+        let ny = r.ny_leverantör.then(|| {
+            view! {
+                <span class="badge badge-ny" title="Blir verklig när fakturan registreras">
+                    "Ny leverantör"
+                </span>
+            }
+        });
+        view! {
+            <li>
+                <a href=format!("{bas}/leverantorsfakturor?f={}", r.id) aria-current=aktuellt>
+                    <span class="verifikatlista-topp">
+                        <span>{namn}</span>
+                        <span class="belopp">{belopp}</span>
+                    </span>
+                    <span class="diskret">{märke} " " {under} " " {ny}</span>
+                </a>
+            </li>
+        }
+    };
+    let grupper = Grupp::ALLA
+        .iter()
+        .filter_map(|g| {
+            let mut i_gruppen: Vec<&ListradVy> =
+                data.lista.iter().filter(|r| r.grupp == Some(*g)).collect();
+            if i_gruppen.is_empty() {
                 return None;
             }
-            let n = rader.len();
-            let rader = rader
-                .into_iter()
-                .map(|r| {
-                    let aktuellt = (Some(r.id.as_str()) == valt).then_some("page");
-                    let namn = if r.leverantör.is_empty() {
-                        "Ny leverantörsfaktura".to_string()
-                    } else {
-                        r.leverantör.clone()
-                    };
-                    let under = [
-                        r.fakturanummer.clone(),
-                        if r.förfallodag.is_empty() {
-                            String::new()
-                        } else {
-                            format!("förfaller {}", r.förfallodag)
-                        },
-                    ]
-                    .into_iter()
-                    .filter(|t| !t.is_empty())
-                    .collect::<Vec<_>>()
-                    .join(" · ");
-                    let märke = if r.utkast {
-                        view! { <UtkastBadge /> }.into_any()
-                    } else {
-                        ().into_any()
-                    };
-                    let ny = r.ny_leverantör.then(|| {
-                        view! {
-                            <span
-                                class="badge badge-ny"
-                                title="Blir verklig när fakturan registreras"
-                            >
-                                "Ny leverantör"
-                            </span>
-                        }
-                    });
-                    view! {
-                        <li>
-                            <a
-                                href=format!("{bas}/leverantorsfakturor?f={}", r.id)
-                                aria-current=aktuellt
-                            >
-                                <span class="verifikatlista-topp">
-                                    {märke}
-                                    <span>{namn}</span>
-                                    <span class="belopp">{r.total.clone()}</span>
-                                </span>
-                                <span class="diskret">{under} " " {ny}</span>
-                            </a>
-                        </li>
-                    }
-                })
-                .collect_view();
+            if matches!(g, Grupp::Förfallna | Grupp::InomSjuDagar | Grupp::Senare) {
+                i_gruppen.sort_by(|a, b| a.förfallodag.cmp(&b.förfallodag));
+            }
+            let antal = i_gruppen.len();
+            let rader = i_gruppen.into_iter().map(rad).collect_view();
             Some(view! {
-                <h2 class="lf-grupp">{rubrik} <span class="diskret">" · " {n}</span></h2>
-                <ul class="verifikatlista">{rader}</ul>
+                <li class="lista-grupp">
+                    <h2 class="per lf-grupp">
+                        {g.rubrik()} <span class="diskret">{format!(" · {antal}")}</span>
+                    </h2>
+                    <ul class="verifikatlista">{rader}</ul>
+                </li>
             })
         })
-        .collect_view()
-        .into_any()
+        .collect_view();
+    view! { <ul class="listgrupper">{grupper}</ul> }.into_any()
 }
 
 /// En ny faktura: ladda upp originalet, eller välj ett okopplat underlag.
@@ -1676,6 +1778,82 @@ fn Registrerad(bas: String, f: FakturaVy) -> impl IntoView {
             }
         })
         .collect_view();
+    // #147 Betalningar: märket, det som återstår, betaluppgifterna, handlingen, panelerna och
+    // betalningarna, som på en kundfaktura.
+    let här = format!("{bas}/leverantorsfakturor?f={}", f.id);
+    let lista = format!("{bas}/leverantorsfakturor");
+    let vald_panel = use_query_map().with_untracked(|q| q.get("panel"));
+    let (status, kvar, handlingar, panel, betalningar) = match f.reskontra.clone() {
+        Some(r) => {
+            let status =
+                view! { <Märke kod=r.märke.0.clone() namn=r.märke.1.clone() /> }.into_any();
+            let kvar = (r.återstår_öre > 0).then(|| {
+                view! { <span class="diskret">{format!(" · {} kvar", r.återstår)}</span> }
+            });
+            let panel = match (vald_panel.as_deref(), r.betalning.clone(), r.rätta.clone()) {
+                (Some("betalning"), Some(v), _) => Some(
+                    view! {
+                        <Betalningspanel
+                            action=format!("{lista}/{}/betalning", f.id)
+                            stäng=här.clone()
+                            v=v
+                        />
+                    }
+                    .into_any(),
+                ),
+                (Some("ratta-betalning"), _, Some(rv)) => Some(
+                    view! {
+                        <RättaBetalningspanel
+                            action=format!("{lista}/{}/betalningar/{}/ratta", f.id, rv.id)
+                            stäng=här.clone()
+                            r=rv
+                        />
+                    }
+                    .into_any(),
+                ),
+                _ => None,
+            };
+            let handlingar = (panel.is_none() && r.återstår_öre > 0).then(|| {
+                view! {
+                    <p class="dokument-handlingar">
+                        <a class="knapp knapp-primar" href=format!("{här}&panel=betalning")>
+                            "Registrera betalning"
+                        </a>
+                    </p>
+                }
+            });
+            let betalningar =
+                view! { <Betalningar bas=bas.clone() här=här.clone() r=r /> }.into_any();
+            (status, kvar.into_any(), handlingar, panel, betalningar)
+        }
+        None => (
+            view! { <span class="markering">"Registrerad"</span> }.into_any(),
+            ().into_any(),
+            None,
+            None,
+            ().into_any(),
+        ),
+    };
+    let betaluppgifter = (!f.betaluppgifter.is_empty()).then(|| {
+        let rader = f
+            .betaluppgifter
+            .iter()
+            .map(|(etikett, v)| {
+                view! {
+                    <dt>{etikett.clone()}</dt>
+                    <dd>
+                        <code>{v.clone()}</code>
+                    </dd>
+                }
+            })
+            .collect_view();
+        view! {
+            <section aria-label="Betaluppgifter">
+                <h3>"Betala till"</h3>
+                <dl class="metadata betaluppgifter">{rader}</dl>
+            </section>
+        }
+    });
     view! {
         <div class="med-underlag">
             <aside class="underlagsspalt" aria-label="Originalet">
@@ -1688,11 +1866,15 @@ fn Registrerad(bas: String, f: FakturaVy) -> impl IntoView {
                     </p>
                     <h2>{f.leverantörsnamn.clone()}</h2>
                     <p>
-                        <span class="markering">"Registrerad"</span>
+                        {status}
                         " "
                         <span class="belopp">{värde("totalbelopp")} " kr"</span>
+                        {kvar}
                     </p>
                 </header>
+                {handlingar}
+                {betaluppgifter}
+                {panel}
                 <dl class="metadata">
                     {rad("Fakturadatum", värde("fakturadatum"))}
                     {rad("Förfallodag", värde("forfallodag"))}
@@ -1721,6 +1903,7 @@ fn Registrerad(bas: String, f: FakturaVy) -> impl IntoView {
                     </thead>
                     <tbody>{kontering}</tbody>
                 </table>
+                {betalningar}
                 <section>
                     <h3>"Historik"</h3>
                     <ul class="historik">{historik}</ul>
