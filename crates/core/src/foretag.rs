@@ -626,6 +626,12 @@ pub async fn radera(
         "DELETE FROM fakturauppgifter WHERE foretag_id = ?1",
         // #144 leverantörsregistret
         "DELETE FROM leverantor WHERE foretag_id = ?1",
+        // #135 Kundfakturor: bara utkast, eftersom en utfärdad faktura är
+        // räkenskapsinformation.
+        "DELETE FROM kundfakturarad
+         WHERE faktura_id IN (SELECT id FROM kundfaktura WHERE foretag_id = ?1)",
+        "DELETE FROM kundfaktura WHERE foretag_id = ?1",
+        "DELETE FROM fakturaserie WHERE foretag_id = ?1",
         // #133 Kundregister: kunder utan fakturor.
         "DELETE FROM kund WHERE foretag_id = ?1",
         "DELETE FROM foretag WHERE id = ?1",
@@ -673,7 +679,8 @@ async fn har_räkenskapsinformation_i(
                         JOIN rakenskapsar r ON r.id = b.rakenskapsar_id
                         WHERE r.foretag_id = ?1)
              OR EXISTS (SELECT 1 FROM leverantorsfaktura
-                        WHERE foretag_id = ?1 AND status <> 'utkast')",
+                        WHERE foretag_id = ?1 AND status <> 'utkast')
+             OR EXISTS (SELECT 1 FROM kundfaktura WHERE foretag_id = ?1 AND status <> 'utkast')",
     )
     .bind(id.0)
     .fetch_one(conn)

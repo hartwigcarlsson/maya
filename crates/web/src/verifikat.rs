@@ -391,6 +391,9 @@ pub(crate) mod server {
                     verifikat::Flöde::Leverantörsfaktura => {
                         (format!("/leverantorsfakturor?f={}", f.id), f.text.clone())
                     }
+                    verifikat::Flöde::Kundfaktura => {
+                        (format!("/kundfakturor?f={}", f.id), f.text.clone())
+                    }
                 }),
                 id: v.id.to_string(),
                 pdf: (

@@ -17,6 +17,7 @@
 
 mod bokforing;
 mod data;
+mod kundfaktura;
 mod systemdokumentation;
 #[cfg(feature = "test-support")]
 pub mod testhjalp;
@@ -152,6 +153,26 @@ pub struct Behandlingspost {
     pub beskrivning: String,
 }
 
+/// En kundfaktura som den utfärdas (momslagen 17 kap. 24 §): säljaren, köparen, raderna,
+/// momsen per sats, betalsätten och referensen. Fakturan har ingen utskriftssidfot; den är
+/// kundens exemplar. Den skrivs en gång när den utfärdas och arkiveras som underlag.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Kundfaktura {
+    pub faktura: maya_domain::kundfaktura::Utfärdbar,
+    pub säljare: maya_domain::kundfaktura::Säljare,
+    pub logotyp: Option<Logotyp>,
+    /// En förhandsvisning av ett utkast, märkt UTKAST.
+    pub utkast: bool,
+}
+
+/// Företagets logotyp i fakturans huvud.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Logotyp {
+    /// `image/png`, `image/jpeg` eller `image/svg+xml`.
+    pub mime: String,
+    pub innehåll: Vec<u8>,
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum PdfFel {
     /// Mallen gick inte att kompilera eller blev inte PDF/A-2b. Mallarna är inbyggda, så det
@@ -162,5 +183,10 @@ pub enum PdfFel {
 
 /// Skriver dokumentet som PDF/A-2b.
 pub fn skriv(dokument: &Dokument, sidfot: &Sidfot) -> Result<Vec<u8>, PdfFel> {
-    varld::skriv(dokument.mall(), dokument.data(sidfot), sidfot.tidpunkt)
+    varld::skriv(
+        dokument.mall(),
+        dokument.data(sidfot),
+        &dokument.bilder(),
+        sidfot.tidpunkt,
+    )
 }

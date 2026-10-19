@@ -31,6 +31,7 @@ const MALLAR: &[(&str, &str)] = &[
         "systemdokumentation.typ",
         include_str!("../mallar/systemdokumentation.typ"),
     ),
+    ("kundfaktura.typ", include_str!("../mallar/kundfaktura.typ")),
 ];
 
 /// Typsnitten (SIL OFL respektive Bitstream Vera-licensen; båda tillåter inbäddning, som PDF/A
@@ -107,16 +108,20 @@ impl World for Värld {
     }
 }
 
-/// Kompilerar mallen med `data` i `sys.inputs.data` och skriver PDF/A-2b med `tidpunkt` som
-/// dokumentets datum.
+/// Kompilerar mallen med `data` i `sys.inputs.data` och varje bild i `bilder` som bytes under
+/// sitt namn i `sys.inputs`, och skriver PDF/A-2b med `tidpunkt` som dokumentets datum.
 pub(crate) fn skriv(
     mall: &str,
     data: serde_json::Value,
+    bilder: &[(&str, Vec<u8>)],
     tidpunkt: Timestamp,
 ) -> Result<Vec<u8>, PdfFel> {
     let json = serde_json::to_vec(&data).map_err(|e| PdfFel::Mall(e.to_string()))?;
     let mut inputs = Dict::new();
     inputs.insert("data".into(), Value::Bytes(Bytes::new(json)));
+    for (namn, innehåll) in bilder {
+        inputs.insert((*namn).into(), Value::Bytes(Bytes::new(innehåll.clone())));
+    }
     let värld = Värld {
         bibliotek: LazyHash::new(Library::builder().with_inputs(inputs).build()),
         huvudfil: fil_id(mall),

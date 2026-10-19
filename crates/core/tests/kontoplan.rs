@@ -156,11 +156,11 @@ async fn inaktivering_av_ett_konto_med_saldo_i_ett_öppet_år_nekas_med_skäl_oc
         &anna,
         id,
         "2026-03-01",
-        &[(1930, 123_450, 0), (2081, 0, 123_450)],
+        &[(1910, 123_450, 0), (2081, 0, 123_450)],
     )
     .await;
 
-    let fel = kontoplan::inaktivera(&db, &klocka(), &anna, id, nr(1930))
+    let fel = kontoplan::inaktivera(&db, &klocka(), &anna, id, nr(1910))
         .await
         .unwrap_err();
 
@@ -172,7 +172,7 @@ async fn inaktivering_av_ett_konto_med_saldo_i_ett_öppet_år_nekas_med_skäl_oc
         "Saldo 1 234,50 kr i räkenskapsåret 2026-01-01–2026-12-31, som inte är stängt. \
          Bara konton med nollsaldo kan inaktiveras."
     );
-    assert!(konto(&db, &anna, id, 1930).await.unwrap().aktiv);
+    assert!(konto(&db, &anna, id, 1910).await.unwrap().aktiv);
     let saldon = kontoplan::saldon(&db, &anna, id, nr(2081)).await.unwrap();
     assert_eq!(saldon[0].saldo.öre(), -123_450);
 }

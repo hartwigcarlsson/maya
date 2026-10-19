@@ -22,7 +22,7 @@ fn ett_konto_utan_saldo_kan_inaktiveras() {
 
 #[test]
 fn ett_saldo_i_ett_öppet_år_nekar_med_skäl_och_saldo() {
-    let spärr = kan_inaktiveras(nr(1930), &[år_2026(0), år_2026(-123_456_778)]).unwrap_err();
+    let spärr = kan_inaktiveras(nr(1910), &[år_2026(0), år_2026(-123_456_778)]).unwrap_err();
 
     assert_eq!(spärr, Inaktiveringsspärr::Saldo(år_2026(-123_456_778)));
     assert_eq!(spärr.kod(), "har_saldo");

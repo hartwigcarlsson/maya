@@ -279,3 +279,112 @@ pub async fn leverantör(
     .await
     .expect("testleverantör")
 }
+
+// #135 Kundfakturor
+/// Ett företag som [`företag`], med de uppgifter som en kundfaktura kräver: adress, säte,
+/// momsregistreringsnummer, F-skatt och bankgiro 5050-1055.
+pub async fn fakturaföretag(db: &Databas) -> (Aktör, FöretagsId) {
+    let (anna, id) = företag(db).await;
+    let klocka = Klocka::system();
+    foretag::ändra_uppgifter(
+        db,
+        &klocka,
+        &anna,
+        id,
+        &maya_domain::foretag::Uppgifter {
+            namn: "Exempel AB".into(),
+            gatuadress: "Exempelgatan 1".into(),
+            postnummer: "12345".into(),
+            postort: "Exempelstad".into(),
+            säte: "Stockholm".into(),
+            momsregnr: "SE556036079301".into(),
+            f_skatt: true,
+            ..Default::default()
+        },
+    )
+    .await
+    .expect("företagets uppgifter");
+    crate::fakturauppgifter::ändra(
+        db,
+        &klocka,
+        &anna,
+        id,
+        &maya_domain::fakturauppgifter::Fakturauppgifter {
+            bankgiro: "5050-1055".into(),
+            ..Default::default()
+        },
+    )
+    .await
+    .expect("fakturauppgifterna");
+    (anna, id)
+}
+
+/// En aktiv kund `namn` med adress och 30 dagars betalningsvillkor.
+pub async fn kund(
+    db: &Databas,
+    aktör: &Aktör,
+    företag: FöretagsId,
+    namn: &str,
+) -> crate::kund::KundId {
+    crate::kund::skapa(
+        db,
+        &Klocka::system(),
+        aktör,
+        företag,
+        &maya_domain::kund::NyKund {
+            namn: namn.into(),
+            adress: "Storgatan 1\n111 22 Stockholm".into(),
+            epost: "ekonomi@kund.se".into(),
+            ..Default::default()
+        },
+    )
+    .await
+    .expect("testkund")
+}
+
+/// Ett utkast till kundfaktura till `kund` daterat `fakturadatum`, med en rad: 10 timmar à
+/// 950 kr med 25 % moms på 3001 (totalt 11 875 kr).
+pub async fn kundfakturautkast(
+    db: &Databas,
+    aktör: &Aktör,
+    företag: FöretagsId,
+    kund: crate::kund::KundId,
+    fakturadatum: &str,
+) -> crate::kundfaktura::KundfakturaId {
+    crate::kundfaktura::spara_utkast(
+        db,
+        &Klocka::system(),
+        aktör,
+        företag,
+        None,
+        &maya_domain::kundfaktura::NyKundfaktura {
+            kund: kund.to_string(),
+            fakturadatum: fakturadatum.into(),
+            rader: vec![maya_domain::kundfaktura::NyFakturarad {
+                beskrivning: "Konsulttimmar".into(),
+                antal: "10".into(),
+                enhet: "tim".into(),
+                à_pris: "950".into(),
+                ..Default::default()
+            }],
+            ..Default::default()
+        },
+    )
+    .await
+    .expect("testutkastet")
+}
+
+/// En utfärdad kundfaktura som [`kundfakturautkast`] till en ny kund `namn`.
+pub async fn utfärdad_kundfaktura(
+    db: &Databas,
+    aktör: &Aktör,
+    företag: FöretagsId,
+    namn: &str,
+    fakturadatum: &str,
+) -> crate::kundfaktura::Utfärdad {
+    let kund = kund(db, aktör, företag, namn).await;
+    let utkast = kundfakturautkast(db, aktör, företag, kund, fakturadatum).await;
+    crate::kundfaktura::utfärda(db, &Klocka::system(), aktör, företag, utkast)
+        .await
+        .expect("fakturan utfärdas")
+}

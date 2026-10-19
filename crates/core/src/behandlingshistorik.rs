@@ -93,6 +93,9 @@ händelser! {
     // #145 Leverantörsfakturor
     LeverantörsfakturaRegistrerad => "leverantörsfaktura registrerad",
     FakturautkastRaderat => "fakturautkast raderat",
+    // #135 Kundfakturor
+    KundfakturaUtfärdad => "kundfaktura utfärdad",
+    StartnummerÄndrat => "startnummer ändrat",
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -611,16 +614,33 @@ impl Post {
                 f("förfallodag"),
                 f("nummer")
             ),
+            // #135 Kundfakturor
+            Händelse::KundfakturaUtfärdad => format!(
+                "Faktura {} till ”{}” daterad {}, förfaller {}, {} kr, bokförd som {}",
+                f("nummer"),
+                s(&b["kund"]["namn"]),
+                f("fakturadatum"),
+                f("förfallodag"),
+                kronor(&b["summa_öre"]),
+                s(&b["verifikat"]["nummer"])
+            ),
             Händelse::FakturautkastRaderat => {
+                // Gemensam för kund- och leverantörsfakturor (#135, #145).
                 let mut text = format!("Utkast till {}", f("sort"));
-                for (namn, etikett) in [("fakturanummer", "nummer"), ("leverantörsnamn", "från")]
-                {
+                for (namn, etikett) in [
+                    ("fakturanummer", "nummer"),
+                    ("kundnamn", "till"),
+                    ("leverantörsnamn", "från"),
+                ] {
                     if !f(namn).is_empty() {
                         text.push_str(&format!(", {etikett} ”{}”", f(namn)));
                     }
                 }
                 text.push_str(&format!(", {} rader", s(&b["antal_rader"])));
                 text
+            }
+            Händelse::StartnummerÄndrat => {
+                format!("Första fakturanummer: {} → {}", f("från"), f("till"))
             }
         }
     }

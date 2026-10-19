@@ -174,6 +174,8 @@ pub struct Verifikat {
 pub enum Flöde {
     /// Registreringen av en leverantörsfaktura (#145).
     Leverantörsfaktura,
+    /// Utfärdandet av en kundfaktura (#135).
+    Kundfaktura,
 }
 
 /// En länk från ett verifikat till fakturan som det bokfördes från.
@@ -395,6 +397,35 @@ pub(crate) async fn bokför_i_ärende(
     underlag: &[UnderlagId],
 ) -> Result<Bokfört, VerifikatFel> {
     bokför_utan_att_slutföra(ärende, None, formulär, Some(underlag)).await
+}
+
+/// Formuläret för ett verifikat med kontrollerade rader, t.ex. ett flödes kontering, så att
+/// det går genom samma spärrar som ett verifikat som skrivs för hand.
+pub(crate) fn formulär_av(
+    datum: Date,
+    beskrivning: &str,
+    rader: &[maya_domain::verifikat::Rad],
+) -> NyttVerifikat {
+    let belopp = |b: Belopp| {
+        if b == Belopp::NOLL {
+            String::new()
+        } else {
+            b.to_string()
+        }
+    };
+    NyttVerifikat {
+        datum: datum.to_string(),
+        beskrivning: beskrivning.to_string(),
+        rader: rader
+            .iter()
+            .map(|r| maya_domain::verifikat::NyRad {
+                konto: r.konto.to_string(),
+                debet: belopp(r.debet),
+                kredit: belopp(r.kredit),
+                text: r.text.clone().unwrap_or_default(),
+            })
+            .collect(),
+    }
 }
 
 async fn bokför_utan_att_slutföra(
@@ -1108,15 +1139,28 @@ async fn flödeslänk(
     .bind(id.0)
     .fetch_optional(&mut *conn)
     .await?;
-    Ok(leverantörsfaktura.map(|(id, nummer, namn)| Flödeslänk {
-        flöde: Flöde::Leverantörsfaktura,
-        id,
-        text: format!("leverantörsfaktura {nummer} från {namn}"),
-    }))
+    if let Some((id, nummer, namn)) = leverantörsfaktura {
+        return Ok(Some(Flödeslänk {
+            flöde: Flöde::Leverantörsfaktura,
+            id,
+            text: format!("leverantörsfaktura {nummer} från {namn}"),
+        }));
+    }
+    // #135 Kundfakturor
+    Ok(crate::kundfaktura::fakturan_för_verifikat(conn, id)
+        .await?
+        .map(|(id, text)| Flödeslänk {
+            flöde: Flöde::Kundfaktura,
+            id,
+            text,
+        }))
 }
 
 /// Länken till verifikatet `id`, med vem som bokförde det och när.
-async fn länk(conn: &mut SqliteConnection, id: Option<i64>) -> Result<Option<Länk>, DatabasFel> {
+pub(crate) async fn länk(
+    conn: &mut SqliteConnection,
+    id: Option<i64>,
+) -> Result<Option<Länk>, DatabasFel> {
     let Some(id) = id else {
         return Ok(None);
     };

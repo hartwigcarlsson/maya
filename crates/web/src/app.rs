@@ -19,6 +19,7 @@ use crate::installningar::FöretagsInställningar;
 use crate::konto::{Passkeys, Sessioner};
 use crate::kontoplan::KontoplanSida;
 use crate::kunder::{KundregisterSida, NyKundSida};
+use crate::kundfakturor::{KundfakturorSida, NyKundfakturaSida};
 use crate::leverantorer::{LeverantörerSida, NyLeverantörSida};
 use crate::leverantorsfakturor::{LeverantörsfakturorSida, NyLeverantörsfakturaSida};
 use crate::rapporter::{Balansräkning, Rapporter, Resultaträkning};
@@ -231,6 +232,17 @@ fn Innehåll() -> impl IntoView {
                 <Route
                     path=path!("foretag/:id/leverantorsfakturor/ny")
                     view=NyLeverantörsfakturaSida
+                    ssr=SsrMode::Async
+                />
+                // #135 Kundfakturor
+                <Route
+                    path=path!("foretag/:id/kundfakturor")
+                    view=KundfakturorSida
+                    ssr=SsrMode::Async
+                />
+                <Route
+                    path=path!("foretag/:id/kundfakturor/ny")
+                    view=NyKundfakturaSida
                     ssr=SsrMode::Async
                 />
             </Routes>

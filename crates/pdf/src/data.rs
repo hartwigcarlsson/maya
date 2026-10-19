@@ -20,6 +20,7 @@ pub enum Dokument {
     Huvudbok(Huvudbok),
     Rapport(Rapport),
     Systemdokumentation(maya_domain::systemdokumentation::Systemdokumentation),
+    Kundfaktura(crate::Kundfaktura),
 }
 
 impl Dokument {
@@ -33,6 +34,19 @@ impl Dokument {
             Dokument::Huvudbok(_) => "huvudbok.typ",
             Dokument::Rapport(_) => "rapport.typ",
             Dokument::Systemdokumentation(_) => "systemdokumentation.typ",
+            Dokument::Kundfaktura(_) => "kundfaktura.typ",
+        }
+    }
+
+    /// Bilderna som mallen läser som bytes ur `sys.inputs`, med sina namn.
+    pub(crate) fn bilder(&self) -> Vec<(&'static str, Vec<u8>)> {
+        match self {
+            Dokument::Kundfaktura(k) => k
+                .logotyp
+                .iter()
+                .map(|l| ("logotyp", l.innehåll.clone()))
+                .collect(),
+            _ => Vec::new(),
         }
     }
 
@@ -46,6 +60,7 @@ impl Dokument {
             Dokument::Huvudbok(h) => bokforing::huvudbok(h),
             Dokument::Rapport(r) => rapport(r),
             Dokument::Systemdokumentation(s) => crate::systemdokumentation::systemdokumentation(s),
+            Dokument::Kundfaktura(k) => crate::kundfaktura::kundfaktura(k),
         };
         json!({
             "sidfot": {

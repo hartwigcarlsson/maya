@@ -136,6 +136,8 @@ pub enum Handling {
     HanteraFakturautkast,
     /// Registrera en leverantörsfaktura och bokföra den (#145). Bara webben.
     RegistreraFaktura,
+    /// Utfärda en kundfaktura: numrera, arkivera PDF:en och bokföra (#135). Bara webben.
+    UtfärdaFaktura,
 }
 
 /// Kanalpolicyn: om `kanal` får utföra `handling`.
@@ -161,6 +163,7 @@ pub fn tillåter(kanal: Kanal, handling: Handling) -> bool {
         | Handling::HanteraLeverantörer
         | Handling::HanteraKunder
         | Handling::HanteraFakturautkast
-        | Handling::RegistreraFaktura => kanal == Kanal::Webb,
+        | Handling::RegistreraFaktura
+        | Handling::UtfärdaFaktura => kanal == Kanal::Webb,
     }
 }

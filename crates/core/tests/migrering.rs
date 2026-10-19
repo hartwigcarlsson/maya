@@ -33,6 +33,18 @@ impl Migreringar {
         Migreringar { dir }
     }
 
+    /// Mayas migreringar före `version`, som en äldre Maya hade dem.
+    fn före(version: &str) -> Self {
+        let m = Migreringar::nya(&[]);
+        for fil in std::fs::read_dir(m.dir.path()).unwrap() {
+            let fil = fil.unwrap();
+            if fil.file_name().to_string_lossy().as_ref() >= version {
+                std::fs::remove_file(fil.path()).unwrap();
+            }
+        }
+        m
+    }
+
     async fn migrator(&self) -> Migrator {
         Migrator::new(self.dir.path()).await.unwrap()
     }
@@ -429,4 +441,47 @@ async fn en_binär_för_1_x_vägrar_en_databas_från_epok_0_och_rör_den_inte() 
     );
     db.stäng().await;
     assert_eq!(inst.kontrollsummor().await, före);
+}
+
+#[tokio::test]
+async fn fakturaflödenas_konton_aktiveras_i_befintliga_företag_och_aktiveringen_loggas() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("maya.db");
+    let gammal = Migreringar::före("20261020013500").migrator().await;
+    let db = Databas::öppna_som(&path, VERSION, &gammal, None)
+        .await
+        .unwrap();
+    let (anna, företag) = testhjalp::företag(&db).await;
+    // Före 0.2 var 1510 och 3740 inga flödeskonton och kunde vara inaktiva.
+    testhjalp::kör_sql(
+        &db,
+        "UPDATE konto SET aktiv = 0 WHERE nummer IN (1510, 3740)",
+    )
+    .await
+    .unwrap();
+    db.stäng().await;
+
+    let ny = Migreringar::nya(&[]).migrator().await;
+    let db = Databas::öppna_som(&path, VERSION, &ny, None).await.unwrap();
+
+    let konton = maya_core::kontoplan::konton(&db, &anna, företag)
+        .await
+        .unwrap();
+    for nr in [1510, 3740, 2611, 6351, 7960] {
+        let konto = konton.iter().find(|k| k.nummer.get() == nr).unwrap();
+        assert!(konto.aktiv, "{nr} är aktivt");
+    }
+    let poster = behandlingshistorik::historik(&db, &anna, företag, &Urval::default())
+        .await
+        .unwrap()
+        .poster;
+    let aktiverade: Vec<&str> = poster
+        .iter()
+        .filter(|p| p.typ == "konto aktiverat")
+        .map(|p| p.objekt.as_str())
+        .collect();
+    assert_eq!(aktiverade, ["1510", "3740"]);
+    let post = poster.iter().find(|p| p.objekt == "1510").unwrap();
+    assert_eq!(post.aktör, Aktör::maya());
+    db.stäng().await;
 }

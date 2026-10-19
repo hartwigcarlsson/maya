@@ -323,6 +323,18 @@ pub fn behandlingsregler() -> Vec<Block> {
                 .into(),
         ),
         kodtabell(crate::leverantorsfaktura::REGISTRERINGSSPÄRRAR),
+        // #135 Kundfakturor
+        Block::Underrubrik("Spärrar vid utfärdande av kundfaktura".into()),
+        Block::Stycke(
+            "Formuläret, förhandsvisningen och servern prövar samma spärrar, och varje spärr \
+             visas vid sitt fält med koden nedan. En kundfaktura som inte klarar dem kan sparas \
+             som utkast men inte utfärdas. Intäktskontot följer radens momssats (25 % 3001, \
+             12 % 3002, 6 % 3003, 0 % 3004) och kan ändras per rad till ett annat aktivt konto \
+             i klass 3. Momsen räknas per momssats på summan av radernas netto och avrundas \
+             till öre."
+                .into(),
+        ),
+        kodtabell(crate::kundfaktura::UTFÄRDANDESPÄRRAR),
     ]);
     block
 }
