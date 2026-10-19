@@ -184,8 +184,12 @@ Företagets register över leverantörsfakturor och vad som återstår att betal
 _Avoid_: Leverantörsregister, skuldlista
 
 **Registrera**:
-Att färdigställa en leverantörsfaktura så att den låses i leverantörsreskontran; under fakturametoden bokförs den i samma steg.
+Att färdigställa en leverantörsfaktura eller en extern kundfaktura så att den låses i reskontran; under fakturametoden bokförs den i samma steg.
 _Avoid_: Attestera, godkänna, ta emot
+
+**Extern kundfaktura**:
+En kundfaktura som har skapats i ett annat system och registreras i Maya med sin PDF som underlag och det andra systemets fakturanummer; den ingår inte i fakturaserien men betalas, krediteras och skrivs av som Mayas egna.
+_Avoid_: Importerad faktura, manuell kundfaktura, utomstående faktura
 
 **Okopplat underlag**:
 Ett uppladdat och arkiverat underlag som ännu inte hör till något verifikat eller någon faktura.
