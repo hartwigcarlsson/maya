@@ -28,4 +28,5 @@ pub mod sok;
 pub mod systemdokumentation;
 pub mod tid;
 pub mod underlag;
+pub mod utskick;
 pub mod verifikat;
