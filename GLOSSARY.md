@@ -199,6 +199,10 @@ _Avoid_: Fakturaprofil, fakturahuvud
 Ett sätt som en faktura kan betalas på: bankgiro, plusgiro eller IBAN med BIC.
 _Avoid_: Betalningsmetod, betalkanal
 
+**Utskick**:
+Ett mejl med en utfärdad kundfaktura som Maya skickade eller försökte skicka, eller en markering att fakturan lämnades på annat sätt (post, personligen, kundens portal); det loggas med tid, mottagare, vem och resultat och är inget tillstånd på fakturan.
+_Avoid_: Leverans, distribution, skickad (som status)
+
 **Anställd**:
 En person som får lön eller styrelsearvode från ett företag, även en ägare; registreras per företag.
 _Avoid_: Personal, medarbetare, löntagare

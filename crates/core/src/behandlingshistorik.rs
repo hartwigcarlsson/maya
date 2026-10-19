@@ -98,6 +98,10 @@ händelser! {
     StartnummerÄndrat => "startnummer ändrat",
     // #142 Rätta kontering
     KonteringRättad => "kontering rättad",
+    // #138 Utskick
+    UtskickGjort => "utskick gjort",
+    UtskickMisslyckat => "utskick misslyckat",
+    UtskickLämnatPåAnnatSätt => "utskick lämnat på annat sätt",
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -671,6 +675,19 @@ impl Post {
                     text.push_str(&format!(" ({})", f("orsak")));
                 }
                 text
+            }
+            // #138 Utskick
+            Händelse::UtskickGjort => {
+                format!("Faktura {} skickad till {}", f("nummer"), f("till"))
+            }
+            Händelse::UtskickMisslyckat => format!(
+                "Faktura {} kunde inte skickas till {}: {}",
+                f("nummer"),
+                f("till"),
+                f("fel")
+            ),
+            Händelse::UtskickLämnatPåAnnatSätt => {
+                format!("Faktura {} lämnad på annat sätt: {}", f("nummer"), f("hur"))
             }
         }
     }

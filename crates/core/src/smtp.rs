@@ -1,8 +1,9 @@
-//! En liten SMTP-klient för larmen till driften (`MAYA_SMTP_…`). Ett mejl per anslutning, i
-//! klartext UTF-8 som base64. Port 465 ger TLS direkt; annars används STARTTLS när servern
-//! erbjuder det. Ett lösenord skickas aldrig okrypterat, utom till en server på samma maskin.
+//! En liten SMTP-klient (`MAYA_SMTP_…`) för larmen till driften och fakturamejlen (#138). Ett
+//! mejl per anslutning: texten som UTF-8 i base64, och med bilagor `multipart/mixed` med varje
+//! bilaga i base64. Port 465 ger TLS direkt; annars används STARTTLS när servern erbjuder det.
+//! Ett lösenord skickas aldrig okrypterat, utom till en server på samma maskin.
 //!
-//! Blockerande: anropa från `spawn_blocking`.
+//! [`skicka`] kör det blockerande samtalet i `spawn_blocking`.
 
 use std::io::{Read, Write};
 use std::net::{TcpStream, ToSocketAddrs};
@@ -17,17 +18,39 @@ use crate::config::Smtp;
 
 const TIDSGRÄNS: Duration = Duration::from_secs(30);
 
-/// Ett mejl att skicka.
-pub(crate) struct Brev<'a> {
-    pub från: &'a str,
-    pub till: &'a str,
-    pub ämne: &'a str,
-    pub text: &'a str,
+/// Ett mejl att skicka, till en mottagare.
+#[derive(Debug, Clone, Default)]
+pub struct Brev {
+    /// Avsändaradressen (`MAIL FROM` och `From:`).
+    pub från: String,
+    /// Ett namn att visa för avsändaren, t.ex. företagets.
+    pub från_namn: Option<String>,
+    pub till: String,
+    /// `Reply-To:`, dit mottagaren svarar.
+    pub svara_till: Option<String>,
+    pub ämne: String,
+    pub text: String,
+    pub bilagor: Vec<Bilaga>,
 }
 
-/// Skickar `brev` genom `smtp`. `namn` är värden Maya presenterar sig som (`EHLO`). Felet är
-/// på svenska.
-pub(crate) fn skicka(smtp: &Smtp, namn: &str, brev: &Brev, nu: Timestamp) -> Result<(), String> {
+/// En fil som skickas med mejlet.
+#[derive(Debug, Clone)]
+pub struct Bilaga {
+    pub filnamn: String,
+    pub mime: String,
+    pub innehåll: Vec<u8>,
+}
+
+/// Skickar `brev` genom `smtp`, i `spawn_blocking`. `namn` är värden Maya presenterar sig som
+/// (`EHLO`) och `nu` mejlets `Date:`. Felet är på svenska.
+pub async fn skicka(smtp: &Smtp, namn: &str, brev: Brev, nu: Timestamp) -> Result<(), String> {
+    let (smtp, namn) = (smtp.clone(), namn.to_string());
+    tokio::task::spawn_blocking(move || skicka_blockerande(&smtp, &namn, &brev, nu))
+        .await
+        .map_err(|e| format!("SMTP: {e}"))?
+}
+
+fn skicka_blockerande(smtp: &Smtp, namn: &str, brev: &Brev, nu: Timestamp) -> Result<(), String> {
     let fel = |e: std::io::Error| format!("SMTP-servern {}:{}: {e}", smtp.host, smtp.port);
     let adress = (smtp.host.as_str(), smtp.port)
         .to_socket_addrs()
@@ -72,36 +95,117 @@ pub(crate) fn skicka(smtp: &Smtp, namn: &str, brev: &Brev, nu: Timestamp) -> Res
     Ok(())
 }
 
-/// Meddelandet enligt RFC 5322, med brödtexten som base64 så att inga rader behöver
-/// dot-stuffing och åtta bitar aldrig når en server som inte tar emot dem.
+/// Meddelandet enligt RFC 5322, med brödtexten och bilagorna som base64 så att inga rader
+/// behöver dot-stuffing och åtta bitar aldrig når en server som inte tar emot dem.
 fn meddelande(brev: &Brev, namn: &str, nu: Timestamp) -> String {
+    let från = match &brev.från_namn {
+        Some(n) => format!("{} <{}>", visningsnamn(n), brev.från),
+        None => brev.från.clone(),
+    };
+    let mut rader: Vec<String> = vec![format!("From: {från}"), format!("To: {}", brev.till)];
+    if let Some(svar) = &brev.svara_till {
+        rader.push(format!("Reply-To: {svar}"));
+    }
+    rader.extend([
+        format!("Subject: {}", ämne(&brev.ämne)),
+        format!("Date: {}", nu.strftime("%a, %d %b %Y %H:%M:%S +0000")),
+        format!("Message-ID: <{}@{namn}>", slump()),
+        "MIME-Version: 1.0".into(),
+    ]);
+    let text = |rader: &mut Vec<String>| {
+        rader.push("Content-Type: text/plain; charset=utf-8".into());
+        rader.push("Content-Transfer-Encoding: base64".into());
+        rader.push(String::new());
+        rader.extend(base64_rader(brev.text.replace('\n', "\r\n").as_bytes()));
+    };
+    if brev.bilagor.is_empty() {
+        text(&mut rader);
+    } else {
+        // Gränsen innehåller `=_`, som aldrig förekommer i base64.
+        let gräns = format!("=_maya_{}", slump());
+        rader.push(format!(
+            "Content-Type: multipart/mixed; boundary=\"{gräns}\""
+        ));
+        rader.push(String::new());
+        rader.push(format!("--{gräns}"));
+        text(&mut rader);
+        for bilaga in &brev.bilagor {
+            rader.push(format!("--{gräns}"));
+            rader.push(format!(
+                "Content-Type: {}; {}",
+                bilaga.mime,
+                parameter("name", &bilaga.filnamn)
+            ));
+            rader.push(format!(
+                "Content-Disposition: attachment; {}",
+                parameter("filename", &bilaga.filnamn)
+            ));
+            rader.push("Content-Transfer-Encoding: base64".into());
+            rader.push(String::new());
+            rader.extend(base64_rader(&bilaga.innehåll));
+        }
+        rader.push(format!("--{gräns}--"));
+    }
+    rader.join("\r\n") + "\r\n"
+}
+
+fn slump() -> String {
     let mut id = [0u8; 12];
     getrandom::fill(&mut id).expect("slumptal från operativsystemet");
-    let kropp = base64(brev.text.replace('\n', "\r\n").as_bytes());
-    let mut rader: Vec<String> = vec![
-        format!("From: {}", brev.från),
-        format!("To: {}", brev.till),
-        format!("Subject: {}", ämne(brev.ämne)),
-        format!("Date: {}", nu.strftime("%a, %d %b %Y %H:%M:%S +0000")),
-        format!("Message-ID: <{}@{namn}>", hex::encode(id)),
-        "MIME-Version: 1.0".into(),
-        "Content-Type: text/plain; charset=utf-8".into(),
-        "Content-Transfer-Encoding: base64".into(),
-        String::new(),
-    ];
-    rader.extend(
-        kropp
-            .as_bytes()
-            .chunks(76)
-            .map(|r| String::from_utf8_lossy(r).into_owned()),
-    );
-    rader.join("\r\n") + "\r\n"
+    hex::encode(id)
+}
+
+/// Base64 i rader om 76 tecken.
+fn base64_rader(data: &[u8]) -> Vec<String> {
+    base64(data)
+        .as_bytes()
+        .chunks(76)
+        .map(|r| String::from_utf8_lossy(r).into_owned())
+        .collect()
+}
+
+/// En parameter i en MIME-huvudrad: citerad när värdet är ren ASCII, annars UTF-8 enligt
+/// RFC 2231.
+fn parameter(namn: &str, värde: &str) -> String {
+    let enkel = värde
+        .bytes()
+        .all(|b| (b.is_ascii_graphic() && b != b'"' && b != b'\\') || b == b' ');
+    if enkel {
+        return format!("{namn}=\"{värde}\"");
+    }
+    let mut kodat = String::new();
+    for b in värde.bytes() {
+        if b.is_ascii_alphanumeric() || b"!#$&+-.^_`|~".contains(&b) {
+            kodat.push(char::from(b));
+        } else {
+            kodat.push_str(&format!("%{b:02X}"));
+        }
+    }
+    format!("{namn}*=UTF-8''{kodat}")
+}
+
+/// Ett visningsnamn i `From:`: citerat, eller som kodade ord när det inte är ASCII.
+fn visningsnamn(namn: &str) -> String {
+    let namn = utan_styrtecken(namn);
+    if namn.is_ascii() {
+        format!("\"{}\"", namn.replace(['"', '\\'], ""))
+    } else {
+        ämne(&namn)
+    }
+}
+
+/// Styrtecken, som radbrytningar, blir mellanslag: en huvudrad blir aldrig två.
+fn utan_styrtecken(text: &str) -> String {
+    text.chars()
+        .map(|c| if c.is_control() { ' ' } else { c })
+        .collect()
 }
 
 /// Ämnesraden: ren ASCII som den är, annars som kodade ord (RFC 2047) på hela tecken.
 fn ämne(text: &str) -> String {
+    let text = utan_styrtecken(text);
     if text.is_ascii() {
-        return text.to_string();
+        return text;
     }
     let mut ord = Vec::new();
     let mut del = String::new();
@@ -255,7 +359,53 @@ impl Write for Ström {
 
 #[cfg(test)]
 mod tests {
-    use super::{base64, ämne};
+    use super::{Bilaga, Brev, base64, meddelande, parameter, ämne};
+
+    #[test]
+    fn ett_filnamn_med_å_ä_ö_kodas_enligt_rfc_2231() {
+        assert_eq!(
+            parameter("filename", "Kundfaktura_1.pdf"),
+            "filename=\"Kundfaktura_1.pdf\""
+        );
+        assert_eq!(
+            parameter("filename", "Räkning 1.pdf"),
+            "filename*=UTF-8''R%C3%A4kning%201.pdf"
+        );
+    }
+
+    #[test]
+    fn ett_mejl_med_bilaga_är_multipart_med_svarsadress() {
+        let brev = Brev {
+            från: "maya@example.se".into(),
+            från_namn: Some("Exempel AB".into()),
+            till: "kund@example.se".into(),
+            svara_till: Some("faktura@exempel.se".into()),
+            ämne: "Faktura 1".into(),
+            text: "Hej".into(),
+            bilagor: vec![Bilaga {
+                filnamn: "Kundfaktura_1.pdf".into(),
+                mime: "application/pdf".into(),
+                innehåll: b"%PDF".to_vec(),
+            }],
+        };
+        let m = meddelande(
+            &brev,
+            "maya.example.se",
+            "2026-03-01T09:00:00Z".parse().unwrap(),
+        );
+        assert!(
+            m.contains("From: \"Exempel AB\" <maya@example.se>\r\n"),
+            "{m}"
+        );
+        assert!(m.contains("Reply-To: faktura@exempel.se\r\n"), "{m}");
+        assert!(
+            m.contains("Content-Type: multipart/mixed; boundary=\"=_maya_"),
+            "{m}"
+        );
+        assert!(m.contains("Content-Disposition: attachment; filename=\"Kundfaktura_1.pdf\""));
+        assert!(m.contains(&format!("\r\n{}\r\n", base64(b"%PDF"))), "{m}");
+        assert!(m.lines().all(|r| r.len() <= 998 && r != "."), "{m}");
+    }
 
     #[test]
     fn base64_följer_rfc_4648() {

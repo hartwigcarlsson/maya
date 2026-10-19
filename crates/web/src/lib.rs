@@ -26,11 +26,14 @@ pub mod sidodata;
 pub mod sok;
 pub mod systemdokumentation;
 pub mod underlag;
+pub mod utskick;
 pub mod utskrift;
 pub mod verifikat;
 
 #[cfg(feature = "ssr")]
 mod assets;
+#[cfg(feature = "ssr")]
+mod epost;
 #[cfg(feature = "ssr")]
 mod inloggning;
 #[cfg(feature = "ssr")]

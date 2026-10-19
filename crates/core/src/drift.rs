@@ -152,10 +152,7 @@ pub async fn skicka_larm(
     let fel: Vec<Larmfel> = aktiva.iter().map(|(f, _)| *f).collect();
 
     let värd = config.public_host();
-    let från = smtp
-        .from
-        .clone()
-        .unwrap_or_else(|| format!("maya@{}", config.public_url.host_str().unwrap_or("maya")));
+    let från = config.smtp_från().unwrap_or_default();
     let mut skickat = Vec::new();
     let mut misslyckade = Vec::new();
     for larm in maya_domain::drift::larm(nu, &fel, &skickade) {
@@ -187,19 +184,14 @@ pub async fn skicka_larm(
                 ),
             ),
         };
-        let (smtp, värd, från, till) = (smtp.clone(), värd.clone(), från.clone(), till.clone());
-        let utfall = tokio::task::spawn_blocking(move || {
-            let brev = smtp::Brev {
-                från: &från,
-                till: &till,
-                ämne: &ämne,
-                text: &text,
-            };
-            smtp::skicka(&smtp, &värd, &brev, nu)
-        })
-        .await
-        .map_err(|e| e.to_string())
-        .and_then(|r| r);
+        let brev = smtp::Brev {
+            från: från.clone(),
+            till: till.clone(),
+            ämne,
+            text,
+            ..smtp::Brev::default()
+        };
+        let utfall = smtp::skicka(smtp, &värd, brev, nu).await;
         // Ett larm som inte kom fram stoppar inte de andra; det försöks igen nästa gång.
         if let Err(e) = utfall {
             tracing::error!("larmet {larm:?} kunde inte skickas: {e}");

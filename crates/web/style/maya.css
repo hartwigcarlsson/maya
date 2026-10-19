@@ -2612,3 +2612,48 @@ kbd {
   display: block;
   margin: 0.75rem 0;
 }
+
+/* Utskick (#138): panelen Skicka fakturan och avsnittet Utskick i fakturans dokument.
+   Raden .dokument-handlingar delas med Rätta kontering ovan. */
+
+.dialog.skicka {
+  max-width: 640px;
+  margin: 0.75rem 0;
+}
+
+.dialog.skicka form.formular {
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.dialog.skicka form.formular label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.dialog.skicka form.lamnad {
+  flex-wrap: wrap;
+  justify-content: flex-start;
+  align-items: flex-end;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--border);
+}
+
+.dialog.skicka form.lamnad p {
+  flex-basis: 100%;
+}
+
+.utskick-bilaga {
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: calc(var(--radius) * 0.8);
+}
+
+.utskick-ok {
+  color: var(--success);
+}
+
+.utskick-fel {
+  color: var(--destructive);
+}
