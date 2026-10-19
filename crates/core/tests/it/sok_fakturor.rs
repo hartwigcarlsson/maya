@@ -95,6 +95,47 @@ async fn fakturanumret_hittar_mayas_egna_externa_kreditfakturor_och_leverantörs
 }
 
 #[tokio::test]
+async fn ett_nummer_hittar_också_samma_nummer_med_ett_tillägg() {
+    // En leverantörsfaktura vars nummer redan fanns får ett tillägg, t.ex. 8812-2.
+    let db = Databas::tillfällig().await;
+    let e = exempel(&db).await;
+    let norr = testhjalp::leverantör(&db, &e.anna, e.exempel, "Elbolaget AB").await;
+    testhjalp::registrerad_leverantörsfaktura(&db, &e.anna, e.exempel, norr, "8812-2", "").await;
+    assert_eq!(leverantörsfakturor(&sök(&db, &e, "8812").await), ["8812-2"]);
+    assert_eq!(
+        leverantörsfakturor(&sök(&db, &e, "8812-2").await),
+        ["8812-2"]
+    );
+    // Ett annat nummer som bara börjar likadant är inte samma nummer.
+    assert!(sök(&db, &e, "881").await.leverantörsfakturor.is_empty());
+    assert!(sök(&db, &e, "8812-").await.leverantörsfakturor.is_empty());
+}
+
+#[tokio::test]
+async fn faktura_och_ett_nummer_hittar_fakturan_med_det_numret() {
+    let db = Databas::tillfällig().await;
+    let e = exempel(&db).await;
+    let t = sök(&db, &e, &format!("faktura {}", e.kredit)).await;
+    assert_eq!(kundfakturor(&t), [e.kredit.as_str()]);
+    let t = sök(&db, &e, &format!("Kundfaktura {}", e.faktura)).await;
+    assert_eq!(kundfakturor(&t), [e.faktura.as_str()]);
+    assert!(t.leverantörsfakturor.is_empty());
+    assert_eq!(
+        kundfakturor(&sök(&db, &e, &format!("kreditfaktura {}", e.kredit)).await),
+        [e.kredit.as_str()]
+    );
+    let t = sök(&db, &e, "faktura LF-2026-17").await;
+    assert_eq!(leverantörsfakturor(&t), ["LF-2026-17"]);
+    let t = sök(&db, &e, "leverantörsfaktura LF-2026-17").await;
+    assert_eq!(leverantörsfakturor(&t), ["LF-2026-17"]);
+    assert!(t.kundfakturor.is_empty());
+    // "kundfaktura" hittar inte en leverantörsfaktura med det numret.
+    let t = sök(&db, &e, "kundfaktura LF-2026-17").await;
+    assert!(t.leverantörsfakturor.is_empty());
+    assert!(t.kundfakturor.is_empty());
+}
+
+#[tokio::test]
 async fn kundens_namn_hittar_kunden_och_dess_fakturor() {
     let db = Databas::tillfällig().await;
     let e = exempel(&db).await;
