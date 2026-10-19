@@ -1017,31 +1017,20 @@ pub(crate) async fn lista_i(
         bool,
         String,
     );
-    // Det som återstår: totalen minus krediteringarna (#140), betalningarna i reskontran
-    // (#139) och det som en gällande kundförlust skrev av (#141), samma regel som
-    // `betalning::återstår_i`. En kreditfaktura räknas av mot originalet och har inget kvar.
+    // Det som återstår och det som är krediterat ur vyn `kundfaktura_i_reskontran`, samma som
+    // `betalning::återstår_i`; för ett utkast totalen.
     let rader: Vec<Rad> = sqlx::query_as(
         "SELECT f.id, f.status, f.nummer,
                 coalesce(f.kunduppgifter ->> '$.namn', k.namn),
                 f.fakturadatum, f.forfallodag, f.total, coalesce(k.status = 'ny', 0),
-                CASE WHEN f.krediterar IS NOT NULL THEN 0 ELSE
-                    f.total - coalesce((SELECT sum(b.belopp + b.oresutjamning)
-                                        FROM betalning_i_reskontran b
-                                        WHERE b.kundfaktura_id = f.id), 0)
-                            + coalesce((SELECT sum(c.total) FROM kundfaktura c
-                                        WHERE c.krediterar = f.id
-                                          AND c.status IN ('utfardad', 'registrerad')), 0)
-                            - coalesce((SELECT sum(l.belopp) FROM kundforlust_i_reskontran l
-                                        WHERE l.kundfaktura_id = f.id), 0)
-                END,
+                CASE WHEN f.status = 'utkast' THEN f.total ELSE r.aterstar END,
                 EXISTS (SELECT 1 FROM kundforlust_i_reskontran l WHERE l.kundfaktura_id = f.id),
                 (SELECT coalesce(CAST(o.nummer AS TEXT), o.fakturanummer) FROM kundfaktura o
                  WHERE o.id = f.krediterar),
-                -coalesce((SELECT sum(c.total) FROM kundfaktura c
-                           WHERE c.krediterar = f.id
-                             AND c.status IN ('utfardad', 'registrerad')), 0),
+                coalesce(r.krediterat, 0),
                 f.extern, coalesce(CAST(f.nummer AS TEXT), f.fakturanummer)
          FROM kundfaktura f LEFT JOIN kund k ON k.id = f.kund_id
+              LEFT JOIN kundfaktura_i_reskontran r ON r.id = f.id
          WHERE f.foretag_id = ?1 AND (?2 IS NULL OR f.kund_id = ?2)
          ORDER BY f.status = 'utkast' DESC, f.nummer DESC, f.id DESC",
     )
@@ -1367,8 +1356,7 @@ pub(crate) async fn krediterat_i(
     faktura: KundfakturaId,
 ) -> Result<i64, sqlx::Error> {
     sqlx::query_scalar(
-        "SELECT -coalesce(sum(total), 0) FROM kundfaktura
-         WHERE krediterar = ? AND status IN ('utfardad', 'registrerad')",
+        "SELECT coalesce((SELECT krediterat FROM kundfaktura_i_reskontran WHERE id = ?), 0)",
     )
     .bind(faktura.0)
     .fetch_one(conn)

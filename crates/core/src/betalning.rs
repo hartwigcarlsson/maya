@@ -287,26 +287,14 @@ async fn läs_fakturan(
     })
 }
 
-/// Det som är betalt av fakturan: betalningarna som inte är rättade, med öresutjämningen.
-async fn betalt_i(conn: &mut SqliteConnection, faktura: Faktura) -> Result<i64, sqlx::Error> {
-    let (kund, leverantör) = faktura.kolumner();
-    sqlx::query_scalar(
-        "SELECT coalesce(sum(belopp + oresutjamning + kursdifferens), 0) FROM betalning_i_reskontran
-         WHERE kundfaktura_id = ?1 OR leverantorsfaktura_id = ?2",
-    )
-    .bind(kund)
-    .bind(leverantör)
-    .fetch_one(conn)
-    .await
-}
-
 /// Det som krediterats av fakturan, i öre och positivt: kundens utfärdade kreditfakturor (#140)
 /// och leverantörens registrerade kreditfakturor som hänvisar till fakturan (#148).
 async fn krediterat_i(conn: &mut SqliteConnection, faktura: Faktura) -> Result<i64, sqlx::Error> {
     match faktura {
         Faktura::Kund(id) => crate::kundfaktura::krediterat_i(conn, id).await,
         Faktura::Leverantör(id) => sqlx::query_scalar(
-            "SELECT coalesce((SELECT krediterat FROM leverantorsfaktura_i_reskontran WHERE id = ?), 0)",
+            "SELECT coalesce((SELECT krediterat FROM leverantorsfaktura_i_reskontran WHERE id = ?),
+                             0)",
         )
         .bind(id.0)
         .fetch_one(conn)
@@ -314,22 +302,21 @@ async fn krediterat_i(conn: &mut SqliteConnection, faktura: Faktura) -> Result<i
     }
 }
 
-/// Det som återstår av fakturan med `total` öre: totalen minus krediteringarna (#140),
-/// betalningarna i reskontran och det som en gällande kundförlust har skrivit bort (#141).
-/// Negativt är ett tillgodohavande. För en leverantörsfaktura är det vyn
+/// Det som återstår av fakturan: totalen minus krediteringarna (#140), betalningarna i
+/// reskontran och det som en gällande kundförlust har skrivit bort (#141). Negativt är ett
+/// tillgodohavande. Det är vyerna `kundfaktura_i_reskontran` och
 /// `leverantorsfaktura_i_reskontran` (#148), där en kreditfaktura med hänvisning har 0 kvar.
 pub(crate) async fn återstår_i(
     conn: &mut SqliteConnection,
     faktura: Faktura,
-    total: i64,
 ) -> Result<i64, sqlx::Error> {
     match faktura {
-        Faktura::Kund(id) => {
-            let krediterat = krediterat_i(&mut *conn, faktura).await?;
-            let betalt = betalt_i(&mut *conn, faktura).await?;
-            let förlorat = crate::kundforlust::förlorat_i(&mut *conn, id).await?;
-            Ok(total - krediterat - betalt - förlorat)
-        }
+        Faktura::Kund(id) => sqlx::query_scalar(
+            "SELECT coalesce((SELECT aterstar FROM kundfaktura_i_reskontran WHERE id = ?), 0)",
+        )
+        .bind(id.0)
+        .fetch_one(conn)
+        .await,
         Faktura::Leverantör(id) => sqlx::query_scalar(
             "SELECT coalesce((SELECT aterstar FROM leverantorsfaktura_i_reskontran WHERE id = ?), 0)",
         )
@@ -358,7 +345,7 @@ async fn läs_förutsättningar(
     faktura: Faktura,
 ) -> Result<Förutsättningar, BetalningFel> {
     let fakturan = läs_fakturan(&mut *conn, företag, faktura).await?;
-    let återstår = återstår_i(&mut *conn, faktura, fakturan.total).await?;
+    let återstår = återstår_i(&mut *conn, faktura).await?;
     let v = verifikat::läs_förutsättningar(&mut *conn, företag).await?;
     Ok(Förutsättningar {
         reskontra: faktura.reskontra(),
@@ -541,7 +528,7 @@ pub async fn rätta(
         // Ärendet slutförs inte, så rättelsen rullas tillbaka.
         return Err(BetalningFel::BokförtUtifrån);
     }
-    let återstår = återstår_i(ärende.conn(), faktura, fakturan.total).await?;
+    let återstår = återstår_i(ärende.conn(), faktura).await?;
     let verifikatnummer = verifikat::länk(ärende.conn(), Some(verifikat_id))
         .await?
         .and_then(|l| l.nummer)
@@ -598,7 +585,7 @@ pub async fn reskontrapost(
     atkomst::kräv(&mut tx, aktör, företag, Handling::LäsaFöretag).await?;
     let fakturan = läs_fakturan(&mut tx, företag, faktura).await?;
     let krediterat = krediterat_i(&mut tx, faktura).await?;
-    let återstår = återstår_i(&mut tx, faktura, fakturan.total).await?;
+    let återstår = återstår_i(&mut tx, faktura).await?;
     #[derive(sqlx::FromRow)]
     struct Rad {
         id: i64,

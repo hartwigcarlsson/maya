@@ -505,20 +505,6 @@ pub(crate) async fn kreditläge_i(
     företag: FöretagsId,
     original: Faktura,
 ) -> Result<Kreditläge, DatabasFel> {
-    let total: Option<i64> = match original {
-        Faktura::Kund(id) => {
-            sqlx::query_scalar("SELECT total FROM kundfaktura WHERE id = ?")
-                .bind(id.0)
-                .fetch_one(&mut *conn)
-                .await?
-        }
-        Faktura::Leverantör(id) => {
-            sqlx::query_scalar("SELECT total FROM leverantorsfaktura WHERE id = ?")
-                .bind(id.0)
-                .fetch_one(&mut *conn)
-                .await?
-        }
-    };
     let bokförd_efter = bokförd_efter_i(&mut *conn, företag, original).await?;
     let vid_årets_slut = match bokförd_efter {
         Some(slut) => obetalt_vid_årets_slut_i(&mut *conn, original, slut).await?,
@@ -527,7 +513,7 @@ pub(crate) async fn kreditläge_i(
     Ok(Kreditläge {
         bokförd: bokförd_i(&mut *conn, original).await?,
         bokförd_efter,
-        obetalt: crate::betalning::återstår_i(&mut *conn, original, total.unwrap_or(0)).await?,
+        obetalt: crate::betalning::återstår_i(&mut *conn, original).await?,
         vid_årets_slut,
     })
 }
