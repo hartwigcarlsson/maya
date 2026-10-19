@@ -11,7 +11,7 @@ use leptos_router::hooks::use_query_map;
 use maya_domain::belopp::Belopp;
 use maya_domain::foretag::Momsperiod;
 use maya_domain::kontoplan::Kontonummer;
-use maya_domain::leverantor::{self, NyLeverantör};
+use maya_domain::leverantor::{self, NyLeverantör, OmvändSkattskyldighet};
 use maya_domain::leverantorsfaktura::{
     Fält, Förutsättningar, Leverantörsval, MOMSSATSER, NY, NyLeverantörsfaktura, NyRad,
     Registrerad, Spärr, moms, Åtgärd,
@@ -82,8 +82,8 @@ pub struct FörutsättningarVy {
     pub räkenskapsår: Vec<(String, String, String)>,
     /// Från vilket datum och momsperiodens kod.
     pub momsperioder: Vec<(String, String)>,
-    /// Id, namn och standardkonto.
-    pub leverantörer: Vec<(String, String, Option<u16>)>,
+    /// Id, namn, standardkonto och koden för den förvalda omvända skattskyldigheten.
+    pub leverantörer: Vec<(String, String, Option<u16>, String)>,
     /// Id, leverantör, nummer, fakturadatum och total i öre.
     pub registrerade: Vec<(String, String, String, String, i64)>,
 }
@@ -114,10 +114,12 @@ impl FörutsättningarVy {
             leverantörer: self
                 .leverantörer
                 .iter()
-                .map(|(id, namn, konto)| Leverantörsval {
+                .map(|(id, namn, konto, omvänd)| Leverantörsval {
                     id: id.clone(),
                     namn: namn.clone(),
                     standardkonto: konto.and_then(Kontonummer::new),
+                    omvänd_skattskyldighet: OmvändSkattskyldighet::från_kod(omvänd)
+                        .unwrap_or_default(),
                 })
                 .collect(),
             registrerade: self
@@ -218,6 +220,7 @@ pub(crate) fn formulär(värde: impl Fn(&str) -> Option<String>) -> NyLeverantö
         förfallodag: v("forfallodag"),
         referens: v("referens"),
         totalbelopp: v("totalbelopp"),
+        omvänd_skattskyldighet: v("omvand_skattskyldighet"),
         originalvaluta: v("originalvaluta"),
         rader: (0..antal)
             .map(|i| NyRad {
@@ -241,6 +244,7 @@ pub(crate) fn fält(f: &NyLeverantörsfaktura) -> Vec<(String, String)> {
         ("forfallodag", &f.förfallodag),
         ("referens", &f.referens),
         ("totalbelopp", &f.totalbelopp),
+        ("omvand_skattskyldighet", &f.omvänd_skattskyldighet),
         ("originalvaluta", &f.originalvaluta),
         ("ny_namn", &n.namn),
         ("ny_orgnr", &n.orgnr),
@@ -438,6 +442,7 @@ pub(crate) mod server {
                             l.id.clone(),
                             l.namn.clone(),
                             l.standardkonto.map(|k| k.get()),
+                            l.omvänd_skattskyldighet.kod().to_string(),
                         )
                     })
                     .collect(),
@@ -1089,7 +1094,7 @@ fn Formulär(
     let vald = start.leverantör.clone();
     let val = leverantörer
         .iter()
-        .map(|(id, namn, _)| {
+        .map(|(id, namn, _, _)| {
             view! {
                 <option value=id.clone() selected=*id == vald>
                     {namn.clone()}
@@ -1240,7 +1245,60 @@ fn Formulär(
             })
         })
     };
+    let omvänd = {
+        let fö = fö.clone();
+        Memo::new(move |_| faktura.with(|f| f.omvänd_skattskyldighet(&fö)))
+    };
+    // Valet visas när företaget är momsregistrerat på fakturadatumet, eller när fakturan redan
+    // har ett val som då spärrar.
+    let visa_omvänd = {
+        let fö = fö.clone();
+        Memo::new(move |_| {
+            faktura.with(|f| fö.momsregistrerat_på(&f.fakturadatum))
+                || omvänd.get() != OmvändSkattskyldighet::Ingen
+        })
+    };
+    let omvänd_val = {
+        let spärr = spärr_vid(Fält::OmvändSkattskyldighet);
+        move || {
+            visa_omvänd.get().then(|| {
+                let alternativ = OmvändSkattskyldighet::ALLA
+                    .into_iter()
+                    .map(|o| {
+                        view! {
+                            <option value=o.kod() selected=move || omvänd.get() == o>
+                                {o.namn()}
+                            </option>
+                        }
+                    })
+                    .collect_view();
+                view! {
+                    <div>
+                        <label for="omvand_skattskyldighet">"Omvänd skattskyldighet"</label>
+                        <select
+                            id="omvand_skattskyldighet"
+                            name="omvand_skattskyldighet"
+                            on:change=move |ev| {
+                                faktura.update(|f| f.omvänd_skattskyldighet = event_target_value(&ev))
+                            }
+                        >
+                            {alternativ}
+                        </select>
+                        {spärr.clone()}
+                    </div>
+                }
+            })
+        }
+    };
+    let momsrubrik = move || {
+        if omvänd.get() == OmvändSkattskyldighet::Ingen {
+            "Momsbelopp"
+        } else {
+            "Fiktiv moms"
+        }
+    };
     let summerar = move || {
+        let omvänd = omvänd.get() != OmvändSkattskyldighet::Ingen;
         faktura.with(|f| {
             let summa: i64 = f
                 .rader
@@ -1252,7 +1310,7 @@ fn Formulär(
                         "" => moms(netto, sats),
                         t => Belopp::tolka(t)?,
                     };
-                    Some(netto.öre() + m.öre())
+                    Some(netto.öre() + if omvänd { 0 } else { m.öre() })
                 })
                 .sum();
             match Belopp::tolka(f.totalbelopp.trim()) {
@@ -1261,7 +1319,11 @@ fn Formulär(
                 }
                 Some(_) => view! {
                     <span class="diff-bad">
-                        {format!("Raderna med moms: {} kr", Belopp::från_öre(summa))}
+                        {format!(
+                            "{}: {} kr",
+                            if omvänd { "Raderna" } else { "Raderna med moms" },
+                            Belopp::från_öre(summa),
+                        )}
                     </span>
                 }
                 .into_any(),
@@ -1343,8 +1405,8 @@ fn Formulär(
                 förutsättningar
                     .leverantörer
                     .iter()
-                    .find(|(id, _, _)| *id == f.leverantör.trim())
-                    .map(|(_, n, _)| n.clone())
+                    .find(|(id, _, _, _)| *id == f.leverantör.trim())
+                    .map(|(_, n, _, _)| n.clone())
                     .unwrap_or_default()
             };
             if namn.is_empty() {
@@ -1375,7 +1437,13 @@ fn Formulär(
                     <select
                         id="leverantor"
                         name="leverantor"
-                        on:change=move |ev| faktura.update(|f| f.leverantör = event_target_value(&ev))
+                        on:change=move |ev| {
+                            faktura
+                                .update(|f| {
+                                    f.leverantör = event_target_value(&ev);
+                                    f.omvänd_skattskyldighet.clear();
+                                })
+                        }
                     >
                         <option value="" selected=start.leverantör.is_empty()>
                             "Välj leverantör…"
@@ -1442,6 +1510,7 @@ fn Formulär(
                     |f| f.totalbelopp.clone(),
                     |f, v| f.totalbelopp = v,
                 )}
+                {omvänd_val}
                 {textfält(
                     "originalvaluta",
                     "Originalvaluta (fritext)",
@@ -1459,7 +1528,7 @@ fn Formulär(
                         <th>"Kontonamn"</th>
                         <th class="belopp">"Netto"</th>
                         <th>"Moms"</th>
-                        <th class="belopp">"Momsbelopp"</th>
+                        <th class="belopp">{momsrubrik}</th>
                     </tr>
                 </thead>
                 <tbody>{rader}</tbody>
@@ -1628,6 +1697,13 @@ fn Registrerad(bas: String, f: FakturaVy) -> impl IntoView {
                     {rad("Fakturadatum", värde("fakturadatum"))}
                     {rad("Förfallodag", värde("forfallodag"))}
                     {rad("OCR eller meddelande", värde("referens"))}
+                    {rad(
+                        "Omvänd skattskyldighet",
+                        OmvändSkattskyldighet::från_kod(&värde("omvand_skattskyldighet"))
+                            .filter(|o| *o != OmvändSkattskyldighet::Ingen)
+                            .map(|o| o.namn().to_string())
+                            .unwrap_or_default(),
+                    )}
                     {rad("Originalvaluta", värde("originalvaluta"))}
                     {verifikat}
                     {registrerad}
