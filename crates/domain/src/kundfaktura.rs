@@ -933,6 +933,11 @@ impl NyKundfaktura {
         kund: Option<&Fakturakund>,
         spärrar: &mut Vec<Spärr>,
     ) -> Option<Date> {
+        // En kreditfaktura (#140) förfaller inte: kunden är inte skyldig något på den. Den får
+        // fakturadatumet som förfallodag, och listan, dokumentet och PDF:en visar ingen.
+        if self.krediterar.is_some() {
+            return fakturadatum;
+        }
         let dag = match self.förfallodag.trim() {
             "" => {
                 return fakturadatum.and_then(|d| {

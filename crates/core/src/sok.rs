@@ -53,6 +53,7 @@ pub async fn sök(
         .filter(|f| {
             fråga.träffar_faktura(&Fakturasökbart {
                 nummer: &f.fakturanummer,
+                leverantörsfaktura: false,
                 datum: f.fakturadatum.into_iter().chain(f.förfallodag).collect(),
                 texter: vec![f.kund.as_str()],
                 belopp: belopp(&[f.total, f.återstår]),
@@ -65,6 +66,7 @@ pub async fn sök(
         .filter(|f| {
             fråga.träffar_faktura(&Fakturasökbart {
                 nummer: &f.fakturanummer,
+                leverantörsfaktura: true,
                 datum: f.fakturadatum.into_iter().chain(f.förfallodag).collect(),
                 texter: vec![f.leverantörsnamn.as_str()],
                 belopp: belopp(&[f.total.unwrap_or_default(), f.återstår]),

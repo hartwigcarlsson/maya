@@ -19,6 +19,7 @@ fn förutsättningar(återstår: i64) -> Förutsättningar {
         reskontra: Reskontra::Kund,
         återstår,
         konton: vec![
+            (konto(1030), true),
             (konto(1510), true),
             (konto(1910), false),
             (konto(1930), true),
@@ -209,8 +210,34 @@ fn betaldag_belopp_och_konto_prövas_vid_fälten() {
     assert_eq!(koder(&med_konto(""), &f), ["konto_saknas"]);
     assert_eq!(koder(&med_konto("1999"), &f), ["konto_okant"]);
     assert_eq!(koder(&med_konto("1910"), &f), ["konto_inaktivt"]);
-    assert_eq!(koder(&med_konto("3001"), &f), ["konto_inte_klass_1"]);
+    assert_eq!(koder(&med_konto("3001"), &f), ["konto_inte_betalkonto"]);
     assert!(med_konto("1940").kontrollera(&f).is_ok());
+}
+
+#[test]
+fn betalkontot_är_ett_kassa_eller_bankkonto_och_inte_vilket_konto_i_klass_1_som_helst() {
+    let f = förutsättningar(10_000);
+    let med_konto = |k: &str| NyBetalning {
+        konto: k.into(),
+        ..betalning("2026-11-02", "1")
+    };
+    // 1030 Patent och 1510 Kundfordringar är tillgångar men inga pengar att betala med.
+    assert_eq!(koder(&med_konto("1030"), &f), ["konto_inte_betalkonto"]);
+    assert_eq!(koder(&med_konto("1510"), &f), ["konto_inte_betalkonto"]);
+    assert!(med_konto("1930").kontrollera(&f).is_ok());
+    for (nr, väntat) in [
+        (1910, true),
+        (1930, true),
+        (1999, true),
+        (1899, false),
+        (1030, false),
+    ] {
+        assert_eq!(
+            maya_domain::betalning::är_betalkonto(konto(nr)),
+            väntat,
+            "{nr}"
+        );
+    }
 }
 
 #[test]

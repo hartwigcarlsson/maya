@@ -15,14 +15,14 @@ use jiff::civil::Date;
 use leptos::prelude::*;
 use leptos_router::hooks::use_query_map;
 use maya_domain::belopp::Saldo;
-use maya_domain::faktura::Momssats;
+use maya_domain::faktura::{Antal, Momssats, Rabatt};
 use maya_domain::foretag::Momsperiod;
 use maya_domain::kontoplan::Kontonummer;
-use maya_domain::kreditfaktura::NyKreditering;
+use maya_domain::kreditfaktura::{Hänvisning, NyKreditering};
 use maya_domain::kund::{self, NyKund, OmvändSkattskyldighet};
 use maya_domain::kundfaktura::{
-    Fakturaföretag, Fakturakund, Fält, Förutsättningar, Momsläge, NY, NyFakturarad, NyKundfaktura,
-    Radfält, Spärr,
+    Fakturaföretag, Fakturakund, Fakturarad, Fält, Förutsättningar, Momsläge, NY, NyFakturarad,
+    NyKundfaktura, Radfält, Spärr,
 };
 use maya_domain::rakenskapsar::Räkenskapsår;
 use maya_domain::reskontra::Grupp;
@@ -148,6 +148,10 @@ pub struct GranskningVy {
     /// ryms i det obetalda av ett original vars fordran inte är bokförd).
     #[serde(default)]
     pub bokförs_inte: bool,
+    /// #140: fakturan är en kreditfaktura, så summan är det som kunden får tillbaka och
+    /// `total` är utan minustecken, som på PDF:en.
+    #[serde(default)]
+    pub kredit: bool,
 }
 
 /// En rad på en utfärdad faktura.
@@ -227,14 +231,57 @@ pub struct FakturaVy {
 /// Panelen Kreditfaktura… (#140): hela fakturan eller ett antal per rad.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct KrediteraVy {
-    /// Originalets rader: beskrivning, antal med enhet och netto.
-    pub rader: Vec<(String, String, String)>,
+    /// Originalets rader med det som finns kvar att kreditera på var och en.
+    pub rader: Vec<KreditradVy>,
     /// Det som finns kvar att kreditera.
     pub kvar: String,
+    /// Originalet med det som finns kvar av totalen, så att panelen prövar valet som servern.
+    pub hänvisning: Option<Hänvisning>,
+    /// Dagens datum, `ÅÅÅÅ-MM-DD`, som utkastet dateras med.
+    pub idag: String,
     /// Valet när panelen öppnas, eller det som användaren skickade.
     pub start: NyKreditering,
     /// Spärrarna från servern, om valet avvisades.
     pub fel: Option<String>,
+}
+
+/// En originalrad i panelen Kreditfaktura…: det som visas och det som valet prövas mot.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct KreditradVy {
+    pub beskrivning: String,
+    /// Originalets antal med enhet, t.ex. "10 tim".
+    pub antal: String,
+    /// Det som finns kvar att kreditera med enhet, t.ex. "6 tim".
+    pub kvar: String,
+    /// Nettot för det som finns kvar.
+    pub netto: String,
+    /// Det som finns kvar i hundradelar.
+    pub kvar_hundradelar: i64,
+    pub enhet: String,
+    /// À-pris i öre.
+    pub à_pris: i64,
+    /// Rabatt i hundradelar av en procent.
+    pub rabatt: i64,
+    pub momssats: u8,
+    pub konto: u16,
+}
+
+impl KreditradVy {
+    /// Raden med det som finns kvar, som domänen prövar valet mot.
+    fn domän(&self) -> Option<Fakturarad> {
+        let antal = Antal::från_hundradelar(self.kvar_hundradelar);
+        let rabatt = Rabatt::från_hundradelar(self.rabatt)?;
+        Some(Fakturarad {
+            beskrivning: self.beskrivning.clone(),
+            antal,
+            enhet: self.enhet.clone(),
+            à_pris: self.à_pris,
+            rabatt,
+            momssats: Momssats::från_procent(self.momssats)?,
+            konto: Kontonummer::new(self.konto)?,
+            netto: maya_domain::faktura::radnetto(antal, self.à_pris, rabatt),
+        })
+    }
 }
 
 /// Det som Kundfakturor visar.
@@ -453,7 +500,6 @@ pub(crate) mod server {
     use maya_core::inloggning::Inloggad;
     use maya_core::kundfaktura::{self, KundfakturaFel, KundfakturaId, Status};
     use maya_core::{Databas, Klocka, kontoplan};
-    use maya_domain::faktura::Rabatt;
     use maya_domain::kundfaktura::Förutsättningar;
 
     use super::*;
@@ -566,7 +612,12 @@ pub(crate) mod server {
                     nummer: f.fakturanummer.clone(),
                     kund: f.kund.clone(),
                     fakturadatum: f.fakturadatum.map(|d| d.to_string()).unwrap_or_default(),
-                    förfallodag: f.förfallodag.map(|d| d.to_string()).unwrap_or_default(),
+                    // #140: en kreditfaktura förfaller inte, så listan visar ingen förfallodag.
+                    förfallodag: f
+                        .förfallodag
+                        .filter(|_| f.krediterar.is_none())
+                        .map(|d| d.to_string())
+                        .unwrap_or_default(),
                     total: kr(f.total),
                     ny_kund: f.ny_kund,
                     återstår: kr(f.återstår),
@@ -684,7 +735,9 @@ pub(crate) mod server {
                     let kvar = u.total + f.krediteras_av.iter().map(|k| k.total).sum::<i64>();
                     d.kan_kreditera = u.krediterar.is_none() && kvar > 0;
                     if d.kan_kreditera && panel == Some(Panel::Kreditera) {
-                        d.kreditera = Some(kreditera_panelen(b, u, kvar));
+                        let krediterbar =
+                            kundfaktura::kreditering(&b.db, aktör, företag, f.id).await?;
+                        d.kreditera = Some(kreditera_panelen(b, u, &krediterbar));
                     }
                     // #139 Betalningar
                     let panel = b.värde("panel");
@@ -812,7 +865,12 @@ pub(crate) mod server {
                 nummer: u.nummer.to_string(),
                 fakturadatum: u.fakturadatum.to_string(),
                 kontering: konteringsvy(&u.kontering(), kontonamn),
-                total: kr(u.total),
+                total: kr(if u.krediterar.is_some() {
+                    -u.total
+                } else {
+                    u.total
+                }),
+                kredit: u.krediterar.is_some(),
                 ..GranskningVy::default()
             },
             Err(spärrar) => GranskningVy {
@@ -859,28 +917,48 @@ pub(crate) mod server {
         }
     }
 
-    /// Panelen Kreditfaktura… med originalets rader, förvald hela fakturan.
-    fn kreditera_panelen(b: &Sidbegäran, u: &kundfaktura::Utfärdning, kvar: i64) -> KrediteraVy {
+    /// Panelen Kreditfaktura… med originalets rader och det som finns kvar att kreditera på var
+    /// och en, förvald hela det som finns kvar.
+    fn kreditera_panelen(
+        b: &Sidbegäran,
+        u: &kundfaktura::Utfärdning,
+        k: &kundfaktura::Krediterbar,
+    ) -> KrediteraVy {
         let tillbaka = b.värde("fel").as_deref() == Some("kreditering");
+        let med_enhet = |antal: Antal, enhet: &str| format!("{antal} {enhet}").trim().to_string();
+        let ursprungligt = |i: usize| {
+            u.rader
+                .get(i)
+                .map(|r| med_enhet(r.antal, &r.enhet))
+                .unwrap_or_default()
+        };
         KrediteraVy {
-            rader: u
+            rader: k
                 .rader
                 .iter()
-                .map(|r| {
-                    (
-                        r.beskrivning.clone(),
-                        format!("{} {}", r.antal, r.enhet).trim().to_string(),
-                        kr(r.netto),
-                    )
+                .enumerate()
+                .map(|(i, r)| KreditradVy {
+                    beskrivning: r.beskrivning.clone(),
+                    antal: ursprungligt(i),
+                    kvar: med_enhet(r.antal, &r.enhet),
+                    netto: kr(r.netto),
+                    kvar_hundradelar: r.antal.hundradelar(),
+                    enhet: r.enhet.clone(),
+                    à_pris: r.à_pris,
+                    rabatt: r.rabatt.hundradelar(),
+                    momssats: r.momssats.procent(),
+                    konto: r.konto.get(),
                 })
                 .collect(),
-            kvar: kr(kvar),
+            kvar: kr(k.hänvisning.kvar),
+            hänvisning: Some(k.hänvisning.clone()),
+            idag: b.klocka.idag().to_string(),
             start: if tillbaka {
-                kreditering_ur(|namn| b.värde(namn), u.rader.len())
+                kreditering_ur(|namn| b.värde(namn), k.rader.len())
             } else {
                 NyKreditering {
                     hela: true,
-                    antal: u.rader.iter().map(|r| r.antal.to_string()).collect(),
+                    antal: k.rader.iter().map(|r| r.antal.to_string()).collect(),
                 }
             },
             fel: tillbaka.then(|| {
@@ -1636,7 +1714,10 @@ fn Granska(lista: String, id: String, g: GranskningVy) -> impl IntoView {
                     <tbody>{rader}</tbody>
                 </table>
             </div>
-            <p>"Att betala " <strong>{g.total.clone()} " kr"</strong></p>
+            <p>
+                {if g.kredit { "Att få tillbaka " } else { "Att betala " }}
+                <strong>{g.total.clone()} " kr"</strong>
+            </p>
         }
         .into_any()
     };
@@ -2025,7 +2106,9 @@ fn FakturaFormulär(
                 .collect_view()
         }
     };
-    let att_betala = if start.krediterar.is_some() {
+    // En kreditfaktura visar det som kunden får tillbaka utan minustecken, som PDF:en.
+    let är_kredit = start.krediterar.is_some();
+    let att_betala = if är_kredit {
         "Att få tillbaka"
     } else {
         "Att betala"
@@ -2054,7 +2137,7 @@ fn FakturaFormulär(
                 {moms}
                 <tr class="summa">
                     <td colspan="7">{att_betala}</td>
-                    <td class="belopp">{kr(b.total)}</td>
+                    <td class="belopp">{kr(if är_kredit { -b.total } else { b.total })}</td>
                 </tr>
             }
         })
@@ -2302,27 +2385,30 @@ fn FakturaFormulär(
                             on:input=move |ev| faktura.update(|f| f.leveransdatum = event_target_value(&ev))
                         />
                     </div>
-                    <div>
-                        <label for="forfallodag">"Förfallodag"</label>
-                        <input
-                            id="forfallodag"
-                            name="forfallodag"
-                            type="date"
-                            value=värde(|f| f.förfallodag.clone())
-                            on:input=move |ev| faktura.update(|f| f.förfallodag = event_target_value(&ev))
-                        />
-                        <p class="diskret">
-                            {move || {
-                                let förvald = förfallo_platshållare();
-                                if förvald.is_empty() {
-                                    "Fakturadatumet plus kundens villkor".to_string()
-                                } else {
-                                    format!("Tom: {förvald} enligt kunden")
-                                }
-                            }}
-                        </p>
-                        {spärr_vid(Fält::Förfallodag)}
-                    </div>
+                    // En kreditfaktura (#140) förfaller inte och har ingen förfallodag att fylla i.
+                    {(!är_kredit).then(|| view! {
+                        <div>
+                            <label for="forfallodag">"Förfallodag"</label>
+                            <input
+                                id="forfallodag"
+                                name="forfallodag"
+                                type="date"
+                                value=värde(|f| f.förfallodag.clone())
+                                on:input=move |ev| faktura.update(|f| f.förfallodag = event_target_value(&ev))
+                            />
+                            <p class="diskret">
+                                {move || {
+                                    let förvald = förfallo_platshållare();
+                                    if förvald.is_empty() {
+                                        "Fakturadatumet plus kundens villkor".to_string()
+                                    } else {
+                                        format!("Tom: {förvald} enligt kunden")
+                                    }
+                                }}
+                            </p>
+                            {spärr_vid(Fält::Förfallodag)}
+                        </div>
+                    })}
                     <div>
                         <label for="er_referens">"Er referens"</label>
                         <input
@@ -2464,7 +2550,9 @@ fn Papper(
         })
     };
     let datum = move || faktura.with(|f| f.fakturadatum.clone());
-    let total = move || beräkning.with(|b| kr(b.total));
+    // En kreditfaktura (#140) har sin rubrik och det som kunden får tillbaka, som PDF:en.
+    let kredit = move || faktura.with(|f| f.krediterar.is_some());
+    let total = move || beräkning.with(|b| kr(if kredit() { -b.total } else { b.total }));
     let betalsätt = [
         ("Bankgiro", fakturaföretag.bankgiro.clone()),
         ("Plusgiro", fakturaföretag.plusgiro.clone()),
@@ -2484,14 +2572,16 @@ fn Papper(
                     <span class="adressrad">{fakturaföretag.gatuadress.clone()}</span>
                     <span class="adressrad">{format!("{} {}", fakturaföretag.postnummer, fakturaföretag.postort)}</span>
                 </p>
-                <h3>"Faktura"</h3>
+                <h3>{move || if kredit() { "Kreditfaktura" } else { "Faktura" }}</h3>
             </header>
             {köpare}
             <p class="diskret">"Fakturadatum " {datum}</p>
             <table class="rader">
                 <tbody>{rader}</tbody>
             </table>
-            <p class="papper-summa">"Att betala " {total} " kr"</p>
+            <p class="papper-summa">
+                {move || if kredit() { "Att få tillbaka " } else { "Att betala " }} {total} " kr"
+            </p>
             {omvänd_text}
             <p class="diskret">{betalsätt}</p>
             <p class="diskret">"Uppdateras medan du skriver."</p>
@@ -2500,25 +2590,68 @@ fn Papper(
 }
 
 /// Panelen Kreditfaktura… (#140): hela fakturan eller ett antal per rad. Utkastet som skapas
-/// har negativa rader och en hänvisning till originalet och utfärdas som en faktura.
+/// har negativa rader och en hänvisning till originalet och utfärdas som en faktura. Panelen
+/// visar det som finns kvar att kreditera på varje rad och prövar valet medan man skriver, med
+/// samma regler som servern.
 #[component]
 fn KrediteraPanel(action: String, stäng: String, k: KrediteraVy) -> impl IntoView {
-    let hela = RwSignal::new(k.start.hela);
-    let fel = k
-        .fel
-        .clone()
-        .map(|t| view! { <p class="fel" role="alert">{t}</p> });
+    let val = RwSignal::new(k.start.clone());
+    let originalet: Option<(Hänvisning, Vec<Fakturarad>, Date)> = (|| {
+        let rader = k
+            .rader
+            .iter()
+            .map(KreditradVy::domän)
+            .collect::<Option<Vec<_>>>()?;
+        Some((k.hänvisning.clone()?, rader, k.idag.parse().ok()?))
+    })();
+    let spärrar = Memo::new(move |_| match &originalet {
+        Some((h, rader, idag)) => val.with(|v| v.utkast(h, rader, *idag).err().unwrap_or_default()),
+        None => Vec::new(),
+    });
+    let hydrerad = RwSignal::new(false);
+    Effect::new(move |_| hydrerad.set(true));
+    let hela = move || val.with(|v| v.hela);
+    // Serverns spärrar visas tills man ändrar valet; därefter panelens egna.
+    let ändrat = RwSignal::new(false);
+    let fel = k.fel.clone();
+    let fel = move || {
+        if hydrerad.get() && ändrat.get() {
+            let text: Vec<String> = spärrar.with(|s| {
+                s.iter()
+                    .filter(|s| s.rad.is_none())
+                    .map(|s| s.text.clone())
+                    .collect()
+            });
+            (!text.is_empty()).then(|| view! { <p class="fel" role="alert">{text.join(" ")}</p> })
+        } else {
+            fel.clone()
+                .map(|t| view! { <p class="fel" role="alert">{t}</p> })
+        }
+    };
     let rader = k
         .rader
         .iter()
         .enumerate()
-        .map(|(i, (beskrivning, antal, netto))| {
+        .map(|(i, r)| {
             let värde = k.start.antal.get(i).cloned().unwrap_or_default();
+            let beskrivning = r.beskrivning.clone();
+            let spärr_vid_raden = move || {
+                spärrar.with(|s| {
+                    s.iter().find(|s| s.rad == Some(i)).map(|s| {
+                        view! {
+                            <p class="fel" role="alert" data-kod=s.kod>
+                                {s.text.clone()}
+                            </p>
+                        }
+                    })
+                })
+            };
             view! {
                 <tr>
-                    <td>{beskrivning.clone()}</td>
-                    <td class="belopp">{antal.clone()}</td>
-                    <td class="belopp">{netto.clone()}</td>
+                    <td>{r.beskrivning.clone()}</td>
+                    <td class="belopp">{r.antal.clone()}</td>
+                    <td class="belopp">{r.kvar.clone()}</td>
+                    <td class="belopp">{r.netto.clone()}</td>
                     <td class="belopp">
                         <input
                             name=format!("antal_{i}")
@@ -2527,13 +2660,28 @@ fn KrediteraPanel(action: String, stäng: String, k: KrediteraVy) -> impl IntoVi
                             class="belopp"
                             aria-label=format!("Antal att kreditera på {beskrivning}")
                             value=värde
-                            disabled=move || hela.get()
+                            disabled=hela
+                            on:input=move |ev| {
+                                let text = event_target_value(&ev);
+                                ändrat.set(true);
+                                val.update(|v| {
+                                    if v.antal.len() <= i {
+                                        v.antal.resize(i + 1, String::new());
+                                    }
+                                    v.antal[i] = text;
+                                });
+                            }
                         />
+                        {move || (!hela()).then(spärr_vid_raden)}
                     </td>
                 </tr>
             }
         })
         .collect_view();
+    let välj_hela = move |h: bool| {
+        ändrat.set(true);
+        val.update(|v| v.hela = h);
+    };
     view! {
         <section class="panel kreditera" aria-labelledby="kreditera-rubrik">
             <header class="panelhuvud">
@@ -2558,7 +2706,7 @@ fn KrediteraPanel(action: String, stäng: String, k: KrediteraVy) -> impl IntoVi
                             name="hela"
                             value="1"
                             checked=k.start.hela
-                            on:change=move |_| hela.set(true)
+                            on:change=move |_| välj_hela(true)
                         />
                         " Hela fakturan"
                     </label>
@@ -2569,7 +2717,7 @@ fn KrediteraPanel(action: String, stäng: String, k: KrediteraVy) -> impl IntoVi
                             name="hela"
                             value=""
                             checked=!k.start.hela
-                            on:change=move |_| hela.set(false)
+                            on:change=move |_| välj_hela(false)
                         />
                         " Ett antal per rad"
                     </label>
@@ -2579,14 +2727,19 @@ fn KrediteraPanel(action: String, stäng: String, k: KrediteraVy) -> impl IntoVi
                         <tr>
                             <th>"Rad"</th>
                             <th class="belopp">"Antal"</th>
-                            <th class="belopp">"Netto"</th>
+                            <th class="belopp">"Kvar"</th>
+                            <th class="belopp">"Netto kvar"</th>
                             <th class="belopp">"Kreditera"</th>
                         </tr>
                     </thead>
                     <tbody>{rader}</tbody>
                 </table>
                 <p class="knappar">
-                    <button class="knapp knapp-primar" type="submit">
+                    <button
+                        class="knapp knapp-primar"
+                        type="submit"
+                        disabled=move || hydrerad.get() && !spärrar.with(Vec::is_empty)
+                    >
                         "Skapa kreditfaktura"
                     </button>
                 </p>
@@ -2777,6 +2930,13 @@ fn Fakturadokument(bas: String, d: FakturaVy) -> impl IntoView {
         ),
         None => betalpanel,
     };
+    // En kreditfaktura (#140) förfaller inte.
+    let förfallodag = d.krediterar.is_none().then(|| {
+        view! {
+            <dt>"Förfallodag"</dt>
+            <dd>{d.förfallodag.clone()}</dd>
+        }
+    });
     let krediterar = d.krediterar.clone().map(|(id, text)| {
         view! {
             <dt>"Krediterar"</dt>
@@ -2963,8 +3123,7 @@ fn Fakturadokument(bas: String, d: FakturaVy) -> impl IntoView {
                     {momsläget}
                     <dt>"Fakturadatum"</dt>
                     <dd>{d.fakturadatum.clone()}</dd>
-                    <dt>"Förfallodag"</dt>
-                    <dd>{d.förfallodag.clone()}</dd>
+                    {förfallodag}
                     <dt>"Leveransdatum"</dt>
                     <dd>{d.leveransdatum.clone()}</dd>
                     {er_referens}

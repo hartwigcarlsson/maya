@@ -36,6 +36,7 @@ mod router;
 mod sidodata;
 mod sie4;
 mod sok;
+mod stilmall;
 mod systemdokumentation;
 mod t2;
 mod underlag;

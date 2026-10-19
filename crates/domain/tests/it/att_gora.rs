@@ -1,6 +1,6 @@
 use jiff::civil::{Date, date};
 use maya_domain::att_gora::{
-    Frist, Utkastläge, femtiodagarsvarning, frist, länge_okopplat, ordna_utkast, rör_kassan,
+    Frist, Utkastläge, femtiodagarsvarning, frist, länge_okopplat, ordna_utkast, rör_kassan, sedan,
 };
 use maya_domain::kontoplan::Kontonummer;
 
@@ -158,4 +158,11 @@ fn utkasten_grupperas_per_period_nyast_först_och_kassans_ligger_i_tidslinjen() 
 fn ett_underlag_är_länge_okopplat_efter_30_dagar() {
     assert!(!länge_okopplat(date(2026, 9, 14), IDAG));
     assert!(länge_okopplat(date(2026, 9, 13), IDAG));
+}
+
+#[test]
+fn när_något_hände_skrivs_som_förfallotexten_för_n_dagar_sedan() {
+    assert_eq!(sedan(IDAG, IDAG), "i dag");
+    assert_eq!(sedan(date(2026, 10, 13), IDAG), "i går");
+    assert_eq!(sedan(date(2026, 3, 5), IDAG), "för 223 dagar sedan");
 }

@@ -38,6 +38,13 @@ use crate::verifikat::{self, Årsval};
 /// Betalkontot som panelen förväljer: Företagskonto.
 pub const BETALKONTO: u16 = 1930;
 
+/// Om kontot är ett betalkonto: ett konto för kassa och bank i BAS kontogrupp 19 (kassa,
+/// plusgiro, bank, …). Andra tillgångar i klass 1, t.ex. 1030 Patent eller 1510
+/// Kundfordringar, är inga pengar att betala med.
+pub fn är_betalkonto(konto: Kontonummer) -> bool {
+    konto.get() / 100 == 19
+}
+
 /// Öresutjämning, som tar emot en liten rest.
 pub const ÖRESUTJÄMNING: u16 = 3740;
 
@@ -76,7 +83,7 @@ pub struct NyBetalning {
     pub betaldag: String,
     /// Kronor.
     pub belopp: String,
-    /// Betalkontot, ett aktivt konto i klass 1.
+    /// Betalkontot, ett aktivt konto för kassa eller bank ([`är_betalkonto`]).
     pub konto: String,
     /// Stäng resten mot öresutjämning.
     pub öresutjämning: bool,
@@ -180,7 +187,10 @@ pub const BETALNINGSSPÄRRAR: &[(&str, &str)] = &[
     ("konto_saknas", "Betalkonto krävs."),
     ("konto_okant", "Kontot finns i företagets kontoplan."),
     ("konto_inaktivt", "Kontot är aktivt."),
-    ("konto_inte_klass_1", "Betalkontot är ett konto i klass 1."),
+    (
+        "konto_inte_betalkonto",
+        "Betalkontot är ett konto för kassa eller bank (19xx).",
+    ),
     (
         "oresutjamning_for_stor",
         "En rest stängs mot öresutjämning bara när den är högst 10 kr.",
@@ -493,11 +503,11 @@ impl NyBetalning {
             ));
             return None;
         };
-        if konto.klass() != 1 {
+        if !är_betalkonto(*konto) {
             spärrar.push(Spärr::ny(
                 Fält::Konto,
-                "konto_inte_klass_1",
-                "Betalkontot ska vara ett konto i klass 1, t.ex. 1930.",
+                "konto_inte_betalkonto",
+                "Betalkontot ska vara ett konto för kassa eller bank (19xx), t.ex. 1930.",
             ));
             return None;
         }

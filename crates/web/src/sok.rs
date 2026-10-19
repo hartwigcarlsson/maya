@@ -312,23 +312,37 @@ pub(crate) mod server {
             märke: String::new(),
         };
         let mut träffar: Vec<Träff> = Vec::new();
-        träffar.extend(t.verifikat.into_iter().take(HÖGST).map(|v| {
-            träff(
-                "Verifikat",
-                format!(
-                    "{} · {}",
-                    v.nummer
-                        .map(|n| n.to_string())
-                        .unwrap_or_else(|| "Utkast".into()),
-                    v.beskrivning
-                ),
-                match v.datum {
-                    Some(d) => format!("{d} · {}", v.summa),
-                    None => v.summa.to_string(),
-                },
-                format!("{bas}/verifikat?v={}", v.id),
-            )
-        }));
+        let verifikat: Vec<Träff> = t
+            .verifikat
+            .into_iter()
+            .take(HÖGST)
+            .map(|v| {
+                träff(
+                    "Verifikat",
+                    format!(
+                        "{} · {}",
+                        v.nummer
+                            .map(|n| n.to_string())
+                            .unwrap_or_else(|| "Utkast".into()),
+                        v.beskrivning
+                    ),
+                    match v.datum {
+                        Some(d) => format!("{d} · {}", v.summa),
+                        None => v.summa.to_string(),
+                    },
+                    format!("{bas}/verifikat?v={}", v.id),
+                )
+            })
+            .collect();
+        // "faktura 2" söker en faktura: fakturorna först, sedan verifikaten.
+        let fakturor_först =
+            maya_domain::sok::Fråga::tolka(fråga).is_some_and(|f| f.nämner_faktura());
+        let (verifikat_först, verifikat_sist) = if fakturor_först {
+            (Vec::new(), verifikat)
+        } else {
+            (verifikat, Vec::new())
+        };
+        träffar.extend(verifikat_först);
         träffar.extend(t.kundfakturor.iter().take(HÖGST).map(|f| {
             träff(
                 "Kundfakturor",
@@ -345,6 +359,7 @@ pub(crate) mod server {
                 format!("{bas}/leverantorsfakturor?f={}", f.id),
             )
         }));
+        träffar.extend(verifikat_sist);
         träffar.extend(t.kunder.iter().take(HÖGST).map(|k| {
             let arkiverad = k.status == Kundstatus::Arkiverad;
             Träff {

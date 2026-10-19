@@ -206,10 +206,6 @@ main {
   white-space: nowrap;
 }
 
-.anvandare {
-  color: var(--muted-foreground);
-}
-
 .kommando {
   display: inline-block;
   margin: 1rem 0;
@@ -2656,6 +2652,8 @@ kbd {
 
 .utskick-fel {
   color: var(--destructive);
+}
+
 /* Betalningar (#139): märkena för reskontrans status, listans grupper, betalningspanelen och
    betalningarna i dokumentet. Märkena delas av kund- och leverantörsfakturor. */
 .badge-obetald {
@@ -2925,4 +2923,100 @@ kbd {
 p.avviker a {
   color: var(--destructive);
   font-weight: 600;
+}
+
+/* Användarmenyn: e-postadressen i toppmenyn fäller ut Passkeys, Sessioner, Installation, temat
+   och Logga ut, som företagsväljaren och Ny. */
+.anvandarmeny {
+  position: relative;
+}
+
+.anvandarmeny summary {
+  display: block;
+  max-width: 14rem;
+  overflow: hidden;
+  line-height: calc(var(--control-height) - 2px);
+  list-style: none;
+  color: var(--muted-foreground);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* Toppmenyn får plats på en rad från 1024 px: i företagets del krymper bara sökfältet, och
+   e-postadressen kortas med … när den inte får plats. */
+.toppmeny-foretag {
+  flex: 1 1 auto;
+}
+
+.toppmeny-foretag .sokfalt {
+  width: auto;
+  min-width: 6rem;
+  flex: 0 1 240px;
+}
+
+/* Fältet tar den plats sökrutan har, så att rutan kan krympa under fältets egen bredd. */
+.toppmeny-foretag .sokfalt input {
+  width: 0;
+}
+
+@media (max-width: 1180px) {
+  .toppmeny-foretag .sokfalt kbd {
+    display: none;
+  }
+}
+
+.toppmeny-foretag > :not(.sokfalt) {
+  flex-shrink: 0;
+}
+
+.toppmeny-hoger {
+  min-width: 7rem;
+}
+
+.anvandarmeny {
+  min-width: 0;
+}
+
+.anvandarmeny summary::-webkit-details-marker {
+  display: none;
+}
+
+.anvandarmeny ul {
+  position: absolute;
+  right: 0;
+  z-index: 10;
+  min-width: 12rem;
+  margin: 4px 0 0;
+  padding: 4px;
+  list-style: none;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--card);
+  color: var(--card-foreground);
+}
+
+.anvandarmeny ul form {
+  margin: 0;
+}
+
+.anvandarmeny ul a,
+.anvandarmeny ul button {
+  display: block;
+  width: 100%;
+  height: auto;
+  padding: 4px 8px;
+  border: 0;
+  border-radius: var(--radius);
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.anvandarmeny ul a:hover,
+.anvandarmeny ul button:hover {
+  background: var(--accent);
+  color: var(--accent-foreground);
 }

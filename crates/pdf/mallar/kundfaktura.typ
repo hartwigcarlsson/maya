@@ -75,7 +75,8 @@
     column-gutter: 1em,
     row-gutter: 0.55em,
     [Fakturadatum], [#f.fakturadatum],
-    [Förfallodag], [*#f.forfallodag*],
+    // En kreditfaktura förfaller inte.
+    ..if f.kredit == none { ([Förfallodag], [*#f.forfallodag*]) } else { () },
     [Leveransdatum], [#f.leveransdatum],
     ..if f.er_referens != "" { ([Er referens], [#f.er_referens]) } else { () },
     ..if f.ocr { ([OCR], [#text(font: mono)[#f.referens]]) } else { ([Fakturanummer], [#f.nummer]) },
@@ -114,7 +115,7 @@
   ..if f.med_moms { f.momsrader.map(m => ([#m.text], [#m.moms])).flatten() } else { () },
   grid.hline(stroke: 0.5pt),
   pad(top: 0.3em, text(size: 12pt, weight: "bold")[#if f.kredit != none [Att få tillbaka] else [Att betala]]),
-  pad(top: 0.3em, text(size: 12pt, weight: "bold")[#f.total kr]),
+  pad(top: 0.3em, text(size: 12pt, weight: "bold")[#f.att_betala kr]),
 ))
 
 // Vid omvänd skattskyldighet: texten som momslagen kräver (17 kap. 24 §).

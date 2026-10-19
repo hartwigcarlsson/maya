@@ -162,10 +162,14 @@ fn menylankarna_navigerar_pa_klienten_och_sidorna_visar_sina_data() {
     klicka(&tab, "a[href$='/installningar/behandlingshistorik']");
     vänta_på_text(&tab, "verifikat bokfört");
 
+    // Användarmenyn fälls ut under e-postadressen och stängs när man väljer något i den.
+    klicka(&tab, ".anvandarmeny summary");
     klicka(&tab, "a[href='/passkeys']");
     vänta_på_text(&tab, "Virtuell nyckel");
+    klicka(&tab, ".anvandarmeny summary");
     klicka(&tab, "a[href='/sessioner']");
     vänta_på_text(&tab, "Den här sessionen");
+    klicka(&tab, ".anvandarmeny summary");
     klicka(&tab, "a[href='/installation']");
     vänta_på_text(&tab, "Senaste verifiering");
 

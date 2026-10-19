@@ -9,13 +9,21 @@ use maya_domain::kontoplan::flödenas_konton;
 /// Specens tabeller för etapp 1 och etapp 2 ordagrant, med styckena runt dem.
 const SPECEN: &str = include_str!("../golden/automatkonteringar.md");
 
+/// Tabellens rader i Markdown: rubriken, avgränsaren och en rad per flöde.
+fn tabellrader(markdown: &str) -> Vec<&str> {
+    markdown.lines().filter(|r| r.starts_with('|')).collect()
+}
+
 #[test]
 fn tabellen_återges_ordagrant_som_i_specen() {
-    let tabell = automatkontering::som_markdown();
-    for (rad, (byggd, specen)) in tabell.lines().zip(SPECEN.lines()).enumerate() {
+    // Styckena runt tabellen skrivs för den som läser Systemdokumentationen, inte som specen.
+    let byggd = automatkontering::som_markdown();
+    let (byggd, specen) = (tabellrader(&byggd), tabellrader(SPECEN));
+    assert_eq!(specen.len(), 25);
+    for (rad, (byggd, specen)) in byggd.iter().zip(&specen).enumerate() {
         assert_eq!(byggd, specen, "rad {}", rad + 1);
     }
-    assert_eq!(tabell, SPECEN);
+    assert_eq!(byggd, specen);
 }
 
 #[test]

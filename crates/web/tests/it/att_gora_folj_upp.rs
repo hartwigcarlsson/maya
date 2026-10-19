@@ -125,6 +125,9 @@ async fn en_faktura_som_inte_är_skickad_markeras_som_lämnad_från_följ_upp() 
         "{kort}"
     );
     assert!(kort.contains("inte skickad"), "{kort}");
+    // När den utfärdades, som förfallotexten: "förföll för 10 dagar sedan".
+    assert!(kort.contains("utfärdad för "), "{kort}");
+    assert!(kort.contains(" dagar sedan"), "{kort}");
 
     // Utan SMTP visar kortet bara Lämnad på annat sätt, som går tillbaka till Att göra.
     let sida = hämta(&db, &session, &format!("{bas}?oppna={nyckel}")).await;

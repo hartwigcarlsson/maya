@@ -151,6 +151,50 @@ impl NyKreditering {
     }
 }
 
+/// Originalets rader med det antal som finns kvar att kreditera på var och en: originalets
+/// antal minus det som de utfärdade kreditfakturornas rader `krediterade` har krediterat.
+///
+/// En kreditrad hör till den första originalrad med samma beskrivning, enhet, à-pris, rabatt
+/// och momssats som har något kvar (kontot kan ha rättats sedan, #142), och det som blir över
+/// går till nästa sådan rad. En kreditrad som ändrats i utkastet så att den inte liknar någon
+/// originalrad räknas inte per rad; den räknas ändå mot det som finns kvar av totalen
+/// ([`Hänvisning::kvar`]). Nettot räknas om efter det antal som finns kvar.
+pub fn kvar_per_rad(original: &[Fakturarad], krediterade: &[Fakturarad]) -> Vec<Fakturarad> {
+    let mut kvar: Vec<i64> = original.iter().map(|r| r.antal.hundradelar()).collect();
+    let samma = |o: &Fakturarad, k: &Fakturarad| {
+        o.beskrivning == k.beskrivning
+            && o.enhet == k.enhet
+            && o.à_pris == k.à_pris
+            && o.rabatt == k.rabatt
+            && o.momssats == k.momssats
+    };
+    for k in krediterade {
+        let mut krediterat = -k.antal.hundradelar();
+        for (o, kvar) in original.iter().zip(kvar.iter_mut()) {
+            if krediterat <= 0 {
+                break;
+            }
+            if *kvar > 0 && samma(o, k) {
+                let del = krediterat.min(*kvar);
+                *kvar -= del;
+                krediterat -= del;
+            }
+        }
+    }
+    original
+        .iter()
+        .zip(kvar)
+        .map(|(r, kvar)| {
+            let antal = Antal::från_hundradelar(kvar);
+            Fakturarad {
+                antal,
+                netto: crate::faktura::radnetto(antal, r.à_pris, r.rabatt),
+                ..r.clone()
+            }
+        })
+        .collect()
+}
+
 /// Spärren när kreditfakturan krediterar mer än det som finns kvar.
 pub(crate) fn överstiger(h: &Hänvisning) -> Kreditspärr {
     Kreditspärr {

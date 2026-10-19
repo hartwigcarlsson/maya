@@ -321,6 +321,30 @@ async fn sökningen_hittar_kundfakturan_och_kunden_och_öppnar_dem_i_sina_flikar
 }
 
 #[tokio::test]
+async fn faktura_och_ett_nummer_visar_fakturan_först() {
+    let db = Databas::tillfällig().await;
+    let f = fakturor(&db).await;
+
+    let (_, body) = hämta(
+        &db,
+        &f.session,
+        &format!("{}/sok?q=faktura+{}", f.bas, f.nummer),
+    )
+    .await;
+    let träffar = &body[body.find(r#"class="sokning""#).expect(&body)..];
+    let fakturan = träffar
+        .find(&format!(
+            r#"href="{}/kundfakturor?f={}""#,
+            f.bas, f.kundfaktura
+        ))
+        .unwrap_or_else(|| panic!("{träffar}"));
+    // Utfärdandets verifikat träffas också, men efter fakturan som frågan nämner.
+    if let Some(verifikat) = träffar.find(">Verifikat<") {
+        assert!(fakturan < verifikat, "{träffar}");
+    }
+}
+
+#[tokio::test]
 async fn sökningen_hittar_leverantörsfakturan_på_nummer_och_belopp() {
     let db = Databas::tillfällig().await;
     let f = fakturor(&db).await;

@@ -155,6 +155,16 @@ pub fn ålder(från: Date, idag: Date) -> String {
     }
 }
 
+/// När något hände, som förfallotexten skriver det: "i dag", "i går" eller "för 12 dagar
+/// sedan".
+pub fn sedan(från: Date, idag: Date) -> String {
+    match dagar_mellan(från, idag) {
+        ..=0 => "i dag".to_string(),
+        1 => "i går".to_string(),
+        n => format!("för {n} dagar sedan"),
+    }
+}
+
 /// Datumet med veckodag, t.ex. "onsdag 14 oktober 2026".
 pub fn dag_lång(dag: Date) -> String {
     let veckodag = match dag.weekday() {

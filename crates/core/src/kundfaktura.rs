@@ -1463,8 +1463,55 @@ async fn krediteringar(
         .collect()
 }
 
+/// Det som finns kvar att kreditera på en utfärdad faktura: hänvisningen med det som är kvar
+/// av totalen, och originalets rader med det antal som är kvar på var och en (#140).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Krediterbar {
+    pub hänvisning: Hänvisning,
+    /// Originalets rader med det antal som finns kvar att kreditera och kontot som gäller nu
+    /// (efter en Rätta kontering, #142).
+    pub rader: Vec<Fakturarad>,
+}
+
+/// Det som finns kvar att kreditera på den utfärdade fakturan `original`, för panelen
+/// *Kreditfaktura…*.
+pub async fn kreditering(
+    db: &Databas,
+    aktör: &Aktör,
+    företag: FöretagsId,
+    original: KundfakturaId,
+) -> Result<Krediterbar, KundfakturaFel> {
+    let mut tx = db.pool().begin().await?;
+    atkomst::kräv(&mut tx, aktör, företag, Handling::LäsaFöretag).await?;
+    krediterbar_i(&mut tx, företag, original).await
+}
+
+async fn krediterbar_i(
+    conn: &mut SqliteConnection,
+    företag: FöretagsId,
+    original: KundfakturaId,
+) -> Result<Krediterbar, KundfakturaFel> {
+    let hänvisning = hänvisning_i(&mut *conn, företag, original.0)
+        .await?
+        .ok_or(KundfakturaFel::FinnsInte)?;
+    let gällande = crate::kontering::gällande_i(&mut *conn, företag, original).await?;
+    let mut rader = läs_utfärdade_rader(&mut *conn, original).await?;
+    for (rad, g) in rader.iter_mut().zip(&gällande.rader) {
+        rad.konto = g.konto;
+    }
+    let mut krediterade = Vec::new();
+    for k in krediteringar(&mut *conn, original).await? {
+        krediterade.extend(läs_utfärdade_rader(&mut *conn, k.id).await?);
+    }
+    Ok(Krediterbar {
+        hänvisning,
+        rader: maya_domain::kreditfaktura::kvar_per_rad(&rader, &krediterade),
+    })
+}
+
 /// *Kreditfaktura…* (berättelse 37): skapar ett utkast till kreditfaktura för den utfärdade
-/// fakturan `original`, med hela fakturan eller antalet per rad i `kreditering`. Raderna får
+/// fakturan `original`, med det som finns kvar av hela fakturan eller antalet per rad i
+/// `kreditering`, högst det som finns kvar på raden ([`kreditering`]). Raderna får
 /// originalets beskrivning, à-pris, rabatt, momssats och det intäktskonto som gäller nu (efter
 /// en Rätta kontering, #142), med negativt antal. Utkastet dateras i dag och utfärdas med
 /// [`utfärda`]. En kreditfaktura kan inte själv krediteras.
@@ -1478,19 +1525,15 @@ pub async fn kreditera(
 ) -> Result<KundfakturaId, KundfakturaFel> {
     let mut ärende =
         Ärende::börja(db, klocka, aktör, företag, Handling::HanteraFakturautkast).await?;
-    let h = hänvisning_i(ärende.conn(), företag, original.0)
-        .await?
-        .ok_or(KundfakturaFel::FinnsInte)?;
+    let Krediterbar {
+        hänvisning: h,
+        rader,
+    } = krediterbar_i(ärende.conn(), företag, original).await?;
     let (leveransdatum, er_referens): (String, String) =
         sqlx::query_as("SELECT leveransdatum, er_referens FROM kundfaktura WHERE id = ?")
             .bind(original.0)
             .fetch_one(ärende.conn())
             .await?;
-    let gällande = crate::kontering::gällande_i(ärende.conn(), företag, original).await?;
-    let mut rader = läs_utfärdade_rader(ärende.conn(), original).await?;
-    for (rad, g) in rader.iter_mut().zip(&gällande.rader) {
-        rad.konto = g.konto;
-    }
     let idag = maya_domain::tid::datum(ärende.nu);
     let mut formulär = kreditering
         .utkast(&h, &rader, idag)

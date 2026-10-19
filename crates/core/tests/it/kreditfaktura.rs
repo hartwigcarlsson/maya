@@ -182,10 +182,13 @@ async fn kreditfakturans_pdf_har_hänvisningen_till_originalet() {
         "Org.nr 556036-0793",
         "Momsreg.nr SE556036079301",
         "Moms 25 % på -9 500,00",
-        "Att få tillbaka -11 875,00 kr",
+        // Det kunden får tillbaka, utan minustecken.
+        "Att få tillbaka 11 875,00 kr",
     ] {
         assert!(innehåller(&text, uppgift), "{uppgift} saknas i {text}");
     }
+    // En kreditfaktura förfaller inte.
+    assert!(!innehåller(&text, "Förfallodag"), "{text}");
 }
 
 #[tokio::test]
@@ -199,14 +202,32 @@ async fn delvis_kredit_krediterar_antalet_och_högst_det_som_finns_kvar() {
     );
     assert_eq!(återstår(&db, &anna, id, f.id).await, TOTAL - 475_000);
 
-    // Hela fakturan går inte att kreditera igen: bara 6 timmar finns kvar.
-    let fel = kundfaktura::kreditera(&db, &klocka(), &anna, id, f.id, &hela())
+    // Panelen visar det som finns kvar per rad: 6 av 10 timmar.
+    let kvar = kundfaktura::kreditering(&db, &anna, id, f.id)
+        .await
+        .unwrap();
+    assert_eq!(kvar.hänvisning.kvar, TOTAL - 475_000);
+    assert_eq!(kvar.rader.len(), 1);
+    assert_eq!(kvar.rader[0].antal.to_string(), "6");
+    assert_eq!(kvar.rader[0].netto, 570_000);
+    // Fler timmar än de 6 som finns kvar spärras vid raden.
+    let fel = kundfaktura::kreditera(&db, &klocka(), &anna, id, f.id, &antal("7"))
         .await
         .unwrap_err();
     assert!(
-        matches!(&fel, KundfakturaFel::Kreditering(s) if s[0].kod == "kredit_overstiger"),
+        matches!(&fel, KundfakturaFel::Kreditering(s)
+            if s[0].kod == "kredit_antal_ogiltigt" && s[0].text == "Ange ett antal från 0 till 6."),
         "{fel:?}"
     );
+    // Hela fakturan krediterar nu det som finns kvar: 6 timmar.
+    let resten = kundfaktura::kreditera(&db, &klocka(), &anna, id, f.id, &hela())
+        .await
+        .unwrap();
+    let resten = kundfaktura::kundfakturan(&db, &anna, id, resten)
+        .await
+        .unwrap();
+    assert_eq!(resten.formulär.rader[0].antal, "-6");
+    assert_eq!(resten.formulär.rader.len(), 1);
     // Ett utkast som skapades innan den andra krediteringen spärras när det ska utfärdas.
     let för_mycket = kundfaktura::kreditera(&db, &klocka(), &anna, id, f.id, &antal("6"))
         .await

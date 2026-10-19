@@ -243,6 +243,23 @@ async fn kreditfaktura_i_panelen_ger_ett_utkast_som_utfärdas_och_länkar_åt_b�
     );
     assert!(utkast.contains("Krediterar faktura 1007 daterad 2026-03-10"));
     assert!(utkast.contains(r#"value="-10""#));
+    // En kreditfaktura förfaller inte: utkastet har ingen förfallodag att fylla i.
+    assert!(!utkast.contains(r#"id="forfallodag""#), "{utkast}");
+    assert!(!utkast.contains("enligt kunden"), "{utkast}");
+    // Granska och utfärda säger det som kunden får tillbaka, som utkastet och PDF:en.
+    let granska = hämta(
+        &db,
+        &session,
+        &format!("{bas}/kundfakturor?f={k}&granska=1"),
+    )
+    .await;
+    let dialog = efter(&granska, "granska-rubrik");
+    assert!(
+        dialog.contains("Att få tillbaka <strong>11 875,00"),
+        "{dialog}"
+    );
+    assert!(!dialog.contains("Att betala"), "{dialog}");
+    assert!(!dialog.contains("-11 875,00 kr"), "{dialog}");
     utfärda(&db, &session, &bas, &k).await;
 
     let kredit = hämta(&db, &session, &format!("{bas}/kundfakturor?f={k}")).await;
@@ -265,8 +282,15 @@ async fn kreditfaktura_i_panelen_ger_ett_utkast_som_utfärdas_och_länkar_åt_b�
     );
     assert!(original.contains("kreditfaktura utfärdad"), "historiken");
 
+    assert!(!efter(&kredit, "Kreditfaktura 1008").contains("<dt>Förfallodag</dt>"));
+
     let lista = hämta(&db, &session, &format!("{bas}/kundfakturor")).await;
     assert!(lista.contains("badge-kreditfaktura"));
+    // Kreditfakturans rad i listan har fakturadatumet men ingen förfallodag.
+    let rad = efter(&lista, &format!("kundfakturor?f={k}\""));
+    let rad = &rad[..rad.find("</a>").unwrap()];
+    assert!(rad.contains("badge-kreditfaktura"), "{rad}");
+    assert!(!rad.contains("förfaller"), "{rad}");
 }
 
 #[tokio::test]
@@ -301,6 +325,19 @@ async fn ett_antal_per_rad_krediteras_och_för_många_spärras_vid_raden() {
         original.contains("Kreditfaktura…"),
         "6 timmar finns kvar att kreditera"
     );
+
+    // Panelen visar och förväljer det som finns kvar på raden, inte originalets 10 timmar.
+    let panel = hämta(&db, &session, &format!("{här}&panel=kreditera")).await;
+    let panel = efter(&panel, "kreditera-rubrik");
+    assert!(panel.contains("10 tim"), "originalets antal: {panel}");
+    assert!(panel.contains("6 tim"), "det som finns kvar: {panel}");
+    assert!(panel.contains("5 700,00"), "nettot för det som finns kvar");
+    assert!(panel.contains(r#"value="6""#), "{panel}");
+    assert!(!panel.contains(r#"value="10""#), "{panel}");
+    // Hela fakturan krediterar det som finns kvar.
+    let k = kreditutkast(&db, &session, &bas, &f, "hela=1").await;
+    let utkast = hämta(&db, &session, &format!("{bas}/kundfakturor?f={k}")).await;
+    assert!(utkast.contains(r#"value="-6""#), "{utkast}");
 }
 
 #[tokio::test]
