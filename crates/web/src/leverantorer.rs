@@ -77,24 +77,7 @@ fn feltext(kod: &str) -> Option<&'static str> {
     })
 }
 
-/// Formulärets fält som de heter i formuläret, i ordning.
-pub(crate) const FÄLT: [&str; 13] = [
-    "namn",
-    "orgnr",
-    "gatuadress",
-    "postnummer",
-    "postort",
-    "land",
-    "momsregnr",
-    "bankgiro",
-    "plusgiro",
-    "iban",
-    "bic",
-    "standardkonto",
-    "omvand_skattskyldighet",
-];
-
-/// Formuläret ur fältens värden, med namnen i [`FÄLT`].
+/// Formuläret ur fältens värden, med namnen i [`server::FÄLT`].
 pub(crate) fn formulär(värde: impl Fn(&str) -> String) -> NyLeverantör {
     NyLeverantör {
         namn: värde("namn"),
@@ -150,9 +133,26 @@ pub(crate) mod server {
     };
     use maya_core::{Databas, Klocka, kontoplan};
 
-    use super::{FÄLT, HistorikVy, LeverantörVy, Leverantörsdata, formulär};
+    use super::{HistorikVy, LeverantörVy, Leverantörsdata, formulär};
     use crate::sidodata::{self, Sidbegäran};
     use crate::svar::{ingen_åtkomst, serverfel};
+
+    /// Formulärets fält som de heter i formuläret, i ordning.
+    pub(crate) const FÄLT: [&str; 13] = [
+        "namn",
+        "orgnr",
+        "gatuadress",
+        "postnummer",
+        "postort",
+        "land",
+        "momsregnr",
+        "bankgiro",
+        "plusgiro",
+        "iban",
+        "bic",
+        "standardkonto",
+        "omvand_skattskyldighet",
+    ];
 
     #[derive(Clone)]
     pub(crate) struct LeverantörsState {
