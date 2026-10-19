@@ -502,7 +502,7 @@ async fn fakturaändringar(db: &Databas, anna: &Aktör, id: FöretagsId, tid: &s
             betaldag: "2026-03-01".into(),
             belopp: "100".into(),
             konto: "1930".into(),
-            öresutjämning: false,
+            ..Default::default()
         },
     )
     .await
