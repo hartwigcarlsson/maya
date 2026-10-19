@@ -17,14 +17,20 @@
 //! **Kursdifferens** (#147): en leverantörsfaktura med originalvaluta är registrerad i SEK, och
 //! betalningen i SEK kan bli en annan. Avvikelsen mellan det som återstår och det som betalades
 //! stängs då i samma verifikat, mot 7960 vid förlust (betalningen är större) och mot 3960 vid
-//! vinst (betalningen är mindre), så att inget återstår. Betalning när fordran inte är bokförd
-//! (kontantmetoden) kommer i #149.
+//! vinst (betalningen är mindre), så att inget återstår.
+//!
+//! **Fordran eller skulden är inte bokförd** (kontantmetoden, #149): betalningen bokförs då mot
+//! fakturans intäkt eller kostnad och moms (och fiktiv moms) i proportion till beloppet
+//! ([`crate::kontantmetoden::Obokförd`]), en rest som stängs mot öresutjämning bokförs inte,
+//! och en kursdifferens bokförs som vanligt i samma verifikat. En återbetalning av ett
+//! tillgodohavande bokförs alltid mot reskontrakontot.
 
 use std::fmt;
 
 use jiff::civil::Date;
 
 use crate::belopp::{Belopp, Saldo};
+use crate::kontantmetoden::Obokförd;
 use crate::kontoplan::Kontonummer;
 use crate::rakenskapsar::Räkenskapsår;
 use crate::verifikat::{self, Årsval};
@@ -92,6 +98,9 @@ pub struct Förutsättningar {
     /// Fakturan har en originalvaluta, så att en avvikelse kan stängas mot kursdifferens.
     /// Bara leverantörsfakturor har det.
     pub originalvaluta: bool,
+    /// Fakturans kontering när dess fordran eller skuld inte är bokförd (kontantmetoden,
+    /// #149); `None` när den är bokförd på 1510 eller 2440.
+    pub obokförd: Option<Obokförd>,
 }
 
 /// Fälten i panelen, där spärrarna visas.
@@ -202,6 +211,8 @@ pub struct Betalning {
     pub återstår_efter: i64,
     /// Räkenskapsåret som betaldagen avgör.
     pub räkenskapsår: Årsval,
+    /// Fakturans kontering när fordran eller skulden inte är bokförd (#149).
+    pub obokförd: Option<Obokförd>,
 }
 
 /// Verifikatets beskrivning med fakturan som referens: "Betalning av kundfaktura 1007, Kund AB".
@@ -406,6 +417,7 @@ impl NyBetalning {
                     kursdifferens,
                     återstår_efter: f.återstår - belopp - öresutjämning - kursdifferens,
                     räkenskapsår,
+                    obokförd: f.obokförd.clone(),
                 })
             }
             _ => Err(spärrar),
@@ -466,6 +478,11 @@ impl Betalning {
     /// debet, en rest debet på 3740, och 1510 kredit med båda. Leverantörsfaktura: 2440 debet
     /// med det som stängs, betalkontot och resten på 3740 kredit, och kursdifferensen på 3960
     /// kredit (vinst) eller 7960 debet (förlust).
+    ///
+    /// När fordran eller skulden inte är bokförd (#149) står intäkten och momsen i kredit mot
+    /// betalkontot, eller kostnaden och momsen för det som stängs (betalningen med
+    /// kursdifferensen) i debet mot betalkontot och kursdifferensen, i proportion; resten mot
+    /// öresutjämning bokförs inte. En återbetalning bokförs alltid mot reskontrakontot.
     pub fn kontering(&self) -> Vec<verifikat::Rad> {
         let reskontra = self.reskontra.konto();
         let öresutjämning = Kontonummer::konstant(ÖRESUTJÄMNING);
@@ -475,6 +492,23 @@ impl Betalning {
         } else {
             KURSVINST
         });
+        if let (Some(o), true) = (&self.obokförd, self.belopp > 0) {
+            let mut rader = match self.reskontra {
+                Reskontra::Kund => {
+                    let mut r = vec![rad(self.konto, self.belopp)];
+                    r.extend(o.andel(self.belopp));
+                    r
+                }
+                Reskontra::Leverantör => {
+                    let mut r = o.andel(-(self.belopp + self.kursdifferens));
+                    r.push(rad(self.konto, -self.belopp));
+                    r.push(rad(kurskonto, -self.kursdifferens));
+                    r
+                }
+            };
+            rader.retain(|r| r.debet != Belopp::NOLL || r.kredit != Belopp::NOLL);
+            return rader;
+        }
         let mut rader = match self.reskontra {
             Reskontra::Kund => vec![
                 rad(self.konto, self.belopp),
