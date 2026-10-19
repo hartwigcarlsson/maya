@@ -438,7 +438,18 @@ pub(crate) async fn kreditens_kontering(
     };
     let obetalt =
         crate::betalning::återstår_i(&mut *conn, original, originalets_total.unwrap_or(0)).await?;
-    let del = maya_domain::kontantmetoden::kreditens_bokförda_del(-total, obetalt);
+    // En kredit i året av en faktura som väntar på T2 minskar också det som T2 tar med.
+    let del = match bokförd_efter_i(&mut *conn, företag, original).await? {
+        Some(slut) if dag <= slut => {
+            let vid_årets_slut = obetalt_vid_i(&mut *conn, original, slut).await?;
+            maya_domain::kontantmetoden::kreditens_bokförda_del_före_t2(
+                -total,
+                obetalt,
+                vid_årets_slut,
+            )
+        }
+        _ => maya_domain::kontantmetoden::kreditens_bokförda_del(-total, obetalt),
+    };
     if del == 0 {
         return Ok(None);
     }

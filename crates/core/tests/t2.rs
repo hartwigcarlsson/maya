@@ -10,12 +10,13 @@ use maya_core::atkomst::ÅtkomstFel;
 use maya_core::att_gora::{self, Fakturautkast, Sak};
 use maya_core::betalning::{self, Faktura};
 use maya_core::foretag::FöretagsId;
-use maya_core::kundfaktura::KundfakturaId;
+use maya_core::kundfaktura::{self, KundfakturaId};
 use maya_core::leverantorsfaktura::LeverantörsfakturaId;
 use maya_core::t2::{self, T2Fel};
 use maya_core::verifikat::{self, VerifikatFel, VerifikatId};
 use maya_core::{Databas, Klocka, behandlingshistorik, kundforlust, testhjalp};
 use maya_domain::betalning::NyBetalning;
+use maya_domain::kreditfaktura::NyKreditering;
 use maya_domain::kundforlust::NyKundförlust;
 
 fn klocka(nu: &str) -> Klocka {
@@ -502,6 +503,63 @@ async fn en_betalning_efter_årets_slut_bokförs_mot_reskontrakontot_också_inna
     assert_eq!(
         rader(&db, &anna, id, b.verifikat.id).await,
         [(1930, 187_500, 0), (2611, 0, 37_500), (3001, 0, 150_000)]
+    );
+}
+
+#[tokio::test]
+async fn en_kredit_före_årets_slut_av_en_faktura_som_väntar_på_t2_bokförs_inte_när_den_ryms_i_det_obetalda()
+ {
+    let db = Databas::tillfällig().await;
+    let (anna, id, k, _) = kontantföretag(&db).await;
+    let januari = klocka("2027-01-10T09:00:00Z");
+    // Hela fakturan betalas efter årets slut, mot 1510 eftersom T2 tar med den.
+    betala(
+        &db,
+        &januari,
+        &anna,
+        id,
+        Faktura::Kund(k),
+        &betalning("2027-01-05", "11 875"),
+    )
+    .await;
+    // Sedan krediteras en timme med ett datum i året, när fakturan var obetald: krediten ryms
+    // i det obetalda vid årets slut och bokförs inte, och T2 tar med det som var kvar då.
+    let utkast = kundfaktura::kreditera(
+        &db,
+        &januari,
+        &anna,
+        id,
+        k,
+        &NyKreditering {
+            hela: false,
+            antal: vec!["1".into()],
+        },
+    )
+    .await
+    .unwrap();
+    let mut formulär = kundfaktura::kundfakturan(&db, &anna, id, utkast)
+        .await
+        .unwrap()
+        .formulär;
+    formulär.fakturadatum = "2026-10-04".into();
+    kundfaktura::spara_utkast(&db, &januari, &anna, id, Some(utkast), &formulär)
+        .await
+        .unwrap();
+    let kredit = kundfaktura::utfärda(&db, &januari, &anna, id, utkast)
+        .await
+        .unwrap();
+    assert_eq!(kredit.verifikat, None);
+    t2::kör(&db, &januari).await.unwrap();
+    let v = utkastet(&db, &anna, id).await.unwrap();
+    assert_eq!(
+        rader(&db, &anna, id, v).await,
+        sorterat(
+            [
+                vec![(1510, 1_068_750, 0), (2611, 0, 213_750), (3001, 0, 855_000)],
+                LEVERANTÖRSRADER.to_vec(),
+            ]
+            .concat()
+        )
     );
 }
 

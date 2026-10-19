@@ -135,3 +135,17 @@ fn bara_det_som_överstiger_det_obetalda_av_en_kredit_bokförs() {
     assert_eq!(kreditens_bokförda_del(40_000, 0), 40_000);
     assert_eq!(kreditens_bokförda_del(40_000, -5_000), 40_000);
 }
+
+#[test]
+fn en_kredit_i_året_av_en_faktura_som_väntar_på_t2_bokförs_bara_utöver_det_obetalda_vid_årets_slut()
+{
+    use maya_domain::kontantmetoden::kreditens_bokförda_del_före_t2 as del;
+    // 1 000 kr obetalt vid årets slut, helt betalt efter: en kredit på 400 kr ryms i det som T2
+    // tar med och bokförs inte.
+    assert_eq!(del(40_000, 0, 100_000), 0);
+    // 600 kr betalt efter årets slut, kredit av hela fakturan: T2 tar inte längre med den, och de
+    // 600 kr står redan på kontot som tillgodohavandet.
+    assert_eq!(del(100_000, 40_000, 100_000), 0);
+    // Ingen betalning, kredit av hela: inget står på kontot och inget bokförs.
+    assert_eq!(del(100_000, 100_000, 100_000), 0);
+}
