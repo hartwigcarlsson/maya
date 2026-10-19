@@ -1,8 +1,9 @@
 //! Kund- och leverantörsreskontran: fakturornas status och listornas gruppering. Allt räknas
 //! fram ur fakturans total, det som återstår, förfallodagen och dagens datum, och lagras inte.
 //!
-//! Märkena i etapp 2 är obetald, delbetald, förfallen och betald, och med kreditfakturorna
-//! (#140) krediterad, tillgodo och kreditfaktura; kundförlust kommer med #141.
+//! Märkena i etapp 2 är obetald, delbetald, förfallen och betald, med kreditfakturorna (#140)
+//! krediterad, tillgodo och kreditfaktura, och kundförlust (#141) för en kundfaktura som en
+//! gällande kundförlust har skrivit bort.
 
 use jiff::civil::Date;
 
@@ -19,6 +20,8 @@ pub enum Märke {
     Förfallen,
     /// Inget återstår.
     Betald,
+    /// En kundförlust som inte är återkallad har skrivit bort det som återstod (#141).
+    Kundförlust,
     // #140 Kreditfakturor
     /// Hela fakturan är krediterad och inget var betalt.
     Krediterad,
@@ -39,6 +42,7 @@ impl Märke {
             Märke::Delbetald => "Delbetald",
             Märke::Förfallen => "Förfallen",
             Märke::Betald => "Betald",
+            Märke::Kundförlust => "Kundförlust",
             Märke::Krediterad => "Krediterad",
             Märke::Tillgodo => "Tillgodo",
             Märke::Kreditfaktura => "Kreditfaktura",
@@ -53,6 +57,7 @@ impl Märke {
             Märke::Delbetald => "delbetald",
             Märke::Förfallen => "forfallen",
             Märke::Betald => "betald",
+            Märke::Kundförlust => "kundforlust",
             Märke::Krediterad => "krediterad",
             Märke::Tillgodo => "tillgodo",
             Märke::Kreditfaktura => "kreditfaktura",
@@ -82,21 +87,43 @@ pub fn märke(total: i64, återstår: i64, förfallodag: Date, idag: Date) -> M�
     }
 }
 
-/// Märket för en faktura med `total` öre som kreditfakturor har krediterat `krediterat` öre av
-/// (positivt), varav `återstår` öre är obetalt efter krediteringarna och betalningarna. Det som
-/// är delbetalt räknas mot det som finns kvar efter krediteringarna.
-pub fn märke_med_kredit(
+/// Märket för en utfärdad kundfaktura med `total` öre som kreditfakturor har krediterat
+/// `krediterat` öre av (positivt), varav `återstår` öre är obetalt efter krediteringarna,
+/// betalningarna och en gällande kundförlust. [`Märke::Kundförlust`] medan en kundförlust gäller
+/// fakturan (#141), [`Märke::Krediterad`] när hela fakturan är krediterad och inget var betalt
+/// (#140), annars [`märke`] räknat mot det som finns kvar efter krediteringarna, så att ett
+/// negativt `återstår` är [`Märke::Tillgodo`]. En kreditfaktura själv får
+/// [`Märke::Kreditfaktura`] av anroparen.
+pub fn kundfakturans_märke(
+    total: i64,
+    krediterat: i64,
+    återstår: i64,
+    kundförlust: bool,
+    förfallodag: Date,
+    idag: Date,
+) -> Märke {
+    if kundförlust {
+        Märke::Kundförlust
+    } else if återstår == 0 && krediterat > 0 && krediterat >= total {
+        Märke::Krediterad
+    } else {
+        märke(total - krediterat, återstår, förfallodag, idag)
+    }
+}
+
+// #148 Kreditfaktura från leverantör
+/// Märket för en registrerad leverantörsfaktura med `total` öre som kreditfakturor har
+/// krediterat `krediterat` öre av (positivt), varav `återstår` öre är obetalt: samma regler som
+/// [`kundfakturans_märke`] utan kundförlust. En kreditfaktura med hänvisning och en upplåst
+/// faktura får [`Märke::Kreditfaktura`] och [`Märke::Upplåst`] av anroparen.
+pub fn leverantörsfakturans_märke(
     total: i64,
     krediterat: i64,
     återstår: i64,
     förfallodag: Date,
     idag: Date,
 ) -> Märke {
-    if återstår == 0 && krediterat > 0 && krediterat >= total {
-        Märke::Krediterad
-    } else {
-        märke(total - krediterat, återstår, förfallodag, idag)
-    }
+    kundfakturans_märke(total, krediterat, återstår, false, förfallodag, idag)
 }
 
 /// Grupperna i listan, i den ordning de visas.
@@ -141,6 +168,32 @@ pub fn grupp(återstår: i64, förfallodag: Date, idag: Date) -> Grupp {
     } else {
         Grupp::Senare
     }
+}
+
+/// Kopieringschipsen för en leverantörsfaktura att betala (#152): leverantörens bankgiro (BG),
+/// plusgiro (PG) och IBAN som de är registrerade, och fakturans referens. En referens med bara
+/// siffror är en OCR-referens och visas utan mellanslag; annan text är ett meddelande. Tomma
+/// uppgifter ger inget chip.
+pub fn kopieringschips(
+    bankgiro: &str,
+    plusgiro: &str,
+    iban: &str,
+    referens: &str,
+) -> Vec<(&'static str, String)> {
+    let mut chips: Vec<(&'static str, String)> =
+        [("BG", bankgiro), ("PG", plusgiro), ("IBAN", iban)]
+            .into_iter()
+            .filter(|(_, v)| !v.trim().is_empty())
+            .map(|(k, v)| (k, v.trim().to_string()))
+            .collect();
+    let referens = referens.trim();
+    let siffror: String = referens.chars().filter(|c| !c.is_whitespace()).collect();
+    if !siffror.is_empty() && siffror.bytes().all(|b| b.is_ascii_digit()) {
+        chips.push(("OCR", siffror));
+    } else if !referens.is_empty() {
+        chips.push(("Meddelande", referens.to_string()));
+    }
+    chips
 }
 
 /// "förfaller i dag", "förfaller om 5 dagar" eller "förföll för 10 dagar sedan".

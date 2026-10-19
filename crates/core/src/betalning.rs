@@ -8,6 +8,11 @@
 //! betalningen finns kvar och visar rättelsen (R2), och betalningen kan registreras om. Det som
 //! återstår och statusen räknas fram ur betalningarna och lagras inte.
 //!
+//! Det som återstår är fakturans total minus de utfärdade kreditfakturorna (#140) och
+//! betalningarna. Är det negativt har kunden ett tillgodohavande, och en betalning är då en
+//! *återbetalning* åt andra hållet (1510 mot betalkontot), loggad som `återbetalning`. En
+//! kreditfaktura räknas av mot sitt original och betalas inte själv.
+//!
 //! Betalningen hör till en [`Faktura`]: en utfärdad kundfaktura eller en registrerad
 //! leverantörsfaktura (#147). På en leverantörsfaktura med originalvaluta kan en avvikelse stängas
 //! mot kursdifferens (3960/7960) i samma verifikat; den står i `betalning.kursdifferens` och
@@ -198,6 +203,8 @@ pub struct Reskontrapost {
     /// Leverantörsfakturans originalvaluta i fritext, eller tom (#147).
     pub originalvaluta: String,
     pub betalningar: Vec<Betalningspost>,
+    /// En kundförlust som inte är återkallad gäller fakturan (#141).
+    pub kundförlust: bool,
 }
 
 /// Fakturan som betalningen gäller, läst i transaktionen.
@@ -237,7 +244,7 @@ async fn läs_fakturan(
                 "SELECT CAST(nummer AS TEXT), kunduppgifter ->> '$.namn', total, forfallodag, '',
                         1
                  FROM kundfaktura
-                 WHERE id = ? AND foretag_id = ? AND status <> 'utkast'",
+                 WHERE id = ? AND foretag_id = ? AND status <> 'utkast' AND krediterar IS NULL",
             )
             .bind(id.0)
             .bind(företag.0)
@@ -282,12 +289,11 @@ async fn betalt_i(conn: &mut SqliteConnection, faktura: Faktura) -> Result<i64, 
     .await
 }
 
-/// Det som krediterats av fakturan, i öre och positivt.
+/// Det som krediterats av fakturan, i öre och positivt: kundens utfärdade kreditfakturor (#140)
+/// och leverantörens registrerade kreditfakturor som hänvisar till fakturan (#148).
 async fn krediterat_i(conn: &mut SqliteConnection, faktura: Faktura) -> Result<i64, sqlx::Error> {
     match faktura {
-        // Kundens kreditfakturor kommer med #140.
-        Faktura::Kund(_) => Ok(0),
-        // #148: de registrerade kreditfakturorna som hänvisar till leverantörsfakturan.
+        Faktura::Kund(id) => crate::kundfaktura::krediterat_i(conn, id).await,
         Faktura::Leverantör(id) => sqlx::query_scalar(
             "SELECT coalesce((SELECT krediterat FROM leverantorsfaktura_i_reskontran WHERE id = ?), 0)",
         )
@@ -297,16 +303,22 @@ async fn krediterat_i(conn: &mut SqliteConnection, faktura: Faktura) -> Result<i
     }
 }
 
-/// Det som återstår av fakturan med totalen `total`: totalen minus krediteringarna och
-/// betalningarna. Negativt är ett tillgodohavande. För en leverantörsfaktura är det vyn
+/// Det som återstår av fakturan med `total` öre: totalen minus krediteringarna (#140),
+/// betalningarna i reskontran och det som en gällande kundförlust har skrivit bort (#141).
+/// Negativt är ett tillgodohavande. För en leverantörsfaktura är det vyn
 /// `leverantorsfaktura_i_reskontran` (#148), där en kreditfaktura med hänvisning har 0 kvar.
-async fn återstår_i(
+pub(crate) async fn återstår_i(
     conn: &mut SqliteConnection,
     faktura: Faktura,
     total: i64,
 ) -> Result<i64, sqlx::Error> {
     match faktura {
-        Faktura::Kund(_) => Ok(total - betalt_i(&mut *conn, faktura).await?),
+        Faktura::Kund(id) => {
+            let krediterat = krediterat_i(&mut *conn, faktura).await?;
+            let betalt = betalt_i(&mut *conn, faktura).await?;
+            let förlorat = crate::kundforlust::förlorat_i(&mut *conn, id).await?;
+            Ok(total - krediterat - betalt - förlorat)
+        }
         Faktura::Leverantör(id) => sqlx::query_scalar(
             "SELECT coalesce((SELECT aterstar FROM leverantorsfaktura_i_reskontran WHERE id = ?), 0)",
         )
@@ -648,6 +660,10 @@ pub async fn reskontrapost(
             rättad,
         });
     }
+    let kundförlust = match faktura {
+        Faktura::Kund(id) => crate::kundforlust::förlorat_i(&mut tx, id).await? != 0,
+        Faktura::Leverantör(_) => false,
+    };
     Ok(Reskontrapost {
         total: fakturan.total,
         krediterat,
@@ -655,6 +671,7 @@ pub async fn reskontrapost(
         förfallodag: fakturan.förfallodag,
         originalvaluta: fakturan.originalvaluta,
         betalningar,
+        kundförlust,
     })
 }
 
@@ -664,8 +681,8 @@ pub(crate) async fn fakturan_för_verifikat(
     conn: &mut SqliteConnection,
     verifikat: VerifikatId,
 ) -> Result<Option<(Flöde, i64, String)>, DatabasFel> {
-    let rad: Option<(i64, i64, String)> = sqlx::query_as(
-        "SELECT k.id, k.nummer, k.kunduppgifter ->> '$.namn'
+    let rad: Option<(i64, i64, String, bool)> = sqlx::query_as(
+        "SELECT k.id, k.nummer, k.kunduppgifter ->> '$.namn', b.belopp < 0
          FROM betalning b JOIN kundfaktura k ON k.id = b.kundfaktura_id
          WHERE b.verifikat_id = ?1
             OR b.id IN (SELECT betalning_id FROM betalningsrattelse WHERE verifikat_id = ?1)",
@@ -673,12 +690,13 @@ pub(crate) async fn fakturan_för_verifikat(
     .bind(verifikat.0)
     .fetch_optional(&mut *conn)
     .await?;
-    if let Some((id, nummer, kund)) = rad {
-        return Ok(Some((
-            Flöde::Kundfaktura,
-            id,
-            format!("betalningen av kundfaktura {nummer} till {kund}"),
-        )));
+    if let Some((id, nummer, kund, återbetalning)) = rad {
+        let text = if återbetalning {
+            format!("återbetalningen på kundfaktura {nummer} till {kund}")
+        } else {
+            format!("betalningen av kundfaktura {nummer} till {kund}")
+        };
+        return Ok(Some((Flöde::Kundfaktura, id, text)));
     }
     // #147 Leverantörsfakturor
     let rad: Option<(i64, String, String, bool)> = sqlx::query_as(

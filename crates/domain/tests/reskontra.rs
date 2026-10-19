@@ -2,7 +2,9 @@
 //! förfallodagen och dagens datum. Inget av det lagras.
 
 use jiff::civil::date;
-use maya_domain::reskontra::{Grupp, Märke, förfallotext, grupp, märke};
+use maya_domain::reskontra::{
+    Grupp, Märke, förfallotext, grupp, kopieringschips, kundfakturans_märke, märke,
+};
 
 #[test]
 fn märket_följer_det_som_återstår() {
@@ -76,43 +78,92 @@ fn förfallotexten_räknar_dagarna() {
     );
 }
 
+// #141 Kundförlust
+#[test]
+fn en_gällande_kundförlust_ger_märket_kundförlust_och_fakturan_är_avslutad() {
+    let idag = date(2026, 10, 19);
+    let förföll = date(2026, 4, 9);
+    assert_eq!(
+        kundfakturans_märke(10_000, 0, 0, true, förföll, idag),
+        Märke::Kundförlust
+    );
+    assert_eq!(Märke::Kundförlust.namn(), "Kundförlust");
+    assert_eq!(Märke::Kundförlust.kod(), "kundforlust");
+    assert_eq!(grupp(0, förföll, idag), Grupp::Avslutade);
+    // En återkallad förlust räknas inte: fakturan är förfallen igen.
+    assert_eq!(
+        kundfakturans_märke(10_000, 0, 10_000, false, förföll, idag),
+        Märke::Förfallen
+    );
+}
+
+// #152 Att göra: kopieringschipsen för en leverantörsfaktura att betala
+#[test]
+fn kopieringschipsen_visar_betalsätten_och_referensen_som_ocr_eller_meddelande() {
+    assert_eq!(
+        kopieringschips("5050-1055", "", "", "8812 0044 711"),
+        [
+            ("BG", "5050-1055".to_string()),
+            ("OCR", "88120044711".to_string())
+        ]
+    );
+    assert_eq!(
+        kopieringschips(
+            "",
+            "12 34 56-7",
+            "SE45 5000 0000 0583 9825 7466",
+            " Hyra nov, objekt 0412 "
+        ),
+        [
+            ("PG", "12 34 56-7".to_string()),
+            ("IBAN", "SE45 5000 0000 0583 9825 7466".to_string()),
+            ("Meddelande", "Hyra nov, objekt 0412".to_string())
+        ]
+    );
+    assert!(kopieringschips(" ", "", "", "  ").is_empty());
+}
+
 // #140 Kreditfakturor
 
 #[test]
 fn en_krediterad_faktura_och_ett_tillgodohavande_får_egna_märken() {
-    use maya_domain::reskontra::märke_med_kredit;
     let idag = date(2026, 10, 19);
     let förfaller = date(2026, 10, 1);
     // Hela krediterad, inget betalt: inget återstår och inget är förfallet.
     assert_eq!(
-        märke_med_kredit(10_000, 10_000, 0, förfaller, idag),
+        kundfakturans_märke(10_000, 10_000, 0, false, förfaller, idag),
         Märke::Krediterad
     );
     // Betald och sedan krediterad: kunden har pengar tillgodo.
     assert_eq!(
-        märke_med_kredit(10_000, 4_000, -4_000, förfaller, idag),
+        kundfakturans_märke(10_000, 4_000, -4_000, false, förfaller, idag),
         Märke::Tillgodo
     );
     // Tillgodohavandet återbetalt: fakturan är delkrediterad och betald.
     assert_eq!(
-        märke_med_kredit(10_000, 4_000, 0, förfaller, idag),
+        kundfakturans_märke(10_000, 4_000, 0, false, förfaller, idag),
         Märke::Betald
     );
     // Delkrediterad och obetald: resten är obetald, inte delbetald.
     assert_eq!(
-        märke_med_kredit(10_000, 4_000, 6_000, date(2026, 11, 1), idag),
+        kundfakturans_märke(10_000, 4_000, 6_000, false, date(2026, 11, 1), idag),
         Märke::Obetald
     );
     assert_eq!(
-        märke_med_kredit(10_000, 4_000, 1_000, date(2026, 11, 1), idag),
+        kundfakturans_märke(10_000, 4_000, 1_000, false, date(2026, 11, 1), idag),
         Märke::Delbetald
     );
     assert_eq!(
-        märke_med_kredit(10_000, 4_000, 6_000, förfaller, idag),
+        kundfakturans_märke(10_000, 4_000, 6_000, false, förfaller, idag),
         Märke::Förfallen
     );
     assert_eq!(märke(10_000, -1, förfaller, idag), Märke::Tillgodo);
     assert_eq!(Märke::Tillgodo.namn(), "Tillgodo");
     assert_eq!(Märke::Krediterad.kod(), "krediterad");
     assert_eq!(Märke::Kreditfaktura.namn(), "Kreditfaktura");
+    // #140 och #141: en kundförlust på en delkrediterad faktura gäller det som återstod.
+    assert_eq!(
+        kundfakturans_märke(10_000, 4_000, 0, true, förfaller, idag),
+        Märke::Kundförlust
+    );
 }

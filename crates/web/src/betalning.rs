@@ -597,7 +597,7 @@ pub(crate) mod server {
     use maya_core::leverantorsfaktura::LeverantörsfakturaId;
     use maya_core::{Databas, Klocka, kontoplan, verifikat};
     use maya_domain::betalning::NyBetalning;
-    use maya_domain::reskontra::märke_med_kredit;
+    use maya_domain::reskontra::kundfakturans_märke;
 
     use super::*;
     use crate::kundfakturor::server::KundfakturaState;
@@ -616,10 +616,11 @@ pub(crate) mod server {
         let aktör = &b.inloggad.aktör;
         let idag = b.klocka.idag();
         let post = betalning::reskontrapost(&b.db, aktör, företag, faktura).await?;
-        let m = märke_med_kredit(
+        let m = kundfakturans_märke(
             post.total,
             post.krediterat,
             post.återstår,
+            post.kundförlust,
             post.förfallodag,
             idag,
         );
@@ -780,7 +781,7 @@ pub(crate) mod server {
         fält.iter().find(|(k, _)| k == namn).map(|(_, v)| v.clone())
     }
 
-    fn tillbaka(sida: &str, fält: &Fält, extra: &[(&str, &str)]) -> Response {
+    pub(crate) fn tillbaka(sida: &str, fält: &Fält, extra: &[(&str, &str)]) -> Response {
         let mut query = url::form_urlencoded::Serializer::new(String::new());
         for (namn, v) in extra {
             query.append_pair(namn, v);
@@ -805,7 +806,7 @@ pub(crate) mod server {
         }
     }
 
-    fn betalningsfel(e: BetalningFel) -> Response {
+    pub(crate) fn betalningsfel(e: BetalningFel) -> Response {
         match e {
             BetalningFel::Åtkomst(ÅtkomstFel::IngenÅtkomst | ÅtkomstFel::KanalenFårInte) => {
                 ingen_åtkomst()

@@ -18,6 +18,7 @@ use maya_domain::belopp::Saldo;
 use maya_domain::faktura::Momssats;
 use maya_domain::foretag::Momsperiod;
 use maya_domain::kontoplan::Kontonummer;
+use maya_domain::kreditfaktura::NyKreditering;
 use maya_domain::kund::{self, NyKund, OmvändSkattskyldighet};
 use maya_domain::kundfaktura::{
     Fakturakund, Fält, Förutsättningar, Momsläge, NY, NyFakturarad, NyKundfaktura, Radfält, Spärr,
@@ -202,6 +203,30 @@ pub struct FakturaVy {
     pub epost: bool,
     /// Status, betalningar och det som återstår (#139).
     pub reskontra: Option<ReskontraVy>,
+    /// Kundförlusterna och deras paneler (#141).
+    pub kundförlust: Option<crate::kundforlust::KundförlustVy>,
+    // #140 Kreditfakturor
+    /// För en kreditfaktura: originalets id och hänvisningens text.
+    pub krediterar: Option<(String, String)>,
+    /// Kreditfakturorna som krediterar fakturan: id, nummer och total.
+    pub krediteras_av: Vec<(String, String, String)>,
+    /// Något finns kvar att kreditera.
+    pub kan_kreditera: bool,
+    /// Panelen Kreditfaktura… när den är öppen.
+    pub kreditera: Option<KrediteraVy>,
+}
+
+/// Panelen Kreditfaktura… (#140): hela fakturan eller ett antal per rad.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct KrediteraVy {
+    /// Originalets rader: beskrivning, antal med enhet och netto.
+    pub rader: Vec<(String, String, String)>,
+    /// Det som finns kvar att kreditera.
+    pub kvar: String,
+    /// Valet när panelen öppnas, eller det som användaren skickade.
+    pub start: NyKreditering,
+    /// Spärrarna från servern, om valet avvisades.
+    pub fel: Option<String>,
 }
 
 /// Det som Kundfakturor visar.
@@ -250,7 +275,11 @@ fn feltext(kod: &str) -> Option<&'static str> {
             "Utskicket misslyckades och loggades. Fakturan är utfärdad och kan skickas igen."
         }
         "mottagare" => "Mottagaren är ingen e-postadress. Inget skickades.",
-        kod => return crate::betalning::feltext(kod),
+        // #140 Kreditfakturor
+        "kreditering" => "Kreditfakturan kunde inte skapas.",
+        kod => {
+            return crate::betalning::feltext(kod).or_else(|| crate::kundforlust::feltext(kod));
+        }
     })
 }
 
@@ -325,6 +354,7 @@ fn ur_fält(värde: impl Fn(&str) -> Option<String>) -> NyKundfaktura {
     NyKundfaktura {
         kund: fält("kund"),
         ny_kund,
+        krediterar: None,
         fakturadatum: fält("fakturadatum"),
         leveransdatum: fält("leveransdatum"),
         förfallodag: fält("forfallodag"),
@@ -356,6 +386,14 @@ pub enum Panel {
     Betalning,
     /// Rätta betalning, med betalningen i `&b=` (#139).
     RättaBetalning,
+    /// Konstaterad kundförlust (#141).
+    Kundförlust,
+    /// Återkalla kundförlust (#141).
+    ÅterkallaKundförlust,
+    /// Kreditfaktura… (#140).
+    Kreditera,
+    /// Återbetala ett tillgodohavande (#140).
+    Återbetala,
 }
 
 impl Panel {
@@ -365,6 +403,10 @@ impl Panel {
             "skicka" => Some(Panel::Skicka),
             "betalning" => Some(Panel::Betalning),
             "ratta-betalning" => Some(Panel::RättaBetalning),
+            "kundforlust" => Some(Panel::Kundförlust),
+            "aterkalla-kundforlust" => Some(Panel::ÅterkallaKundförlust),
+            "kreditera" => Some(Panel::Kreditera),
+            "aterbetala" => Some(Panel::Återbetala),
             _ => None,
         }
     }
@@ -375,6 +417,10 @@ impl Panel {
             Panel::Skicka => "skicka",
             Panel::Betalning => "betalning",
             Panel::RättaBetalning => "ratta-betalning",
+            Panel::Kundförlust => "kundforlust",
+            Panel::ÅterkallaKundförlust => "aterkalla-kundforlust",
+            Panel::Kreditera => "kreditera",
+            Panel::Återbetala => "aterbetala",
         }
     }
 }
@@ -434,6 +480,17 @@ pub(crate) mod server {
                 "/foretag/{id}/kundfakturor/{f}/betalningar/{b}/ratta",
                 post(crate::betalning::server::rätta_kundbetalning),
             )
+            // #141 Kundförlust
+            .route(
+                "/foretag/{id}/kundfakturor/{f}/kundforlust",
+                post(crate::kundforlust::server::bokför),
+            )
+            .route(
+                "/foretag/{id}/kundfakturor/{f}/kundforlust/{k}/aterkalla",
+                post(crate::kundforlust::server::återkalla),
+            )
+            // #140 Kreditfakturor
+            .route("/foretag/{id}/kundfakturor/{f}/kreditera", post(kreditera))
             .with_state(Arc::new(state))
     }
 
@@ -483,14 +540,14 @@ pub(crate) mod server {
                     id: f.id.to_string(),
                     utkast: f.status == Status::Utkast,
                     nummer: f.nummer.map(|n| n.to_string()).unwrap_or_default(),
-                    kund: f.kund,
+                    kund: f.kund.clone(),
                     fakturadatum: f.fakturadatum.map(|d| d.to_string()).unwrap_or_default(),
                     förfallodag: f.förfallodag.map(|d| d.to_string()).unwrap_or_default(),
                     total: kr(f.total),
                     ny_kund: f.ny_kund,
                     återstår: kr(f.återstår),
                     märke: utfärdad.map(|d| {
-                        let m = maya_domain::reskontra::märke(f.total, f.återstår, d, idag);
+                        let m = märke_för(&f, d, idag);
                         (m.kod().to_string(), m.namn().to_string())
                     }),
                     grupp: Some(match utfärdad {
@@ -574,28 +631,61 @@ pub(crate) mod server {
                         _ => KundfakturaFel::FinnsInte,
                     })?;
                     (d.utskick, d.skicka, d.epost) = (utskick, skicka, b.config.smtp.is_some());
+                    // #140: en kreditfaktura räknas av mot originalet och betalas inte.
+                    let kvar = u.total + f.krediteras_av.iter().map(|k| k.total).sum::<i64>();
+                    d.kan_kreditera = u.krediterar.is_none() && kvar > 0;
+                    if d.kan_kreditera && panel == Some(Panel::Kreditera) {
+                        d.kreditera = Some(kreditera_panelen(b, u, kvar));
+                    }
                     // #139 Betalningar
                     let panel = b.värde("panel");
-                    d.reskontra = Some(
-                        crate::betalning::server::reskontra(
-                            b,
-                            företag,
-                            maya_core::betalning::Faktura::Kund(f.id),
-                            panel.as_deref(),
+                    d.reskontra = if u.krediterar.is_some() {
+                        None
+                    } else {
+                        Some(
+                            crate::betalning::server::reskontra(
+                                b,
+                                företag,
+                                maya_core::betalning::Faktura::Kund(f.id),
+                                panel.as_deref(),
+                            )
+                            .await
+                            .map_err(|e| match e {
+                                maya_core::betalning::BetalningFel::Åtkomst(e) => {
+                                    KundfakturaFel::Åtkomst(e)
+                                }
+                                maya_core::betalning::BetalningFel::FinnsInte => {
+                                    KundfakturaFel::FinnsInte
+                                }
+                                e => KundfakturaFel::Åtkomst(ÅtkomstFel::Databas(
+                                    maya_core::DatabasFel::Korrupt(e.to_string()),
+                                )),
+                            })?,
                         )
-                        .await
-                        .map_err(|e| match e {
-                            maya_core::betalning::BetalningFel::Åtkomst(e) => {
-                                KundfakturaFel::Åtkomst(e)
-                            }
-                            maya_core::betalning::BetalningFel::FinnsInte => {
-                                KundfakturaFel::FinnsInte
-                            }
-                            e => KundfakturaFel::Åtkomst(ÅtkomstFel::Databas(
-                                maya_core::DatabasFel::Korrupt(e.to_string()),
-                            )),
-                        })?,
-                    );
+                    };
+                    // #141 Kundförlust: en kreditfaktura skrivs inte av som kundförlust.
+                    if u.krediterar.is_none() {
+                        d.kundförlust = Some(
+                            crate::kundforlust::server::kundförlusterna(
+                                b,
+                                företag,
+                                f.id,
+                                panel.as_deref(),
+                            )
+                            .await
+                            .map_err(|e| match e {
+                                maya_core::kundforlust::KundförlustFel::Åtkomst(e) => {
+                                    KundfakturaFel::Åtkomst(e)
+                                }
+                                maya_core::kundforlust::KundförlustFel::FinnsInte => {
+                                    KundfakturaFel::FinnsInte
+                                }
+                                e => KundfakturaFel::Åtkomst(ÅtkomstFel::Databas(
+                                    maya_core::DatabasFel::Korrupt(e.to_string()),
+                                )),
+                            })?,
+                        );
+                    }
                     data.dokument = Some(d);
                 }
                 None => {
@@ -684,12 +774,72 @@ pub(crate) mod server {
         }
     }
 
+    /// Märket för en utfärdad faktura i listorna: kreditfaktura, eller statusen efter
+    /// krediteringarna och betalningarna (#140) och en gällande kundförlust (#141).
+    pub(crate) fn märke_för(
+        f: &kundfaktura::Kundfakturarad,
+        förfallodag: Date,
+        idag: Date,
+    ) -> maya_domain::reskontra::Märke {
+        match f.krediterar {
+            Some(_) => maya_domain::reskontra::Märke::Kreditfaktura,
+            None => maya_domain::reskontra::kundfakturans_märke(
+                f.total,
+                f.krediterat,
+                f.återstår,
+                f.kundförlust,
+                förfallodag,
+                idag,
+            ),
+        }
+    }
+
+    /// Panelen Kreditfaktura… med originalets rader, förvald hela fakturan.
+    fn kreditera_panelen(b: &Sidbegäran, u: &kundfaktura::Utfärdning, kvar: i64) -> KrediteraVy {
+        let tillbaka = b.värde("fel").as_deref() == Some("kreditering");
+        KrediteraVy {
+            rader: u
+                .rader
+                .iter()
+                .map(|r| {
+                    (
+                        r.beskrivning.clone(),
+                        format!("{} {}", r.antal, r.enhet).trim().to_string(),
+                        kr(r.netto),
+                    )
+                })
+                .collect(),
+            kvar: kr(kvar),
+            start: if tillbaka {
+                kreditering_ur(|namn| b.värde(namn), u.rader.len())
+            } else {
+                NyKreditering {
+                    hela: true,
+                    antal: u.rader.iter().map(|r| r.antal.to_string()).collect(),
+                }
+            },
+            fel: tillbaka.then(|| {
+                b.värde("text")
+                    .unwrap_or_else(|| feltext("kreditering").unwrap_or_default().into())
+            }),
+        }
+    }
+
     fn dokument(
         företag: FöretagsId,
         f: &kundfaktura::Kundfaktura,
         u: &kundfaktura::Utfärdning,
     ) -> FakturaVy {
         FakturaVy {
+            krediterar: u
+                .krediterar
+                .as_ref()
+                .map(|h| (h.faktura.to_string(), h.text())),
+            krediteras_av: f
+                .krediteras_av
+                .iter()
+                .map(|k| (k.id.to_string(), k.nummer.to_string(), kr(k.total)))
+                .collect(),
             id: f.id.to_string(),
             nummer: u.nummer.to_string(),
             referens: (u.referens.clone(), u.säljare.ocr),
@@ -960,6 +1110,53 @@ pub(crate) mod server {
         }
     }
 
+    /// `POST /foretag/{id}/kundfakturor/{f}/kreditera`: skapar kreditfakturans utkast och visar
+    /// det, eller panelen igen med spärrarna (#140).
+    async fn kreditera(
+        State(state): State<Arc<KundfakturaState>>,
+        Path((id, f)): Path<(String, String)>,
+        inloggad: Option<Extension<Inloggad>>,
+        Form(fält): Form<Fält>,
+    ) -> Response {
+        let (inloggad, företag) = match tolka(&id, inloggad) {
+            Ok(t) => t,
+            Err(r) => return *r,
+        };
+        let Ok(f) = f.parse::<KundfakturaId>() else {
+            return finns_inte();
+        };
+        let lista = format!("/foretag/{företag}/kundfakturor");
+        let antal = (0..500)
+            .take_while(|i| värde(&fält, &format!("antal_{i}")).is_some())
+            .count();
+        let kreditering = kreditering_ur(|namn| värde(&fält, namn), antal);
+        match kundfaktura::kreditera(
+            &state.db,
+            &state.klocka,
+            &inloggad.aktör,
+            företag,
+            f,
+            &kreditering,
+        )
+        .await
+        {
+            Ok(k) => Redirect::to(&format!("{lista}?f={k}&kreditutkast=1")).into_response(),
+            Err(KundfakturaFel::Kreditering(spärrar)) => {
+                let mut query = url::form_urlencoded::Serializer::new(String::new());
+                query.append_pair("f", &f.to_string());
+                query.append_pair("panel", Panel::Kreditera.kod());
+                query.append_pair("fel", "kreditering");
+                let text: Vec<String> = spärrar.into_iter().map(|s| s.text).collect();
+                query.append_pair("text", &text.join(" "));
+                for (namn, v) in &fält {
+                    query.append_pair(namn, v);
+                }
+                Redirect::to(&format!("{lista}?{}", query.finish())).into_response()
+            }
+            Err(e) => fakturafel(e),
+        }
+    }
+
     pub(crate) fn fakturafel(e: KundfakturaFel) -> Response {
         match e {
             KundfakturaFel::FinnsInte | KundfakturaFel::IngetUtkast => finns_inte(),
@@ -972,6 +1169,17 @@ pub(crate) mod server {
 
     pub(crate) fn finns_inte() -> Response {
         text(StatusCode::NOT_FOUND, "Kundfakturan finns inte.\n")
+    }
+}
+
+/// Valet i panelen Kreditfaktura… ur fälten: `hela` och `antal_<rad>` för `rader` rader.
+#[cfg(feature = "ssr")]
+fn kreditering_ur(värde: impl Fn(&str) -> Option<String>, rader: usize) -> NyKreditering {
+    NyKreditering {
+        hela: värde("hela").is_some_and(|v| !v.is_empty()),
+        antal: (0..rader)
+            .map(|i| värde(&format!("antal_{i}")).unwrap_or_default())
+            .collect(),
     }
 }
 
@@ -1023,6 +1231,24 @@ fn kundfakturor_sida(data: Kundfakturadata, ny: bool) -> AnyView {
             "betalning_rattad",
             "Betalningen rättades. Rättelsen bokfördes och betalningen räknas inte längre.",
         ),
+        // #141 Kundförlust
+        (
+            "kundforlust_aterkallad",
+            "Kundförlusten återkallades med ett nytt verifikat, och fakturan kan betalas igen.",
+        ),
+        (
+            "kundforlust",
+            "Kundförlusten bokfördes, och utgående moms minskades.",
+        ),
+        // #140 Kreditfakturor
+        (
+            "kreditutkast",
+            "Kreditfakturans utkast skapades. Granska och utfärda det.",
+        ),
+        (
+            "aterbetald",
+            "Återbetalningen registrerades och verifikatet bokfördes.",
+        ),
     ]
     .into_iter()
     .find(|(namn, _)| fråga(namn).is_some())
@@ -1051,7 +1277,11 @@ fn kundfakturor_sida(data: Kundfakturadata, ny: bool) -> AnyView {
         }
         (Some(u), _, Some(f)) => {
             let start = if tillbakaskickat {
-                från_adressen()
+                // Hänvisningen skickas inte med formuläret (#140).
+                NyKundfaktura {
+                    krediterar: u.formulär.krediterar.clone(),
+                    ..från_adressen()
+                }
             } else {
                 u.formulär.clone()
             };
@@ -1648,6 +1878,11 @@ fn FakturaFormulär(
                 .collect_view()
         }
     };
+    let att_betala = if start.krediterar.is_some() {
+        "Att få tillbaka"
+    } else {
+        "Att betala"
+    };
     let summor = move || {
         let fri = läge.get().fri_momssats();
         beräkning.with(|b| {
@@ -1671,7 +1906,7 @@ fn FakturaFormulär(
                 </tr>
                 {moms}
                 <tr class="summa">
-                    <td colspan="7">"Att betala"</td>
+                    <td colspan="7">{att_betala}</td>
                     <td class="belopp">{kr(b.total)}</td>
                 </tr>
             }
@@ -1726,13 +1961,14 @@ fn FakturaFormulär(
         })
         .collect_view();
     let utan_moms = move || läge.get() == Momsläge::UtanMoms;
+    let fast_momsläge = start.krediterar.is_some();
     let omvänd_fält = view! {
         <div>
             <label for="omvand_skattskyldighet">"Omvänd skattskyldighet"</label>
             <select
                 id="omvand_skattskyldighet"
                 name="omvand_skattskyldighet"
-                disabled=utan_moms
+                disabled=move || utan_moms() || fast_momsläge
                 prop:value=move || faktura.with(|f| f.omvänd_skattskyldighet.clone())
                 on:change=move |ev| {
                     let ny = event_target_value(&ev);
@@ -1760,10 +1996,16 @@ fn FakturaFormulär(
         .iter()
         .map(|(nr, namn)| view! { <option value=nr.to_string() label=namn.clone()></option> })
         .collect_view();
+    // #140: ett kreditutkast har originalets kund och momsläge och en hänvisning.
+    let kredit = start.krediterar.clone();
     let (action, rubrik, märke, radera) = match &utkast {
         Some(u) => (
             format!("{lista}/{}", u.id),
-            "Kundfaktura",
+            if kredit.is_some() {
+                "Kreditfaktura"
+            } else {
+                "Kundfaktura"
+            },
             Some(view! {
                 <p>
                     <UtkastBadge />
@@ -1836,31 +2078,50 @@ fn FakturaFormulär(
                         <kbd>"P"</kbd>
                     </a>
                 </div>
-                <div class="falt-rad">
-                    <div class="bred">
-                        <label for="kund">"Kund"</label>
-                        <select
-                            id="kund"
-                            name="kund"
-                            on:change=move |ev| {
-                                let kund = event_target_value(&ev);
-                                förutsättningar_kvar
-                                    .with_value(|ff| faktura.update(|f| f.välj_kund(&kund, ff)));
-                            }
-                        >
-                            <option value="">"Välj kund…"</option>
-                            {kundval}
-                            <option value=NY selected=vald_kund.trim() == NY>
-                                "+ Ny kund…"
-                            </option>
-                        </select>
-                        {kundinfo}
-                        {spärr_vid(Fält::Kund)}
-                        <p class="diskret">
-                            <a href=format!("{}/ny", kundregistret(&bas))>"Lägg upp en kund i kundregistret"</a>
-                        </p>
-                    </div>
-                </div>
+                {match kredit.clone() {
+                    Some(h) => view! {
+                        <div class="falt-rad">
+                            <div class="bred">
+                                <span class="etikett">"Kund"</span>
+                                <input type="hidden" name="kund" value=h.kund.id.to_string() />
+                                <p>{h.kund.namn.clone()}</p>
+                                <p class="hanvisning">
+                                    <a href=format!("{lista}?f={}", h.faktura)>{h.text()}</a>
+                                </p>
+                                {spärr_vid(Fält::Kund)}
+                            </div>
+                        </div>
+                    }
+                    .into_any(),
+                    None => view! {
+                        <div class="falt-rad">
+                            <div class="bred">
+                                <label for="kund">"Kund"</label>
+                                <select
+                                    id="kund"
+                                    name="kund"
+                                    on:change=move |ev| {
+                                        let kund = event_target_value(&ev);
+                                        förutsättningar_kvar
+                                            .with_value(|ff| faktura.update(|f| f.välj_kund(&kund, ff)));
+                                    }
+                                >
+                                    <option value="">"Välj kund…"</option>
+                                    {kundval}
+                                    <option value=NY selected=vald_kund.trim() == NY>
+                                        "+ Ny kund…"
+                                    </option>
+                                </select>
+                                {kundinfo}
+                                {spärr_vid(Fält::Kund)}
+                                <p class="diskret">
+                                    <a href=format!("{}/ny", kundregistret(&bas))>"Lägg upp en kund i kundregistret"</a>
+                                </p>
+                            </div>
+                        </div>
+                    }
+                    .into_any(),
+                }}
                 <div class="kort-streckat ny-kund" class:dold=move || !ny_vald.get()>
                     <b>"Ny kund"</b>
                     <div class="lf-rutnat">{nya_fält}</div>
@@ -2091,6 +2352,102 @@ fn Papper(
     }
 }
 
+/// Panelen Kreditfaktura… (#140): hela fakturan eller ett antal per rad. Utkastet som skapas
+/// har negativa rader och en hänvisning till originalet och utfärdas som en faktura.
+#[component]
+fn KrediteraPanel(action: String, stäng: String, k: KrediteraVy) -> impl IntoView {
+    let hela = RwSignal::new(k.start.hela);
+    let fel = k
+        .fel
+        .clone()
+        .map(|t| view! { <p class="fel" role="alert">{t}</p> });
+    let rader = k
+        .rader
+        .iter()
+        .enumerate()
+        .map(|(i, (beskrivning, antal, netto))| {
+            let värde = k.start.antal.get(i).cloned().unwrap_or_default();
+            view! {
+                <tr>
+                    <td>{beskrivning.clone()}</td>
+                    <td class="belopp">{antal.clone()}</td>
+                    <td class="belopp">{netto.clone()}</td>
+                    <td class="belopp">
+                        <input
+                            name=format!("antal_{i}")
+                            type="text"
+                            inputmode="decimal"
+                            class="belopp"
+                            aria-label=format!("Antal att kreditera på {beskrivning}")
+                            value=värde
+                            disabled=move || hela.get()
+                        />
+                    </td>
+                </tr>
+            }
+        })
+        .collect_view();
+    view! {
+        <section class="panel kreditera" aria-labelledby="kreditera-rubrik">
+            <header class="panelhuvud">
+                <h3 id="kreditera-rubrik">"Kreditfaktura"</h3>
+                <a class="knapp knapp-diskret" href=stäng>
+                    "Avbryt"
+                </a>
+            </header>
+            <p class="diskret">
+                {format!(
+                    "Kvar att kreditera {} kr. Utkastet får originalets rader med negativt antal \
+                     och en hänvisning till fakturan, och utfärdas med nästa nummer i serien.",
+                    k.kvar,
+                )}
+            </p>
+            {fel}
+            <form method="post" action=action novalidate>
+                <p>
+                    <label class="kryss">
+                        <input
+                            type="radio"
+                            name="hela"
+                            value="1"
+                            checked=k.start.hela
+                            on:change=move |_| hela.set(true)
+                        />
+                        " Hela fakturan"
+                    </label>
+                    " "
+                    <label class="kryss">
+                        <input
+                            type="radio"
+                            name="hela"
+                            value=""
+                            checked=!k.start.hela
+                            on:change=move |_| hela.set(false)
+                        />
+                        " Ett antal per rad"
+                    </label>
+                </p>
+                <table class="rader">
+                    <thead>
+                        <tr>
+                            <th>"Rad"</th>
+                            <th class="belopp">"Antal"</th>
+                            <th class="belopp">"Netto"</th>
+                            <th class="belopp">"Kreditera"</th>
+                        </tr>
+                    </thead>
+                    <tbody>{rader}</tbody>
+                </table>
+                <p class="knappar">
+                    <button class="knapp knapp-primar" type="submit">
+                        "Skapa kreditfaktura"
+                    </button>
+                </p>
+            </form>
+        </section>
+    }
+}
+
 /// En utfärdad faktura som dokument, med den arkiverade PDF:en och verifikatet.
 #[component]
 fn Fakturadokument(bas: String, d: FakturaVy) -> impl IntoView {
@@ -2177,21 +2534,46 @@ fn Fakturadokument(bas: String, d: FakturaVy) -> impl IntoView {
         Some(r) => {
             let status =
                 view! { <Märke kod=r.märke.0.clone() namn=r.märke.1.clone() /> }.into_any();
-            let kvar = (r.återstår_öre > 0).then(|| {
-                view! { <span class="diskret">{format!(" · {} kvar", r.återstår)}</span> }
-            });
-            let betala = (r.återstår_öre > 0).then(|| {
-                view! {
+            // #140: ett tillgodohavande efter en kreditfaktura återbetalas.
+            let kvar = match r.återstår_öre {
+                ..0 => Some(
+                    view! {
+                        <span class="diskret tillgodo">
+                            {format!(
+                                " · Kunden har tillgodo {} kr",
+                                maya_domain::belopp::Saldo::från_öre(-r.återstår_öre),
+                            )}
+                        </span>
+                    }
+                    .into_any(),
+                ),
+                1.. => Some(
+                    view! { <span class="diskret">{format!(" · {} kvar", r.återstår)}</span> }
+                        .into_any(),
+                ),
+                0 => None,
+            };
+            let betala = match r.återstår_öre {
+                1.. => Some(view! {
                     <a
                         class="knapp knapp-primar"
                         href=format!("{här}&panel={}", Panel::Betalning.kod())
                     >
                         "Registrera betalning"
                     </a>
-                }
-            });
+                }),
+                ..0 => Some(view! {
+                    <a
+                        class="knapp knapp-primar"
+                        href=format!("{här}&panel={}", Panel::Återbetala.kod())
+                    >
+                        "Återbetala…"
+                    </a>
+                }),
+                0 => None,
+            };
             let betalpanel = match (vald_panel, r.betalning.clone(), r.rätta.clone()) {
-                (Some(Panel::Betalning), Some(v), _) => Some(
+                (Some(Panel::Betalning | Panel::Återbetala), Some(v), _) => Some(
                     view! {
                         <Betalningspanel
                             action=format!("{lista}/{}/betalning", d.id)
@@ -2217,6 +2599,15 @@ fn Fakturadokument(bas: String, d: FakturaVy) -> impl IntoView {
                 view! { <Betalningar bas=bas.clone() här=här.clone() r=r /> }.into_any();
             (status, kvar.into_any(), betala, betalpanel, betalningar)
         }
+        // #140: en kreditfaktura har ingen egen reskontrapost.
+        None if d.krediterar.is_some() => (
+            view! { <Märke kod="kreditfaktura".to_string() namn="Kreditfaktura".to_string() /> }
+                .into_any(),
+            ().into_any(),
+            None,
+            None,
+            ().into_any(),
+        ),
         None => (
             view! { <span class="markering">"Utfärdad"</span> }.into_any(),
             ().into_any(),
@@ -2225,6 +2616,53 @@ fn Fakturadokument(bas: String, d: FakturaVy) -> impl IntoView {
             ().into_any(),
         ),
     };
+    // #140 Kreditfakturor: panelen, länken till originalet och kreditfakturorna.
+    let betalpanel = match d.kreditera.clone() {
+        Some(k) => Some(
+            view! {
+                <KrediteraPanel
+                    action=format!("{lista}/{}/kreditera", d.id)
+                    stäng=här.clone()
+                    k=k
+                />
+            }
+            .into_any(),
+        ),
+        None => betalpanel,
+    };
+    let krediterar = d.krediterar.clone().map(|(id, text)| {
+        view! {
+            <dt>"Krediterar"</dt>
+            <dd>
+                <a href=format!("{lista}?f={id}")>{text}</a>
+            </dd>
+        }
+    });
+    let krediteras_av = (!d.krediteras_av.is_empty()).then(|| {
+        let länkar = d
+            .krediteras_av
+            .iter()
+            .map(|(id, nummer, total)| {
+                view! {
+                    <span class="adressrad">
+                        <a href=format!("{lista}?f={id}")>{format!("Kreditfaktura {nummer}")}</a>
+                        <span class="diskret">{format!(" · {total} kr")}</span>
+                    </span>
+                }
+            })
+            .collect_view();
+        view! {
+            <dt>"Krediteras av"</dt>
+            <dd>{länkar}</dd>
+        }
+    });
+    let kreditera = d.kan_kreditera.then(|| {
+        view! {
+            <a class="knapp knapp-diskret" href=format!("{här}&panel={}", Panel::Kreditera.kod())>
+                "Kreditfaktura…"
+            </a>
+        }
+    });
     // Handlingarna som paneler (`?panel=<kod>`); raden döljs medan en panel är öppen.
     // #138 Utskick: handlingen, panelen och avsnittet.
     let skicka_text = match (d.epost, d.utskick.iter().any(|u| u.epost)) {
@@ -2232,6 +2670,35 @@ fn Fakturadokument(bas: String, d: FakturaVy) -> impl IntoView {
         (true, false) => "Skicka…",
         (true, true) => "Skicka igen…",
     };
+    // #141 Kundförlust: panelerna och förlusterna i uppgifterna.
+    let förlustpanel = d.kundförlust.as_ref().and_then(|k| {
+        match (vald_panel, k.panel.clone(), k.återkalla.clone()) {
+            (Some(Panel::Kundförlust), Some(p), _) => Some(
+                view! {
+                    <crate::kundforlust::Kundförlustpanel
+                        action=format!("{lista}/{}/kundforlust", d.id)
+                        stäng=här.clone()
+                        p=p
+                    />
+                }
+                .into_any(),
+            ),
+            (Some(Panel::ÅterkallaKundförlust), _, Some(å)) => Some(
+                view! {
+                    <crate::kundforlust::KundförlustÅterkallelsepanel
+                        action=format!("{lista}/{}/kundforlust/{}/aterkalla", d.id, å.id)
+                        stäng=här.clone()
+                        vy=å
+                    />
+                }
+                .into_any(),
+            ),
+            _ => None,
+        }
+    });
+    let kundförlusterna = d.kundförlust.as_ref().map(|k| {
+        view! { <crate::kundforlust::Kundförlusterna bas=bas.clone() poster=k.poster.clone() /> }
+    });
     let panel = match (d.rätta_kontering.clone(), d.skicka.clone()) {
         // #142 Rätta kontering
         (Some(p), _) => Some(
@@ -2242,9 +2709,39 @@ fn Fakturadokument(bas: String, d: FakturaVy) -> impl IntoView {
         (None, Some(s)) => {
             Some(view! { <SkickaPanel lista=lista.clone() id=d.id.clone() s=s /> }.into_any())
         }
-        (None, None) => betalpanel,
+        (None, None) => betalpanel.or(förlustpanel),
     };
     let handlingar = panel.is_none().then(|| {
+        // #141 Kundförlust
+        let kundförlust = d.kundförlust.as_ref().and_then(|k| {
+            if k.gällande.is_some() {
+                Some(
+                    view! {
+                        <a
+                            class="knapp"
+                            href=format!("{här}&panel={}", Panel::ÅterkallaKundförlust.kod())
+                        >
+                            "Återkalla kundförlust"
+                        </a>
+                    }
+                    .into_any(),
+                )
+            } else if k.kan_bokföras {
+                Some(
+                    view! {
+                        <a
+                            class="knapp knapp-fara-diskret"
+                            href=format!("{här}&panel={}", Panel::Kundförlust.kod())
+                        >
+                            "Kundförlust…"
+                        </a>
+                    }
+                    .into_any(),
+                )
+            } else {
+                None
+            }
+        });
         let rätta_kontering = d.kan_rätta_kontering.then(|| {
             view! {
                 <a class="knapp knapp-diskret" href=format!("{lista}?f={}&panel=ratta", d.id)>
@@ -2257,6 +2754,8 @@ fn Fakturadokument(bas: String, d: FakturaVy) -> impl IntoView {
                 {betala}
                 <a class="knapp" href=format!("{lista}?f={}&panel=skicka", d.id)>{skicka_text}</a>
                 {rätta_kontering}
+                {kundförlust}
+                {kreditera}
             </p>
         }
     });
@@ -2290,7 +2789,13 @@ fn Fakturadokument(bas: String, d: FakturaVy) -> impl IntoView {
             <article class="dokument kundfaktura">
                 <header class="formular-huvud">
                     <div>
-                        <p class="dokument-nummer">{format!("Kundfaktura {}", d.nummer)}</p>
+                        <p class="dokument-nummer">
+                            {format!(
+                                "{} {}",
+                                if d.krediterar.is_some() { "Kreditfaktura" } else { "Kundfaktura" },
+                                d.nummer,
+                            )}
+                        </p>
                         <h2>{d.kund.namn.clone()}</h2>
                         <p>
                             {status}
@@ -2306,6 +2811,8 @@ fn Fakturadokument(bas: String, d: FakturaVy) -> impl IntoView {
                 <dl class="metadata">
                     <dt>"Kund"</dt>
                     <dd>{adress} {köparens_momsregnr}</dd>
+                    {krediterar}
+                    {krediteras_av}
                     {momsläget}
                     <dt>"Fakturadatum"</dt>
                     <dd>{d.fakturadatum.clone()}</dd>
@@ -2323,6 +2830,7 @@ fn Fakturadokument(bas: String, d: FakturaVy) -> impl IntoView {
                     </dd>
                     <dt>"Utfärdad"</dt>
                     <dd>{d.utfärdad.0.clone()} " av " {d.utfärdad.1.clone()} " via " {d.utfärdad.2.clone()}</dd>
+                    {kundförlusterna}
                 </dl>
                 <table class="rader">
                     <thead>

@@ -491,7 +491,7 @@ async fn fakturaflödenas_konton_aktiveras_i_befintliga_företag_och_aktiveringe
 async fn leverantörsfakturorna_byggs_om_med_sina_rader_och_är_låsta_efteråt() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("maya.db");
-    let gammal = Migreringar::före("20261021041441").migrator().await;
+    let gammal = Migreringar::före("20261021141441").migrator().await;
     let db = Databas::öppna_som(&path, VERSION, &gammal, None)
         .await
         .unwrap();

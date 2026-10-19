@@ -220,6 +220,7 @@ async fn utkasten_och_de_okopplade_underlagen_är_saker_att_göra() {
             Sak::Underlag(u) => underlagen.push(u.id),
             Sak::Återställning(_) => panic!("ingen återställning är gjord"),
             Sak::Driftvarning(v) => panic!("ingen driftvarning väntad: {v:?}"),
+            Sak::Faktura(f) => panic!("ingen faktura är utfärdad: {f:?}"),
         }
     }
     assert_eq!(underlagen, vec![okopplat.id]);

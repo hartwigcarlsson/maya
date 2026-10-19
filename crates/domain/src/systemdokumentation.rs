@@ -356,6 +356,35 @@ pub fn behandlingsregler() -> Vec<Block> {
                 .into(),
         ),
         kodtabell(crate::betalning::BETALNINGSSPÄRRAR),
+        // #141 Kundförlust
+        Block::Underrubrik("Spärrar vid kundförlust".into()),
+        Block::Stycke(
+            "Bara en konstaterad kundförlust bokförs i fakturan, med skäl (konkurs, ackord, \
+             utmätning utan resultat eller annat med fritext) och datum. Den gäller det som \
+             återstår: 6351 debiteras med nettots andel och varje utgående momskonto med sin \
+             andel, fördelat proportionellt mot utfärdandets netto och moms, och 1510 \
+             krediteras. När fordran inte är bokförd blir förlusten bara en status. Återkalla \
+             kundförlust vänder förlustens verifikat med ett nytt verifikat daterat i dag, så \
+             att fakturan kan betalas igen. En befarad kundförlust bokförs som ett manuellt \
+             verifikat."
+                .into(),
+        ),
+        kodtabell(crate::kundforlust::KUNDFÖRLUSTSPÄRRAR),
+        // #140 Kreditfakturor
+        Block::Underrubrik("Spärrar när en kreditfaktura skapas".into()),
+        Block::Stycke(
+            "Kreditfaktura… på en utfärdad kundfaktura krediterar hela fakturan eller ett antal \
+             per rad och skapar ett utkast med originalets rader med negativt antal, \
+             originalets momsläge, kund och intäktskonton och en hänvisning till originalet. \
+             Kreditfakturan utfärdas med samma spärrar som en faktura och nästa nummer i samma \
+             serie, och dessutom spärras den om summan inte är negativ eller om den krediterar \
+             mer än det som finns kvar att kreditera. Verifikatet speglar originalet: \
+             intäktskontona och utgående moms i debet och 1510 i kredit. Är fakturan redan \
+             betald får kunden ett tillgodohavande, som återbetalas som en betalning åt andra \
+             hållet: 1510 i debet mot betalkontot."
+                .into(),
+        ),
+        kodtabell(crate::kreditfaktura::KREDITERINGSSPÄRRAR),
     ]);
     block
 }

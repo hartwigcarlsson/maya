@@ -632,6 +632,10 @@ pub async fn radera(
         "DELETE FROM betalningsrattelse
          WHERE betalning_id IN (SELECT id FROM betalning WHERE foretag_id = ?1)",
         "DELETE FROM betalning WHERE foretag_id = ?1",
+        // #141 Kundförluster finns också bara på utfärdade fakturor.
+        "DELETE FROM kundforlust_aterkallelse
+         WHERE kundforlust_id IN (SELECT id FROM kundforlust WHERE foretag_id = ?1)",
+        "DELETE FROM kundforlust WHERE foretag_id = ?1",
         // #135 Kundfakturor: bara utkast, eftersom en utfärdad faktura är
         // räkenskapsinformation.
         "DELETE FROM kundfakturarad

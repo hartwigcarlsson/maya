@@ -510,6 +510,56 @@ async fn fakturaändringar(db: &Databas, anna: &Aktör, id: FöretagsId, tid: &s
     maya_core::betalning::rätta(db, &k, anna, id, betalning.id, "2026-03-01", "fel belopp")
         .await
         .unwrap();
+    // #141 Kundförlust
+    let förlust = maya_core::kundforlust::bokför(
+        db,
+        &k,
+        anna,
+        id,
+        betald.id,
+        &maya_domain::kundforlust::NyKundförlust {
+            skäl: "konkurs".into(),
+            annat: String::new(),
+            datum: "2026-03-01".into(),
+        },
+    )
+    .await
+    .unwrap();
+    maya_core::kundforlust::återkalla(db, &k, anna, id, förlust.id)
+        .await
+        .unwrap();
+    // #140 Kreditfakturor: en delbetald faktura krediteras helt, och tillgodohavandet återbetalas.
+    let krediterad =
+        testhjalp::utfärdad_kundfaktura(db, anna, id, "Kreditkund AB", "2026-03-01").await;
+    let betala = |belopp: &str| maya_domain::betalning::NyBetalning {
+        betaldag: "2026-03-01".into(),
+        belopp: belopp.into(),
+        konto: "1930".into(),
+        ..Default::default()
+    };
+    let faktura = maya_core::betalning::Faktura::Kund(krediterad.id);
+    maya_core::betalning::registrera(db, &k, anna, id, faktura, &betala("100"))
+        .await
+        .unwrap();
+    let kredit = maya_core::kundfaktura::kreditera(
+        db,
+        &k,
+        anna,
+        id,
+        krediterad.id,
+        &maya_domain::kreditfaktura::NyKreditering {
+            hela: true,
+            antal: Vec::new(),
+        },
+    )
+    .await
+    .unwrap();
+    maya_core::kundfaktura::utfärda(db, &k, anna, id, kredit)
+        .await
+        .unwrap();
+    maya_core::betalning::registrera(db, &k, anna, id, faktura, &betala("100"))
+        .await
+        .unwrap();
 
     // #148 Kreditfaktura från leverantör, återbetalning och Rätta avskrift
     let l = testhjalp::leverantör(db, anna, id, "Krediterande AB").await;

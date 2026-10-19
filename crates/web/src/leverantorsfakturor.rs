@@ -395,7 +395,7 @@ pub(crate) mod server {
     };
     use maya_core::underlag::{self, UnderlagFel};
     use maya_core::{Databas, Klocka, kontoplan, verifikat};
-    use maya_domain::reskontra::{Märke, märke_med_kredit};
+    use maya_domain::reskontra::{Märke, leverantörsfakturans_märke};
     use maya_domain::tid::minut;
 
     use super::{
@@ -530,9 +530,13 @@ pub(crate) mod server {
                         märke: match (r.status, registrerad) {
                             (Status::Upplåst, _) => Some(Märke::Upplåst),
                             (_, Some(_)) if r.kreditfaktura => Some(Märke::Kreditfaktura),
-                            (_, Some(d)) => {
-                                Some(märke_med_kredit(total, r.krediterat, r.återstår, d, idag))
-                            }
+                            (_, Some(d)) => Some(leverantörsfakturans_märke(
+                                total,
+                                r.krediterat,
+                                r.återstår,
+                                d,
+                                idag,
+                            )),
                             _ => None,
                         }
                         .map(|m| (m.kod().to_string(), m.namn().to_string())),

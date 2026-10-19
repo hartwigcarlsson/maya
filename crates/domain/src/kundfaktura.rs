@@ -16,6 +16,7 @@ use crate::belopp::Belopp;
 use crate::faktura::{self, Antal, Momsrad, Momssats, Rabatt};
 use crate::foretag::Momsperiod;
 use crate::kontoplan::Kontonummer;
+use crate::kreditfaktura::{self, Hänvisning};
 use crate::kund::{self, GiltigKund, NyKund, OmvändSkattskyldighet};
 use crate::rakenskapsar::Räkenskapsår;
 use crate::verifikat::{self, Årsval};
@@ -202,6 +203,10 @@ pub struct NyKundfaktura {
     /// Den nya kunden, när `kund` är [`NY`] (#137).
     #[serde(default)]
     pub ny_kund: NyKund,
+    /// Originalet när fakturan är en kreditfaktura (#140). Servern läser det ur databasen;
+    /// formulärets värde används aldrig för att utfärda.
+    #[serde(default)]
+    pub krediterar: Option<Hänvisning>,
 }
 
 /// Kunden som fakturan går till, ur kundregistret. Uppgifterna kopieras in när fakturan
@@ -377,7 +382,8 @@ pub const UTFÄRDANDESPÄRRAR: &[(&str, &str)] = &[
     ("rad_antal_saknas", "Varje rad har ett antal."),
     (
         "rad_antal_ogiltigt",
-        "Antalet är större än noll och har högst två decimaler.",
+        "Antalet är större än noll, på en kreditfaktura mindre än noll, och har högst två \
+         decimaler.",
     ),
     ("rad_pris_saknas", "Varje rad har ett à-pris."),
     (
@@ -394,6 +400,15 @@ pub const UTFÄRDANDESPÄRRAR: &[(&str, &str)] = &[
     ("konto_inaktivt", "Kontot är aktivt."),
     ("konto_inte_intakt", "Intäktskontot är ett konto i klass 3."),
     ("summa_inte_positiv", "Fakturans summa är större än noll."),
+    (
+        "summa_inte_negativ",
+        "En kreditfakturas summa är mindre än noll.",
+    ),
+    (
+        "kredit_overstiger",
+        "En kreditfaktura krediterar högst det som finns kvar att kreditera på originalet: dess \
+         total minus de kreditfakturor som redan är utfärdade.",
+    ),
     (
         "foretaget_adress_saknas",
         "Företagets adress (gatuadress, postnummer och ort) är ifylld.",
@@ -478,6 +493,8 @@ pub struct Utfärdbar {
     pub räkenskapsår: Årsval,
     /// Moms med satserna, omvänd skattskyldighet eller ingen moms.
     pub momsläge: Momsläge,
+    /// Originalet när fakturan är en kreditfaktura (#140).
+    pub krediterar: Option<Hänvisning>,
 }
 
 impl Utfärdbar {
@@ -491,9 +508,16 @@ impl Utfärdbar {
         s
     }
 
-    /// Verifikatets beskrivning, med motparten (VF2): "Kundfaktura 1007, Kund AB".
+    /// Verifikatets beskrivning, med motparten (VF2): "Kundfaktura 1007, Kund AB", eller för en
+    /// kreditfaktura "Kreditfaktura 1008, Kund AB, krediterar faktura 1007".
     pub fn beskrivning(&self) -> String {
-        format!("Kundfaktura {}, {}", self.nummer, self.kund.namn)
+        match &self.krediterar {
+            Some(h) => format!(
+                "Kreditfaktura {}, {}, krediterar faktura {}",
+                self.nummer, self.kund.namn, h.nummer
+            ),
+            None => format!("Kundfaktura {}, {}", self.nummer, self.kund.namn),
+        }
     }
 
     /// Utfärdandets kontering under fakturametoden: 1510 debet med totalen, intäktskontona
@@ -587,6 +611,10 @@ impl NyKundfaktura {
     /// (enligt den senaste momsperioden utan fakturadatum), annars efter den omvända
     /// skattskyldigheten. Ett okänt val räknas som ingen och spärras vid utfärdande.
     pub fn momsläge(&self, f: &Förutsättningar) -> Momsläge {
+        // En kreditfaktura har originalets momsläge.
+        if let Some(h) = &self.krediterar {
+            return h.momsläge;
+        }
         let dag = self.fakturadatum.trim().parse::<Date>().ok();
         if f.momsregistrerat_på(dag) {
             self.omvänt_momsläge()
@@ -639,9 +667,13 @@ impl NyKundfaktura {
     }
 
     /// Radernas netto, momsen per sats och totalen, med de rader som går att räkna, som om
-    /// företaget är momsregistrerat. Formuläret använder [`NyKundfaktura::beräkna_med`].
+    /// företaget är momsregistrerat (en kreditfaktura med originalets momsläge). Formuläret
+    /// använder [`NyKundfaktura::beräkna_med`].
     pub fn beräkna(&self) -> Beräkning {
-        self.beräkna_med(self.omvänt_momsläge())
+        self.beräkna_med(match &self.krediterar {
+            Some(h) => h.momsläge,
+            None => self.omvänt_momsläge(),
+        })
     }
 
     /// Som [`NyKundfaktura::beräkna`] med momsläget `läge`.
@@ -683,7 +715,7 @@ impl NyKundfaktura {
         });
         let förfallodag = self.kontrollera_förfallodag(fakturadatum, kund, &mut spärrar);
         let nummer = self.kontrollera_startnummer(f, &mut spärrar);
-        if tolka_omvänd(&self.omvänd_skattskyldighet).is_none() {
+        if self.krediterar.is_none() && tolka_omvänd(&self.omvänd_skattskyldighet).is_none() {
             spärrar.push(omvänd_ogiltig());
         }
         let läge = self.momsläge(f);
@@ -718,19 +750,38 @@ impl NyKundfaktura {
         let antal_ifyllda = ifyllda.len();
         let mut rader = Vec::new();
         for (i, r) in ifyllda {
-            rader.extend(kontrollera_rad(i, r, läge, f, &mut spärrar));
+            rader.extend(kontrollera_rad(
+                i,
+                r,
+                läge,
+                self.krediterar.is_some(),
+                f,
+                &mut spärrar,
+            ));
         }
         let momsrader = faktura::momsrader(rader.iter().map(|r| (r.momssats, r.netto)));
         let netto: i64 = momsrader.iter().map(|m| m.underlag).sum();
         let moms: i64 = momsrader.iter().map(|m| m.moms).sum();
         let total = netto + moms;
         // Summan prövas när varje ifylld rad klarar sina spärrar.
-        if !rader.is_empty() && rader.len() == antal_ifyllda && total <= 0 {
-            spärrar.push(Spärr::ny(
-                Fält::Summa,
-                "summa_inte_positiv",
-                "Fakturans summa måste vara större än noll.",
-            ));
+        if !rader.is_empty() && rader.len() == antal_ifyllda {
+            match &self.krediterar {
+                None if total <= 0 => spärrar.push(Spärr::ny(
+                    Fält::Summa,
+                    "summa_inte_positiv",
+                    "Fakturans summa måste vara större än noll.",
+                )),
+                Some(_) if total >= 0 => spärrar.push(Spärr::ny(
+                    Fält::Summa,
+                    "summa_inte_negativ",
+                    "En kreditfakturas summa måste vara mindre än noll.",
+                )),
+                Some(h) if -total > h.kvar => {
+                    let s = kreditfaktura::överstiger(h);
+                    spärrar.push(Spärr::ny(Fält::Summa, s.kod, s.text));
+                }
+                _ => {}
+            }
         }
 
         kontrollera_säljaren(f, fakturadatum, &mut spärrar);
@@ -767,6 +818,7 @@ impl NyKundfaktura {
                     },
                     räkenskapsår,
                     momsläge: läge,
+                    krediterar: self.krediterar.clone(),
                 })
             }
             _ => Err(spärrar),
@@ -776,6 +828,9 @@ impl NyKundfaktura {
     /// Kunden som fakturan går till: den valda i registret, eller den nya kunden när den
     /// klarar kundregistrets regler.
     pub fn kunden(&self, f: &Förutsättningar) -> Option<Fakturakund> {
+        if let Some(h) = &self.krediterar {
+            return Some(h.kund.clone());
+        }
         match self.kund.trim() {
             NY => self.ny_kund.kontrollera().ok().map(|k| fakturakund(&k)),
             id => {
@@ -790,6 +845,10 @@ impl NyKundfaktura {
         f: &Förutsättningar,
         spärrar: &mut Vec<Spärr>,
     ) -> Option<(Fakturakund, Option<GiltigKund>)> {
+        // En kreditfaktura går till kunden som den kopierades in på originalet.
+        if let Some(h) = &self.krediterar {
+            return Some((h.kund.clone(), None));
+        }
         if self.kund.trim() == NY {
             return match self.ny_kund.kontrollera() {
                 Err(fel) => {
@@ -1025,6 +1084,7 @@ impl NyKundfaktura {
             startnummer,
             omvänd_skattskyldighet: omvänd,
             rader,
+            krediterar: self.krediterar.clone(),
         })
     }
 }
@@ -1092,6 +1152,7 @@ fn kontrollera_rad(
     i: usize,
     r: &NyFakturarad,
     läge: Momsläge,
+    kredit: bool,
     f: &Förutsättningar,
     spärrar: &mut Vec<Spärr>,
 ) -> Option<Fakturarad> {
@@ -1110,7 +1171,16 @@ fn kontrollera_rad(
             fel(Radfält::Antal, "rad_antal_saknas", "Ange ett antal.".into());
             None
         }
-        (_, Some(a)) if a.hundradelar() > 0 => Some(a),
+        (_, Some(a)) if !kredit && a.hundradelar() > 0 => Some(a),
+        (_, Some(a)) if kredit && a.hundradelar() < 0 => Some(a),
+        _ if kredit => {
+            fel(
+                Radfält::Antal,
+                "rad_antal_ogiltigt",
+                "En kreditfaktura krediterar ett antal: ange det med minustecken.".into(),
+            );
+            None
+        }
         _ => {
             fel(Radfält::Antal, "rad_antal_ogiltigt", ANTAL_OGILTIGT.into());
             None
@@ -1269,6 +1339,8 @@ pub struct Utkast {
     pub omvänd_skattskyldighet: OmvändSkattskyldighet,
     /// Raderna i formulärets ordning, utan helt tomma rader.
     pub rader: Vec<Utkastrad>,
+    /// Originalet när utkastet är en kreditfaktura (#140).
+    pub krediterar: Option<Hänvisning>,
 }
 
 impl Utkast {
@@ -1300,7 +1372,7 @@ impl Utkast {
                     enhet: r.enhet.clone(),
                     à_pris: r
                         .à_pris
-                        .map(|p| kronor(Belopp::från_öre(p)))
+                        .map(crate::belopp::formulärtext)
                         .unwrap_or_default(),
                     rabatt: if r.rabatt == Rabatt::INGEN {
                         String::new()
@@ -1311,16 +1383,7 @@ impl Utkast {
                     konto: r.konto.map(|k| k.to_string()).unwrap_or_default(),
                 })
                 .collect(),
+            krediterar: self.krediterar.clone(),
         }
-    }
-}
-
-/// Ett belopp som det skrivs i formuläret, utan tusentalsavgränsare och utan `,00`.
-fn kronor(belopp: Belopp) -> String {
-    let (kr, öre) = (belopp.öre() / 100, belopp.öre() % 100);
-    if öre == 0 {
-        kr.to_string()
-    } else {
-        format!("{kr},{öre:02}")
     }
 }

@@ -38,6 +38,11 @@ pub(crate) fn kundfaktura(k: &Kundfaktura) -> Value {
         "utkast": k.utkast,
         "med_moms": med_moms,
         "omvand": f.momsläge.fakturatext(),
+        // #140: en kreditfakturas hänvisning till originalet (momslagen 17 kap. 24 §).
+        "kredit": f.krediterar.as_ref().map(|h| json!({
+            "text": h.text(),
+            "nummer": h.nummer.to_string(),
+        })),
         "logotyp": logotyp,
         "nummer": f.nummer.to_string(),
         "referens": f.referens,

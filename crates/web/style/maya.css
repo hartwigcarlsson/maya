@@ -2748,6 +2748,59 @@ kbd {
   font-weight: 600;
 }
 
+/* Att göra med fakturorna (#152): nedtonade kort längre fram, kopieringschipsen och kortets
+   uppgifter. */
+.acard.nedtonad {
+  opacity: 0.6;
+}
+
+.acard.nedtonad:hover {
+  opacity: 1;
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.copy {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 24px;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: calc(var(--radius) * 0.8);
+  background: var(--background);
+  color: inherit;
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+  user-select: all;
+}
+
+.copy:hover {
+  background: var(--muted);
+}
+
+.copy .k {
+  color: var(--muted-foreground);
+  font-size: 11px;
+  user-select: none;
+}
+
+.fakturakort {
+  display: grid;
+  grid-template-columns: 130px 1fr;
+  gap: 6px 16px;
+  margin: 0;
+}
+
+.fakturakort dd {
+  margin: 0;
+}
+
 /* Betalning av leverantörsfaktura (#147): leverantörsskulderna i listans rubrik och
    betaluppgifterna i dokumentet, markerade med ett klick så att de kan kopieras till banken. */
 .leverantorsskulder {
@@ -2756,6 +2809,26 @@ kbd {
 
 .betaluppgifter code {
   user-select: all;
+}
+
+/* Kundförlust (#141): märket och skälen i panelen. */
+.badge-kundforlust {
+  background: color-mix(in oklch, var(--destructive) 12%, transparent);
+  color: var(--destructive);
+}
+
+.panel fieldset.skal {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  border: none;
+  padding: 0;
+  margin: 0 0 12px;
+}
+
+.panel fieldset.skal legend {
+  font-weight: 600;
+  margin-bottom: 4px;
 }
 
 /* Kreditfakturor (#140): märkena krediterad, tillgodo och kreditfaktura, panelen Kreditfaktura…

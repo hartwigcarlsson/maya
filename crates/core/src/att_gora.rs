@@ -1,7 +1,8 @@
 //! Att göra, företagets startsida: dagens datum, nyckeltalen ur bokföringen och sakerna att
 //! göra. I etapp 1 är sakerna varningen efter en återställning, driftvarningar, verifikatutkast
 //! och okopplade underlag; varje ny sort läggs till som en variant i [`Sak`] och räknas i
-//! [`antal`].
+//! [`antal`]. Etapp 2 (#152) lägger till förfallna kundfakturor och leverantörsfakturor att
+//! betala, och nyckeltalen Kundfordringar och Leverantörsskulder.
 //!
 //! Fristerna (T1) räknas i `maya_domain::att_gora`. De varnar men spärrar inte, och Maya bokför
 //! aldrig automatiskt.
@@ -12,6 +13,7 @@ use jiff::Timestamp;
 use jiff::civil::Date;
 use maya_domain::att_gora::{self as regler, Frist, Utkastläge};
 use maya_domain::belopp::{Belopp, Saldo};
+use maya_domain::foretag::{Bokföringsmetod, gäller};
 use maya_domain::kontoplan::Kontonummer;
 use maya_domain::rakenskapsar::Räkenskapsår;
 use sqlx::SqliteConnection;
@@ -22,6 +24,8 @@ use crate::config::Config;
 use crate::drift::{self, Driftvarning};
 use crate::foretag::{self, FöretagsId};
 use crate::inloggning::tidpunkt;
+use crate::kundfaktura::{self, KundfakturaId};
+use crate::leverantorsfaktura::LeverantörsfakturaId;
 use crate::saldo;
 use crate::underlag::{self, Underlag};
 use crate::verifikat::VerifikatId;
@@ -31,6 +35,10 @@ use crate::{Databas, DatabasFel, Klocka};
 const FÖRETAGSKONTOT: u16 = 1930;
 /// Årets resultat, som inte räknas in i resultatet.
 const ÅRETS_RESULTAT: u16 = 8999;
+/// Kundfordringar i BAS: kundreskontrans konto.
+const KUNDFORDRINGAR: u16 = 1510;
+/// Leverantörsskulder i BAS: leverantörsreskontrans konto.
+const LEVERANTÖRSSKULDER: u16 = 2440;
 
 /// Det som Att göra visar för ett företag.
 #[derive(Debug, Clone, PartialEq)]
@@ -53,6 +61,23 @@ pub struct Nyckeltal {
     pub resultat_i_år: Saldo,
     /// Innevarande räkenskapsår, om det finns i Maya.
     pub år: Option<Räkenskapsår>,
+    /// Kundfordringarna: 1510 ur bokföringen, eller reskontran under kontantmetoden.
+    pub kundfordringar: Reskontratal,
+    /// Leverantörsskulderna: 2440 ur bokföringen med kredit positivt, eller reskontran under
+    /// kontantmetoden.
+    pub leverantörsskulder: Reskontratal,
+}
+
+/// Nyckeltalet för en reskontra (#152).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct Reskontratal {
+    /// Saldot på reskontrakontot per i dag ur bokföringen under fakturametoden; under
+    /// kontantmetoden det som återstår på reskontrans fakturor.
+    pub saldo: Saldo,
+    /// Det som återstår på fakturorna efter förfallodagen, ur reskontran.
+    pub förfallet: Saldo,
+    /// Saldot är reskontrans, inte bokföringens: kontantmetoden gäller i dag.
+    pub ur_reskontran: bool,
 }
 
 /// En sak att göra.
@@ -66,6 +91,37 @@ pub enum Sak {
     Utkast(Utkastsak),
     /// Ett underlag utan koppling till något verifikat: "Vad är det här?".
     Underlag(Underlag),
+    /// #152: en förfallen kundfaktura eller en obetald leverantörsfaktura, i förfallodagens
+    /// ordning.
+    Faktura(Fakturasak),
+}
+
+/// Fakturan i en [`Fakturasak`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Reskontrafaktura {
+    Kund(KundfakturaId),
+    Leverantör(LeverantörsfakturaId),
+}
+
+/// En faktura med något kvar att betala: en utfärdad kundfaktura efter förfallodagen, eller en
+/// registrerad leverantörsfaktura, vars förfallodag avgör var den står i tidslinjen.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Fakturasak {
+    pub faktura: Reskontrafaktura,
+    /// Kundfakturans nummer i serien eller leverantörens fakturanummer.
+    pub nummer: String,
+    /// Kundens eller leverantörens namn.
+    pub motpart: String,
+    /// I öre.
+    pub total: i64,
+    /// Det som återstår i öre, större än noll.
+    pub återstår: i64,
+    pub förfallodag: Date,
+    /// Leverantörsfakturans BG/PG/IBAN och OCR eller meddelande att kopiera. Tomt för en
+    /// kundfaktura.
+    pub kopieringschips: Vec<(&'static str, String)>,
+    /// Kundens e-post på kundfakturan. Tomt för en leverantörsfaktura.
+    pub kontakt: String,
 }
 
 /// Id för en återställning med `maya restore`.
@@ -135,7 +191,8 @@ pub async fn att_göra(
     let idag = klocka.idag();
     let mut tx = db.pool().begin().await?;
     atkomst::kräv(&mut tx, aktör, företag, Handling::LäsaFöretag).await?;
-    let nyckeltal = nyckeltal(&mut tx, företag, idag).await?;
+    let fakturor = fakturor(&mut tx, företag).await?;
+    let nyckeltal = nyckeltal(&mut tx, företag, idag, &fakturor).await?;
     let mut saker: Vec<Sak> = återställningar(&mut tx, aktör)
         .await?
         .into_iter()
@@ -152,6 +209,15 @@ pub async fn att_göra(
     saker.extend(utkast.into_iter().map(Sak::Utkast));
     let okopplade = underlag::lista(db, aktör, företag, underlag::Urval::Okopplade).await?;
     saker.extend(okopplade.into_iter().map(Sak::Underlag));
+    // #152 Fakturorna: kundfakturorna när de har förfallit, leverantörsfakturorna alla.
+    saker.extend(
+        fakturor
+            .into_iter()
+            .filter(|f| {
+                matches!(f.faktura, Reskontrafaktura::Leverantör(_)) || f.förfallodag < idag
+            })
+            .map(Sak::Faktura),
+    );
     Ok(AttGöra {
         idag,
         nyckeltal,
@@ -174,14 +240,24 @@ pub async fn antal(
     let varningar = drift::driftvarningar(db, klocka, config).await?.len();
     let mut antal: BTreeMap<FöretagsId, usize> =
         företagen.iter().map(|f| (f.id, varningar)).collect();
+    // #152 Leverantörsfakturorna räknas också när de förfaller inom 7 dagar, med det som
+    // återstår räknat som i `fakturor`. Kundfakturorna räknas nedan.
     let rader: Vec<(i64, i64)> = sqlx::query_as(
         "SELECT foretag_id, count(*) FROM verifikat WHERE bokford IS NULL GROUP BY foretag_id
          UNION ALL
          SELECT u.foretag_id, count(*) FROM underlag u
          WHERE NOT EXISTS (SELECT 1 FROM underlagskoppling k WHERE k.underlag_id = u.id)
            AND NOT EXISTS (SELECT 1 FROM leverantorsfaktura f WHERE f.underlag_id = u.id)
-         GROUP BY u.foretag_id",
+         GROUP BY u.foretag_id
+         UNION ALL
+         SELECT f.foretag_id, count(*) FROM leverantorsfaktura f
+         WHERE f.status <> 'utkast' AND f.forfallodag <= date(?1, '+7 days')
+           AND f.total > coalesce((SELECT sum(b.belopp + b.oresutjamning + b.kursdifferens)
+                                   FROM betalning_i_reskontran b
+                                   WHERE b.leverantorsfaktura_id = f.id), 0)
+         GROUP BY f.foretag_id",
     )
+    .bind(klocka.idag().to_string())
     .fetch_all(db.pool())
     .await?;
     for (företag, n) in rader {
@@ -189,8 +265,24 @@ pub async fn antal(
             *a += usize::try_from(n).unwrap_or_default();
         }
     }
-    // Återställningsvarningen visas i alla användarens företag.
+    // #152 Kundfakturorna räknas när de har förfallit och något återstår, med det som återstår
+    // ur `kundfaktura::lista_i` som i `fakturor`: utfärdade kreditfakturor (#140) och en
+    // gällande kundförlust (#141) har dragits av, och en kreditfaktura räknas aldrig.
+    let idag = klocka.idag();
     let mut conn = db.pool().acquire().await?;
+    for (företag, a) in antal.iter_mut() {
+        *a += kundfaktura::lista_i(&mut conn, *företag, None)
+            .await?
+            .iter()
+            .filter(|f| {
+                f.status != kundfaktura::Status::Utkast
+                    && f.krediterar.is_none()
+                    && f.återstår > 0
+                    && f.förfallodag.is_some_and(|d| d < idag)
+            })
+            .count();
+    }
+    // Återställningsvarningen visas i alla användarens företag.
     let varningar = återställningar(&mut conn, aktör).await?.len();
     for a in antal.values_mut() {
         *a += varningar;
@@ -275,18 +367,22 @@ async fn nyckeltal(
     conn: &mut SqliteConnection,
     företag: FöretagsId,
     idag: Date,
+    fakturor: &[Fakturasak],
 ) -> Result<Nyckeltal, DatabasFel> {
     let saldobalanser = saldo::saldobalanser_till(conn, företag, Some(idag)).await?;
     // Det senaste året som har börjat: dess utgående balans är saldot per i dag.
     let senaste = saldobalanser.iter().rev().find(|sb| sb.år.start() <= idag);
-    let företagskontot = senaste
-        .and_then(|sb| {
-            sb.konton
-                .iter()
-                .find(|k| k.konto.get() == FÖRETAGSKONTOT)
-                .map(|k| k.utgående)
-        })
-        .unwrap_or_default();
+    let saldot = |konto: u16| {
+        senaste
+            .and_then(|sb| {
+                sb.konton
+                    .iter()
+                    .find(|k| k.konto.get() == konto)
+                    .map(|k| k.utgående)
+            })
+            .unwrap_or_default()
+    };
+    let företagskontot = saldot(FÖRETAGSKONTOT);
     let innevarande = senaste.filter(|sb| sb.år.innehåller(idag));
     let resultat_i_år = innevarande
         .map(|sb| {
@@ -298,11 +394,120 @@ async fn nyckeltal(
         })
         .map(|s| Saldo::från_öre(-s.öre()))
         .unwrap_or_default();
+    // #152 Under kontantmetoden är fordringarna och skulderna inte bokförda: rutorna visar
+    // reskontrans obetalda belopp.
+    let metoder = foretag::läs_företag(conn, företag).await?.bokföringsmetoder;
+    let kontant = gäller(&metoder, idag).or(metoder.first().map(|(_, m)| *m))
+        == Some(Bokföringsmetod::Kontant);
+    let reskontratal = |kund: bool, bokfört: Saldo| {
+        let fakturorna = || {
+            fakturor
+                .iter()
+                .filter(move |f| matches!(f.faktura, Reskontrafaktura::Kund(_)) == kund)
+        };
+        let obetalt = Saldo::från_öre(fakturorna().map(|f| f.återstår).sum());
+        Reskontratal {
+            saldo: if kontant { obetalt } else { bokfört },
+            förfallet: Saldo::från_öre(
+                fakturorna()
+                    .filter(|f| f.förfallodag < idag)
+                    .map(|f| f.återstår)
+                    .sum(),
+            ),
+            ur_reskontran: kontant,
+        }
+    };
     Ok(Nyckeltal {
         företagskontot,
         resultat_i_år,
         år: innevarande.map(|sb| sb.år),
+        kundfordringar: reskontratal(true, saldot(KUNDFORDRINGAR)),
+        leverantörsskulder: reskontratal(
+            false,
+            Saldo::från_öre(-saldot(LEVERANTÖRSSKULDER).öre()),
+        ),
     })
+}
+
+/// Reskontrornas fakturor med något kvar att betala, i förfallodagens ordning: de utfärdade
+/// kundfakturorna och de registrerade leverantörsfakturorna (#152). Det som återstår på en
+/// kundfaktura räknas av `kundfaktura::lista_i`, samma som i listan: utfärdade kreditfakturor
+/// (#140) drar av från originalet, så en krediterad faktura eller en med tillgodohavande har
+/// inget kvar, och en gällande kundförlust (#141) har skrivit bort resten, så fakturan är varken
+/// obetald eller förfallen. En kreditfaktura räknas av mot originalet och är aldrig att betala.
+async fn fakturor(
+    conn: &mut SqliteConnection,
+    företag: FöretagsId,
+) -> Result<Vec<Fakturasak>, DatabasFel> {
+    let mut fakturor = Vec::new();
+    for f in kundfaktura::lista_i(&mut *conn, företag, None).await? {
+        let (Some(nummer), Some(förfallodag)) = (f.nummer, f.förfallodag) else {
+            continue;
+        };
+        if f.status == kundfaktura::Status::Utkast || f.krediterar.is_some() || f.återstår <= 0 {
+            continue;
+        }
+        let kontakt: Option<String> =
+            sqlx::query_scalar("SELECT kunduppgifter ->> '$.epost' FROM kundfaktura WHERE id = ?")
+                .bind(f.id.0)
+                .fetch_one(&mut *conn)
+                .await?;
+        fakturor.push(Fakturasak {
+            faktura: Reskontrafaktura::Kund(f.id),
+            nummer: nummer.to_string(),
+            motpart: f.kund,
+            total: f.total,
+            återstår: f.återstår,
+            förfallodag,
+            kopieringschips: Vec::new(),
+            kontakt: kontakt.unwrap_or_default(),
+        });
+    }
+    // Det som återstår på en leverantörsfaktura: totalen minus betalningarna i reskontran med
+    // öresutjämning och kursdifferens (#147), samma regel som `betalning::betalt_i`.
+    type Rad = (
+        i64,
+        String,
+        String,
+        i64,
+        i64,
+        String,
+        String,
+        String,
+        String,
+        String,
+    );
+    let rader: Vec<Rad> = sqlx::query_as(
+        "SELECT f.id, f.fakturanummer, l.namn, f.total,
+                f.total - coalesce((SELECT sum(b.belopp + b.oresutjamning + b.kursdifferens)
+                                    FROM betalning_i_reskontran b
+                                    WHERE b.leverantorsfaktura_id = f.id), 0),
+                f.forfallodag, l.bankgiro, l.plusgiro, l.iban, f.referens
+         FROM leverantorsfaktura f JOIN leverantor l ON l.id = f.leverantor_id
+         WHERE f.foretag_id = ? AND f.status <> 'utkast'
+         ORDER BY f.forfallodag, f.id",
+    )
+    .bind(företag.0)
+    .fetch_all(&mut *conn)
+    .await?;
+    for (id, nummer, motpart, total, återstår, förfallodag, bg, pg, iban, referens) in rader {
+        if återstår <= 0 {
+            continue;
+        }
+        fakturor.push(Fakturasak {
+            faktura: Reskontrafaktura::Leverantör(LeverantörsfakturaId(id)),
+            nummer,
+            motpart,
+            total,
+            återstår,
+            förfallodag: foretag::datum(&förfallodag)?,
+            kopieringschips: maya_domain::reskontra::kopieringschips(&bg, &pg, &iban, &referens),
+            kontakt: String::new(),
+        });
+    }
+    // Stabil: lika förfallodagar behåller kundfakturorna först.
+    fakturor.sort_by_key(|f| f.förfallodag);
+    Ok(fakturor)
 }
 
 async fn utkast(
