@@ -11,6 +11,7 @@ pub mod drift;
 pub mod epost;
 pub mod faktura;
 pub mod fakturauppgifter;
+pub mod fordelning;
 pub mod foretag;
 pub mod ingaende_balans;
 pub mod kontoplan;
