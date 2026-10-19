@@ -731,10 +731,12 @@ async fn läs_förutsättningar(
                 .collect::<Result<_, DatabasFel>>()?,
         });
     }
-    // #148: det som redan har betalats av en upplåst faktura.
+    // #148: det som redan har betalats eller krediterats av en upplåst faktura, så att den inte
+    // registreras om med mindre kvar än noll (berättelse 68).
     let betalt: i64 = match utkast {
         Some(u) => sqlx::query_scalar(
-            "SELECT coalesce((SELECT betalt FROM leverantorsfaktura_i_reskontran WHERE id = ?), 0)",
+            "SELECT coalesce((SELECT betalt + krediterat FROM leverantorsfaktura_i_reskontran
+                              WHERE id = ?), 0)",
         )
         .bind(u.0)
         .fetch_one(&mut *conn)

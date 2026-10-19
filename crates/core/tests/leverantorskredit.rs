@@ -591,3 +591,27 @@ async fn databasen_avvisar_en_betalning_på_en_kreditfaktura_med_hänvisning() {
         "{fel}"
     );
 }
+
+#[tokio::test]
+async fn en_upplåst_faktura_får_ingen_total_under_det_som_redan_är_betalt_och_krediterat() {
+    // Berättelse 68: reskontran går aldrig under noll. 1 250 kr, kredit 500 kr, betalt 750 kr:
+    // registreras fakturan om med 1 000 kr skulle det återstå −250 kr.
+    let db = Databas::tillfällig().await;
+    let (anna, id, l, f) = original(&db).await;
+    registrera_kredit(&db, &anna, id, &kredit(l, Some(f), "-500", "-400")).await;
+    betala(&db, &anna, id, f, "750").await;
+    leverantorsfaktura::rätta_avskrift(&db, &klocka(), &anna, id, f, "Fel belopp")
+        .await
+        .unwrap();
+
+    let fel =
+        leverantorsfaktura::registrera(&db, &klocka(), &anna, id, f, &avskrift(l, "1 000", "800"))
+            .await
+            .unwrap_err();
+    assert_eq!(spärrkoder(&fel), ["under_betalt"]);
+
+    leverantorsfaktura::registrera(&db, &klocka(), &anna, id, f, &avskrift(l, "1 250", "1 000"))
+        .await
+        .unwrap();
+    assert_eq!(återstår_i_listan(&db, &anna, id, f).await, 0);
+}

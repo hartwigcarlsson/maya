@@ -23,7 +23,7 @@
 //!
 //! **Upplåst** (#148, Rätta avskrift): en registrerad faktura vars registrering är vänd. Den
 //! registreras om med samma regler, och totalen får inte bli mindre än det som redan har
-//! betalats ([`Förutsättningar::betalt`]).
+//! betalats eller krediterats ([`Förutsättningar::betalt`]).
 
 use std::fmt;
 
@@ -179,8 +179,9 @@ pub struct Förutsättningar {
     pub registrerade: Vec<Registrerad>,
     /// Fakturorna som en kreditfaktura kan hänvisa till (#148).
     pub krediterbara: Vec<Krediterbar>,
-    /// Det som redan har betalats av en upplåst faktura, i öre (#148): betalningarna i
-    /// reskontran. Noll för ett utkast.
+    /// Det som redan har betalats eller krediterats av en upplåst faktura, i öre (#148):
+    /// betalningarna i reskontran och de registrerade kreditfakturorna som hänvisar till den.
+    /// Noll för ett utkast.
     pub betalt: i64,
 }
 
@@ -306,7 +307,7 @@ pub const REGISTRERINGSSPÄRRAR: &[(&str, &str)] = &[
     ),
     (
         "under_betalt",
-        "En upplåst faktura får ingen total under det som redan har betalats.",
+        "En upplåst faktura får ingen total under det som redan har betalats eller krediterats.",
     ),
     (
         "omvand_ogiltig",
@@ -699,8 +700,9 @@ impl NyLeverantörsfaktura {
                 &mut spärrar,
             )
         };
-        // #148: en upplåst faktura får ingen total under det som redan har betalats, åt något
-        // håll: en kreditfaktura med en återbetalning blir inte mindre än den.
+        // #148: en upplåst faktura får ingen total under det som redan har betalats eller
+        // krediterats, åt något håll: en kreditfaktura med en återbetalning blir inte mindre än
+        // den.
         if let Some(t) = total
             && ((f.betalt > 0 && t < f.betalt) || (f.betalt < 0 && t > f.betalt))
         {
@@ -708,7 +710,7 @@ impl NyLeverantörsfaktura {
                 Fält::Totalbelopp,
                 "under_betalt",
                 format!(
-                    "Totalen är under det som redan har betalats, {} kr.",
+                    "Totalen är under det som redan har betalats eller krediterats, {} kr.",
                     Saldo::från_öre(f.betalt)
                 ),
             ));
