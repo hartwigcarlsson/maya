@@ -7,6 +7,10 @@
 //! underlag med SHA-256 (VF5), bokför verifikatet daterat på fakturadatumet med PDF:en som
 //! underlag (fakturametoden) och loggar utfärdandet (H1). Schemat avvisar att en utfärdad
 //! faktura, dess nummer eller PDF ändras (L1).
+//!
+//! En ny kund som läggs upp på utkastet ("+ Ny kund…", #137) har status `ny` och syns inte i
+//! kundregistret. Den blir verklig i utfärdandets transaktion och raderas, med Maya som aktör,
+//! när inget utkast längre hänvisar till den.
 
 use std::fmt;
 use std::str::FromStr;
@@ -27,6 +31,7 @@ use crate::aktor::{Aktör, Handling};
 use crate::atkomst::{self, Ärende, ÅtkomstFel};
 use crate::behandlingshistorik::{self, Händelse};
 use crate::foretag::{self, FöretagsId, datum};
+use crate::kund::{self, KundId};
 use crate::underlag::{self, UnderlagFel, UnderlagId};
 use crate::utskrift::Pdf;
 use crate::verifikat::{
@@ -150,6 +155,8 @@ pub struct Kundfakturarad {
     pub förfallodag: Option<Date>,
     /// Totalen i öre; för ett utkast summan av de rader som går att räkna.
     pub total: i64,
+    /// Kunden är ny och läggs i registret när fakturan utfärdas (#137).
+    pub ny_kund: bool,
 }
 
 /// Den arkiverade PDF:en, som aldrig skrivs om.
@@ -343,6 +350,17 @@ pub async fn spara_utkast(
     if let Some(start) = u.startnummer {
         välj_startnummer(&mut ärende, start).await?;
     }
+    // En ny kund sparas med utkastet; den som utkastet redan har skrivs om.
+    let kund_id = match &u.ny_kund {
+        Some(ny) => {
+            let nuvarande = match utkast {
+                Some(id) => ny_kund_på(&mut ärende, id).await?,
+                None => None,
+            };
+            Some(kund::spara_ny_i(&mut ärende, nuvarande, ny).await?.0)
+        }
+        None => u.kund,
+    };
     let (nu, kanal, av) = (
         ärende.nu.to_string(),
         ärende.aktör.kanal.namn(),
@@ -355,7 +373,7 @@ pub async fn spara_utkast(
                      forfallodag = ?, er_referens = ?
                  WHERE id = ? AND status = 'utkast'",
             )
-            .bind(u.kund)
+            .bind(kund_id)
             .bind(u.fakturadatum.map(|d| d.to_string()))
             .bind(&u.leveransdatum)
             .bind(u.förfallodag.map(|d| d.to_string()))
@@ -377,7 +395,7 @@ pub async fn spara_utkast(
                  VALUES (?, 'utkast', ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id",
             )
             .bind(företag.0)
-            .bind(u.kund)
+            .bind(kund_id)
             .bind(u.fakturadatum.map(|d| d.to_string()))
             .bind(&u.leveransdatum)
             .bind(u.förfallodag.map(|d| d.to_string()))
@@ -407,8 +425,24 @@ pub async fn spara_utkast(
         .execute(ärende.conn())
         .await?;
     }
+    kund::rensa_nya_i(&mut ärende).await?;
     ärende.slutför().await?;
     Ok(id)
+}
+
+/// Den nya kunden som utkastet `id` hänvisar till, om den har en.
+async fn ny_kund_på(
+    ärende: &mut Ärende,
+    id: KundfakturaId,
+) -> Result<Option<KundId>, sqlx::Error> {
+    let kund: Option<i64> = sqlx::query_scalar(
+        "SELECT k.id FROM kundfaktura f JOIN kund k ON k.id = f.kund_id
+         WHERE f.id = ? AND k.status = 'ny'",
+    )
+    .bind(id.0)
+    .fetch_optional(ärende.conn())
+    .await?;
+    Ok(kund.map(KundId))
 }
 
 /// Sparar företagets första fakturanummer och loggar ändringen (H2). Efter det första
@@ -453,7 +487,13 @@ pub async fn radera_utkast(
         Ärende::börja(db, klocka, aktör, företag, Handling::HanteraFakturautkast).await?;
     kräv_utkast(&mut ärende, id).await?;
     let utkast = läs_utkast(ärende.conn(), id).await?;
-    let kundnamn = kundens_namn(ärende.conn(), utkast.kund).await?;
+    let (kund_id, kundnamn) = match &utkast.ny_kund {
+        Some(ny) => (
+            ny_kund_på(&mut ärende, id).await?.map(|k| k.0),
+            ny.namn.clone(),
+        ),
+        None => (utkast.kund, kundens_namn(ärende.conn(), utkast.kund).await?),
+    };
     let summa = utkast.som_formulär().beräkna().total;
     sqlx::query("DELETE FROM kundfakturarad WHERE faktura_id = ?")
         .bind(id.0)
@@ -474,14 +514,16 @@ pub async fn radera_utkast(
             json!({
                 "sort": "kundfaktura",
                 "kundfaktura": id.0,
-                "kund": utkast.kund,
+                "kund": kund_id,
                 "kundnamn": kundnamn,
+                "ny_kund": utkast.ny_kund.is_some(),
                 "fakturadatum": utkast.fakturadatum.map(|d| d.to_string()),
                 "summa_öre": summa,
                 "antal_rader": utkast.rader.len(),
             }),
         )
         .await?;
+    kund::rensa_nya_i(&mut ärende).await?;
     ärende.slutför().await?;
     Ok(())
 }
@@ -499,10 +541,18 @@ pub async fn utfärda(
 ) -> Result<Utfärdad, KundfakturaFel> {
     let mut ärende = Ärende::börja(db, klocka, aktör, företag, Handling::UtfärdaFaktura).await?;
     kräv_utkast(&mut ärende, id).await?;
-    let (u, säljare) = utfärdbar(ärende.conn(), företag, id).await?;
+    let (mut u, säljare) = utfärdbar(ärende.conn(), företag, id).await?;
     if bokföringsmetod(ärende.conn(), företag, u.fakturadatum).await? != Bokföringsmetod::Faktura
     {
         return Err(KundfakturaFel::Kontantmetoden);
+    }
+    // En ny kund från utkastet blir verklig i samma transaktion, och fakturan får dess id.
+    if let Some(ny) = &u.ny_kund {
+        let kund_id = ny_kund_på(&mut ärende, id)
+            .await?
+            .ok_or_else(|| DatabasFel::Korrupt(format!("kundfaktura {}: ny kund", id.0)))?;
+        kund::gör_verklig_i(&mut ärende, kund_id, ny).await?;
+        u.kund.id = kund_id.0;
     }
     let logotyp = fakturauppgifter::logotypen_i(ärende.conn(), företag).await?;
     let (nu, utfärdare) = (ärende.nu, ärende.aktör);
@@ -714,19 +764,26 @@ type LagradRad = (
 
 /// Det sparade utkastet (eller den utfärdade fakturans fält) som det lagrades.
 async fn läs_utkast(conn: &mut SqliteConnection, id: KundfakturaId) -> Result<Utkast, DatabasFel> {
-    let (kund, fakturadatum, leveransdatum, förfallodag, er_referens): (
+    let (företag, kund, fakturadatum, leveransdatum, förfallodag, er_referens): (
+        i64,
         Option<i64>,
         Option<String>,
         String,
         Option<String>,
         String,
     ) = sqlx::query_as(
-        "SELECT kund_id, fakturadatum, leveransdatum, forfallodag, er_referens
+        "SELECT foretag_id, kund_id, fakturadatum, leveransdatum, forfallodag, er_referens
          FROM kundfaktura WHERE id = ?",
     )
     .bind(id.0)
     .fetch_one(&mut *conn)
     .await?;
+    // En ny kund från utkastet läses som utkastets egen, inte som en kund ur registret.
+    let ny_kund = match kund {
+        Some(k) => kund::ny_i(&mut *conn, FöretagsId(företag), KundId(k)).await?,
+        None => None,
+    };
+    let kund = if ny_kund.is_some() { None } else { kund };
     let rader: Vec<LagradRad> = sqlx::query_as(
         "SELECT beskrivning, antal, enhet, a_pris, rabatt, momssats, konto
          FROM kundfakturarad WHERE faktura_id = ? ORDER BY radnr",
@@ -737,6 +794,7 @@ async fn läs_utkast(conn: &mut SqliteConnection, id: KundfakturaId) -> Result<U
     let korrupt = |vad: &str| DatabasFel::Korrupt(format!("kundfaktura {}: {vad}", id.0));
     Ok(Utkast {
         kund,
+        ny_kund,
         fakturadatum: fakturadatum.as_deref().map(datum).transpose()?,
         leveransdatum,
         förfallodag: förfallodag.as_deref().map(datum).transpose()?,
@@ -794,11 +852,12 @@ pub async fn lista(
         Option<String>,
         Option<String>,
         Option<i64>,
+        bool,
     );
     let rader: Vec<Rad> = sqlx::query_as(
         "SELECT f.id, f.status, f.nummer,
                 coalesce(f.kunduppgifter ->> '$.namn', k.namn),
-                f.fakturadatum, f.forfallodag, f.total
+                f.fakturadatum, f.forfallodag, f.total, coalesce(k.status = 'ny', 0)
          FROM kundfaktura f LEFT JOIN kund k ON k.id = f.kund_id
          WHERE f.foretag_id = ?
          ORDER BY f.status = 'utkast' DESC, f.nummer DESC, f.id DESC",
@@ -807,7 +866,7 @@ pub async fn lista(
     .fetch_all(&mut *tx)
     .await?;
     let mut lista = Vec::new();
-    for (id, status, nummer, kund, fakturadatum, förfallodag, total) in rader {
+    for (id, status, nummer, kund, fakturadatum, förfallodag, total, ny_kund) in rader {
         let status = Status::från_kod(&status)
             .ok_or_else(|| DatabasFel::Korrupt("kundfaktura.status".into()))?;
         let total = match total {
@@ -828,6 +887,7 @@ pub async fn lista(
             fakturadatum: fakturadatum.as_deref().map(datum).transpose()?,
             förfallodag: förfallodag.as_deref().map(datum).transpose()?,
             total,
+            ny_kund,
         });
     }
     Ok(lista)

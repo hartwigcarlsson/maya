@@ -13,6 +13,10 @@
 //! i samma transaktion som fakturan låses (L1). Verifikatet länkar till fakturan, och fakturan
 //! till verifikatet. Kontantmetoden kommer i #149; tills dess registreras ingen faktura vars
 //! fakturadatum har kontantmetoden.
+//!
+//! Omvänd skattskyldighet (#146) sparas i utkastet när användaren väljer den; annars föreslås
+//! leverantörens förval. Registreringen sparar det som bokfördes, och bokför den fiktiva momsen
+//! enligt `maya_domain::leverantorsfaktura`.
 
 use std::fmt;
 use std::str::FromStr;
@@ -21,6 +25,7 @@ use jiff::civil::Date;
 use maya_domain::belopp::Belopp;
 use maya_domain::foretag::{Bokföringsmetod, gäller};
 use maya_domain::kontoplan::Kontonummer;
+use maya_domain::leverantor::OmvändSkattskyldighet;
 use maya_domain::leverantorsfaktura::{
     Förutsättningar, Leverantörsval, NY, NyLeverantörsfaktura, NyRad, Registrerad, Spärr,
 };
@@ -276,7 +281,8 @@ async fn spara_i(
     };
     sqlx::query(
         "UPDATE leverantorsfaktura SET leverantor_id = ?, fakturanummer = ?, fakturadatum = ?,
-             forfallodag = ?, referens = ?, total = ?, originalvaluta = ?
+             forfallodag = ?, referens = ?, total = ?, originalvaluta = ?,
+             omvand_skattskyldighet = ?
          WHERE id = ? AND status = 'utkast'",
     )
     .bind(leverantör.map(|l| l.0))
@@ -286,6 +292,7 @@ async fn spara_i(
     .bind(&u.referens)
     .bind(u.total.map(Belopp::öre))
     .bind(&u.originalvaluta)
+    .bind(u.omvänd_skattskyldighet.map(|o| o.kod()))
     .bind(id.0)
     .execute(ärende.conn())
     .await?;
@@ -400,13 +407,14 @@ pub async fn registrera(
     let (aktör_, nu) = (ärende.aktör, ärende.nu);
     sqlx::query(
         "UPDATE leverantorsfaktura SET status = 'registrerad', verifikat_id = ?, registrerad = ?,
-             registrerad_kanal = ?, registrerad_av = ?
+             registrerad_kanal = ?, registrerad_av = ?, omvand_skattskyldighet = ?
          WHERE id = ? AND status = 'utkast'",
     )
     .bind(bokfört.id.0)
     .bind(nu.to_string())
     .bind(aktör_.kanal.namn())
     .bind(aktör_.användare.map(|a| a.0))
+    .bind(r.omvänd_skattskyldighet.kod())
     .bind(id.0)
     .execute(ärende.conn())
     .await?;
@@ -428,6 +436,7 @@ pub async fn registrera(
                 "förfallodag": r.förfallodag.to_string(),
                 "referens": r.referens,
                 "originalvaluta": r.originalvaluta,
+                "omvänd_skattskyldighet": r.omvänd_skattskyldighet.kod(),
                 "summa_öre": r.total.öre(),
                 "verifikat": bokfört.id.0,
                 "nummer": bokfört.nummer.to_string(),
@@ -510,8 +519,8 @@ async fn läs_förutsättningar(
 ) -> Result<Förutsättningar, DatabasFel> {
     let v = verifikat::läs_förutsättningar(&mut *conn, företag).await?;
     let f = foretag::läs_företag(&mut *conn, företag).await?;
-    let leverantörer: Vec<(i64, String, Option<i64>)> = sqlx::query_as(
-        "SELECT id, namn, standardkonto FROM leverantor
+    let leverantörer: Vec<(i64, String, Option<i64>, String)> = sqlx::query_as(
+        "SELECT id, namn, standardkonto, omvand_skattskyldighet FROM leverantor
          WHERE foretag_id = ? AND status = 'aktiv' ORDER BY namn COLLATE NOCASE, id",
     )
     .bind(företag.0)
@@ -531,14 +540,19 @@ async fn läs_förutsättningar(
         momsperioder: f.momsperioder,
         leverantörer: leverantörer
             .into_iter()
-            .map(|(id, namn, konto)| Leverantörsval {
-                id: id.to_string(),
-                namn,
-                standardkonto: konto
-                    .and_then(|k| u16::try_from(k).ok())
-                    .and_then(Kontonummer::new),
+            .map(|(id, namn, konto, omvänd)| {
+                Ok(Leverantörsval {
+                    id: id.to_string(),
+                    namn,
+                    standardkonto: konto
+                        .and_then(|k| u16::try_from(k).ok())
+                        .and_then(Kontonummer::new),
+                    omvänd_skattskyldighet: OmvändSkattskyldighet::från_kod(&omvänd).ok_or_else(
+                        || DatabasFel::Korrupt("leverantor.omvand_skattskyldighet".into()),
+                    )?,
+                })
             })
-            .collect(),
+            .collect::<Result<_, DatabasFel>>()?,
         registrerade: registrerade
             .into_iter()
             .map(|(id, leverantör, nummer, d, total)| {
@@ -634,6 +648,7 @@ struct FakturaRad {
     referens: String,
     total: Option<i64>,
     originalvaluta: String,
+    omvand_skattskyldighet: Option<String>,
     verifikat_id: Option<i64>,
     verifikatnummer: Option<i64>,
     skapad: String,
@@ -655,6 +670,7 @@ async fn läs(
         "SELECT f.id, f.status, f.underlag_id, u.filnamn, f.leverantor_id,
                 l.namn AS leverantorsnamn, l.status AS leverantorsstatus, f.fakturanummer,
                 f.fakturadatum, f.forfallodag, f.referens, f.total, f.originalvaluta,
+                f.omvand_skattskyldighet,
                 f.verifikat_id, v.nummer AS verifikatnummer,
                 f.skapad, f.skapad_kanal, f.skapad_av, s.visningsnamn AS skapad_namn,
                 f.registrerad, f.registrerad_kanal, f.registrerad_av,
@@ -706,6 +722,12 @@ async fn läs(
         förfallodag: f.forfallodag.clone().unwrap_or_default(),
         referens: f.referens,
         totalbelopp: belopp(f.total),
+        omvänd_skattskyldighet: match (f.omvand_skattskyldighet, f.status.as_str()) {
+            (Some(kod), _) => kod,
+            // Registrerad före #146: ingen omvänd skattskyldighet.
+            (None, "utkast") => String::new(),
+            (None, _) => OmvändSkattskyldighet::Ingen.kod().into(),
+        },
         originalvaluta: f.originalvaluta,
         rader: rader
             .into_iter()

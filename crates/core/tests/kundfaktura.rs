@@ -9,7 +9,8 @@ use maya_core::verifikat::{self, Flöde, Rättelseval, VerifikatFel};
 use maya_core::{Databas, Klocka, behandlingshistorik, fakturauppgifter, foretag, kund, testhjalp};
 use maya_core::{aktor::Aktör, foretag::FöretagsId};
 use maya_domain::fakturauppgifter::Fakturauppgifter;
-use maya_domain::kundfaktura::{NyFakturarad, NyKundfaktura, UTFÄRDANDESPÄRRAR};
+use maya_domain::kund::NyKund;
+use maya_domain::kundfaktura::{NY, NyFakturarad, NyKundfaktura, UTFÄRDANDESPÄRRAR};
 use maya_pdf::testhjalp::{innehåller, sidor, är_pdfa_2b};
 
 const NU: &str = "2026-10-18T08:00:00Z";
@@ -529,6 +530,7 @@ async fn varje_spärr_vid_utfärdande_stoppar_utfärdandet_och_ändrar_ingenting
         ("à_pris", "-5", "rad_pris_ogiltigt"),
         ("momssats", "8", "rad_momssats_ogiltig"),
         ("rabatt", "200", "rad_rabatt_ogiltig"),
+        ("ny_kund", "inte en adress", "ny_kund"),
     ] {
         let mut f = faktura(utan_adress);
         match fält {
@@ -538,6 +540,14 @@ async fn varje_spärr_vid_utfärdande_stoppar_utfärdandet_och_ändrar_ingenting
             "antal" => f.rader[0].antal = värde.into(),
             "à_pris" => f.rader[0].à_pris = värde.into(),
             "rabatt" => f.rader[0].rabatt = värde.into(),
+            "ny_kund" => {
+                f.kund = NY.into();
+                f.ny_kund = NyKund {
+                    namn: "Ny AB".into(),
+                    epost: värde.into(),
+                    ..NyKund::default()
+                };
+            }
             _ => f.rader[0].momssats = värde.into(),
         }
         let KundfakturaFel::Spärrat(spärrar) =
@@ -757,4 +767,176 @@ async fn förhandsvisningen_är_fakturan_som_den_blir_märkt_utkast_och_arkivera
             .unwrap()
             .is_empty()
     );
+}
+
+// #137 Ny kund från fakturautkastet
+
+fn med_ny_kund(k: kund::KundId) -> NyKundfaktura {
+    NyKundfaktura {
+        kund: NY.into(),
+        ny_kund: NyKund {
+            namn: "Nya Kunden AB".into(),
+            adress: "Lillgatan 2\n222 33 Malmö".into(),
+            betalningsvillkor: "10".into(),
+            ..NyKund::default()
+        },
+        ..faktura(k)
+    }
+}
+
+async fn registret(db: &Databas, anna: &Aktör, id: FöretagsId) -> Vec<String> {
+    kund::kunder(db, anna, id)
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|k| k.namn)
+        .collect()
+}
+
+#[tokio::test]
+async fn en_ny_kund_från_utkastet_hamnar_i_kundregistret_först_när_fakturan_utfärdas() {
+    let db = Databas::tillfällig().await;
+    let (anna, id) = testhjalp::fakturaföretag(&db).await;
+    let k = testhjalp::kund(&db, &anna, id, "Kund AB").await;
+    let mut formulär = med_ny_kund(k);
+    formulär.ny_kund.adress = String::new();
+    let f = utkast(&db, &anna, id, &formulär).await;
+
+    // Den nya kunden hör till utkastet och syns varken i registret eller i väljarna.
+    assert_eq!(registret(&db, &anna, id).await, ["Kund AB"]);
+    assert_eq!(
+        kundfaktura::förutsättningar(&db, &anna, id)
+            .await
+            .unwrap()
+            .kunder
+            .len(),
+        1
+    );
+    let sparat = kundfaktura::kundfakturan(&db, &anna, id, f).await.unwrap();
+    assert_eq!(sparat.kund, "Nya Kunden AB");
+    assert_eq!(sparat.formulär.kund, NY);
+    assert_eq!(sparat.formulär.ny_kund.betalningsvillkor, "10");
+    let rad = &kundfaktura::lista(&db, &anna, id).await.unwrap()[0];
+    assert_eq!((rad.kund.as_str(), rad.ny_kund), ("Nya Kunden AB", true));
+
+    // Ett utfärdande som spärras lämnar kunden ny.
+    assert_eq!(spärrkoder(&db, &anna, id, f).await, ["kund_adress_saknas"]);
+    assert_eq!(registret(&db, &anna, id).await, ["Kund AB"]);
+
+    let mut formulär = sparat.formulär;
+    formulär.ny_kund.adress = "Lillgatan 2\n222 33 Malmö".into();
+    kundfaktura::spara_utkast(&db, &klocka(), &anna, id, Some(f), &formulär)
+        .await
+        .unwrap();
+    kundfaktura::utfärda(&db, &klocka(), &anna, id, f)
+        .await
+        .unwrap();
+
+    // Utfärdandet gjorde kunden verklig: i registret, på fakturan och i historiken.
+    assert_eq!(
+        registret(&db, &anna, id).await,
+        ["Kund AB", "Nya Kunden AB"]
+    );
+    let ny = kund::kunder(&db, &anna, id)
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|k| k.namn == "Nya Kunden AB")
+        .unwrap();
+    assert_eq!(ny.status, kund::Kundstatus::Aktiv);
+    assert_eq!(ny.betalningsvillkor, 10);
+    assert!(kund::har_fakturor(&db, &anna, id, ny.id).await.unwrap());
+    let u = kundfaktura::kundfakturan(&db, &anna, id, f)
+        .await
+        .unwrap()
+        .utfärdad
+        .unwrap();
+    assert_eq!(u.kund.id.to_string(), ny.id.to_string());
+    assert_eq!(u.kund.namn, "Nya Kunden AB");
+    assert_eq!(u.förfallodag.to_string(), "2026-03-20");
+    assert!(!kundfaktura::lista(&db, &anna, id).await.unwrap()[0].ny_kund);
+    let poster = behandlingshistorik::läs(&db, &anna, id).await.unwrap();
+    let skapad = poster
+        .iter()
+        .find(|p| p.typ == "kund skapad" && p.objekt == "Nya Kunden AB")
+        .unwrap();
+    assert_eq!(skapad.aktör, anna);
+    assert_eq!(skapad.beskrivning["id"].to_string(), ny.id.to_string());
+    // Kunden blev verklig i utfärdandets transaktion, före fakturans poster.
+    let ordning: Vec<&str> = poster
+        .iter()
+        .rev()
+        .take(4)
+        .map(|p| p.typ.as_str())
+        .collect();
+    assert_eq!(
+        ordning,
+        [
+            "kundfaktura utfärdad",
+            "verifikat bokfört",
+            "underlag uppladdat",
+            "kund skapad"
+        ]
+    );
+}
+
+#[tokio::test]
+async fn en_ny_kund_raderas_med_utkastet_loggat_med_maya_som_aktör() {
+    let db = Databas::tillfällig().await;
+    let (anna, id) = testhjalp::fakturaföretag(&db).await;
+    let k = testhjalp::kund(&db, &anna, id, "Kund AB").await;
+    let f = utkast(&db, &anna, id, &med_ny_kund(k)).await;
+    // Ett utkast som byter till en kund i registret släpper den nya, som raderas.
+    kundfaktura::spara_utkast(&db, &klocka(), &anna, id, Some(f), &faktura(k))
+        .await
+        .unwrap();
+    kundfaktura::spara_utkast(&db, &klocka(), &anna, id, Some(f), &med_ny_kund(k))
+        .await
+        .unwrap();
+    // Att spara igen skriver om samma nya kund i stället för att lägga upp en till.
+    let mut ändrad = med_ny_kund(k);
+    ändrad.ny_kund.epost = "faktura@nya.se".into();
+    kundfaktura::spara_utkast(&db, &klocka(), &anna, id, Some(f), &ändrad)
+        .await
+        .unwrap();
+    kundfaktura::radera_utkast(&db, &klocka(), &anna, id, f)
+        .await
+        .unwrap();
+
+    let poster = behandlingshistorik::läs(&db, &anna, id).await.unwrap();
+    let raderade: Vec<_> = poster.iter().filter(|p| p.typ == "kund raderad").collect();
+    assert_eq!(raderade.len(), 2);
+    assert!(raderade.iter().all(|p| p.aktör == Aktör::maya()));
+    assert!(raderade.iter().all(|p| p.objekt == "Nya Kunden AB"));
+    assert_eq!(raderade[1].beskrivning["status"], "ny");
+    assert_eq!(raderade[1].beskrivning["epost"], "faktura@nya.se");
+    let radering = poster
+        .iter()
+        .find(|p| p.typ == "fakturautkast raderat")
+        .unwrap();
+    assert_eq!(radering.aktör, anna);
+    assert_eq!(radering.beskrivning["kundnamn"], "Nya Kunden AB");
+    // Ingen kund skapades, och registret är som förut.
+    assert!(
+        !poster
+            .iter()
+            .any(|p| p.typ == "kund skapad" && p.objekt == "Nya Kunden AB")
+    );
+    assert_eq!(registret(&db, &anna, id).await, ["Kund AB"]);
+}
+
+#[tokio::test]
+async fn en_ny_kund_som_inte_klarar_registrets_regler_spärrar_utkastet() {
+    let db = Databas::tillfällig().await;
+    let (anna, id) = testhjalp::fakturaföretag(&db).await;
+    let k = testhjalp::kund(&db, &anna, id, "Kund AB").await;
+    let mut formulär = med_ny_kund(k);
+    formulär.ny_kund.epost = "inte en adress".into();
+    match kundfaktura::spara_utkast(&db, &klocka(), &anna, id, None, &formulär).await {
+        Err(KundfakturaFel::Spärrat(s)) => {
+            assert_eq!(s.iter().map(|s| s.kod).collect::<Vec<_>>(), ["ny_kund"]);
+        }
+        annat => panic!("{annat:?}"),
+    }
+    assert!(kundfaktura::lista(&db, &anna, id).await.unwrap().is_empty());
 }
