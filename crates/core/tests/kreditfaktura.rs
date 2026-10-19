@@ -534,3 +534,64 @@ async fn kreditfakturan_skickas_med_eget_ämne() {
         format!("Kreditfaktura {} från Exempel AB", k.nummer)
     );
 }
+
+// #140 och #141: en kundförlust på en delkrediterad faktura skriver av det som återstår efter
+// krediten, och återkallelsen ger tillbaka just det.
+#[tokio::test]
+async fn en_kundförlust_på_en_delkrediterad_faktura_gäller_det_som_återstår_efter_krediten() {
+    let db = Databas::tillfällig().await;
+    let (anna, id, f) = faktura(&db).await;
+    kreditera(&db, &anna, id, f.id, antal("4")).await.unwrap();
+    let kvar = TOTAL - 475_000;
+    assert_eq!(återstår(&db, &anna, id, f.id).await, kvar);
+
+    let b = maya_core::kundforlust::bokför(
+        &db,
+        &klocka(),
+        &anna,
+        id,
+        f.id,
+        &maya_domain::kundforlust::NyKundförlust {
+            skäl: "konkurs".into(),
+            annat: String::new(),
+            datum: "2026-10-18".into(),
+        },
+    )
+    .await
+    .unwrap();
+    // 7 125 kr återstår: 5 700 netto och 1 425 moms, i proportion till 9 500 och 2 375.
+    let v = b.verifikat.expect("fordran är bokförd");
+    assert_eq!(
+        rader(&db, &anna, id, v.id).await,
+        [(6351, 570_000, 0), (2611, 142_500, 0), (1510, 0, kvar)]
+    );
+    let post = betalning::reskontrapost(&db, &anna, id, Faktura::Kund(f.id))
+        .await
+        .unwrap();
+    assert_eq!((post.återstår, post.krediterat), (0, 475_000));
+    assert!(post.kundförlust);
+    assert_eq!(
+        kundfakturans_märke(
+            post.total,
+            post.krediterat,
+            post.återstår,
+            post.kundförlust,
+            post.förfallodag,
+            date(2026, 10, 18)
+        ),
+        Märke::Kundförlust
+    );
+    let listan = kundfaktura::lista(&db, &anna, id).await.unwrap();
+    let rad = listan.iter().find(|r| r.id == f.id).unwrap();
+    assert_eq!((rad.återstår, rad.krediterat), (0, 475_000));
+    assert!(rad.kundförlust);
+
+    maya_core::kundforlust::återkalla(&db, &klocka(), &anna, id, b.id)
+        .await
+        .unwrap();
+    assert_eq!(återstår(&db, &anna, id, f.id).await, kvar);
+    let listan = kundfaktura::lista(&db, &anna, id).await.unwrap();
+    let rad = listan.iter().find(|r| r.id == f.id).unwrap();
+    assert_eq!(rad.återstår, kvar);
+    assert!(!rad.kundförlust);
+}

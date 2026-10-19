@@ -318,3 +318,72 @@ async fn en_kundfaktura_med_en_gällande_kundförlust_är_varken_förfallen_elle
         .unwrap();
     assert_eq!(antal.get(&id), Some(&1));
 }
+
+// #140 Kreditfakturor: utfärdade kreditfakturor drar av från originalet, och en kreditfaktura
+// är aldrig att betala eller förfallen i Att göra; en krediterad faktura med ett
+// tillgodohavande är inte förfallen.
+#[tokio::test]
+async fn kreditfakturor_räknas_av_mot_originalet_och_syns_inte_själva_i_att_göra() {
+    let db = Databas::tillfällig().await;
+    let (anna, id) = testhjalp::fakturaföretag(&db).await;
+    // Förföll 2026-04-09; 4 av 10 timmar krediterade, 7 125 kr återstår.
+    let delvis = testhjalp::utfärdad_kundfaktura(&db, &anna, id, "Delvis AB", "2026-03-10").await;
+    let utkast = maya_core::kundfaktura::kreditera(
+        &db,
+        &i_dag(),
+        &anna,
+        id,
+        delvis.id,
+        &maya_domain::kreditfaktura::NyKreditering {
+            hela: false,
+            antal: vec!["4".into()],
+        },
+    )
+    .await
+    .unwrap();
+    let delkredit = maya_core::kundfaktura::utfärda(&db, &i_dag(), &anna, id, utkast)
+        .await
+        .unwrap();
+    // Förföll 2026-04-10; helt krediterad.
+    let hel = testhjalp::utfärdad_kundfaktura(&db, &anna, id, "Hel AB", "2026-03-11").await;
+    let helkredit = testhjalp::utfärdad_kreditfaktura(&db, &anna, id, hel.id).await;
+    // Förföll 2026-04-11; betald och sedan krediterad: kunden har pengar tillgodo.
+    let tillgodo =
+        testhjalp::utfärdad_kundfaktura(&db, &anna, id, "Tillgodo AB", "2026-03-12").await;
+    betalning::registrera(
+        &db,
+        &i_dag(),
+        &anna,
+        id,
+        Faktura::Kund(tillgodo.id),
+        &betalning("2026-04-01", "11 875,00"),
+    )
+    .await
+    .unwrap();
+    let tillgodokredit = testhjalp::utfärdad_kreditfaktura(&db, &anna, id, tillgodo.id).await;
+    let post = betalning::reskontrapost(&db, &anna, id, Faktura::Kund(tillgodo.id))
+        .await
+        .unwrap();
+    assert_eq!(post.återstår, -1_187_500);
+
+    let a = att_gora::att_göra(&db, &i_dag(), &testhjalp::config(), &anna, id)
+        .await
+        .unwrap();
+    let f = fakturorna(&a.saker);
+    let ordning: Vec<Reskontrafaktura> = f.iter().map(|f| f.faktura).collect();
+    assert_eq!(ordning, [Reskontrafaktura::Kund(delvis.id)]);
+    assert_eq!(f[0].återstår, 1_187_500 - 475_000);
+    for k in [&delkredit, &helkredit, &tillgodokredit] {
+        assert!(!ordning.contains(&Reskontrafaktura::Kund(k.id)));
+    }
+    assert_eq!(
+        a.nyckeltal.kundfordringar.förfallet,
+        Saldo::från_öre(1_187_500 - 475_000)
+    );
+
+    testhjalp::backup(&db, &i_dag()).await;
+    let antal = att_gora::antal(&db, &i_dag(), &testhjalp::config(), &anna)
+        .await
+        .unwrap();
+    assert_eq!(antal.get(&id), Some(&1));
+}
