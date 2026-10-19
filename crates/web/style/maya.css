@@ -2874,3 +2874,12 @@ kbd {
   color: var(--muted-foreground);
   border: 1px dashed var(--border);
 }
+
+/* Sök: fakturor, kunder och leverantörer (#154) */
+.sok-traffar a > span:first-child {
+  flex: 1;
+}
+
+.sok-traffar a .badge {
+  flex: none;
+}
