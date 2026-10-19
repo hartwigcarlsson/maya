@@ -413,6 +413,80 @@ async fn kreditera_hela(
 }
 
 #[tokio::test]
+async fn en_rättad_betalning_ger_inget_tillgodohavande_att_återbetala_före_rättelsen() {
+    let db = Databas::tillfällig().await;
+    let (anna, id, f) = kundfaktura(&db, "kontant").await;
+    // En felregistrerad betalning i april rättas, och fakturan betalas sedan i oktober.
+    let fel = betala(
+        &db,
+        &anna,
+        id,
+        Faktura::Kund(f),
+        &betalning("2026-04-02", "11 875"),
+    )
+    .await;
+    betalning::rätta(&db, &klocka(), &anna, id, fel.id, "2026-10-18", "fel kund")
+        .await
+        .unwrap();
+    betala(
+        &db,
+        &anna,
+        id,
+        Faktura::Kund(f),
+        &betalning("2026-10-18", "11 875"),
+    )
+    .await;
+    // En timme krediteras med datum i maj: kunden har tillgodo från oktober, när fakturan
+    // betalades, inte från maj, eftersom aprilbetalningen var fel.
+    let utkast = kundfaktura::kreditera(
+        &db,
+        &klocka(),
+        &anna,
+        id,
+        f,
+        &NyKreditering {
+            hela: false,
+            antal: vec!["1".into()],
+        },
+    )
+    .await
+    .unwrap();
+    let mut formulär = kundfaktura::kundfakturan(&db, &anna, id, utkast)
+        .await
+        .unwrap()
+        .formulär;
+    formulär.fakturadatum = "2026-05-01".into();
+    kundfaktura::spara_utkast(&db, &klocka(), &anna, id, Some(utkast), &formulär)
+        .await
+        .unwrap();
+    kundfaktura::utfärda(&db, &klocka(), &anna, id, utkast)
+        .await
+        .unwrap();
+    let fel = betalning::registrera(
+        &db,
+        &klocka(),
+        &anna,
+        id,
+        Faktura::Kund(f),
+        &betalning("2026-06-01", "1 187,50"),
+    )
+    .await
+    .unwrap_err();
+    assert!(
+        matches!(&fel, betalning::BetalningFel::Spärrat(s) if s.iter().map(|s| s.kod).eq(["aterbetalning_fore_tillgodo"])),
+        "{fel:?}"
+    );
+    betala(
+        &db,
+        &anna,
+        id,
+        Faktura::Kund(f),
+        &betalning("2026-10-18", "1 187,50"),
+    )
+    .await;
+}
+
+#[tokio::test]
 async fn en_återbetalning_dateras_inte_före_tillgodohavandet() {
     for (metod, _) in METODER {
         let db = Databas::tillfällig().await;

@@ -225,8 +225,9 @@ pub(crate) async fn obetalt_vid_i(
 }
 
 /// Det som återstod av fakturan vid utgången av varje dag med en händelse på den, i
-/// datumordning, som bokföringen visar det ([`obetalt_vid_i`]): fakturadatumet och dagarna för
-/// krediter, betalningar, rättelser av betalningar, kundförluster och återkallelser (#151).
+/// datumordning, som reskontran visar det nu: en rättad betalning räknas aldrig, eftersom den
+/// var fel, som för T2 ([`obetalt_vid_årets_slut_i`]). Dagarna är fakturadatumet och dagarna
+/// för krediter, betalningar, rättelser av betalningar, kundförluster och återkallelser (#151).
 pub(crate) async fn återstod_i(
     conn: &mut SqliteConnection,
     faktura: Faktura,
@@ -263,7 +264,7 @@ pub(crate) async fn återstod_i(
     let mut återstod = Vec::new();
     for dag in dagar {
         let dag = datum(&dag)?;
-        återstod.push((dag, obetalt_vid_i(&mut *conn, faktura, dag).await?));
+        återstod.push((dag, obetalt_i(&mut *conn, faktura, dag, false).await?));
     }
     Ok(återstod)
 }
