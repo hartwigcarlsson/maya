@@ -590,6 +590,74 @@ async fn en_betalning_i_året_som_rättas_efter_årets_slut_räknas_inte_som_bet
     );
 }
 
+/// Bokför T2 för 2026 i januari 2027.
+async fn bokför_t2(db: &Databas, anna: &Aktör, id: FöretagsId) {
+    let januari = klocka("2027-01-10T09:00:00Z");
+    t2::kör(db, &januari).await.unwrap();
+    let v = utkastet(db, anna, id).await.unwrap();
+    t2::bokför(db, &januari, anna, id, v).await.unwrap();
+}
+
+#[tokio::test]
+async fn en_faktura_i_ett_bokfört_t2_kan_inte_låsas_upp_med_rätta_registrering_eller_avskrift() {
+    let db = Databas::tillfällig().await;
+    let (anna, id, _, l) = kontantföretag(&db).await;
+    let kund = testhjalp::kund(&db, &anna, id, "Extern AB").await;
+    let e = testhjalp::registrerad_extern_kundfaktura(&db, &anna, id, kund, "F-17").await;
+    bokför_t2(&db, &anna, id).await;
+    let februari = klocka("2027-02-01T09:00:00Z");
+    // T2-verifikatet vänds inte, så en ny registrering skulle få 1510 och 2440 att avvika.
+    let fel = maya_core::extern_kundfaktura::rätta_registrering(&db, &februari, &anna, id, e, "")
+        .await
+        .unwrap_err();
+    assert!(
+        matches!(fel, maya_core::extern_kundfaktura::ExternFel::IBokförtT2),
+        "{fel:?}"
+    );
+    let fel = maya_core::leverantorsfaktura::rätta_avskrift(&db, &februari, &anna, id, l, "")
+        .await
+        .unwrap_err();
+    assert!(
+        matches!(fel, maya_core::leverantorsfaktura::FakturaFel::IBokförtT2),
+        "{fel:?}"
+    );
+}
+
+#[tokio::test]
+async fn en_betalning_mot_intäkt_före_ett_bokfört_t2_rättas_inte_men_en_mot_1510_gör_det() {
+    let db = Databas::tillfällig().await;
+    let (anna, id, k, _) = kontantföretag(&db).await;
+    let januari = klocka("2027-01-10T09:00:00Z");
+    let i_året = betala(
+        &db,
+        &januari,
+        &anna,
+        id,
+        Faktura::Kund(k),
+        &betalning("2026-11-05", "1 875"),
+    )
+    .await;
+    bokför_t2(&db, &anna, id).await;
+    // Betalningen bokfördes mot intäkt och moms, och T2 bokförde resten på 1510: en rättelse
+    // skulle ge fakturan det betalda tillbaka i reskontran men inte på 1510.
+    let fel = betalning::rätta(&db, &januari, &anna, id, i_året.id, "2027-01-10", "")
+        .await
+        .unwrap_err();
+    assert!(matches!(fel, betalning::BetalningFel::FöreT2), "{fel:?}");
+    let efter = betala(
+        &db,
+        &januari,
+        &anna,
+        id,
+        Faktura::Kund(k),
+        &betalning("2027-01-08", "1 000"),
+    )
+    .await;
+    betalning::rätta(&db, &januari, &anna, id, efter.id, "2027-01-10", "")
+        .await
+        .unwrap();
+}
+
 #[tokio::test]
 async fn utkastet_står_under_utkast_i_att_göra_och_räknas_en_gång() {
     let db = Databas::tillfällig().await;

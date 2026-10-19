@@ -44,6 +44,26 @@ pub(crate) async fn bokförd_i(
     .await
 }
 
+/// Om ett bokfört T2-verifikat har bokfört fakturans fordran eller skuld (#150). T2 vänds
+/// aldrig, så en sådan faktura kan inte låsas upp med Rätta registrering eller Rätta avskrift,
+/// och en betalning som bokfördes mot intäkt eller kostnad före T2 kan inte rättas: 1510 eller
+/// 2440 skulle då avvika från reskontran (#151).
+pub(crate) async fn i_bokfört_t2_i(
+    conn: &mut SqliteConnection,
+    faktura: Faktura,
+) -> Result<bool, sqlx::Error> {
+    let (kund, leverantör) = faktura.kolumner();
+    sqlx::query_scalar(
+        "SELECT EXISTS (SELECT 1 FROM bokford_reskontrapost b
+                        JOIN t2 ON t2.verifikat_id = b.verifikat_id
+                        WHERE b.kundfaktura_id = ?1 OR b.leverantorsfaktura_id = ?2)",
+    )
+    .bind(kund)
+    .bind(leverantör)
+    .fetch_one(conn)
+    .await
+}
+
 /// Om fakturans fordran eller skuld är bokförd för en händelse daterad `dag`: den är bokförd
 /// ([`bokförd_i`]), eller `dag` ligger efter årets slut och fakturan var obetald då och väntar
 /// på T2-verifikatet ([`bokförd_efter_i`]). Spec: en betalning daterad efter räkenskapsårets

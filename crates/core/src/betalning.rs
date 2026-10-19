@@ -119,6 +119,11 @@ pub enum BetalningFel {
     /// Betalningen är redan rättad.
     #[error("betalningen är redan rättad")]
     RedanRättad,
+    /// Betalningen bokfördes mot intäkt eller kostnad och moms före årets slut, och fakturan
+    /// har sedan kommit med i ett bokfört T2-verifikat, som aldrig vänds: en rättelse skulle ge
+    /// fakturan det betalda tillbaka i reskontran men inte på 1510 eller 2440 (#150, #151).
+    #[error("betalningen kom före ett bokfört T2-verifikat")]
+    FöreT2,
     /// Betalningens verifikat kunde inte bokföras eller rättas, t.ex. ett rättelsedatum före
     /// betaldagen.
     #[error(transparent)]
@@ -505,6 +510,16 @@ pub async fn rätta(
         (None, None) => return Err(BetalningFel::IngenBetalning),
     };
     let fakturan = läs_fakturan(ärende.conn(), företag, faktura).await?;
+    let mot_reskontrakontot: bool = sqlx::query_scalar(
+        "SELECT EXISTS (SELECT 1 FROM verifikatrad WHERE verifikat_id = ? AND konto = ?)",
+    )
+    .bind(verifikat_id)
+    .bind(i64::from(faktura.reskontra().konto().get()))
+    .fetch_one(ärende.conn())
+    .await?;
+    if !mot_reskontrakontot && crate::fordran::i_bokfört_t2_i(ärende.conn(), faktura).await? {
+        return Err(BetalningFel::FöreT2);
+    }
     let datum = rättelsedatum(datum)?;
     let rättelse = verifikat::rätta_i(&mut ärende, VerifikatId(verifikat_id), datum, orsak).await?;
     let (nu, kanal, av) = (

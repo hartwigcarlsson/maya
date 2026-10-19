@@ -98,6 +98,10 @@ pub enum FakturaFel {
     /// Rätta avskrift gäller en registrerad faktura i företaget (#148).
     #[error("fakturan är inte registrerad")]
     InteRegistrerad,
+    /// Rätta avskrift spärras när fakturans skuld är bokförd med ett T2-verifikat, som aldrig
+    /// vänds (#150, #151).
+    #[error("fakturan är med i ett bokfört T2-verifikat")]
+    IBokförtT2,
     /// Registreringens verifikat kunde inte rättas (#148), t.ex. i ett räkenskapsår som inte finns.
     #[error(transparent)]
     Rättelse(VerifikatFel),
@@ -1099,6 +1103,11 @@ pub async fn rätta_avskrift(
     .await?;
     let (verifikat_id, registrering, fakturanummer, leverantörsnamn, total) =
         rad.ok_or(FakturaFel::InteRegistrerad)?;
+    if crate::fordran::i_bokfört_t2_i(ärende.conn(), crate::betalning::Faktura::Leverantör(id))
+        .await?
+    {
+        return Err(FakturaFel::IBokförtT2);
+    }
     let idag = maya_domain::tid::datum(ärende.nu);
     let rättelse = match verifikat_id {
         Some(v) => Some(

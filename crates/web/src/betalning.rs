@@ -157,6 +157,11 @@ pub fn feltext(kod: &str) -> Option<&'static str> {
         "betalning" => "Betalningen kunde inte registreras. Rätta det som är markerat.",
         "ratta" => "Betalningen kunde inte rättas. Rätta det som är markerat.",
         "redan_rattad" => "Betalningen är redan rättad.",
+        // #151
+        "fore_t2" => {
+            "Betalningen bokfördes mot intäkt eller kostnad före årets slut, och fakturan är med i \
+             det bokförda T2-verifikatet, som inte vänds. Den kan inte rättas här."
+        }
         _ => return None,
     })
 }
@@ -925,6 +930,9 @@ pub(crate) mod server {
             }
             Err(BetalningFel::RedanRättad) => {
                 Redirect::to(&format!("{här}&fel=redan_rattad")).into_response()
+            }
+            Err(BetalningFel::FöreT2) => {
+                Redirect::to(&format!("{här}&fel=fore_t2")).into_response()
             }
             Err(BetalningFel::IngenBetalning) => (mål.finns_inte)(),
             Err(e) => betalningsfel(e),

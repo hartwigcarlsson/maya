@@ -59,6 +59,10 @@ pub enum ExternFel {
     /// Rätta registrering spärras när registrerade kreditfakturor krediterar fakturan.
     #[error("kreditfakturor krediterar fakturan")]
     HarKreditfakturor,
+    /// Rätta registrering spärras när fakturans fordran är bokförd med ett T2-verifikat, som
+    /// aldrig vänds (#150, #151).
+    #[error("fakturan är med i ett bokfört T2-verifikat")]
+    IBokförtT2,
     /// Rättelsen av registreringens verifikat gick inte att bokföra.
     #[error(transparent)]
     Rättelse(VerifikatFel),
@@ -555,6 +559,9 @@ pub async fn rätta_registrering(
     }
     if crate::kundfaktura::krediterat_i(ärende.conn(), id).await? != 0 {
         return Err(ExternFel::HarKreditfakturor);
+    }
+    if crate::fordran::i_bokfört_t2_i(ärende.conn(), crate::betalning::Faktura::Kund(id)).await? {
+        return Err(ExternFel::IBokförtT2);
     }
     let idag = maya_domain::tid::datum(ärende.nu);
     let rättelse = match verifikat_id {

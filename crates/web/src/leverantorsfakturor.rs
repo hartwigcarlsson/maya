@@ -369,6 +369,11 @@ fn feltext(kod: &str) -> Option<&'static str> {
         // #148 Rätta avskrift
         "inte_registrerad" => "Fakturan är inte registrerad, så avskriften kan inte rättas.",
         "rattelse" => "Registreringen kunde inte rättas i dag. Kontrollera räkenskapsåren.",
+        // #151
+        "i_t2" => {
+            "Fakturan är med i det bokförda T2-verifikatet, som inte vänds. Avskriften kan inte \
+             rättas."
+        }
         "ingen_fil" => "Välj originalet att ladda upp.",
         // #147 Betalningar
         kod => return crate::betalning::feltext(kod),
@@ -806,6 +811,7 @@ pub(crate) mod server {
             FakturaFel::InteRegistrerad => {
                 Redirect::to(&format!("{sida}?fel=inte_registrerad")).into_response()
             }
+            FakturaFel::IBokförtT2 => Redirect::to(&format!("{sida}?fel=i_t2")).into_response(),
             FakturaFel::Rättelse(_) => {
                 Redirect::to(&format!("{sida}?fel=rattelse")).into_response()
             }
@@ -939,6 +945,9 @@ pub(crate) mod server {
             }
             Err(FakturaFel::InteRegistrerad) => {
                 Redirect::to(&format!("{sida}?f={f}&fel=inte_registrerad")).into_response()
+            }
+            Err(FakturaFel::IBokförtT2) => {
+                Redirect::to(&format!("{sida}?f={f}&fel=i_t2")).into_response()
             }
             Err(FakturaFel::Rättelse(_)) => {
                 Redirect::to(&format!("{sida}?f={f}&panel=ratta-avskrift&fel=rattelse"))
