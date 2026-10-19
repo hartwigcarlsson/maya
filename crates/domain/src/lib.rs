@@ -20,6 +20,7 @@ pub mod kontoplan;
 pub mod kontourval;
 pub mod kund;
 pub mod kundfaktura;
+pub mod kundforlust;
 pub mod leverantor;
 pub mod leverantorsfaktura;
 pub mod luhn;

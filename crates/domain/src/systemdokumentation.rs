@@ -356,6 +356,20 @@ pub fn behandlingsregler() -> Vec<Block> {
                 .into(),
         ),
         kodtabell(crate::betalning::BETALNINGSSPÄRRAR),
+        // #141 Kundförlust
+        Block::Underrubrik("Spärrar vid kundförlust".into()),
+        Block::Stycke(
+            "Bara en konstaterad kundförlust bokförs i fakturan, med skäl (konkurs, ackord, \
+             utmätning utan resultat eller annat med fritext) och datum. Den gäller det som \
+             återstår: 6351 debiteras med nettots andel och varje utgående momskonto med sin \
+             andel, fördelat proportionellt mot utfärdandets netto och moms, och 1510 \
+             krediteras. När fordran inte är bokförd blir förlusten bara en status. Återkalla \
+             kundförlust vänder förlustens verifikat med ett nytt verifikat daterat i dag, så \
+             att fakturan kan betalas igen. En befarad kundförlust bokförs som ett manuellt \
+             verifikat."
+                .into(),
+        ),
+        kodtabell(crate::kundforlust::KUNDFÖRLUSTSPÄRRAR),
     ]);
     block
 }
