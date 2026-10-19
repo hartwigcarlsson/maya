@@ -326,3 +326,90 @@ async fn ett_utkast_sparas_och_raderas() {
         "originalet är okopplat igen"
     );
 }
+
+// #146 omvänd skattskyldighet
+
+#[tokio::test]
+async fn leverantörens_förval_för_omvänd_skattskyldighet_föreslås_och_bokförs_med_fiktiv_moms() {
+    let db = Databas::tillfällig().await;
+    let (session, bas) = företag(&db).await;
+    let r = posta(
+        &db,
+        &session,
+        &format!("{bas}/leverantorer"),
+        "namn=Byggfirman+AB&land=SE&bankgiro=5050-1055&standardkonto=5410\
+         &omvand_skattskyldighet=bygg",
+    )
+    .await;
+    let l = parameter(&plats(&r), "l");
+    let adress = ladda_upp(
+        &db,
+        &session,
+        &format!("{bas}/leverantorsfakturor"),
+        "faktura.pdf",
+    )
+    .await;
+    let f = parameter(&adress, "f");
+    let r = posta(
+        &db,
+        &session,
+        &format!("{bas}/leverantorsfakturor/{f}"),
+        &format!("handling=utkast&{}", faktura(&l, "1000")),
+    )
+    .await;
+    assert!(plats(&r).contains("sparat=1"));
+
+    let (_, body) = hämta(&db, &session, &format!("{bas}/leverantorsfakturor?f={f}")).await;
+    let val = &body[body.find("name=\"omvand_skattskyldighet\"").expect(&body)..];
+    let val = &val[..val.find("</select>").unwrap()];
+    assert!(
+        val.contains("<option value=\"bygg\" selected"),
+        "förvalet föreslås: {val}"
+    );
+    assert!(body.contains("Fiktiv moms"), "{body}");
+
+    let r = posta(
+        &db,
+        &session,
+        &format!("{bas}/leverantorsfakturor/{f}"),
+        &format!(
+            "handling=registrera&omvand_skattskyldighet=bygg&{}",
+            faktura(&l, "1000")
+        ),
+    )
+    .await;
+    let registrerad = plats(&r);
+    assert!(registrerad.contains("registrerad=V1"), "{registrerad}");
+    let (_, body) = hämta(&db, &session, &registrerad).await;
+    let dokument = &body[body.find("class=\"dokument\"").expect(&body)..];
+    let dokument = &dokument[..dokument.find("Historik").expect(dokument)];
+    for väntat in ["Omvänd skattskyldighet", "Bygg", "2647", "2614", "1 000,00"] {
+        assert!(dokument.contains(väntat), "{väntat}: {dokument}");
+    }
+    assert!(!dokument.contains("2641"), "{dokument}");
+}
+
+#[tokio::test]
+async fn ett_företag_utan_momsregistrering_har_inget_val_för_omvänd_skattskyldighet() {
+    let db = Databas::tillfällig().await;
+    let session = inloggad(&db).await;
+    let r = posta(
+        &db,
+        &session,
+        "/foretag",
+        "orgnr=556036-0793&namn=Exempel+AB&start=2026-01-01&slut=2026-12-31\
+         &bokforingsmetod=faktura&momsperiod=ej_momsregistrerad",
+    )
+    .await;
+    let bas = plats(&r);
+    let adress = ladda_upp(
+        &db,
+        &session,
+        &format!("{bas}/leverantorsfakturor"),
+        "faktura.pdf",
+    )
+    .await;
+    let (_, body) = hämta(&db, &session, &adress).await;
+    assert!(body.contains("Registrera och bokför"), "{body}");
+    assert!(!body.contains("name=\"omvand_skattskyldighet\""), "{body}");
+}
