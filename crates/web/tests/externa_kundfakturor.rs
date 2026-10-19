@@ -306,3 +306,51 @@ async fn en_extern_kreditfaktura_och_rätta_registrering_i_dokumentet() {
     assert!(detalj.contains("V2 vändes med V3: fel belopp"), "{detalj}");
     assert!(!detalj.contains("Radera utkast"), "en upplåst raderas inte");
 }
+
+// #153 Ny kund från det externa utkastet
+
+#[tokio::test]
+async fn en_ny_kund_läggs_upp_som_ett_streckat_kort_på_det_externa_utkastet() {
+    let db = Databas::tillfällig().await;
+    let (session, bas, _) = företag(&db).await;
+    let adress = ladda_upp(
+        &db,
+        &session,
+        &format!("{bas}/kundfakturor/extern"),
+        "F-17.pdf",
+    )
+    .await;
+    let f = parameter(&adress, "f");
+    let utkast = hämta(&db, &session, &adress).await;
+    assert!(utkast.contains("+ Ny kund…"), "kundväljaren: {utkast}");
+    assert!(utkast.contains("kort-streckat ny-kund"), "{utkast}");
+
+    let ny = "&ny_namn=Nya+Kunden+AB&ny_identitet=&ny_adress=&ny_epost=&ny_momsregnr=\
+              &ny_betalningsvillkor=10";
+    let sparat = posta(
+        &db,
+        &session,
+        &format!("{bas}/kundfakturor/extern/{f}"),
+        &format!("handling=utkast&{}{ny}", formulär("ny", "8000")),
+    )
+    .await;
+    let sida = hämta(&db, &session, &sparat).await;
+    assert!(sida.contains("badge-ny"), "listan märker utkastet: {sida}");
+    assert!(
+        sida.contains("value=\"Nya Kunden AB\""),
+        "kortet fylls i igen"
+    );
+    let registret = hämta(&db, &session, &format!("{bas}/kunder")).await;
+    assert!(!registret.contains("Nya Kunden AB"), "inte i registret än");
+
+    let registrerad = posta(
+        &db,
+        &session,
+        &format!("{bas}/kundfakturor/extern/{f}"),
+        &format!("handling=registrera&{}{ny}", formulär("ny", "8000")),
+    )
+    .await;
+    assert!(registrerad.contains("registrerad=V1"), "{registrerad}");
+    let registret = hämta(&db, &session, &format!("{bas}/kunder")).await;
+    assert!(registret.contains("Nya Kunden AB"), "{registret}");
+}
