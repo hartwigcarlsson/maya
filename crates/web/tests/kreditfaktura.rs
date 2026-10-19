@@ -338,7 +338,11 @@ async fn kredit_av_en_betald_faktura_ger_ett_tillgodohavande_som_återbetalas_i_
             &db,
             &session,
             &format!("{bas}/kundfakturor/{f}/betalning"),
-            "betaldag=2026-10-01&belopp=4750&konto=1930&aterbetalning=1",
+            // Kreditfakturan är daterad i dag, och återbetalningen dateras tidigast då (#151).
+            &format!(
+                "betaldag={}&belopp=4750&konto=1930&aterbetalning=1",
+                Klocka::system().idag()
+            ),
         )
         .await,
     );
