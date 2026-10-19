@@ -29,6 +29,7 @@ use crate::app::LoggaIn;
 use crate::foretag::IngenÅtkomst;
 use crate::kunder::kundregistret;
 use crate::sidodata::sida;
+use crate::utskick::{SkickaPanel, SkickaVy, UtskickVy, Utskicken};
 use crate::verifikat::{UtkastBadge, företagets_bas, inloggad};
 
 /// Adressen till Kundfakturor för företaget med sidan `bas` (`/foretag/<id>`).
@@ -122,6 +123,8 @@ pub struct GranskningVy {
     pub total: String,
     /// Kvarvarande spärrar som text; Utfärda är inaktiv när det finns några.
     pub spärrar: Vec<String>,
+    /// #138: kundens e-postadress när Maya har SMTP, för kryssrutan "Skicka till …"; annars tom.
+    pub skicka_till: String,
 }
 
 /// En rad på en utfärdad faktura.
@@ -171,6 +174,10 @@ pub struct FakturaVy {
     pub utfärdad: (String, String, String),
     /// Tid, händelse och namn.
     pub historik: Vec<(String, String, String)>,
+    /// #138: utskicken, panelen Skicka när den är öppen, och om Maya har SMTP.
+    pub utskick: Vec<UtskickVy>,
+    pub skicka: Option<SkickaVy>,
+    pub epost: bool,
 }
 
 /// Det som Kundfakturor visar.
@@ -205,6 +212,11 @@ fn feltext(kod: &str) -> Option<&'static str> {
         }
         "startnummer" => "Startnumret kan inte ändras efter första utfärdandet.",
         "finns_inte" => "Utkastet finns inte längre eller är redan utfärdat.",
+        // #138 Utskick
+        "skickfel" => {
+            "Utskicket misslyckades och loggades. Fakturan är utfärdad och kan skickas igen."
+        }
+        "mottagare" => "Mottagaren är ingen e-postadress. Inget skickades.",
         _ => return None,
     })
 }
@@ -261,11 +273,17 @@ fn ur_fält(värde: impl Fn(&str) -> Option<String>) -> NyKundfaktura {
 /// lägger till en handling (betalning #139, skicka #138, kredit #140, kundförlust #141, rätta
 /// kontering #142) lägger till en variant, dess kod och dess panel.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Panel {}
+pub enum Panel {
+    /// Skicka fakturan med e-post, eller markera den som lämnad på annat sätt (#138).
+    Skicka,
+}
 
 impl Panel {
-    pub fn från_kod(_kod: &str) -> Option<Self> {
-        None
+    pub fn från_kod(kod: &str) -> Option<Self> {
+        match kod {
+            "skicka" => Some(Panel::Skicka),
+            _ => None,
+        }
     }
 }
 
@@ -296,6 +314,8 @@ pub(crate) mod server {
     pub(crate) struct KundfakturaState {
         pub db: Databas,
         pub klocka: Klocka,
+        /// #138: e-postadaptern, `None` utan SMTP.
+        pub epost: Option<crate::epost::SmtpEpost>,
     }
 
     pub(crate) fn routes(state: KundfakturaState) -> Router {
@@ -378,7 +398,24 @@ pub(crate) mod server {
         if let Some(f) = &faktura {
             data.valt = Some(f.id.to_string());
             match &f.utfärdad {
-                Some(u) => data.dokument = Some(dokument(företag, f, u)),
+                Some(u) => {
+                    let mut d = dokument(företag, f, u);
+                    // #138 Utskick
+                    let panel = b.värde("panel").as_deref().and_then(Panel::från_kod);
+                    let (utskick, skicka) = crate::utskick::server::utskicken(
+                        b,
+                        företag,
+                        f.id,
+                        panel == Some(Panel::Skicka),
+                    )
+                    .await
+                    .map_err(|e| match e {
+                        maya_core::utskick::UtskickFel::Åtkomst(e) => KundfakturaFel::Åtkomst(e),
+                        _ => KundfakturaFel::FinnsInte,
+                    })?;
+                    (d.utskick, d.skicka, d.epost) = (utskick, skicka, b.config.smtp.is_some());
+                    data.dokument = Some(d);
+                }
                 None => {
                     data.utkast = Some(UtkastVy {
                         id: f.id.to_string(),
@@ -391,7 +428,17 @@ pub(crate) mod server {
         if ny || data.utkast.is_some() {
             let förutsättningar = kundfaktura::förutsättningar(&b.db, aktör, företag).await?;
             if let (Some(u), true) = (&data.utkast, b.värde("granska").is_some()) {
-                data.granskning = Some(granskning(&u.formulär, &förutsättningar, &kontonamn));
+                let mut g = granskning(&u.formulär, &förutsättningar, &kontonamn);
+                // #138: kryssrutan bara med SMTP och en kund med e-postadress.
+                if b.config.smtp.is_some() {
+                    g.skicka_till = förutsättningar
+                        .kunder
+                        .iter()
+                        .find(|k| Some(k.id) == u.formulär.kund.trim().parse().ok())
+                        .map(|k| k.epost.clone())
+                        .unwrap_or_default();
+                }
+                data.granskning = Some(g);
             }
             data.förutsättningar = Some(FörutsättningarVy {
                 kunder: förutsättningar.kunder.clone(),
@@ -447,6 +494,7 @@ pub(crate) mod server {
                     .collect(),
                 total: kr(u.total),
                 spärrar: Vec::new(),
+                skicka_till: String::new(),
             },
             Err(spärrar) => GranskningVy {
                 spärrar: spärrar.into_iter().map(|s| s.text).collect(),
@@ -522,6 +570,7 @@ pub(crate) mod server {
                 .iter()
                 .map(|h| (tid(h.post.tid), h.post.typ.clone(), h.namn.clone()))
                 .collect(),
+            ..FakturaVy::default()
         }
     }
 
@@ -628,6 +677,7 @@ pub(crate) mod server {
         State(state): State<Arc<KundfakturaState>>,
         Path((id, f)): Path<(String, String)>,
         inloggad: Option<Extension<Inloggad>>,
+        Form(fält): Form<Fält>,
     ) -> Response {
         let (inloggad, företag) = match tolka(&id, inloggad) {
             Ok(t) => t,
@@ -637,8 +687,32 @@ pub(crate) mod server {
             return finns_inte();
         };
         let lista = format!("/foretag/{företag}/kundfakturor");
-        match kundfaktura::utfärda(&state.db, &state.klocka, &inloggad.aktör, företag, f).await {
-            Ok(u) => Redirect::to(&format!("{lista}?f={}&utfardad=1", u.id)).into_response(),
+        // #138: skickas efter att utfärdandet har committats, när rutan är kryssad.
+        let utfärdat = match (&state.epost, värde(&fält, "skicka").as_deref()) {
+            (Some(epost), Some("1")) => {
+                maya_core::utskick::utfärda_och_skicka(
+                    &state.db,
+                    &state.klocka,
+                    &inloggad.aktör,
+                    företag,
+                    f,
+                    epost,
+                )
+                .await
+            }
+            _ => kundfaktura::utfärda(&state.db, &state.klocka, &inloggad.aktör, företag, f)
+                .await
+                .map(|u| (u, None)),
+        };
+        match utfärdat {
+            Ok((u, utfall)) => {
+                let tillägg = match utfall {
+                    Some(maya_core::utskick::Utfall::Skickat) => "&skickat=1",
+                    Some(maya_core::utskick::Utfall::Misslyckat(_)) => "&fel=skickfel",
+                    None => "",
+                };
+                Redirect::to(&format!("{lista}?f={}&utfardad=1{tillägg}", u.id)).into_response()
+            }
             Err(KundfakturaFel::Spärrat(_)) => {
                 Redirect::to(&format!("{lista}?f={f}&granska=1&fel=sparrat")).into_response()
             }
@@ -744,6 +818,12 @@ fn kundfakturor_sida(data: Kundfakturadata, ny: bool) -> AnyView {
             "Fakturan utfärdades, PDF:en arkiverades och verifikatet bokfördes.",
         ),
         ("raderad", "Utkastet raderades och raderingen loggades."),
+        // #138 Utskick
+        (
+            "skickat",
+            "Fakturan skickades med e-post, och utskicket loggades.",
+        ),
+        ("lamnad", "Fakturan markerades som lämnad på annat sätt."),
     ]
     .into_iter()
     .find(|(namn, _)| fråga(namn).is_some())
@@ -947,6 +1027,14 @@ fn Granska(lista: String, id: String, g: GranskningVy) -> impl IntoView {
             <h2 id="granska-rubrik">"Granska och utfärda"</h2>
             {innehåll}
             <form method="post" action=format!("{lista}/{id}/utfarda")>
+                {(!spärrat && !g.skicka_till.is_empty()).then(|| view! {
+                    <p>
+                        <label>
+                            <input type="checkbox" name="skicka" value="1" />
+                            " Skicka till " {g.skicka_till.clone()} " när den utfärdats"
+                        </label>
+                    </p>
+                })}
                 <a class="knapp" href=här>
                     "Tillbaka och ändra"
                 </a>
@@ -1679,6 +1767,23 @@ fn Fakturadokument(bas: String, d: FakturaVy) -> impl IntoView {
         })
         .collect_view();
     let (verifikat_id, verifikat_nummer) = d.verifikat.clone();
+    // #138 Utskick: handlingen, panelen och avsnittet.
+    let skicka_text = match (d.epost, d.utskick.iter().any(|u| u.epost)) {
+        (false, _) => "Markera som skickad…",
+        (true, false) => "Skicka…",
+        (true, true) => "Skicka igen…",
+    };
+    let handlingar = d.skicka.is_none().then(|| {
+        view! {
+            <p class="dokument-handlingar">
+                <a class="knapp" href=format!("{lista}?f={}&panel=skicka", d.id)>{skicka_text}</a>
+            </p>
+        }
+    });
+    let panel = d
+        .skicka
+        .clone()
+        .map(|s| view! { <SkickaPanel lista=lista.clone() id=d.id.clone() s=s /> });
     view! {
         <div class="fakturaformular-ram" class:med-forhandsvisning=visa>
             {förhandsvisning}
@@ -1695,6 +1800,8 @@ fn Fakturadokument(bas: String, d: FakturaVy) -> impl IntoView {
                     </div>
                     {visa_länk}
                 </header>
+                {handlingar}
+                {panel}
                 <dl class="metadata">
                     <dt>"Kund"</dt>
                     <dd>{adress}</dd>
@@ -1755,6 +1862,7 @@ fn Fakturadokument(bas: String, d: FakturaVy) -> impl IntoView {
                     </dl>
                     <p class="diskret">"Den arkiverade PDF:en är kundens exemplar och genereras aldrig om."</p>
                 </section>
+                <Utskicken utskick=d.utskick.clone() />
                 <section>
                     <h3>"Historik"</h3>
                     <ul class="historik">{historik}</ul>
