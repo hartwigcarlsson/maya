@@ -1,0 +1,85 @@
+#FLAGGA 0
+#KSUMMA
+#PROGRAM "Maya" "0.1.0"
+#FORMAT PC8
+#GEN 20261020 "anna@example.se"
+#SIETYP 4
+#ORGNR 556036-0793
+#FTYP AB
+#FNAMN "Exempel AB"
+#KPTYP BAS2026
+#RAR 0 20260101 20261231
+#KONTO 1510 "Kundfordringar"
+#SRU 1510 7251
+#KONTO 1930 "F”retagskonto"
+#SRU 1930 7281
+#KONTO 2440 "Leverant”rsskulder"
+#SRU 2440 7365
+#KONTO 2611 "Utg†ende moms p† f”rs„ljning inom Sverige, 25 %"
+#SRU 2611 7369
+#KONTO 2641 "Debiterad ing†ende moms"
+#SRU 2641 7369
+#KONTO 3001 "F”rs„ljning inom Sverige, 25 % moms"
+#SRU 3001 7410
+#KONTO 3740 "™res- och kronutj„mning"
+#SRU 3740 7410
+#KONTO 5410 "F”rbrukningsinventarier"
+#SRU 5410 7513
+#KONTO 6351 "Konstaterade f”rluster p† kundfordringar"
+#SRU 6351 7513
+#UB 0 1510 11875.00
+#UB 0 1930 3755.00
+#UB 0 2611 -3375.00
+#UB 0 2641 250.00
+#RES 0 3001 -19000.00
+#RES 0 3740 -5.00
+#RES 0 5410 1000.00
+#RES 0 6351 5500.00
+#VER V 1 20260310 "Kundfaktura 1, Kund AB" 20260310 "anna@example.se"
+{
+#TRANS 1510 {} 11875.00
+#TRANS 3001 {} -9500.00
+#TRANS 2611 {} -2375.00
+}
+#VER V 2 20260505 "Kundfaktura 2, Andra Kunden AB" 20260505 "anna@example.se"
+{
+#TRANS 1510 {} 11875.00
+#TRANS 3001 {} -9500.00
+#TRANS 2611 {} -2375.00
+}
+#VER V 3 20260601 "Kundfaktura 3, Tredje Kunden AB" 20260601 "anna@example.se"
+{
+#TRANS 1510 {} 11875.00
+#TRANS 3001 {} -9500.00
+#TRANS 2611 {} -2375.00
+}
+#VER V 4 20260401 "Betalning av kundfaktura 1, Kund AB" 20260401 "anna@example.se"
+{
+#TRANS 1930 {} 5000.00
+#TRANS 1510 {} -5000.00
+}
+#VER V 5 20260930 "Kundf”rlust, kundfaktura 1, Kund AB" 20260930 "anna@example.se"
+{
+#TRANS 6351 {} 5500.00
+#TRANS 2611 {} 1375.00
+#TRANS 1510 {} -6875.00
+}
+#VER V 6 20260520 "Kreditfaktura 4, Andra Kunden AB, krediterar faktura 2" 20260520 "anna@example.se"
+{
+#TRANS 1510 {} -11875.00
+#TRANS 3001 {} 9500.00
+#TRANS 2611 {} 2375.00
+}
+#VER V 7 20260314 "Leverant”rsfaktura 8812, Kontorsvaror AB" 20260315 "anna@example.se"
+{
+#TRANS 5410 {} 1000.00
+#TRANS 2641 {} 250.00
+#TRANS 2440 {} -1250.00
+}
+#VER V 8 20260413 "Betalning av leverant”rsfaktura 8812, Kontorsvaror AB" 20260413 "anna@example.se"
+{
+#TRANS 2440 {} 1250.00
+#TRANS 1930 {} -1245.00
+#TRANS 3740 {} -5.00
+}
+#KSUMMA 2635291093
