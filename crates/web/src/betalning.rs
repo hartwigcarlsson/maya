@@ -750,7 +750,7 @@ pub(crate) mod server {
         fält.iter().find(|(k, _)| k == namn).map(|(_, v)| v.clone())
     }
 
-    fn tillbaka(sida: &str, fält: &Fält, extra: &[(&str, &str)]) -> Response {
+    pub(crate) fn tillbaka(sida: &str, fält: &Fält, extra: &[(&str, &str)]) -> Response {
         let mut query = url::form_urlencoded::Serializer::new(String::new());
         for (namn, v) in extra {
             query.append_pair(namn, v);
@@ -775,7 +775,7 @@ pub(crate) mod server {
         }
     }
 
-    fn betalningsfel(e: BetalningFel) -> Response {
+    pub(crate) fn betalningsfel(e: BetalningFel) -> Response {
         match e {
             BetalningFel::Åtkomst(ÅtkomstFel::IngenÅtkomst | ÅtkomstFel::KanalenFårInte) => {
                 ingen_åtkomst()

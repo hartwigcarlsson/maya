@@ -125,6 +125,32 @@ pub fn grupp(återstår: i64, förfallodag: Date, idag: Date) -> Grupp {
     }
 }
 
+/// Kopieringschipsen för en leverantörsfaktura att betala (#152): leverantörens bankgiro (BG),
+/// plusgiro (PG) och IBAN som de är registrerade, och fakturans referens. En referens med bara
+/// siffror är en OCR-referens och visas utan mellanslag; annan text är ett meddelande. Tomma
+/// uppgifter ger inget chip.
+pub fn kopieringschips(
+    bankgiro: &str,
+    plusgiro: &str,
+    iban: &str,
+    referens: &str,
+) -> Vec<(&'static str, String)> {
+    let mut chips: Vec<(&'static str, String)> =
+        [("BG", bankgiro), ("PG", plusgiro), ("IBAN", iban)]
+            .into_iter()
+            .filter(|(_, v)| !v.trim().is_empty())
+            .map(|(k, v)| (k, v.trim().to_string()))
+            .collect();
+    let referens = referens.trim();
+    let siffror: String = referens.chars().filter(|c| !c.is_whitespace()).collect();
+    if !siffror.is_empty() && siffror.bytes().all(|b| b.is_ascii_digit()) {
+        chips.push(("OCR", siffror));
+    } else if !referens.is_empty() {
+        chips.push(("Meddelande", referens.to_string()));
+    }
+    chips
+}
+
 /// "förfaller i dag", "förfaller om 5 dagar" eller "förföll för 10 dagar sedan".
 pub fn förfallotext(förfallodag: Date, idag: Date) -> String {
     let dagar = |n: i32| {

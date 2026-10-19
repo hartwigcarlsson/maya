@@ -896,7 +896,7 @@ pub async fn kundens_fakturor(
     Ok(lista_i(&mut tx, företag, Some(kund)).await?)
 }
 
-async fn lista_i(
+pub(crate) async fn lista_i(
     conn: &mut SqliteConnection,
     företag: FöretagsId,
     kund: Option<KundId>,

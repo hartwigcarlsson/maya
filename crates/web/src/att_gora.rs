@@ -5,7 +5,13 @@
 //! (50-dagarsvarningen i periodens rubrik) och de okopplade underlagen.
 //!
 //! Ett kort fälls ut på plats: ett utkast med verifikatformuläret, där Bokför går vidare till
-//! nästa utkast, och ett underlag med "Vad är det här?". Sakernas sorter kommer från
+//! nästa utkast, och ett underlag med "Vad är det här?".
+//!
+//! #152: tidslinjen får förfallna kund- och leverantörsfakturor under Försenat och
+//! leverantörsfakturorna att betala på sin förfallodag, nedtonade när de förfaller om mer än 7
+//! dagar. Kortet visar kopieringschipsen och fäller ut betalningspanelen från fakturans dokument,
+//! så att en betalning registreras utan att öppna fakturan. Nyckeltalen får Kundfordringar och
+//! Leverantörsskulder. Sakernas sorter kommer från
 //! `maya_core::att_gora::Sak`; en ny sort får ett eget kort här ([`Sort`]).
 //!
 //! Överst, före allt annat, varningen efter en återställning med `maya restore`, tills
@@ -17,6 +23,7 @@ use leptos::prelude::*;
 use serde::{Deserialize, Serialize};
 
 use crate::app::LoggaIn;
+use crate::betalning::{BetalningsVy, Betalningspanel};
 use crate::foretag::{Företagsval, IngenÅtkomst};
 use crate::sidodata::sida;
 use crate::underlag::{Förhandsvisning, Gem, UnderlagVy};
@@ -92,6 +99,10 @@ pub struct PeriodVy {
 pub enum Sort {
     Utkast,
     Underlag,
+    /// #152: en förfallen kundfaktura.
+    Kundfaktura,
+    /// #152: en leverantörsfaktura att betala.
+    Leverantörsfaktura,
 }
 
 /// Ett kort i agendan.
@@ -108,6 +119,9 @@ pub struct KortVy {
     pub när_klass: String,
     /// Utkastet har kopplade underlag.
     pub gem: bool,
+    /// #152: längre fram än 7 dagar, visas nedtonat.
+    #[serde(default)]
+    pub nedtonad: bool,
 }
 
 /// Det som ett utfällt kort visar.
@@ -125,6 +139,28 @@ pub enum Öppet {
         /// Frågan om underlaget ska tas bort visas.
         ta_bort: bool,
     },
+    /// #152: en kund- eller leverantörsfaktura med det som återstår.
+    Faktura(Box<FakturakortVy>),
+}
+
+/// En utfälld faktura i tidslinjen (#152).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FakturakortVy {
+    /// En kundfaktura, annars en leverantörsfaktura.
+    pub kund: bool,
+    /// Adressen till fakturans dokument.
+    pub dokument: String,
+    pub återstår: String,
+    pub förfallodag: String,
+    /// Kundens e-post på fakturan.
+    pub kontakt: String,
+    /// Etikett och värde att kopiera: BG/PG/IBAN, OCR eller meddelande och beloppet.
+    pub kopieringschips: Vec<(String, String)>,
+    /// Adressen som fäller ut betalningspanelen, när betalningen kan registreras här.
+    pub betala: Option<String>,
+    /// Betalningspanelen när den är utfälld: formulärets action, adressen som stänger den och
+    /// panelen.
+    pub betalning: Option<(String, String, BetalningsVy)>,
 }
 
 /// Datan för `/foretag/<id>`.
@@ -149,10 +185,16 @@ pub(crate) mod server {
     use jiff::civil::Date;
     use leptos::prelude::ServerFnError;
     use maya_core::atkomst::ÅtkomstFel;
-    use maya_core::att_gora::{self, Sak, Utkastsak, ÅterställningsId, Återställningsvarning};
+    use maya_core::att_gora::{
+        self, Fakturasak, Reskontrafaktura, Reskontratal, Sak, Utkastsak, ÅterställningsId,
+        Återställningsvarning,
+    };
+    use maya_core::betalning::{self, BetalningFel, Faktura};
     use maya_core::config::Config;
     use maya_core::foretag::FöretagsId;
     use maya_core::inloggning::Inloggad;
+    use maya_core::kundfaktura::KundfakturaId;
+    use maya_core::leverantorsfaktura::LeverantörsfakturaId;
     use maya_core::underlag::{self, Underlag, UnderlagFel, UnderlagId};
     use maya_core::verifikat::{self, Urval, VerifikatFel, VerifikatId};
     use maya_core::{Databas, Klocka};
@@ -161,12 +203,13 @@ pub(crate) mod server {
     };
     use maya_domain::belopp::Saldo;
     use maya_domain::rakenskapsar::periodnamn;
+    use maya_domain::reskontra::förfallotext;
     use maya_domain::verifikat::NyttVerifikat;
     use serde::Deserialize;
 
     use super::{
-        AttGöradata, DagVy, DriftvarningVy, KortVy, NyckeltalVy, PeriodVy, Sort, ÅterställningVy,
-        Öppet,
+        AttGöradata, DagVy, DriftvarningVy, FakturakortVy, KortVy, NyckeltalVy, PeriodVy, Sort,
+        ÅterställningVy, Öppet,
     };
     use crate::sidodata::{self, Sidbegäran};
     use crate::underlag::server::vy;
@@ -195,6 +238,15 @@ pub(crate) mod server {
                 "/foretag/{id}/att-gora/aterstallning/{a}/kvittera",
                 post(kvittera),
             )
+            // #152 Betalning från kortet
+            .route(
+                "/foretag/{id}/att-gora/kundfakturor/{f}/betalning",
+                post(kundbetalning),
+            )
+            .route(
+                "/foretag/{id}/att-gora/leverantorsfakturor/{f}/betalning",
+                post(leverantörsbetalning),
+            )
             .with_state(Arc::new(state))
     }
 
@@ -216,7 +268,7 @@ pub(crate) mod server {
             db: b.db.clone(),
             klocka: b.klocka.clone(),
         };
-        match hämta(&state, &b.inloggad, företag, &query).await {
+        match hämta(&state, b, företag, &query).await {
             Ok(data) => Ok(data),
             Err(ÅtkomstFel::IngenÅtkomst | ÅtkomstFel::KanalenFårInte) => {
                 Ok(AttGöradata::default())
@@ -227,10 +279,11 @@ pub(crate) mod server {
 
     async fn hämta(
         state: &AttGöraState,
-        inloggad: &Inloggad,
+        b: &Sidbegäran,
         företag: FöretagsId,
         query: &[(String, String)],
     ) -> Result<AttGöradata, ÅtkomstFel> {
+        let inloggad = &b.inloggad;
         let fråga = |namn: &str| {
             query
                 .iter()
@@ -244,6 +297,7 @@ pub(crate) mod server {
         let mut utkast = Vec::new();
         let mut underlagen = Vec::new();
         let mut återställningar = Vec::new();
+        let mut fakturorna = Vec::new();
         for sak in a.saker {
             match sak {
                 Sak::Återställning(v) => återställningar.push(återställning(&v)),
@@ -253,6 +307,7 @@ pub(crate) mod server {
                 }),
                 Sak::Utkast(u) => utkast.push(u),
                 Sak::Underlag(u) => underlagen.push(u),
+                Sak::Faktura(f) => fakturorna.push(f),
             }
         }
         let antal_utkast = utkast.len();
@@ -287,6 +342,8 @@ pub(crate) mod server {
             notis = Some("Underlaget togs bort, och borttagningen loggades.".into());
         } else if fråga("kvitterad").is_some() {
             notis = Some("Varningen är kvitterad.".into());
+        } else if let Some(v) = fråga("betald") {
+            notis = Some(format!("Betalningen är bokförd som {v}."));
         }
         let fel = fråga("fel")
             .and_then(|kod| match kod {
@@ -324,15 +381,29 @@ pub(crate) mod server {
                 när,
                 när_klass: klass.into(),
                 gem: u.underlag > 0,
+                nedtonad: false,
             }
         };
 
+        // Det som har ett datum: utkasten med kontantfrist och (#152) fakturorna på sin
+        // förfallodag, i datumordning.
+        let mut daterade: Vec<(Date, KortVy)> = ordning
+            .kontanta
+            .iter()
+            .map(|(senast, u)| (*senast, kort_för_utkast(u)))
+            .collect();
+        daterade.extend(
+            fakturorna
+                .iter()
+                .map(|f| (f.förfallodag, kort_för_faktura(f, idag))),
+        );
+        daterade.sort_by_key(|(dag, _)| *dag);
         let mut tidslinje: Vec<DagVy> = Vec::new();
         let mut försenade = 0;
         let mut inom_sju_dagar = 0;
-        for (senast, u) in &ordning.kontanta {
-            let försenat = *senast < idag;
-            let dagar = dagar_mellan(idag, *senast);
+        for (senast, kort) in daterade {
+            let försenat = senast < idag;
+            let dagar = dagar_mellan(idag, senast);
             if försenat {
                 försenade += 1;
             } else if dagar <= 7 {
@@ -341,9 +412,8 @@ pub(crate) mod server {
             let rubrik = if försenat {
                 "Försenat".to_string()
             } else {
-                stor_bokstav(&dag_lång(*senast))
+                stor_bokstav(&dag_lång(senast))
             };
-            let kort = kort_för_utkast(u);
             match tidslinje.last_mut() {
                 Some(d) if d.rubrik == rubrik => d.kort.push(kort),
                 _ => tidslinje.push(DagVy {
@@ -389,6 +459,7 @@ pub(crate) mod server {
                     },
                     när_klass: if länge { "hot" } else { "" }.into(),
                     gem: false,
+                    nedtonad: false,
                 }
             })
             .collect();
@@ -399,6 +470,9 @@ pub(crate) mod server {
             Some(("underlag", id)) => {
                 let ta_bort = fråga("ta_bort").is_some();
                 öppet_underlag(state, inloggad, företag, &underlagen, id, ta_bort).await?
+            }
+            Some((sort @ ("kundfaktura" | "leverantorsfaktura"), id)) => {
+                öppen_faktura(b, företag, &fakturorna, sort, id).await?
             }
             _ => None,
         }
@@ -436,12 +510,33 @@ pub(crate) mod server {
 
     fn nyckeltal(n: &att_gora::Nyckeltal) -> Vec<NyckeltalVy> {
         let kronor = |s: Saldo| format!("{s} kr");
+        // #152 Kundfordringar och Leverantörsskulder: saldot ur bokföringen med det förfallna
+        // ur reskontran, eller reskontrans obetalda belopp under kontantmetoden.
+        let reskontra = |namn: &str, konto: u16, r: &Reskontratal| NyckeltalVy {
+            namn: namn.into(),
+            värde: kronor(r.saldo),
+            under: format!(
+                "{} · {}",
+                if r.förfallet == Saldo::NOLL {
+                    "inget förfallet".to_string()
+                } else {
+                    format!("varav förfallet {}", kronor(r.förfallet))
+                },
+                if r.ur_reskontran {
+                    "ur reskontran".to_string()
+                } else {
+                    format!("{konto} ur bokföringen")
+                }
+            ),
+        };
         vec![
             NyckeltalVy {
                 namn: "Företagskontot".into(),
                 värde: kronor(n.företagskontot),
                 under: "1930 per i dag · ur bokföringen".into(),
             },
+            reskontra("Kundfordringar", 1510, &n.kundfordringar),
+            reskontra("Leverantörsskulder", 2440, &n.leverantörsskulder),
             NyckeltalVy {
                 namn: "Resultat hittills i år".into(),
                 värde: kronor(n.resultat_i_år),
@@ -451,6 +546,108 @@ pub(crate) mod server {
                 },
             },
         ]
+    }
+
+    /// #152: kortet för en faktura i tidslinjen.
+    fn kort_för_faktura(f: &Fakturasak, idag: Date) -> KortVy {
+        let dagar = dagar_mellan(idag, f.förfallodag);
+        let (sort, rubrik) = match f.faktura {
+            Reskontrafaktura::Kund(_) => (
+                Sort::Kundfaktura,
+                format!("Faktura {} · {}", f.nummer, f.motpart),
+            ),
+            Reskontrafaktura::Leverantör(_) => (
+                Sort::Leverantörsfaktura,
+                format!("{} · {}", f.motpart, f.nummer),
+            ),
+        };
+        KortVy {
+            nyckel: fakturanyckel(f.faktura),
+            sort,
+            rubrik,
+            belopp: Some(Saldo::från_öre(f.återstår).to_string()),
+            när: förfallotext(f.förfallodag, idag),
+            när_klass: match dagar {
+                ..0 => "bad",
+                0..=7 => "hot",
+                _ => "",
+            }
+            .into(),
+            gem: false,
+            nedtonad: dagar > 7,
+        }
+    }
+
+    /// `kundfaktura-<id>` eller `leverantorsfaktura-<id>`: kortets id och adressens `oppna`.
+    fn fakturanyckel(f: Reskontrafaktura) -> String {
+        match f {
+            Reskontrafaktura::Kund(id) => format!("kundfaktura-{id}"),
+            Reskontrafaktura::Leverantör(id) => format!("leverantorsfaktura-{id}"),
+        }
+    }
+
+    /// #152: en utfälld faktura med kopieringschipsen, och betalningspanelen från fakturans
+    /// dokument när adressen har `panel=betalning`.
+    async fn öppen_faktura(
+        b: &Sidbegäran,
+        företag: FöretagsId,
+        fakturorna: &[Fakturasak],
+        sort: &str,
+        id: &str,
+    ) -> Result<Option<Öppet>, ÅtkomstFel> {
+        let nyckel = format!("{sort}-{id}");
+        let Some(f) = fakturorna
+            .iter()
+            .find(|f| fakturanyckel(f.faktura) == nyckel)
+        else {
+            return Ok(None);
+        };
+        let bas = format!("/foretag/{företag}");
+        let återstår = Saldo::från_öre(f.återstår).to_string();
+        let mut vy = FakturakortVy {
+            kund: false,
+            dokument: String::new(),
+            återstår: återstår.clone(),
+            förfallodag: f.förfallodag.to_string(),
+            kontakt: f.kontakt.clone(),
+            kopieringschips: f
+                .kopieringschips
+                .iter()
+                .map(|(k, v)| (k.to_string(), v.clone()))
+                .collect(),
+            betala: None,
+            betalning: None,
+        };
+        // Betalningen registreras med samma panel och use case som i fakturans dokument
+        // (#139, #147), med en egen POST som går tillbaka till Att göra.
+        let (faktura, sida) = match f.faktura {
+            Reskontrafaktura::Kund(id) => {
+                vy.kund = true;
+                (Faktura::Kund(id), format!("kundfakturor/{id}"))
+            }
+            Reskontrafaktura::Leverantör(id) => {
+                vy.kopieringschips.push(("Belopp".into(), återstår));
+                (Faktura::Leverantör(id), format!("leverantorsfakturor/{id}"))
+            }
+        };
+        vy.dokument = format!("{bas}/{}", sida.replace('/', "?f="));
+        vy.betala = Some(format!("{bas}?oppna={nyckel}&panel=betalning"));
+        if b.värde("panel").as_deref() == Some("betalning") {
+            let r = crate::betalning::server::reskontra(b, företag, faktura, Some("betalning"))
+                .await
+                .map_err(|e| match e {
+                    BetalningFel::Åtkomst(e) => e,
+                    e => ÅtkomstFel::Databas(maya_core::DatabasFel::Korrupt(e.to_string())),
+                })?;
+            vy.betalning = r.betalning.map(|v| {
+                (
+                    format!("{bas}/att-gora/{sida}/betalning"),
+                    format!("{bas}?oppna={nyckel}"),
+                    v,
+                )
+            });
+        }
+        Ok(Some(Öppet::Faktura(Box::new(vy))))
     }
 
     /// Ett utkast med formuläret, som i fliken Verifikat.
@@ -667,6 +864,82 @@ pub(crate) mod server {
             ))
             .into_response(),
             Err(e) => crate::underlag::server::underlagsfel(e),
+        }
+    }
+
+    /// #152 `POST /foretag/{id}/att-gora/kundfakturor/{f}/betalning`: registrerar betalningen
+    /// som i fakturans dokument och visar Att göra med verifikatets nummer, eller kortet igen
+    /// med panelen och spärrarna vid fälten.
+    async fn kundbetalning(
+        State(state): State<Arc<AttGöraState>>,
+        Path((id, f)): Path<(String, String)>,
+        inloggad: Option<Extension<Inloggad>>,
+        Form(fält): Form<Vec<(String, String)>>,
+    ) -> Response {
+        let Some(Extension(inloggad)) = inloggad else {
+            return Redirect::to("/").into_response();
+        };
+        let (Ok(företag), Ok(f)) = (id.parse::<FöretagsId>(), f.parse::<KundfakturaId>()) else {
+            return ingen_åtkomst();
+        };
+        betala(&state, &inloggad, företag, Faktura::Kund(f), &fält).await
+    }
+
+    /// #152 `POST /foretag/{id}/att-gora/leverantorsfakturor/{f}/betalning`: som
+    /// [`kundbetalning`], för en leverantörsfaktura (#147).
+    async fn leverantörsbetalning(
+        State(state): State<Arc<AttGöraState>>,
+        Path((id, f)): Path<(String, String)>,
+        inloggad: Option<Extension<Inloggad>>,
+        Form(fält): Form<Vec<(String, String)>>,
+    ) -> Response {
+        let Some(Extension(inloggad)) = inloggad else {
+            return Redirect::to("/").into_response();
+        };
+        let (Ok(företag), Ok(f)) = (id.parse::<FöretagsId>(), f.parse::<LeverantörsfakturaId>())
+        else {
+            return ingen_åtkomst();
+        };
+        betala(&state, &inloggad, företag, Faktura::Leverantör(f), &fält).await
+    }
+
+    /// Registrerar betalningen av `faktura` och visar Att göra med verifikatets nummer, eller
+    /// kortet igen med panelen och spärrarna vid fälten.
+    async fn betala(
+        state: &AttGöraState,
+        inloggad: &Inloggad,
+        företag: FöretagsId,
+        faktura: Faktura,
+        fält: &Vec<(String, String)>,
+    ) -> Response {
+        let nyckel = match faktura {
+            Faktura::Kund(f) => format!("kundfaktura-{f}"),
+            Faktura::Leverantör(f) => format!("leverantorsfaktura-{f}"),
+        };
+        let formulär = crate::betalning::ur_fält(|namn| {
+            fält.iter().find(|(k, _)| k == namn).map(|(_, v)| v.clone())
+        });
+        match betalning::registrera(
+            &state.db,
+            &state.klocka,
+            &inloggad.aktör,
+            företag,
+            faktura,
+            &formulär,
+        )
+        .await
+        {
+            Ok(r) => Redirect::to(&format!("/foretag/{företag}?betald={}", r.verifikat.nummer))
+                .into_response(),
+            Err(BetalningFel::Spärrat(_) | BetalningFel::Verifikat(_)) => {
+                crate::betalning::server::tillbaka(
+                    &format!("/foretag/{företag}?oppna={nyckel}"),
+                    fält,
+                    &[("panel", "betalning"), ("fel", "betalning")],
+                )
+            }
+            Err(BetalningFel::FinnsInte) => ingen_åtkomst(),
+            Err(e) => crate::betalning::server::betalningsfel(e),
         }
     }
 
@@ -927,16 +1200,26 @@ fn Kort(bas: String, k: KortVy, öppet: Option<Öppet>) -> impl IntoView {
     let märke = match k.sort {
         Sort::Utkast => view! { <UtkastBadge /> }.into_any(),
         Sort::Underlag => view! { <span class="badge badge-okopplat">"okopplat"</span> }.into_any(),
+        // #152
+        Sort::Kundfaktura => {
+            view! { <span class="badge badge-forfallen">"förfallen"</span> }.into_any()
+        }
+        Sort::Leverantörsfaktura if k.när_klass == "bad" => {
+            view! { <span class="badge badge-forfallen">"förfallen"</span> }.into_any()
+        }
+        Sort::Leverantörsfaktura => {
+            view! { <span class="badge badge-obetald">"att betala"</span> }.into_any()
+        }
     };
     let gem = k.gem.then(|| view! { <Gem /> });
     let belopp = k
         .belopp
         .clone()
         .map(|b| view! { <span class="belopp">{b}</span> });
-    let klass = if öppet.is_some() {
-        "acard open"
-    } else {
-        "acard"
+    let klass = match (öppet.is_some(), k.nedtonad) {
+        (true, _) => "acard open",
+        (false, true) => "acard nedtonad",
+        (false, false) => "acard",
     };
     let innehåll = öppet.map(|ö| {
         let innehåll = match ö {
@@ -960,6 +1243,7 @@ fn Kort(bas: String, k: KortVy, öppet: Option<Öppet>) -> impl IntoView {
                 ta_bort,
             } => view! { <VadÄrDetHär bas=bas.clone() u=*underlag verifikat=verifikat ta_bort=ta_bort /> }
                 .into_any(),
+            Öppet::Faktura(f) => view! { <Fakturakort f=*f /> }.into_any(),
         };
         view! { <div class="ab">{innehåll}</div> }
     });
@@ -1071,4 +1355,97 @@ fn VadÄrDetHär(
             </div>
         </div>
     }
+}
+
+/// #152: en utfälld faktura i tidslinjen: det som återstår, kopieringschipsen och
+/// betalningspanelen, eller länken som fäller ut den.
+#[component]
+fn Fakturakort(f: FakturakortVy) -> impl IntoView {
+    let kontakt = f.kund.then(|| {
+        let kontakt = if f.kontakt.is_empty() {
+            "ingen e-post på fakturan".to_string()
+        } else {
+            f.kontakt.clone()
+        };
+        view! {
+            <dt>"Kontakt"</dt>
+            <dd>{kontakt}</dd>
+        }
+    });
+    let påminnelser = f.kund.then(|| {
+        view! { <p class="diskret">"Maya skickar inga påminnelser. Kontakta kunden själv."</p> }
+    });
+    let chips = (!f.kopieringschips.is_empty())
+        .then(|| view! { <Kopieringschips chips=f.kopieringschips.clone() /> });
+    let handlingar = match f.betalning.clone() {
+        Some((action, stäng, v)) => {
+            view! { <Betalningspanel action=action stäng=stäng v=v /> }.into_any()
+        }
+        None => {
+            let betala = f.betala.clone().map(|href| {
+                view! {
+                    <a class="knapp knapp-primar" href=href>
+                        "Registrera betalning…"
+                    </a>
+                }
+            });
+            view! {
+                <p class="knappar">
+                    {betala}
+                    <a class="knapp" href=f.dokument.clone()>
+                        "Öppna fakturan"
+                    </a>
+                </p>
+            }
+            .into_any()
+        }
+    };
+    view! {
+        <dl class="fakturakort">
+            <dt>"Kvar att betala"</dt>
+            <dd>
+                <b>{format!("{} kr", f.återstår)}</b>
+            </dd>
+            <dt>"Förfallodag"</dt>
+            <dd>{f.förfallodag.clone()}</dd>
+            {kontakt}
+        </dl>
+        {chips}
+        {påminnelser}
+        {handlingar}
+    }
+}
+
+/// #152: knappar som kopierar betaluppgifterna till urklipp. Utan JavaScript går texten att
+/// markera.
+#[component]
+fn Kopieringschips(chips: Vec<(String, String)>) -> impl IntoView {
+    let chips = chips
+        .into_iter()
+        .map(|(etikett, värde)| {
+            let text = värde.clone();
+            view! {
+                <button
+                    type="button"
+                    class="copy"
+                    title="Kopiera"
+                    on:click=move |_| kopiera(&text)
+                >
+                    <span class="k">{etikett}</span>
+                    {värde}
+                </button>
+            }
+        })
+        .collect_view();
+    view! { <div class="chips">{chips}</div> }
+}
+
+/// Lägger `text` i urklipp i webbläsaren.
+fn kopiera(text: &str) {
+    #[cfg(feature = "hydrate")]
+    if let Some(fönster) = web_sys::window() {
+        let _ = fönster.navigator().clipboard().write_text(text);
+    }
+    #[cfg(not(feature = "hydrate"))]
+    let _ = text;
 }
