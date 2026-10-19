@@ -14,6 +14,12 @@
 //! Leverantörsskulder. Sakernas sorter kommer från
 //! `maya_core::att_gora::Sak`; en ny sort får ett eget kort här ([`Sort`]).
 //!
+//! #153: spalten Utan datum får Att granska med de nya kunderna och leverantörerna från utkasten
+//! som streckade kort, Följ upp med kundfakturorna vars utskick misslyckades eller som inte är
+//! skickade (med panelen Skicka: Skicka igen och Lämnad på annat sätt), och fakturautkasten per
+//! period tillsammans med verifikatutkasten. Ett fakturautkast öppnas i sin flik med Granska och
+//! utfärda eller Granska och registrera.
+//!
 //! Överst, före allt annat, varningen efter en återställning med `maya restore`, tills
 //! användaren kvitterar den.
 //!
@@ -27,6 +33,7 @@ use crate::betalning::{BetalningsVy, Betalningspanel};
 use crate::foretag::{Företagsval, IngenÅtkomst};
 use crate::sidodata::sida;
 use crate::underlag::{Förhandsvisning, Gem, UnderlagVy};
+use crate::utskick::{SkickaPanel, SkickaVy};
 use crate::verifikat::{
     DokumentVy, Formulär, FormulärData, UtkastBadge, företagets_bas, inloggad
 };
@@ -47,6 +54,12 @@ pub struct AttGöradata {
     pub tidslinje: Vec<DagVy>,
     pub utkast: Vec<PeriodVy>,
     pub underlag: Vec<KortVy>,
+    /// #153 Att granska: de nya kunderna och leverantörerna från utkasten.
+    #[serde(default)]
+    pub att_granska: Vec<KortVy>,
+    /// #153 Följ upp: kundfakturorna vars utskick misslyckades eller som inte är skickade.
+    #[serde(default)]
+    pub följ_upp: Vec<KortVy>,
     /// Kortet som är utfällt och det som visas i det.
     pub öppet: Option<(String, Öppet)>,
     pub notis: Option<String>,
@@ -103,6 +116,20 @@ pub enum Sort {
     Kundfaktura,
     /// #152: en leverantörsfaktura att betala.
     Leverantörsfaktura,
+    /// #153: en kundfaktura vars senaste utskick misslyckades.
+    MisslyckatUtskick,
+    /// #153: en utfärdad kundfaktura som inte är skickad.
+    InteSkickad,
+    /// #153: ett utkast till en av Mayas egna kundfakturor.
+    Kundfakturautkast,
+    /// #153: ett utkast till en extern kundfaktura, eller en upplåst.
+    ExternKundfakturautkast,
+    /// #153: ett utkast till en leverantörsfaktura, eller en upplåst.
+    Leverantörsfakturautkast,
+    /// #153: en ny kund från ett utkast.
+    NyKund,
+    /// #153: en ny leverantör från ett utkast.
+    NyLeverantör,
 }
 
 /// Ett kort i agendan.
@@ -122,6 +149,9 @@ pub struct KortVy {
     /// #152: längre fram än 7 dagar, visas nedtonat.
     #[serde(default)]
     pub nedtonad: bool,
+    /// #153: fler märken efter sortens: kod (CSS `badge-<kod>`) och text.
+    #[serde(default)]
+    pub märken: Vec<(String, String)>,
 }
 
 /// Det som ett utfällt kort visar.
@@ -141,6 +171,35 @@ pub enum Öppet {
     },
     /// #152: en kund- eller leverantörsfaktura med det som återstår.
     Faktura(Box<FakturakortVy>),
+    /// #153: en kundfaktura under Följ upp, med panelen Skicka.
+    Uppföljning(Box<UppföljningVy>),
+    /// #153: ett fakturautkast eller en ny kund eller leverantör, med länken till utkastet.
+    Granska(Box<GranskaVy>),
+}
+
+/// En utfälld kundfaktura under Följ upp (#153).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct UppföljningVy {
+    pub id: String,
+    /// Adressen till fakturans dokument.
+    pub dokument: String,
+    /// Kortets adress och adressen som stänger det.
+    pub kortet: String,
+    pub stäng: String,
+    pub skicka: SkickaVy,
+}
+
+/// Ett utfällt fakturautkast eller en ny kund eller leverantör (#153).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GranskaVy {
+    /// En ny kund eller leverantör visas som ett streckat kort.
+    pub streckad: bool,
+    /// Etikett och värde.
+    pub uppgifter: Vec<(String, String)>,
+    /// Utkastets adress och knappens text.
+    pub länk: String,
+    pub knapp: String,
+    pub not: String,
 }
 
 /// En utfälld faktura i tidslinjen (#152).
@@ -186,8 +245,8 @@ pub(crate) mod server {
     use leptos::prelude::ServerFnError;
     use maya_core::atkomst::ÅtkomstFel;
     use maya_core::att_gora::{
-        self, Fakturasak, Reskontrafaktura, Reskontratal, Sak, Utkastsak, ÅterställningsId,
-        Återställningsvarning,
+        self, Fakturasak, Fakturautkast, Fakturautkastsak, NyPart, NyPartsak, Reskontrafaktura,
+        Reskontratal, Sak, Uppföljningssak, Utkastsak, ÅterställningsId, Återställningsvarning,
     };
     use maya_core::betalning::{self, BetalningFel, Faktura};
     use maya_core::config::Config;
@@ -199,7 +258,7 @@ pub(crate) mod server {
     use maya_core::verifikat::{self, Urval, VerifikatFel, VerifikatId};
     use maya_core::{Databas, Klocka};
     use maya_domain::att_gora::{
-        Frist, dag_lång, dagar_mellan, länge_okopplat, ordna_utkast, ålder,
+        Frist, Utkastläge, dag_lång, dagar_mellan, länge_okopplat, ordna_utkast, ålder,
     };
     use maya_domain::belopp::Saldo;
     use maya_domain::rakenskapsar::periodnamn;
@@ -208,8 +267,8 @@ pub(crate) mod server {
     use serde::Deserialize;
 
     use super::{
-        AttGöradata, DagVy, DriftvarningVy, FakturakortVy, KortVy, NyckeltalVy, PeriodVy, Sort,
-        ÅterställningVy, Öppet,
+        AttGöradata, DagVy, DriftvarningVy, FakturakortVy, GranskaVy, KortVy, NyckeltalVy,
+        PeriodVy, Sort, UppföljningVy, ÅterställningVy, Öppet,
     };
     use crate::sidodata::{self, Sidbegäran};
     use crate::underlag::server::vy;
@@ -298,6 +357,9 @@ pub(crate) mod server {
         let mut underlagen = Vec::new();
         let mut återställningar = Vec::new();
         let mut fakturorna = Vec::new();
+        let mut uppföljningar = Vec::new();
+        let mut fakturautkasten = Vec::new();
+        let mut nya_parter = Vec::new();
         for sak in a.saker {
             match sak {
                 Sak::Återställning(v) => återställningar.push(återställning(&v)),
@@ -308,16 +370,28 @@ pub(crate) mod server {
                 Sak::Utkast(u) => utkast.push(u),
                 Sak::Underlag(u) => underlagen.push(u),
                 Sak::Faktura(f) => fakturorna.push(f),
+                // #153
+                Sak::Uppföljning(u) => uppföljningar.push(u),
+                Sak::Fakturautkast(u) => fakturautkasten.push(u),
+                Sak::NyPart(p) => nya_parter.push(p),
             }
         }
         let antal_utkast = utkast.len();
-        let ordning = ordna_utkast(utkast, Utkastsak::läge, idag);
-        // Ordningen som Bokför går vidare i: tidslinjen och sedan perioderna.
+        // #153 Fakturautkasten står per period efter fakturadatumet tillsammans med
+        // verifikatutkasten. De har ingen kontantfrist.
+        let alla: Vec<Utkastpost> = utkast
+            .into_iter()
+            .map(Utkastpost::Verifikat)
+            .chain(fakturautkasten.iter().cloned().map(Utkastpost::Faktura))
+            .collect();
+        let ordning = ordna_utkast(alla, Utkastpost::läge, idag);
+        // Ordningen som Bokför går vidare i: tidslinjen och sedan perioderna, bara verifikaten.
         let i_ordning: Vec<&Utkastsak> = ordning
             .kontanta
             .iter()
             .map(|(_, u)| u)
             .chain(ordning.perioder.iter().flat_map(|p| p.utkast.iter()))
+            .filter_map(Utkastpost::verifikat)
             .collect();
 
         let mut notis = None;
@@ -344,10 +418,19 @@ pub(crate) mod server {
             notis = Some("Varningen är kvitterad.".into());
         } else if let Some(v) = fråga("betald") {
             notis = Some(format!("Betalningen är bokförd som {v}."));
+        } else if fråga("skickat").is_some() {
+            notis = Some("Fakturan skickades med e-post, och utskicket loggades.".into());
+        } else if fråga("lamnad").is_some() {
+            notis = Some("Fakturan markerades som lämnad på annat sätt.".into());
         }
         let fel = fråga("fel")
             .and_then(|kod| match kod {
                 "inget_verifikat" => Some("Välj ett bokfört verifikat att komplettera."),
+                // #153 Skicka igen från Följ upp
+                "skickfel" => Some(
+                    "Utskicket misslyckades och loggades. Fakturan är utfärdad och kan skickas igen.",
+                ),
+                "mottagare" => Some("Mottagaren är ingen e-postadress. Inget skickades."),
                 kod => crate::underlag::feltext(kod),
             })
             .map(str::to_string);
@@ -382,7 +465,13 @@ pub(crate) mod server {
                 när_klass: klass.into(),
                 gem: u.underlag > 0,
                 nedtonad: false,
+                märken: Vec::new(),
             }
+        };
+        let bas = format!("/foretag/{företag}");
+        let kort_för_post = |p: &Utkastpost| match p {
+            Utkastpost::Verifikat(u) => kort_för_utkast(u),
+            Utkastpost::Faktura(f) => kort_för_fakturautkast(f, idag),
         };
 
         // Det som har ett datum: utkasten med kontantfrist och (#152) fakturorna på sin
@@ -390,7 +479,7 @@ pub(crate) mod server {
         let mut daterade: Vec<(Date, KortVy)> = ordning
             .kontanta
             .iter()
-            .map(|(senast, u)| (*senast, kort_för_utkast(u)))
+            .map(|(senast, u)| (*senast, kort_för_post(u)))
             .collect();
         daterade.extend(
             fakturorna
@@ -439,7 +528,7 @@ pub(crate) mod server {
                     .map(|m| stor_bokstav(&periodnamn(m)))
                     .unwrap_or_else(|| "Utan verifikatdatum".into()),
                 varning: p.varning.map(|d| format!("slut för {d} dagar sedan")),
-                kort: p.utkast.iter().map(kort_för_utkast).collect(),
+                kort: p.utkast.iter().map(kort_för_post).collect(),
             })
             .collect();
         let underlag: Vec<KortVy> = underlagen
@@ -460,10 +549,20 @@ pub(crate) mod server {
                     när_klass: if länge { "hot" } else { "" }.into(),
                     gem: false,
                     nedtonad: false,
+                    märken: Vec::new(),
                 }
             })
             .collect();
-        let utan_datum = perioder.iter().map(|p| p.kort.len()).sum::<usize>() + underlag.len();
+        // #153 Att granska och Följ upp.
+        let att_granska: Vec<KortVy> = nya_parter.iter().map(kort_för_ny_part).collect();
+        let följ_upp: Vec<KortVy> = uppföljningar
+            .iter()
+            .map(|u| kort_för_uppföljning(u, idag))
+            .collect();
+        let utan_datum = perioder.iter().map(|p| p.kort.len()).sum::<usize>()
+            + underlag.len()
+            + att_granska.len()
+            + följ_upp.len();
 
         let öppet = match öppna.as_deref().and_then(|n| n.split_once('-')) {
             Some(("utkast", id)) => öppet_utkast(state, inloggad, företag, id).await?,
@@ -473,6 +572,21 @@ pub(crate) mod server {
             }
             Some((sort @ ("kundfaktura" | "leverantorsfaktura"), id)) => {
                 öppen_faktura(b, företag, &fakturorna, sort, id).await?
+            }
+            // #153
+            Some(("utskick", id)) => öppen_uppföljning(b, företag, &uppföljningar, id).await?,
+            Some((sort, id)) => {
+                let nyckel = format!("{sort}-{id}");
+                fakturautkasten
+                    .iter()
+                    .find(|u| utkastnyckel(u.utkast) == nyckel)
+                    .map(|u| öppet_fakturautkast(&bas, u))
+                    .or_else(|| {
+                        nya_parter
+                            .iter()
+                            .find(|p| partnyckel(p.part) == nyckel)
+                            .map(|p| öppen_ny_part(&bas, p))
+                    })
             }
             _ => None,
         }
@@ -489,6 +603,8 @@ pub(crate) mod server {
             tidslinje,
             utkast: perioder,
             underlag,
+            att_granska,
+            följ_upp,
             öppet,
             notis,
             fel,
@@ -575,7 +691,276 @@ pub(crate) mod server {
             .into(),
             gem: false,
             nedtonad: dagar > 7,
+            märken: Vec::new(),
         }
+    }
+
+    // #153 Följ upp, fakturautkasten och de nya kunderna och leverantörerna
+
+    /// Ett verifikatutkast eller ett fakturautkast i spalten Utan datum.
+    #[derive(Clone)]
+    enum Utkastpost {
+        Verifikat(Utkastsak),
+        Faktura(Fakturautkastsak),
+    }
+
+    impl Utkastpost {
+        fn läge(&self) -> Utkastläge {
+            match self {
+                Utkastpost::Verifikat(u) => u.läge(),
+                Utkastpost::Faktura(f) => Utkastläge {
+                    datum: f.fakturadatum,
+                    kassa: false,
+                },
+            }
+        }
+
+        fn verifikat(&self) -> Option<&Utkastsak> {
+            match self {
+                Utkastpost::Verifikat(u) => Some(u),
+                Utkastpost::Faktura(_) => None,
+            }
+        }
+    }
+
+    /// Kortets id och adressens `oppna` för ett fakturautkast.
+    fn utkastnyckel(u: Fakturautkast) -> String {
+        match u {
+            Fakturautkast::Kundfaktura(id) => format!("kundfakturautkast-{id}"),
+            Fakturautkast::ExternKundfaktura(id) => format!("externutkast-{id}"),
+            Fakturautkast::Leverantörsfaktura(id) => format!("leverantorsfakturautkast-{id}"),
+        }
+    }
+
+    /// Kortets id och adressens `oppna` för en ny kund eller leverantör.
+    fn partnyckel(p: NyPart) -> String {
+        match p {
+            NyPart::Kund(id) => format!("nykund-{id}"),
+            NyPart::Leverantör(id) => format!("nyleverantor-{id}"),
+        }
+    }
+
+    /// Utkastets adress i sin flik, och vad knappen gör där.
+    fn utkastets_länk(bas: &str, u: Fakturautkast) -> (String, &'static str) {
+        match u {
+            Fakturautkast::Kundfaktura(id) => {
+                (format!("{bas}/kundfakturor?f={id}"), "Granska och utfärda")
+            }
+            Fakturautkast::ExternKundfaktura(id) => (
+                format!("{bas}/kundfakturor?f={id}"),
+                "Granska och registrera",
+            ),
+            Fakturautkast::Leverantörsfaktura(id) => (
+                format!("{bas}/leverantorsfakturor?f={id}"),
+                "Granska och registrera",
+            ),
+        }
+    }
+
+    fn kort_för_fakturautkast(f: &Fakturautkastsak, idag: Date) -> KortVy {
+        let (sort, sorten) = match f.utkast {
+            Fakturautkast::Kundfaktura(_) if f.kreditfaktura => {
+                (Sort::Kundfakturautkast, "Kreditfaktura")
+            }
+            Fakturautkast::Kundfaktura(_) => (Sort::Kundfakturautkast, "Kundfaktura"),
+            Fakturautkast::ExternKundfaktura(_) => {
+                (Sort::ExternKundfakturautkast, "Extern kundfaktura")
+            }
+            Fakturautkast::Leverantörsfaktura(_) => {
+                (Sort::Leverantörsfakturautkast, "Leverantörsfaktura")
+            }
+        };
+        let rubrik = [
+            sorten.to_string(),
+            f.fakturanummer.clone(),
+            f.motpart.clone(),
+        ]
+        .into_iter()
+        .filter(|d| !d.trim().is_empty())
+        .collect::<Vec<_>>()
+        .join(" · ");
+        let mut märken = Vec::new();
+        if f.upplåst {
+            märken.push(("upplast".to_string(), "upplåst".to_string()));
+        }
+        if f.ny_motpart {
+            let ny = match f.utkast {
+                Fakturautkast::Leverantörsfaktura(_) => "ny leverantör",
+                _ => "ny kund",
+            };
+            märken.push(("ny".to_string(), ny.to_string()));
+        }
+        KortVy {
+            nyckel: utkastnyckel(f.utkast),
+            sort,
+            rubrik,
+            belopp: f.total.map(|t| Saldo::från_öre(t).to_string()),
+            när: match f.fakturadatum {
+                Some(d) => format!("fakturadatum {}", dag_lång(d)),
+                None => "inget fakturadatum".into(),
+            },
+            när_klass: match f.fakturadatum {
+                Some(d) if dagar_mellan(d, idag) > 50 => "hot",
+                _ => "",
+            }
+            .into(),
+            gem: matches!(
+                f.utkast,
+                Fakturautkast::ExternKundfaktura(_) | Fakturautkast::Leverantörsfaktura(_)
+            ),
+            nedtonad: false,
+            märken,
+        }
+    }
+
+    fn kort_för_ny_part(p: &NyPartsak) -> KortVy {
+        KortVy {
+            nyckel: partnyckel(p.part),
+            sort: match p.part {
+                NyPart::Kund(_) => Sort::NyKund,
+                NyPart::Leverantör(_) => Sort::NyLeverantör,
+            },
+            rubrik: p.namn.clone(),
+            belopp: None,
+            när: match p.part {
+                NyPart::Kund(_) => "läggs i registret när fakturan utfärdas eller registreras",
+                NyPart::Leverantör(_) => "läggs i registret när fakturan registreras",
+            }
+            .into(),
+            när_klass: String::new(),
+            gem: false,
+            nedtonad: false,
+            märken: Vec::new(),
+        }
+    }
+
+    fn kort_för_uppföljning(u: &Uppföljningssak, idag: Date) -> KortVy {
+        let (sort, när, klass) = match &u.misslyckat {
+            Some(m) => (
+                Sort::MisslyckatUtskick,
+                format!(
+                    "till {} misslyckades {}",
+                    m.till,
+                    ålder(tid_datum(m.tid), idag)
+                ),
+                "bad",
+            ),
+            None => (
+                Sort::InteSkickad,
+                format!("utfärdad {}", ålder(u.fakturadatum, idag)),
+                "",
+            ),
+        };
+        KortVy {
+            nyckel: format!("utskick-{}", u.faktura),
+            sort,
+            rubrik: format!("Faktura {} · {}", u.nummer, u.kund),
+            belopp: Some(Saldo::från_öre(u.total).to_string()),
+            när,
+            när_klass: klass.into(),
+            gem: false,
+            nedtonad: false,
+            märken: Vec::new(),
+        }
+    }
+
+    fn öppet_fakturautkast(bas: &str, f: &Fakturautkastsak) -> Öppet {
+        let (länk, knapp) = utkastets_länk(bas, f.utkast);
+        let mut uppgifter = Vec::new();
+        if !f.motpart.is_empty() {
+            uppgifter.push((
+                match f.utkast {
+                    Fakturautkast::Leverantörsfaktura(_) => "Leverantör",
+                    _ => "Kund",
+                }
+                .to_string(),
+                f.motpart.clone(),
+            ));
+        }
+        if !f.fakturanummer.is_empty() {
+            uppgifter.push(("Fakturanummer".into(), f.fakturanummer.clone()));
+        }
+        uppgifter.push((
+            "Fakturadatum".into(),
+            f.fakturadatum
+                .map(|d| d.to_string())
+                .unwrap_or_else(|| "inte ifyllt".into()),
+        ));
+        if let Some(t) = f.total {
+            uppgifter.push(("Totalt".into(), format!("{} kr", Saldo::från_öre(t))));
+        }
+        let not = match f.utkast {
+            Fakturautkast::Kundfaktura(_) => {
+                "Utfärdandet görs i dialogen Granska och utfärda, med PDF:en och utskicket."
+            }
+            Fakturautkast::ExternKundfaktura(_) => {
+                "Registreringen görs med originalet bredvid formuläret i Kundfakturor."
+            }
+            Fakturautkast::Leverantörsfaktura(_) => {
+                "Registreringen görs med originalet bredvid formuläret i Leverantörsfakturor."
+            }
+        };
+        Öppet::Granska(Box::new(GranskaVy {
+            streckad: false,
+            uppgifter,
+            länk,
+            knapp: format!("{knapp} ↗"),
+            not: not.into(),
+        }))
+    }
+
+    fn öppen_ny_part(bas: &str, p: &NyPartsak) -> Öppet {
+        let (länk, _) = utkastets_länk(bas, p.utkast);
+        let not = match p.part {
+            NyPart::Kund(_) => {
+                "Kunden hör till utkastet och läggs i kundregistret när fakturan utfärdas eller \
+                 registreras. Raderas utkastet försvinner den."
+            }
+            NyPart::Leverantör(_) => {
+                "Leverantören hör till utkastet och läggs i leverantörsregistret när fakturan \
+                 registreras. Raderas utkastet försvinner den."
+            }
+        };
+        Öppet::Granska(Box::new(GranskaVy {
+            streckad: true,
+            uppgifter: p
+                .uppgifter
+                .iter()
+                .map(|(k, v)| (k.to_string(), v.clone()))
+                .collect(),
+            länk,
+            knapp: "Granska utkastet ↗".into(),
+            not: not.into(),
+        }))
+    }
+
+    /// En kundfaktura under Följ upp med panelen Skicka, som i fakturans dokument (#138).
+    async fn öppen_uppföljning(
+        b: &Sidbegäran,
+        företag: FöretagsId,
+        uppföljningar: &[Uppföljningssak],
+        id: &str,
+    ) -> Result<Option<Öppet>, ÅtkomstFel> {
+        let Some(u) = uppföljningar.iter().find(|u| u.faktura.to_string() == id) else {
+            return Ok(None);
+        };
+        let (_, skicka) = crate::utskick::server::utskicken(b, företag, u.faktura, true)
+            .await
+            .map_err(|e| match e {
+                maya_core::utskick::UtskickFel::Åtkomst(e) => e,
+                e => ÅtkomstFel::Databas(maya_core::DatabasFel::Korrupt(e.to_string())),
+            })?;
+        let Some(skicka) = skicka else {
+            return Ok(None);
+        };
+        let bas = format!("/foretag/{företag}");
+        Ok(Some(Öppet::Uppföljning(Box::new(UppföljningVy {
+            id: u.faktura.to_string(),
+            dokument: format!("{bas}/kundfakturor?f={}", u.faktura),
+            kortet: format!("{bas}?oppna=utskick-{}", u.faktura),
+            stäng: bas,
+            skicka,
+        }))))
     }
 
     /// `kundfaktura-<id>` eller `leverantorsfaktura-<id>`: kortets id och adressens `oppna`.
@@ -1017,6 +1402,8 @@ fn att_göra(data: AttGöradata) -> AnyView {
             data.utkast
                 .iter()
                 .flat_map(|p| p.kort.iter())
+                .chain(data.att_granska.iter())
+                .chain(data.följ_upp.iter())
                 .any(|k| k.nyckel == *nyckel)
         });
     let tidslinje = if data.tidslinje.is_empty() {
@@ -1086,6 +1473,22 @@ fn att_göra(data: AttGöradata) -> AnyView {
             {kort}
         }
     });
+    // #153 Att granska och Följ upp, överst i spalten.
+    let grupp = |rubrik: &'static str, kort_: &[KortVy]| {
+        (!kort_.is_empty()).then(|| {
+            let n = kort_.len();
+            let kort_ = kort_.iter().cloned().map(kort.clone()).collect_view();
+            view! {
+                <div class="ig">
+                    {rubrik}
+                    <span class="n">{n}</span>
+                </div>
+                {kort_}
+            }
+        })
+    };
+    let att_granska = grupp("Att granska", &data.att_granska);
+    let följ_upp = grupp("Följ upp", &data.följ_upp);
     let tomt = (data.utan_datum == 0).then(|| view! { <p class="diskret">"Inget."</p> });
     let nyckeltal = data
         .nyckeltal
@@ -1144,6 +1547,8 @@ fn att_göra(data: AttGöradata) -> AnyView {
                         "Utan datum"
                         <span class="diskret">{data.utan_datum}</span>
                     </div>
+                    {att_granska}
+                    {följ_upp}
                     {utkast}
                     {underlag}
                     {tomt}
@@ -1210,7 +1615,33 @@ fn Kort(bas: String, k: KortVy, öppet: Option<Öppet>) -> impl IntoView {
         Sort::Leverantörsfaktura => {
             view! { <span class="badge badge-obetald">"att betala"</span> }.into_any()
         }
+        // #153
+        Sort::MisslyckatUtskick => {
+            view! { <span class="badge badge-forfallen">"studsade"</span> }.into_any()
+        }
+        Sort::InteSkickad => {
+            view! { <span class="badge badge-obetald">"inte skickad"</span> }.into_any()
+        }
+        Sort::Kundfakturautkast => {
+            view! { <span class="badge badge-utkast">"kundfaktura"</span> }.into_any()
+        }
+        Sort::ExternKundfakturautkast => {
+            view! { <span class="badge badge-utkast">"extern kundfaktura"</span> }.into_any()
+        }
+        Sort::Leverantörsfakturautkast => {
+            view! { <span class="badge badge-utkast">"leverantörsfaktura"</span> }.into_any()
+        }
+        Sort::NyKund => view! { <span class="badge badge-ny">"ny kund"</span> }.into_any(),
+        Sort::NyLeverantör => {
+            view! { <span class="badge badge-ny">"ny leverantör"</span> }.into_any()
+        }
     };
+    let märken = k
+        .märken
+        .iter()
+        .cloned()
+        .map(|(kod, namn)| view! { " " <span class=format!("badge badge-{kod}")>{namn}</span> })
+        .collect_view();
     let gem = k.gem.then(|| view! { <Gem /> });
     let belopp = k
         .belopp
@@ -1244,6 +1675,9 @@ fn Kort(bas: String, k: KortVy, öppet: Option<Öppet>) -> impl IntoView {
             } => view! { <VadÄrDetHär bas=bas.clone() u=*underlag verifikat=verifikat ta_bort=ta_bort /> }
                 .into_any(),
             Öppet::Faktura(f) => view! { <Fakturakort f=*f /> }.into_any(),
+            // #153
+            Öppet::Uppföljning(u) => view! { <Uppföljningskort u=*u /> }.into_any(),
+            Öppet::Granska(g) => view! { <Granskakort g=*g /> }.into_any(),
         };
         view! { <div class="ab">{innehåll}</div> }
     });
@@ -1252,7 +1686,7 @@ fn Kort(bas: String, k: KortVy, öppet: Option<Öppet>) -> impl IntoView {
             <a class="ah" href=href>
                 <span class="ah-text">
                     <b>{k.rubrik.clone()}</b>
-                    <span class="s">{märke} {gem}</span>
+                    <span class="s">{märke} {märken} {gem}</span>
                 </span>
                 <span class="ah-hoger">
                     {belopp}
@@ -1448,4 +1882,55 @@ fn kopiera(text: &str) {
     }
     #[cfg(not(feature = "hydrate"))]
     let _ = text;
+}
+
+/// #153: en kundfaktura under Följ upp med panelen Skicka från fakturans dokument, så att den
+/// skickas igen eller markeras som lämnad på annat sätt härifrån.
+#[component]
+fn Uppföljningskort(u: UppföljningVy) -> impl IntoView {
+    let lista = u
+        .dokument
+        .split_once('?')
+        .map(|(l, _)| l.to_string())
+        .unwrap_or_default();
+    view! {
+        <SkickaPanel lista=lista id=u.id.clone() s=u.skicka att_göra=(u.kortet, u.stäng) />
+        <p class="knappar">
+            <a class="knapp" href=u.dokument>
+                "Öppna fakturan"
+            </a>
+        </p>
+    }
+}
+
+/// #153: ett fakturautkast, eller en ny kund eller leverantör som ett streckat kort, med länken
+/// till utkastet i sin flik.
+#[component]
+fn Granskakort(g: GranskaVy) -> impl IntoView {
+    let uppgifter = g
+        .uppgifter
+        .into_iter()
+        .map(|(k, v)| {
+            view! {
+                <dt>{k}</dt>
+                <dd>{v}</dd>
+            }
+        })
+        .collect_view();
+    let klass = if g.streckad {
+        "kort-streckat granska-kort"
+    } else {
+        "granska-kort"
+    };
+    view! {
+        <div class=klass>
+            <dl class="fakturakort">{uppgifter}</dl>
+            <p class="knappar">
+                <a class="knapp knapp-primar" href=g.länk>
+                    {g.knapp}
+                </a>
+            </p>
+            <p class="diskret">{g.not}</p>
+        </div>
+    }
 }
