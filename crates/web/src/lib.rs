@@ -10,6 +10,7 @@ pub mod att_gora;
 pub mod behandlingshistorik;
 pub mod betalning;
 pub mod bokforing;
+pub mod externa_kundfakturor;
 pub mod fakturauppgifter;
 pub mod foretag;
 pub mod ingaende_balans;

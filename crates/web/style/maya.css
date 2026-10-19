@@ -2856,3 +2856,16 @@ kbd {
 .hanvisning {
   font-weight: 600;
 }
+
+/* Externa kundfakturor (#143) */
+.badge-extern {
+  background: transparent;
+  color: var(--muted-foreground);
+  border: 1px dashed var(--border);
+}
+
+.badge-upplast {
+  background: color-mix(in oklch, var(--primary) 12%, transparent);
+  color: var(--foreground);
+  border: 1px solid var(--primary);
+}
