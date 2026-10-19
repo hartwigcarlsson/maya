@@ -151,7 +151,7 @@ async fn reskontran_per_datum_blir_den_förväntade_csv_filen() {
         .await
         .unwrap();
     assert_eq!(csv.filnamn, "reskontra_5560360793_20261018.csv");
-    let väntad = include_bytes!("golden/reskontra.csv");
+    let väntad = include_bytes!("../golden/reskontra.csv");
     assert_eq!(
         String::from_utf8_lossy(&csv.innehåll),
         String::from_utf8_lossy(väntad)

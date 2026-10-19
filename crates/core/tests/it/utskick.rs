@@ -1,7 +1,7 @@
 //! Utskick av kundfakturor genom `core` mot en tillfällig databas och en brevlåda i testet
 //! (#138): mejlet med den arkiverade PDF:en och svarsadressen, att ett avvisat utskick loggas
 //! utan att utfärdandet rullas tillbaka, lämnad på annat sätt och skyddet mot ändring.
-//! Själva SMTP-samtalet testas genom webbens adapter i `crates/web/tests/utskick.rs`.
+//! Själva SMTP-samtalet testas genom webbens adapter i `crates/web/tests/it/utskick.rs`.
 
 use maya_core::kundfaktura::{self, Status};
 use maya_core::testhjalp::{self, Brevlåda};

@@ -130,7 +130,7 @@ async fn exporten_blir_den_förväntade_filen_och_läses_tillbaka_till_samma_sal
         .unwrap();
 
     assert_eq!(export.filnamn, "SIE4_5560360793_2027.se");
-    let förväntad = include_bytes!("golden/sie4_2027.se");
+    let förväntad = include_bytes!("../golden/sie4_2027.se");
     maya_sie::läs(förväntad).expect("den förväntade filen är giltig");
     assert_eq!(
         utan_version(&export.innehåll)
@@ -466,7 +466,7 @@ async fn ett_år_med_fakturor_blir_den_förväntade_filen_och_läses_tillbaka_ti
         .unwrap();
 
     assert_eq!(export.filnamn, "SIE4_5560360793_2026.se");
-    let förväntad = include_bytes!("golden/sie4_fakturor_2026.se");
+    let förväntad = include_bytes!("../golden/sie4_fakturor_2026.se");
     maya_sie::läs(förväntad).expect("den förväntade filen är giltig");
     assert_eq!(
         utan_version(&export.innehåll)

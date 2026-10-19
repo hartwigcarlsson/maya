@@ -578,7 +578,8 @@ async fn varje_spärr_vid_utfärdande_stoppar_utfärdandet_och_ändrar_ingenting
             .unwrap()
             .is_empty()
     );
-    // Kreditfakturornas spärrar kräver ett utfärdat original och prövas i tests/kreditfaktura.rs.
+    // Kreditfakturornas spärrar kräver ett utfärdat original och prövas i
+    // tests/it/kreditfaktura.rs.
     let dokumenterade: BTreeSet<&str> = UTFÄRDANDESPÄRRAR
         .iter()
         .map(|(k, _)| *k)

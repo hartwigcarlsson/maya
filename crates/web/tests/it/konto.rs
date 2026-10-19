@@ -1,5 +1,6 @@
 //! Passkeys och sessioner under användarmenyn, genom routern. Färsk passkey prövas mot en
-//! fast klocka i `crates/core/tests/passkeys.rs`; här är sessionen nyss inloggad och färsk.
+//! fast klocka i `crates/core/tests/it/passkeys.rs`; här är sessionen nyss inloggad och
+//! färsk.
 
 use std::sync::Arc;
 
