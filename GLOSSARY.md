@@ -235,6 +235,10 @@ _Avoid_: Utbetalning (som term), retur, kreditering
 En registrerad leverantörsfaktura eller extern kundfaktura vars registrering har vänts med Rätta avskrift eller Rätta registrering; den skrivs av igen med betalningarna kvar och registreras om med samma regler, men raderas inte.
 _Avoid_: Olåst, öppnad, återkallad
 
+**Bokförd fordran**:
+Att en fakturas fordran på 1510 eller skuld på 2440 är bokförd: från utfärdandet eller registreringen under fakturametoden, och från T2-verifikatet under kontantmetoden. När den inte är bokförd bokför betalningen intäkt eller kostnad och moms i proportion, och en kundförlust ger bara status. Bokföringsmetoden på fakturadatumet avgör.
+_Avoid_: Bokförd faktura, periodiserad fordran
+
 **Anställd**:
 En person som får lön eller styrelsearvode från ett företag, även en ägare; registreras per företag.
 _Avoid_: Personal, medarbetare, löntagare
