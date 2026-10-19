@@ -148,10 +148,11 @@ impl FörutsättningarVy {
                         leverantör: l.clone(),
                         fakturanummer: nr.clone(),
                         fakturadatum: datum.parse().ok()?,
-                        total: Belopp::från_öre(*total),
+                        total: *total,
                     })
                 })
                 .collect(),
+            ..Förutsättningar::default()
         }
     }
 
@@ -241,6 +242,7 @@ pub(crate) fn formulär(värde: impl Fn(&str) -> Option<String>) -> NyLeverantö
         totalbelopp: v("totalbelopp"),
         omvänd_skattskyldighet: v("omvand_skattskyldighet"),
         originalvaluta: v("originalvaluta"),
+        krediterar: v("krediterar"),
         rader: (0..antal)
             .map(|i| NyRad {
                 konto: v(&format!("konto_{i}")),
@@ -265,6 +267,7 @@ pub(crate) fn fält(f: &NyLeverantörsfaktura) -> Vec<(String, String)> {
         ("totalbelopp", &f.totalbelopp),
         ("omvand_skattskyldighet", &f.omvänd_skattskyldighet),
         ("originalvaluta", &f.originalvaluta),
+        ("krediterar", &f.krediterar),
         ("ny_namn", &n.namn),
         ("ny_orgnr", &n.orgnr),
         ("ny_momsregnr", &n.momsregnr),
@@ -439,7 +442,7 @@ pub(crate) mod server {
                 .iter()
                 .map(|r| {
                     let registrerad = r.förfallodag.filter(|_| r.status != Status::Utkast);
-                    let total = r.total.map(|t| t.öre()).unwrap_or_default();
+                    let total = r.total.unwrap_or_default();
                     ListradVy {
                         id: r.id.to_string(),
                         utkast: r.status == Status::Utkast,
@@ -447,7 +450,7 @@ pub(crate) mod server {
                         ny_leverantör: r.ny_leverantör,
                         fakturanummer: r.fakturanummer.clone(),
                         förfallodag: r.förfallodag.map(|d| d.to_string()).unwrap_or_default(),
-                        total: r.total.map(|t| t.to_string()).unwrap_or_default(),
+                        total: r.total.map(kr).unwrap_or_default(),
                         återstår: kr(r.återstår),
                         märke: registrerad.map(|d| {
                             let m = maya_domain::reskontra::märke(total, r.återstår, d, idag);
@@ -511,7 +514,7 @@ pub(crate) mod server {
                             r.leverantör.clone(),
                             r.fakturanummer.clone(),
                             r.fakturadatum.to_string(),
-                            r.total.öre(),
+                            r.total,
                         )
                     })
                     .collect(),
@@ -554,7 +557,7 @@ pub(crate) mod server {
         // #147 Betalningar: status, betalningarna och panelerna, och betaluppgifterna.
         let reskontra = match f.status {
             Status::Utkast => None,
-            Status::Registrerad => Some(
+            Status::Registrerad | Status::Upplåst => Some(
                 crate::betalning::server::reskontra(
                     b,
                     företag,

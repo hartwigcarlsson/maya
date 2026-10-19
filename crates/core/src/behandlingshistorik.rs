@@ -105,6 +105,11 @@ händelser! {
     // #139 Betalningar
     BetalningRegistrerad => "betalning registrerad",
     BetalningRättad => "betalning rättad",
+    // #140 Kreditfakturor
+    Återbetalning => "återbetalning",
+    // #148 Kreditfaktura från leverantör och Rätta avskrift
+    KreditfakturaRegistrerad => "kreditfaktura registrerad",
+    AvskriftRättad => "avskrift rättad",
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -736,6 +741,57 @@ impl Post {
                     text.push_str(&format!(", {}", f("orsak")));
                 }
                 text.push_str(&format!(", {} kr återstår", kronor(&b["återstår_öre"])));
+                text
+            }
+            // #140 Kreditfakturor
+            Händelse::Återbetalning => format!(
+                "Återbetalning {} kr av tillgodohavandet på faktura {} till ”{}” den {} från {}, \
+                 bokförd som {}, {} kr återstår",
+                kronor(&b["summa_öre"]),
+                f("fakturanummer"),
+                f("motpart"),
+                f("betaldag"),
+                f("konto"),
+                s(&b["verifikat"]["nummer"]),
+                kronor(&b["återstår_öre"])
+            ),
+            // #148 Kreditfaktura från leverantör och Rätta avskrift
+            Händelse::KreditfakturaRegistrerad => {
+                let mut text = format!(
+                    "Kreditfaktura {} från ”{}” daterad {}, {} kr",
+                    f("fakturanummer"),
+                    f("leverantörsnamn"),
+                    f("fakturadatum"),
+                    kronor(&b["summa_öre"])
+                );
+                if b["krediterar"].is_object() {
+                    text.push_str(&format!(
+                        ", krediterar faktura {}",
+                        s(&b["krediterar"]["fakturanummer"])
+                    ));
+                }
+                text.push_str(&format!(", bokförd som {}", f("nummer")));
+                text
+            }
+            Händelse::AvskriftRättad => {
+                let mut text = format!(
+                    "Avskriften av faktura {} från ”{}”",
+                    f("fakturanummer"),
+                    f("leverantörsnamn")
+                );
+                if b["rättelse"].is_object() {
+                    text.push_str(&format!(
+                        " rättad med {} av {}",
+                        s(&b["rättelse"]["nummer"]),
+                        s(&b["verifikat"]["nummer"])
+                    ));
+                } else {
+                    text.push_str(" rättad");
+                }
+                if !f("orsak").is_empty() {
+                    text.push_str(&format!(", {}", f("orsak")));
+                }
+                text.push_str(", fakturan är upplåst");
                 text
             }
         }

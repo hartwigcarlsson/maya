@@ -510,6 +510,65 @@ async fn fakturaändringar(db: &Databas, anna: &Aktör, id: FöretagsId, tid: &s
     maya_core::betalning::rätta(db, &k, anna, id, betalning.id, "2026-03-01", "fel belopp")
         .await
         .unwrap();
+
+    // #148 Kreditfaktura från leverantör, återbetalning och Rätta avskrift
+    let l = testhjalp::leverantör(db, anna, id, "Krediterande AB").await;
+    let original = testhjalp::registrerad_leverantörsfaktura(db, anna, id, l, "7001", "").await;
+    let betala = |belopp: &'static str| maya_domain::betalning::NyBetalning {
+        betaldag: "2026-04-01".into(),
+        belopp: belopp.into(),
+        konto: "1930".into(),
+        ..Default::default()
+    };
+    let lev = maya_core::betalning::Faktura::Leverantör(original);
+    maya_core::betalning::registrera(db, &k, anna, id, lev, &betala("1 250"))
+        .await
+        .unwrap();
+    let (kredit, _) = maya_core::leverantorsfaktura::ladda_upp(
+        db,
+        &k,
+        anna,
+        id,
+        (
+            "kredit-7001.pdf",
+            "application/pdf",
+            b"%PDF-1.4 kredit 7001",
+        ),
+    )
+    .await
+    .unwrap();
+    maya_core::leverantorsfaktura::registrera(
+        db,
+        &k,
+        anna,
+        id,
+        kredit,
+        &maya_domain::leverantorsfaktura::NyLeverantörsfaktura {
+            leverantör: l.to_string(),
+            fakturanummer: "K-7001".into(),
+            fakturadatum: "2026-03-20".into(),
+            förfallodag: "2026-04-19".into(),
+            totalbelopp: "-250".into(),
+            krediterar: original.to_string(),
+            rader: vec![maya_domain::leverantorsfaktura::NyRad {
+                konto: "5410".into(),
+                netto: "-200".into(),
+                momssats: "25".into(),
+                moms: String::new(),
+            }],
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
+    maya_core::betalning::registrera(db, &k, anna, id, lev, &betala("250"))
+        .await
+        .unwrap();
+    // Rättelsen dateras i dag, som inte får vara före registreringen.
+    let senare = Klocka::fast("2026-10-19T08:00:00Z".parse().unwrap());
+    maya_core::leverantorsfaktura::rätta_avskrift(db, &senare, anna, id, original, "fel datum")
+        .await
+        .unwrap();
 }
 
 #[tokio::test]
