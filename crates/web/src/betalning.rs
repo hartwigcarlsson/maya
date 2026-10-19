@@ -40,6 +40,9 @@ pub struct BetalningsVy {
     pub start: NyBetalning,
     /// Felet från servern, om betalningen avvisades.
     pub fel: Option<String>,
+    /// Leverantörsfakturans originalvaluta i fritext, t.ex. "EUR 109,50", eller tom (#147).
+    #[serde(default)]
+    pub originalvaluta: String,
 }
 
 impl BetalningsVy {
@@ -58,6 +61,7 @@ impl BetalningsVy {
                 .iter()
                 .filter_map(|(s, e)| Some(Räkenskapsår::befintligt(datum(s)?, datum(e)?)))
                 .collect(),
+            originalvaluta: !self.originalvaluta.trim().is_empty(),
         }
     }
 }
@@ -492,6 +496,7 @@ pub fn ur_fält(värde: impl Fn(&str) -> Option<String>) -> NyBetalning {
         belopp: värde("belopp").unwrap_or_default(),
         konto: värde("konto").unwrap_or_default(),
         öresutjämning: värde("oresutjamning").is_some_and(|v| !v.is_empty()),
+        kursdifferens: värde("kursdifferens").is_some_and(|v| !v.is_empty()),
     }
 }
 
@@ -601,6 +606,7 @@ pub(crate) mod server {
                         NyBetalning::förvald(f.återstår, idag)
                     },
                     fel: tillbaka.then(|| feltext("betalning").unwrap_or_default().into()),
+                    originalvaluta: post.originalvaluta.clone(),
                 });
             }
             Some("ratta-betalning") => {

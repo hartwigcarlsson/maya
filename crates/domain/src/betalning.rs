@@ -6,9 +6,14 @@
 //! En delbetalning lämnar resten kvar. En rest på högst 10 kr kan stängas mot öresutjämning
 //! (3740) i samma verifikat. En överbetalning spärras och hänvisas till ett manuellt verifikat,
 //! så att det återstående beloppet aldrig blir negativt av misstag. Specen säger det om
-//! kundfakturor; leverantörsfakturorna (#147) har samma spärr tills något annat bestäms.
-//! Betalning när fordran inte är bokförd (kontantmetoden) kommer i #149, och kursdifferens på
-//! leverantörsfakturor i #147.
+//! kundfakturor; leverantörsfakturorna har samma spärr, utom när avvikelsen stängs mot
+//! kursdifferens.
+//!
+//! **Kursdifferens** (#147): en leverantörsfaktura med originalvaluta är registrerad i SEK, och
+//! betalningen i SEK kan bli en annan. Avvikelsen mellan det som återstår och det som betalades
+//! stängs då i samma verifikat, mot 7960 vid förlust (betalningen är större) och mot 3960 vid
+//! vinst (betalningen är mindre), så att inget återstår. Betalning när fordran inte är bokförd
+//! (kontantmetoden) kommer i #149.
 
 use std::fmt;
 
@@ -27,6 +32,12 @@ pub const ÖRESUTJÄMNING: u16 = 3740;
 
 /// Den största rest i öre som kan stängas mot öresutjämning: 10 kr.
 pub const STÖRSTA_ÖRESUTJÄMNING: i64 = 1_000;
+
+/// Valutakursvinster, som tar emot en betalning som blev mindre än skulden i SEK.
+pub const KURSVINST: u16 = 3960;
+
+/// Valutakursförluster, som tar emot en betalning som blev större än skulden i SEK.
+pub const KURSFÖRLUST: u16 = 7960;
 
 /// Vilken reskontra fakturan hör till.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -58,6 +69,10 @@ pub struct NyBetalning {
     pub konto: String,
     /// Stäng resten mot öresutjämning.
     pub öresutjämning: bool,
+    /// Stäng avvikelsen mot kursdifferens (#147): bara på en leverantörsfaktura med
+    /// originalvaluta.
+    #[serde(default)]
+    pub kursdifferens: bool,
 }
 
 /// Det som betalningen prövas mot, läst i samma transaktion som den bokförs.
@@ -69,6 +84,9 @@ pub struct Förutsättningar {
     /// Kontona och om de är aktiva.
     pub konton: Vec<(Kontonummer, bool)>,
     pub räkenskapsår: Vec<Räkenskapsår>,
+    /// Fakturan har en originalvaluta, så att en avvikelse kan stängas mot kursdifferens.
+    /// Bara leverantörsfakturor har det.
+    pub originalvaluta: bool,
 }
 
 /// Fälten i panelen, där spärrarna visas.
@@ -78,6 +96,7 @@ pub enum Fält {
     Belopp,
     Konto,
     Öresutjämning,
+    Kursdifferens,
 }
 
 /// Spärrarna vid betalning som Systemdokumentationen återger (S2). Varje kod som
@@ -116,6 +135,18 @@ pub const BETALNINGSSPÄRRAR: &[(&str, &str)] = &[
         "oresutjamning_utan_rest",
         "Öresutjämning kräver en rest efter betalningen.",
     ),
+    (
+        "kursdifferens_utan_originalvaluta",
+        "Kursdifferens finns bara på en leverantörsfaktura med originalvaluta.",
+    ),
+    (
+        "kursdifferens_utan_avvikelse",
+        "Kursdifferens kräver att betalningen avviker från det som återstår.",
+    ),
+    (
+        "kursdifferens_och_oresutjamning",
+        "En avvikelse stängs mot kursdifferens eller öresutjämning, inte båda.",
+    ),
 ];
 
 /// Något som hindrar betalningen, med en kod som panelen visar vid fältet.
@@ -152,6 +183,9 @@ pub struct Betalning {
     pub konto: Kontonummer,
     /// Resten som stängs mot öresutjämning, i öre; noll utan öresutjämning.
     pub öresutjämning: i64,
+    /// Avvikelsen som stängs mot kursdifferens, i öre: positiv vid vinst (3960), negativ vid
+    /// förlust (7960) och noll utan kursdifferens.
+    pub kursdifferens: i64,
     /// Det som återstår av fakturan efter betalningen.
     pub återstår_efter: i64,
     /// Räkenskapsåret som betaldagen avgör.
@@ -170,7 +204,7 @@ impl NyBetalning {
             betaldag: idag.to_string(),
             belopp: Belopp::från_öre(återstår.max(0)).to_string(),
             konto: BETALKONTO.to_string(),
-            öresutjämning: false,
+            ..Default::default()
         }
     }
 
@@ -217,6 +251,9 @@ impl NyBetalning {
             val
         });
 
+        // Kursdifferens stänger avvikelsen åt båda hållen, så en större betalning är ingen
+        // överbetalning då.
+        let kurs = self.kursdifferens && f.reskontra == Reskontra::Leverantör && f.originalvaluta;
         let belopp = if f.återstår <= 0 {
             spärrar.push(Spärr::ny(
                 Fält::Belopp,
@@ -239,7 +276,7 @@ impl NyBetalning {
                         ));
                         None
                     }
-                    Some(b) if b > f.återstår => {
+                    Some(b) if b > f.återstår && !kurs => {
                         spärrar.push(Spärr::ny(
                             Fält::Belopp,
                             "overbetalning",
@@ -258,7 +295,37 @@ impl NyBetalning {
 
         let konto = self.kontrollera_konto(f, &mut spärrar);
 
+        let kursdifferens = match (belopp, self.kursdifferens) {
+            (_, true) if !kurs => {
+                spärrar.push(Spärr::ny(
+                    Fält::Kursdifferens,
+                    "kursdifferens_utan_originalvaluta",
+                    "Fakturan har ingen originalvaluta, så det finns ingen kursdifferens att stänga.",
+                ));
+                0
+            }
+            (Some(b), true) if self.öresutjämning => {
+                spärrar.push(Spärr::ny(
+                    Fält::Kursdifferens,
+                    "kursdifferens_och_oresutjamning",
+                    "Välj kursdifferens eller öresutjämning, inte båda.",
+                ));
+                f.återstår - b
+            }
+            (Some(b), true) if b == f.återstår => {
+                spärrar.push(Spärr::ny(
+                    Fält::Kursdifferens,
+                    "kursdifferens_utan_avvikelse",
+                    "Betalningen är lika med det som återstår; det finns ingen kursdifferens.",
+                ));
+                0
+            }
+            (Some(b), true) => f.återstår - b,
+            _ => 0,
+        };
+
         let öresutjämning = match (belopp, self.öresutjämning) {
+            (Some(_), true) if self.kursdifferens => 0,
             (Some(b), true) => {
                 let rest = f.återstår - b;
                 if rest == 0 {
@@ -293,7 +360,8 @@ impl NyBetalning {
                     belopp,
                     konto,
                     öresutjämning,
-                    återstår_efter: f.återstår - belopp - öresutjämning,
+                    kursdifferens,
+                    återstår_efter: f.återstår - belopp - öresutjämning - kursdifferens,
                     räkenskapsår,
                 })
             }
@@ -353,11 +421,17 @@ fn tolka_belopp(text: &str) -> Option<i64> {
 impl Betalning {
     /// Betalningens kontering när fordran eller skulden är bokförd. Kundfaktura: betalkontot
     /// debet, en rest debet på 3740, och 1510 kredit med båda. Leverantörsfaktura: 2440 debet
-    /// med båda, betalkontot och resten på 3740 kredit.
+    /// med det som stängs, betalkontot och resten på 3740 kredit, och kursdifferensen på 3960
+    /// kredit (vinst) eller 7960 debet (förlust).
     pub fn kontering(&self) -> Vec<verifikat::Rad> {
         let reskontra = self.reskontra.konto();
         let öresutjämning = Kontonummer::konstant(ÖRESUTJÄMNING);
-        let stängt = self.belopp + self.öresutjämning;
+        let stängt = self.belopp + self.öresutjämning + self.kursdifferens;
+        let kurskonto = Kontonummer::konstant(if self.kursdifferens < 0 {
+            KURSFÖRLUST
+        } else {
+            KURSVINST
+        });
         let mut rader = match self.reskontra {
             Reskontra::Kund => vec![
                 rad(self.konto, self.belopp),
@@ -368,6 +442,7 @@ impl Betalning {
                 rad(reskontra, stängt),
                 rad(self.konto, -self.belopp),
                 rad(öresutjämning, -self.öresutjämning),
+                rad(kurskonto, -self.kursdifferens),
             ],
         };
         rader.retain(|r| r.debet != Belopp::NOLL || r.kredit != Belopp::NOLL);

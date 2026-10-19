@@ -31,6 +31,23 @@ fn förutsättningar(återstår: i64) -> Förutsättningar {
             date(2026, 1, 1),
             date(2026, 12, 31),
         )],
+        originalvaluta: false,
+    }
+}
+
+/// En leverantörsfaktura i originalvaluta, t.ex. "EUR 870,00", registrerad i SEK.
+fn i_valuta(återstår: i64) -> Förutsättningar {
+    Förutsättningar {
+        reskontra: Reskontra::Leverantör,
+        originalvaluta: true,
+        ..förutsättningar(återstår)
+    }
+}
+
+fn med_kursdifferens(betaldag: &str, belopp: &str) -> NyBetalning {
+    NyBetalning {
+        kursdifferens: true,
+        ..betalning(betaldag, belopp)
     }
 }
 
@@ -39,7 +56,7 @@ fn betalning(betaldag: &str, belopp: &str) -> NyBetalning {
         betaldag: betaldag.into(),
         belopp: belopp.into(),
         konto: "1930".into(),
-        öresutjämning: false,
+        ..Default::default()
     }
 }
 
@@ -250,9 +267,19 @@ fn varje_spärr_vid_betalning_är_dokumenterad() {
             ..betalning("2026-11-02", belopp)
         });
     }
+    fall.push(med_kursdifferens("2026-11-02", "12 400"));
+    let i_valuta = i_valuta(1_250_000);
+    let kurs = [
+        med_kursdifferens("2026-11-02", "12 500"),
+        NyBetalning {
+            öresutjämning: true,
+            ..med_kursdifferens("2026-11-02", "12 495")
+        },
+    ];
     let mut sedda: Vec<&str> = fall
         .iter()
         .flat_map(|b| koder(b, &f))
+        .chain(kurs.iter().flat_map(|b| koder(b, &i_valuta)))
         .chain(koder(&betalning("2026-11-02", "1"), &förutsättningar(0)))
         .collect();
     sedda.sort();
@@ -260,4 +287,94 @@ fn varje_spärr_vid_betalning_är_dokumenterad() {
     let mut dokumenterade: Vec<&str> = BETALNINGSSPÄRRAR.iter().map(|(k, _)| *k).collect();
     dokumenterade.sort();
     assert_eq!(sedda, dokumenterade);
+}
+
+// #147 Kursdifferens på leverantörsfakturor med originalvaluta
+
+#[test]
+fn en_dyrare_betalning_i_originalvaluta_stängs_mot_kursförlust_7960() {
+    let g = med_kursdifferens("2026-11-02", "10 250")
+        .kontrollera(&i_valuta(1_000_000))
+        .unwrap();
+    assert_eq!(g.belopp, 1_025_000);
+    assert_eq!(g.kursdifferens, -25_000);
+    assert_eq!(g.återstår_efter, 0);
+    assert_eq!(
+        g.kontering(),
+        vec![
+            rad(2440, 1_000_000, 0),
+            rad(1930, 0, 1_025_000),
+            rad(7960, 25_000, 0),
+        ]
+    );
+}
+
+#[test]
+fn en_billigare_betalning_i_originalvaluta_stängs_mot_kursvinst_3960() {
+    let g = med_kursdifferens("2026-11-02", "9 800")
+        .kontrollera(&i_valuta(1_000_000))
+        .unwrap();
+    assert_eq!(g.kursdifferens, 20_000);
+    assert_eq!(g.återstår_efter, 0);
+    assert_eq!(
+        g.kontering(),
+        vec![
+            rad(2440, 1_000_000, 0),
+            rad(1930, 0, 980_000),
+            rad(3960, 0, 20_000),
+        ]
+    );
+}
+
+#[test]
+fn utan_kursdifferens_spärras_en_överbetalning_också_på_en_leverantörsfaktura() {
+    assert_eq!(
+        koder(&betalning("2026-11-02", "10 250"), &i_valuta(1_000_000)),
+        ["overbetalning"]
+    );
+    // En delbetalning i originalvaluta är fortfarande en delbetalning.
+    let g = betalning("2026-11-02", "5 000")
+        .kontrollera(&i_valuta(1_000_000))
+        .unwrap();
+    assert_eq!((g.kursdifferens, g.återstår_efter), (0, 500_000));
+}
+
+#[test]
+fn kursdifferens_kräver_en_leverantörsfaktura_med_originalvaluta() {
+    let utan_valuta = Förutsättningar {
+        originalvaluta: false,
+        ..i_valuta(1_000_000)
+    };
+    let b = med_kursdifferens("2026-11-02", "9 800");
+    assert_eq!(
+        koder(&b, &utan_valuta),
+        ["kursdifferens_utan_originalvaluta"]
+    );
+    // En kundfaktura har ingen originalvaluta.
+    let kund = Förutsättningar {
+        reskontra: Reskontra::Kund,
+        ..i_valuta(1_000_000)
+    };
+    assert_eq!(koder(&b, &kund), ["kursdifferens_utan_originalvaluta"]);
+    let s = b.kontrollera(&kund).unwrap_err();
+    assert_eq!(s[0].fält, Fält::Kursdifferens);
+}
+
+#[test]
+fn kursdifferens_kräver_en_avvikelse_och_går_inte_med_öresutjämning() {
+    assert_eq!(
+        koder(
+            &med_kursdifferens("2026-11-02", "10 000"),
+            &i_valuta(1_000_000)
+        ),
+        ["kursdifferens_utan_avvikelse"]
+    );
+    let båda = NyBetalning {
+        öresutjämning: true,
+        ..med_kursdifferens("2026-11-02", "9 995")
+    };
+    assert_eq!(
+        koder(&båda, &i_valuta(1_000_000)),
+        ["kursdifferens_och_oresutjamning"]
+    );
 }

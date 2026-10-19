@@ -8,8 +8,10 @@
 //! betalningen finns kvar och visar rättelsen (R2), och betalningen kan registreras om. Det som
 //! återstår och statusen räknas fram ur betalningarna och lagras inte.
 //!
-//! Betalningen hör till en [`Faktura`]: en kundfaktura nu. Leverantörsfakturorna (#147) lägger
-//! till sin variant; tabellen har redan kolumnen.
+//! Betalningen hör till en [`Faktura`]: en utfärdad kundfaktura eller en registrerad
+//! leverantörsfaktura (#147). På en leverantörsfaktura med originalvaluta kan en avvikelse stängas
+//! mot kursdifferens (3960/7960) i samma verifikat; den står i `betalning.kursdifferens` och
+//! räknas som betald.
 
 use std::fmt;
 use std::str::FromStr;
@@ -25,6 +27,7 @@ use crate::atkomst::{self, Ärende, ÅtkomstFel};
 use crate::behandlingshistorik::Händelse;
 use crate::foretag::{FöretagsId, datum};
 use crate::kundfaktura::KundfakturaId;
+use crate::leverantorsfaktura::LeverantörsfakturaId;
 use crate::verifikat::{
     self, Bokfört, Flöde, Länk, Signatur, VerifikatFel, VerifikatId, signatur
 };
@@ -52,12 +55,15 @@ impl FromStr for BetalningsId {
 pub enum Faktura {
     /// En utfärdad kundfaktura.
     Kund(KundfakturaId),
+    /// En registrerad leverantörsfaktura (#147).
+    Leverantör(LeverantörsfakturaId),
 }
 
 impl Faktura {
     fn reskontra(self) -> Reskontra {
         match self {
             Faktura::Kund(_) => Reskontra::Kund,
+            Faktura::Leverantör(_) => Reskontra::Leverantör,
         }
     }
 
@@ -66,6 +72,7 @@ impl Faktura {
     fn kolumner(self) -> (Option<i64>, Option<i64>) {
         match self {
             Faktura::Kund(id) => (Some(id.0), None),
+            Faktura::Leverantör(id) => (None, Some(id.0)),
         }
     }
 
@@ -73,12 +80,14 @@ impl Faktura {
     fn nyckel(self) -> &'static str {
         match self {
             Faktura::Kund(_) => "kundfaktura",
+            Faktura::Leverantör(_) => "leverantörsfaktura",
         }
     }
 
     fn id(self) -> i64 {
         match self {
             Faktura::Kund(id) => id.0,
+            Faktura::Leverantör(id) => id.0,
         }
     }
 }
@@ -160,6 +169,8 @@ pub struct Betalningspost {
     pub belopp: i64,
     /// Resten som stängdes mot öresutjämning, i öre.
     pub öresutjämning: i64,
+    /// Avvikelsen som stängdes mot kursdifferens, i öre: positiv vid vinst, negativ vid förlust.
+    pub kursdifferens: i64,
     pub konto: Kontonummer,
     pub verifikat: Länk,
     pub registrerad: Signatur,
@@ -173,6 +184,8 @@ pub struct Reskontrapost {
     pub total: i64,
     pub återstår: i64,
     pub förfallodag: Date,
+    /// Leverantörsfakturans originalvaluta i fritext, eller tom (#147).
+    pub originalvaluta: String,
     pub betalningar: Vec<Betalningspost>,
 }
 
@@ -182,13 +195,19 @@ struct Fakturan {
     motpart: String,
     total: i64,
     förfallodag: Date,
+    /// Leverantörsfakturans originalvaluta i fritext; tom för en kundfaktura.
+    originalvaluta: String,
 }
 
 impl Fakturan {
-    /// Fakturan som verifikatets referens: "kundfaktura 1007, Kund AB".
+    /// Fakturan som verifikatets referens: "kundfaktura 1007, Kund AB" eller
+    /// "leverantörsfaktura 8812, Kontorsvaror AB".
     fn referens(&self, faktura: Faktura) -> String {
         match faktura {
             Faktura::Kund(_) => format!("kundfaktura {}, {}", self.nummer, self.motpart),
+            Faktura::Leverantör(_) => {
+                format!("leverantörsfaktura {}, {}", self.nummer, self.motpart)
+            }
         }
     }
 }
@@ -198,24 +217,38 @@ async fn läs_fakturan(
     företag: FöretagsId,
     faktura: Faktura,
 ) -> Result<Fakturan, BetalningFel> {
-    let rad: Option<(i64, String, i64, String)> = match faktura {
-        Faktura::Kund(id) => {
-            sqlx::query_as(
-                "SELECT nummer, kunduppgifter ->> '$.namn', total, forfallodag FROM kundfaktura
+    let rad: Option<(String, String, i64, String, String)> =
+        match faktura {
+            Faktura::Kund(id) => sqlx::query_as(
+                "SELECT CAST(nummer AS TEXT), kunduppgifter ->> '$.namn', total, forfallodag, ''
+                 FROM kundfaktura
                  WHERE id = ? AND foretag_id = ? AND status <> 'utkast'",
             )
             .bind(id.0)
             .bind(företag.0)
             .fetch_optional(&mut *conn)
-            .await?
-        }
-    };
-    let (nummer, motpart, total, förfallodag) = rad.ok_or(BetalningFel::FinnsInte)?;
+            .await?,
+            // #147: en registrerad faktura har leverantör, total och förfallodag (tabellens CHECK).
+            Faktura::Leverantör(id) => {
+                sqlx::query_as(
+                    "SELECT f.fakturanummer, l.namn, f.total, f.forfallodag, f.originalvaluta
+                 FROM leverantorsfaktura f JOIN leverantor l ON l.id = f.leverantor_id
+                 WHERE f.id = ? AND f.foretag_id = ? AND f.status <> 'utkast'",
+                )
+                .bind(id.0)
+                .bind(företag.0)
+                .fetch_optional(&mut *conn)
+                .await?
+            }
+        };
+    let (nummer, motpart, total, förfallodag, originalvaluta) =
+        rad.ok_or(BetalningFel::FinnsInte)?;
     Ok(Fakturan {
-        nummer: nummer.to_string(),
+        nummer,
         motpart,
         total,
         förfallodag: datum(&förfallodag)?,
+        originalvaluta,
     })
 }
 
@@ -223,7 +256,7 @@ async fn läs_fakturan(
 async fn betalt_i(conn: &mut SqliteConnection, faktura: Faktura) -> Result<i64, sqlx::Error> {
     let (kund, leverantör) = faktura.kolumner();
     sqlx::query_scalar(
-        "SELECT coalesce(sum(belopp + oresutjamning), 0) FROM betalning_i_reskontran
+        "SELECT coalesce(sum(belopp + oresutjamning + kursdifferens), 0) FROM betalning_i_reskontran
          WHERE kundfaktura_id = ?1 OR leverantorsfaktura_id = ?2",
     )
     .bind(kund)
@@ -258,6 +291,7 @@ async fn läs_förutsättningar(
         återstår,
         konton: v.konton,
         räkenskapsår: v.räkenskapsår,
+        originalvaluta: !fakturan.originalvaluta.trim().is_empty(),
     })
 }
 
@@ -296,8 +330,9 @@ pub async fn registrera(
     let id: i64 = sqlx::query_scalar(
         "INSERT INTO betalning
              (foretag_id, kundfaktura_id, leverantorsfaktura_id, betaldag, belopp, konto,
-              oresutjamning, verifikat_id, registrerad, registrerad_kanal, registrerad_av)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id",
+              oresutjamning, kursdifferens, verifikat_id, registrerad, registrerad_kanal,
+              registrerad_av)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id",
     )
     .bind(företag.0)
     .bind(kund)
@@ -306,6 +341,7 @@ pub async fn registrera(
     .bind(b.belopp)
     .bind(i64::from(b.konto.get()))
     .bind(b.öresutjämning)
+    .bind(b.kursdifferens)
     .bind(bokfört.id.0)
     .bind(nu)
     .bind(kanal)
@@ -320,6 +356,7 @@ pub async fn registrera(
                 "konto": b.konto.get(),
                 "summa_öre": b.belopp,
                 "öresutjämning_öre": b.öresutjämning,
+                "kursdifferens_öre": b.kursdifferens,
                 "återstår_öre": b.återstår_efter,
                 "verifikat": { "id": bokfört.id.0, "nummer": bokfört.nummer.to_string() },
     });
@@ -350,8 +387,11 @@ pub async fn rätta(
     orsak: &str,
 ) -> Result<Rättad, BetalningFel> {
     let mut ärende = Ärende::börja(db, klocka, aktör, företag, Handling::RättaFlöde).await?;
-    let rad: Option<(Option<i64>, i64, i64, i64, bool)> = sqlx::query_as(
-        "SELECT kundfaktura_id, verifikat_id, belopp, oresutjamning,
+    // Kundfakturan, leverantörsfakturan, verifikatet, beloppet, öresutjämningen och om den är
+    // rättad.
+    type Rad = (Option<i64>, Option<i64>, i64, i64, i64, bool);
+    let rad: Option<Rad> = sqlx::query_as(
+        "SELECT kundfaktura_id, leverantorsfaktura_id, verifikat_id, belopp, oresutjamning,
                 EXISTS (SELECT 1 FROM betalningsrattelse r WHERE r.betalning_id = b.id)
          FROM betalning b WHERE id = ? AND foretag_id = ?",
     )
@@ -359,14 +399,15 @@ pub async fn rätta(
     .bind(företag.0)
     .fetch_optional(ärende.conn())
     .await?;
-    let (kundfaktura, verifikat_id, belopp, öresutjämning, rättad) =
+    let (kundfaktura, leverantörsfaktura, verifikat_id, belopp, öresutjämning, rättad) =
         rad.ok_or(BetalningFel::IngenBetalning)?;
     if rättad {
         return Err(BetalningFel::RedanRättad);
     }
-    let faktura = match kundfaktura {
-        Some(id) => Faktura::Kund(KundfakturaId(id)),
-        None => return Err(BetalningFel::IngenBetalning),
+    let faktura = match (kundfaktura, leverantörsfaktura) {
+        (Some(id), _) => Faktura::Kund(KundfakturaId(id)),
+        (None, Some(id)) => Faktura::Leverantör(LeverantörsfakturaId(id)),
+        (None, None) => return Err(BetalningFel::IngenBetalning),
     };
     let fakturan = läs_fakturan(ärende.conn(), företag, faktura).await?;
     let datum = rättelsedatum(datum)?;
@@ -446,29 +487,32 @@ pub async fn reskontrapost(
     atkomst::kräv(&mut tx, aktör, företag, Handling::LäsaFöretag).await?;
     let fakturan = läs_fakturan(&mut tx, företag, faktura).await?;
     let återstår = fakturan.total - betalt_i(&mut tx, faktura).await?;
-    type Rad = (
-        i64,
-        String,
-        i64,
-        i64,
-        i64,
-        i64,
-        String,
-        String,
-        Option<i64>,
-        Option<String>,
-        Option<i64>,
-        Option<String>,
-        Option<String>,
-        Option<String>,
-        Option<i64>,
-        Option<String>,
-    );
+    #[derive(sqlx::FromRow)]
+    struct Rad {
+        id: i64,
+        betaldag: String,
+        belopp: i64,
+        oresutjamning: i64,
+        kursdifferens: i64,
+        konto: i64,
+        verifikat_id: i64,
+        registrerad: String,
+        registrerad_kanal: String,
+        registrerad_av: Option<i64>,
+        registrerad_namn: Option<String>,
+        rattelse_id: Option<i64>,
+        orsak: Option<String>,
+        rattad: Option<String>,
+        rattad_kanal: Option<String>,
+        rattad_av: Option<i64>,
+        rattad_namn: Option<String>,
+    }
     let (kund, leverantör) = faktura.kolumner();
     let rader: Vec<Rad> = sqlx::query_as(
-        "SELECT b.id, b.betaldag, b.belopp, b.oresutjamning, b.konto, b.verifikat_id,
-                b.registrerad, b.registrerad_kanal, b.registrerad_av, a.visningsnamn,
-                r.verifikat_id, r.orsak, r.rattad, r.rattad_kanal, r.rattad_av, ra.visningsnamn
+        "SELECT b.id, b.betaldag, b.belopp, b.oresutjamning, b.kursdifferens, b.konto,
+                b.verifikat_id, b.registrerad, b.registrerad_kanal, b.registrerad_av,
+                a.visningsnamn AS registrerad_namn, r.verifikat_id AS rattelse_id, r.orsak,
+                r.rattad, r.rattad_kanal, r.rattad_av, ra.visningsnamn AS rattad_namn
          FROM betalning b
          LEFT JOIN anvandare a ON a.id = b.registrerad_av
          LEFT JOIN betalningsrattelse r ON r.betalning_id = b.id
@@ -481,25 +525,26 @@ pub async fn reskontrapost(
     .fetch_all(&mut *tx)
     .await?;
     let mut betalningar = Vec::new();
-    for (
-        id,
-        betaldag,
-        belopp,
-        öresutjämning,
-        konto,
-        verifikat_id,
-        tid,
-        kanal,
-        av,
-        namn,
-        rättelse,
-        orsak,
-        rättad,
-        rättad_kanal,
-        rättad_av,
-        rättad_namn,
-    ) in rader
-    {
+    for r in rader {
+        let Rad {
+            id,
+            betaldag,
+            belopp,
+            oresutjamning: öresutjämning,
+            kursdifferens,
+            konto,
+            verifikat_id,
+            registrerad: tid,
+            registrerad_kanal: kanal,
+            registrerad_av: av,
+            registrerad_namn: namn,
+            rattelse_id: rättelse,
+            orsak,
+            rattad: rättad,
+            rattad_kanal: rättad_kanal,
+            rattad_av: rättad_av,
+            rattad_namn: rättad_namn,
+        } = r;
         let verifikat = verifikat::länk(&mut tx, Some(verifikat_id))
             .await?
             .ok_or_else(|| DatabasFel::Korrupt("betalning.verifikat_id".into()))?;
@@ -518,6 +563,7 @@ pub async fn reskontrapost(
             betaldag: datum(&betaldag)?,
             belopp,
             öresutjämning,
+            kursdifferens,
             konto: u16::try_from(konto)
                 .ok()
                 .and_then(Kontonummer::new)
@@ -531,6 +577,7 @@ pub async fn reskontrapost(
         total: fakturan.total,
         återstår,
         förfallodag: fakturan.förfallodag,
+        originalvaluta: fakturan.originalvaluta,
         betalningar,
     })
 }
@@ -548,13 +595,31 @@ pub(crate) async fn fakturan_för_verifikat(
             OR b.id IN (SELECT betalning_id FROM betalningsrattelse WHERE verifikat_id = ?1)",
     )
     .bind(verifikat.0)
-    .fetch_optional(conn)
+    .fetch_optional(&mut *conn)
     .await?;
-    Ok(rad.map(|(id, nummer, kund)| {
-        (
+    if let Some((id, nummer, kund)) = rad {
+        return Ok(Some((
             Flöde::Kundfaktura,
             id,
             format!("betalningen av kundfaktura {nummer} till {kund}"),
+        )));
+    }
+    // #147 Leverantörsfakturor
+    let rad: Option<(i64, String, String)> = sqlx::query_as(
+        "SELECT f.id, f.fakturanummer, l.namn
+         FROM betalning b JOIN leverantorsfaktura f ON f.id = b.leverantorsfaktura_id
+         JOIN leverantor l ON l.id = f.leverantor_id
+         WHERE b.verifikat_id = ?1
+            OR b.id IN (SELECT betalning_id FROM betalningsrattelse WHERE verifikat_id = ?1)",
+    )
+    .bind(verifikat.0)
+    .fetch_optional(conn)
+    .await?;
+    Ok(rad.map(|(id, nummer, leverantör)| {
+        (
+            Flöde::Leverantörsfaktura,
+            id,
+            format!("betalningen av leverantörsfaktura {nummer} från {leverantör}"),
         )
     }))
 }
