@@ -1824,6 +1824,11 @@ fn FakturaFormulär(
                 .collect_view()
         }
     };
+    let att_betala = if start.krediterar.is_some() {
+        "Att få tillbaka"
+    } else {
+        "Att betala"
+    };
     let summor = move || {
         let fri = läge.get().fri_momssats();
         beräkning.with(|b| {
@@ -1847,7 +1852,7 @@ fn FakturaFormulär(
                 </tr>
                 {moms}
                 <tr class="summa">
-                    <td colspan="7">"Att betala"</td>
+                    <td colspan="7">{att_betala}</td>
                     <td class="belopp">{kr(b.total)}</td>
                 </tr>
             }
