@@ -2656,6 +2656,8 @@ kbd {
 
 .utskick-fel {
   color: var(--destructive);
+}
+
 /* Betalningar (#139): märkena för reskontrans status, listans grupper, betalningspanelen och
    betalningarna i dokumentet. Märkena delas av kund- och leverantörsfakturor. */
 .badge-obetald {

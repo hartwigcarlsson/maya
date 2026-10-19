@@ -974,7 +974,9 @@ fn leverantorsfaktura_betalas_i_dokumentet() {
     fyll(&tab, "#betaldag", "2026-04-10");
     fyll(&tab, "#belopp", "500");
     vänta_på_text(&tab, "Delbetalning, 750,00 kr återstår.");
-    vänta_på_text(&tab, "Bokförs som verifikat · 2026-04-10");
+    // Rutan "Bokförs som" med verifikatet (rubriken visas i versaler).
+    tab.wait_for_element(".betalningspanel .kont").unwrap();
+    vänta_på_text(&tab, "VERIFIKAT · 2026-04-10");
     klicka(&tab, ".betalningspanel button[type='submit']");
     vänta_på_text(&tab, "Betalningen registrerades");
     vänta_på_text(&tab, "750,00 kvar");
