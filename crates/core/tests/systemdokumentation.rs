@@ -248,7 +248,7 @@ async fn arkivplanen_förutsätter_att_databasen_och_backuperna_förvaras_i_sver
     for väntat in [
         "Maya förutsätter att databasen och alla backuper förvaras i Sverige (BFL 7:2)",
         "Den som driftar servern ansvarar för det",
-        "Förvaring i ett annat land stöds inte i Maya 0.1",
+        "Förvaring i ett annat land stöds inte i Maya.",
     ] {
         assert!(t.contains(väntat), "saknar {väntat:?}:\n{t}");
     }
