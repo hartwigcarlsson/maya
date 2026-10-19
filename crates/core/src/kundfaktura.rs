@@ -20,9 +20,10 @@ use jiff::civil::Date;
 use maya_domain::faktura::{Antal, Momsrad, Momssats, Rabatt, momsrader};
 use maya_domain::foretag::Bokföringsmetod;
 use maya_domain::kontoplan::Kontonummer;
+use maya_domain::kund::OmvändSkattskyldighet;
 use maya_domain::kundfaktura::{
-    Fakturakund, Fakturarad, Förutsättningar, NyKundfaktura, Spärr, Säljare, Utfärdbar, Utkast,
-    Utkastrad,
+    Fakturakund, Fakturarad, Förutsättningar, Momsläge, NyKundfaktura, Spärr, Säljare, Utfärdbar,
+    Utkast, Utkastrad,
 };
 use serde_json::json;
 use sqlx::SqliteConnection;
@@ -189,6 +190,8 @@ pub struct Utfärdning {
     pub netto: i64,
     pub moms: i64,
     pub total: i64,
+    /// Momsläget som fakturan utfärdades med.
+    pub momsläge: Momsläge,
     /// Utfärdandets verifikat.
     pub verifikat: verifikat::Länk,
     pub pdf: ArkiveradPdf,
@@ -230,8 +233,11 @@ async fn läs_förutsättningar(
     let inställningar = fakturauppgifter::läs_i(&mut *conn, företag).await?;
     let u = &f.uppgifter;
     let b = &inställningar.uppgifter;
-    let kunder: Vec<(i64, String, String, String, String, String, i64)> = sqlx::query_as(
-        "SELECT id, namn, identitet, adress, epost, momsregnr, betalningsvillkor FROM kund
+    type Kundrad = (i64, String, String, String, String, String, i64, String);
+    let kunder: Vec<Kundrad> = sqlx::query_as(
+        "SELECT id, namn, identitet, adress, epost, momsregnr, betalningsvillkor,
+                omvand_skattskyldighet
+         FROM kund
          WHERE foretag_id = ? AND status = 'aktiv' ORDER BY namn COLLATE NOCASE, id",
     )
     .bind(företag.0)
@@ -247,17 +253,23 @@ async fn läs_förutsättningar(
         kunder: kunder
             .into_iter()
             .map(
-                |(id, namn, identitet, adress, epost, momsregnr, villkor)| Fakturakund {
-                    id,
-                    namn,
-                    identitet,
-                    adress,
-                    epost,
-                    momsregnr,
-                    betalningsvillkor: u16::try_from(villkor).unwrap_or(u16::MAX),
+                |(id, namn, identitet, adress, epost, momsregnr, villkor, omvänd)| {
+                    Ok(Fakturakund {
+                        id,
+                        namn,
+                        identitet,
+                        adress,
+                        epost,
+                        momsregnr,
+                        betalningsvillkor: u16::try_from(villkor).unwrap_or(u16::MAX),
+                        omvänd_skattskyldighet: OmvändSkattskyldighet::från_kod(&omvänd)
+                            .ok_or_else(|| {
+                                DatabasFel::Korrupt("kund.omvand_skattskyldighet".into())
+                            })?,
+                    })
                 },
             )
-            .collect(),
+            .collect::<Result<_, DatabasFel>>()?,
         säljare: Säljare {
             namn: u.namn.clone(),
             orgnr: f.orgnr.to_string(),
@@ -327,7 +339,17 @@ pub async fn spara_utkast(
     if let Some(id) = utkast {
         kräv_utkast(&mut ärende, id).await?;
     }
-    let u = formulär.som_utkast().map_err(KundfakturaFel::Spärrat)?;
+    let mut u = formulär.som_utkast().map_err(KundfakturaFel::Spärrat)?;
+    // Utan fri momssats (omvänd skattskyldighet, eller ett företag som inte är
+    // momsregistrerat på fakturadatumet) sparas varje rad med 0 %.
+    if !formulär
+        .momsläge(&läs_förutsättningar(ärende.conn(), företag).await?)
+        .fri_momssats()
+    {
+        for r in &mut u.rader {
+            r.momssats = Momssats::Noll;
+        }
+    }
     if let Some(id) = u.kund {
         let finns: bool = sqlx::query_scalar(
             "SELECT EXISTS (SELECT 1 FROM kund WHERE id = ? AND foretag_id = ?
@@ -372,7 +394,7 @@ pub async fn spara_utkast(
         Some(id) => {
             sqlx::query(
                 "UPDATE kundfaktura SET kund_id = ?, fakturadatum = ?, leveransdatum = ?,
-                     forfallodag = ?, er_referens = ?
+                     forfallodag = ?, er_referens = ?, omvand_skattskyldighet = ?
                  WHERE id = ? AND status = 'utkast'",
             )
             .bind(kund_id)
@@ -380,6 +402,7 @@ pub async fn spara_utkast(
             .bind(&u.leveransdatum)
             .bind(u.förfallodag.map(|d| d.to_string()))
             .bind(&u.er_referens)
+            .bind(u.omvänd_skattskyldighet.kod())
             .bind(id.0)
             .execute(ärende.conn())
             .await?;
@@ -393,8 +416,8 @@ pub async fn spara_utkast(
             sqlx::query_scalar(
                 "INSERT INTO kundfaktura
                      (foretag_id, status, kund_id, fakturadatum, leveransdatum, forfallodag,
-                      er_referens, skapad, skapad_kanal, skapad_av)
-                 VALUES (?, 'utkast', ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id",
+                      er_referens, omvand_skattskyldighet, skapad, skapad_kanal, skapad_av)
+                 VALUES (?, 'utkast', ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id",
             )
             .bind(företag.0)
             .bind(kund_id)
@@ -402,6 +425,7 @@ pub async fn spara_utkast(
             .bind(&u.leveransdatum)
             .bind(u.förfallodag.map(|d| d.to_string()))
             .bind(&u.er_referens)
+            .bind(u.omvänd_skattskyldighet.kod())
             .bind(nu)
             .bind(kanal)
             .bind(av)
@@ -598,6 +622,7 @@ pub async fn utfärda(
         "UPDATE kundfaktura SET status = 'utfardad', nummer = ?, referens = ?,
              leveransdatum = ?, forfallodag = ?, er_referens = ?,
              kunduppgifter = ?, saljaruppgifter = ?, netto = ?, moms = ?, total = ?,
+             omvand_skattskyldighet = ?, momsregistrerat = ?,
              underlag_id = ?, verifikat_id = ?, utfardad = ?, utfardad_kanal = ?, utfardad_av = ?
          WHERE id = ? AND status = 'utkast'",
     )
@@ -611,6 +636,8 @@ pub async fn utfärda(
     .bind(u.netto)
     .bind(u.moms)
     .bind(u.total)
+    .bind(u.momsläge.omvänd().kod())
+    .bind(u.momsläge != Momsläge::UtanMoms)
     .bind(arkiverad.id.0)
     .bind(bokfört.id.0)
     .bind(nu)
@@ -671,7 +698,8 @@ pub async fn förhandsvisning(
     skriv_pdf(&u, &säljare, logotyp, true, klocka.nu(), &mut tx, aktör).await
 }
 
-/// Utkastet kontrollerat mot det som gäller i transaktionen.
+/// Utkastet kontrollerat mot det som gäller i transaktionen, med säljarens uppgifter som
+/// fakturan har dem.
 async fn utfärdbar(
     conn: &mut SqliteConnection,
     företag: FöretagsId,
@@ -682,7 +710,8 @@ async fn utfärdbar(
     let u = formulär
         .kontrollera(&förutsättningar)
         .map_err(KundfakturaFel::Spärrat)?;
-    Ok((u, förutsättningar.säljare))
+    let säljare = u.säljare_på_fakturan(&förutsättningar.säljare);
+    Ok((u, säljare))
 }
 
 async fn skriv_pdf(
@@ -766,15 +795,17 @@ type LagradRad = (
 
 /// Det sparade utkastet (eller den utfärdade fakturans fält) som det lagrades.
 async fn läs_utkast(conn: &mut SqliteConnection, id: KundfakturaId) -> Result<Utkast, DatabasFel> {
-    let (företag, kund, fakturadatum, leveransdatum, förfallodag, er_referens): (
+    let (företag, kund, fakturadatum, leveransdatum, förfallodag, er_referens, omvänd): (
         i64,
         Option<i64>,
         Option<String>,
         String,
         Option<String>,
         String,
+        String,
     ) = sqlx::query_as(
-        "SELECT foretag_id, kund_id, fakturadatum, leveransdatum, forfallodag, er_referens
+        "SELECT foretag_id, kund_id, fakturadatum, leveransdatum, forfallodag, er_referens,
+                omvand_skattskyldighet
          FROM kundfaktura WHERE id = ?",
     )
     .bind(id.0)
@@ -802,6 +833,8 @@ async fn läs_utkast(conn: &mut SqliteConnection, id: KundfakturaId) -> Result<U
         förfallodag: förfallodag.as_deref().map(datum).transpose()?,
         er_referens,
         startnummer: None,
+        omvänd_skattskyldighet: OmvändSkattskyldighet::från_kod(&omvänd)
+            .ok_or_else(|| korrupt("omvand_skattskyldighet"))?,
         rader: rader
             .into_iter()
             .map(|(beskrivning, antal, enhet, à_pris, rabatt, sats, konto)| {
@@ -1044,6 +1077,20 @@ async fn läs_utfärdning(
     .bind(id.0)
     .fetch_one(&mut *conn)
     .await?;
+    // En faktura utfärdad före #136 har momsregistrerat NULL och utfärdades med moms.
+    let (omvänd, momsregistrerat): (String, Option<bool>) = sqlx::query_as(
+        "SELECT omvand_skattskyldighet, momsregistrerat FROM kundfaktura WHERE id = ?",
+    )
+    .bind(id.0)
+    .fetch_one(&mut *conn)
+    .await?;
+    let momsläge = match momsregistrerat {
+        Some(false) => Momsläge::UtanMoms,
+        _ => Momsläge::av(
+            OmvändSkattskyldighet::från_kod(&omvänd)
+                .ok_or_else(|| korrupt("omvand_skattskyldighet"))?,
+        ),
+    };
     type UtfärdadRad = (String, i64, String, i64, i64, i64, i64, i64);
     let rader: Vec<UtfärdadRad> = sqlx::query_as(
         "SELECT beskrivning, antal, enhet, a_pris, rabatt, momssats, konto, netto
@@ -1095,6 +1142,7 @@ async fn läs_utfärdning(
         netto,
         moms,
         total,
+        momsläge,
         verifikat,
         pdf: ArkiveradPdf {
             underlag: UnderlagId(underlag_id),
