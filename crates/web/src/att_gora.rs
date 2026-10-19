@@ -260,7 +260,7 @@ pub(crate) mod server {
     use maya_core::verifikat::{self, Urval, VerifikatFel, VerifikatId};
     use maya_core::{Databas, Klocka};
     use maya_domain::att_gora::{
-        Frist, Utkastläge, dag_lång, dagar_mellan, länge_okopplat, ordna_utkast, ålder,
+        Frist, Utkastläge, dag_lång, dagar_mellan, länge_okopplat, ordna_utkast, sedan, ålder,
     };
     use maya_domain::belopp::Saldo;
     use maya_domain::rakenskapsar::periodnamn;
@@ -848,13 +848,13 @@ pub(crate) mod server {
                 format!(
                     "till {} misslyckades {}",
                     m.till,
-                    ålder(tid_datum(m.tid), idag)
+                    sedan(tid_datum(m.tid), idag)
                 ),
                 "bad",
             ),
             None => (
                 Sort::InteSkickad,
-                format!("utfärdad {}", ålder(u.fakturadatum, idag)),
+                format!("utfärdad {}", sedan(u.fakturadatum, idag)),
                 "",
             ),
         };
