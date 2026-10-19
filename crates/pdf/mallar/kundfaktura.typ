@@ -114,7 +114,7 @@
   ..if f.med_moms { f.momsrader.map(m => ([#m.text], [#m.moms])).flatten() } else { () },
   grid.hline(stroke: 0.5pt),
   pad(top: 0.3em, text(size: 12pt, weight: "bold")[#if f.kredit != none [Att få tillbaka] else [Att betala]]),
-  pad(top: 0.3em, text(size: 12pt, weight: "bold")[#f.total kr]),
+  pad(top: 0.3em, text(size: 12pt, weight: "bold")[#f.att_betala kr]),
 ))
 
 // Vid omvänd skattskyldighet: texten som momslagen kräver (17 kap. 24 §).

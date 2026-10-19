@@ -243,6 +243,20 @@ async fn kreditfaktura_i_panelen_ger_ett_utkast_som_utfärdas_och_länkar_åt_b�
     );
     assert!(utkast.contains("Krediterar faktura 1007 daterad 2026-03-10"));
     assert!(utkast.contains(r#"value="-10""#));
+    // Granska och utfärda säger det som kunden får tillbaka, som utkastet och PDF:en.
+    let granska = hämta(
+        &db,
+        &session,
+        &format!("{bas}/kundfakturor?f={k}&granska=1"),
+    )
+    .await;
+    let dialog = efter(&granska, "granska-rubrik");
+    assert!(
+        dialog.contains("Att få tillbaka <strong>11 875,00"),
+        "{dialog}"
+    );
+    assert!(!dialog.contains("Att betala"), "{dialog}");
+    assert!(!dialog.contains("-11 875,00 kr"), "{dialog}");
     utfärda(&db, &session, &bas, &k).await;
 
     let kredit = hämta(&db, &session, &format!("{bas}/kundfakturor?f={k}")).await;

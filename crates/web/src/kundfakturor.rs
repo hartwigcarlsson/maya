@@ -148,6 +148,10 @@ pub struct GranskningVy {
     /// ryms i det obetalda av ett original vars fordran inte är bokförd).
     #[serde(default)]
     pub bokförs_inte: bool,
+    /// #140: fakturan är en kreditfaktura, så summan är det som kunden får tillbaka och
+    /// `total` är utan minustecken, som på PDF:en.
+    #[serde(default)]
+    pub kredit: bool,
 }
 
 /// En rad på en utfärdad faktura.
@@ -856,7 +860,12 @@ pub(crate) mod server {
                 nummer: u.nummer.to_string(),
                 fakturadatum: u.fakturadatum.to_string(),
                 kontering: konteringsvy(&u.kontering(), kontonamn),
-                total: kr(u.total),
+                total: kr(if u.krediterar.is_some() {
+                    -u.total
+                } else {
+                    u.total
+                }),
+                kredit: u.krediterar.is_some(),
                 ..GranskningVy::default()
             },
             Err(spärrar) => GranskningVy {
@@ -1700,7 +1709,10 @@ fn Granska(lista: String, id: String, g: GranskningVy) -> impl IntoView {
                     <tbody>{rader}</tbody>
                 </table>
             </div>
-            <p>"Att betala " <strong>{g.total.clone()} " kr"</strong></p>
+            <p>
+                {if g.kredit { "Att få tillbaka " } else { "Att betala " }}
+                <strong>{g.total.clone()} " kr"</strong>
+            </p>
         }
         .into_any()
     };
@@ -2089,7 +2101,9 @@ fn FakturaFormulär(
                 .collect_view()
         }
     };
-    let att_betala = if start.krediterar.is_some() {
+    // En kreditfaktura visar det som kunden får tillbaka utan minustecken, som PDF:en.
+    let kredit = start.krediterar.is_some();
+    let att_betala = if kredit {
         "Att få tillbaka"
     } else {
         "Att betala"
@@ -2118,7 +2132,7 @@ fn FakturaFormulär(
                 {moms}
                 <tr class="summa">
                     <td colspan="7">{att_betala}</td>
-                    <td class="belopp">{kr(b.total)}</td>
+                    <td class="belopp">{kr(if kredit { -b.total } else { b.total })}</td>
                 </tr>
             }
         })
@@ -2528,7 +2542,9 @@ fn Papper(
         })
     };
     let datum = move || faktura.with(|f| f.fakturadatum.clone());
-    let total = move || beräkning.with(|b| kr(b.total));
+    // En kreditfaktura (#140) har sin rubrik och det som kunden får tillbaka, som PDF:en.
+    let kredit = move || faktura.with(|f| f.krediterar.is_some());
+    let total = move || beräkning.with(|b| kr(if kredit() { -b.total } else { b.total }));
     let betalsätt = [
         ("Bankgiro", fakturaföretag.bankgiro.clone()),
         ("Plusgiro", fakturaföretag.plusgiro.clone()),
@@ -2548,14 +2564,16 @@ fn Papper(
                     <span class="adressrad">{fakturaföretag.gatuadress.clone()}</span>
                     <span class="adressrad">{format!("{} {}", fakturaföretag.postnummer, fakturaföretag.postort)}</span>
                 </p>
-                <h3>"Faktura"</h3>
+                <h3>{move || if kredit() { "Kreditfaktura" } else { "Faktura" }}</h3>
             </header>
             {köpare}
             <p class="diskret">"Fakturadatum " {datum}</p>
             <table class="rader">
                 <tbody>{rader}</tbody>
             </table>
-            <p class="papper-summa">"Att betala " {total} " kr"</p>
+            <p class="papper-summa">
+                {move || if kredit() { "Att få tillbaka " } else { "Att betala " }} {total} " kr"
+            </p>
             {omvänd_text}
             <p class="diskret">{betalsätt}</p>
             <p class="diskret">"Uppdateras medan du skriver."</p>

@@ -89,5 +89,7 @@ pub(crate) fn kundfaktura(k: &Kundfaktura) -> Value {
         "netto": kr(f.netto),
         "moms": kr(f.moms),
         "total": kr(f.total),
+        // #140: det som kunden får tillbaka på en kreditfaktura, utan minustecken.
+        "att_betala": kr(if f.krediterar.is_some() { -f.total } else { f.total }),
     })
 }

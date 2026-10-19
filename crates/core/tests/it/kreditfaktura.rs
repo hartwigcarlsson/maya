@@ -182,7 +182,8 @@ async fn kreditfakturans_pdf_har_hänvisningen_till_originalet() {
         "Org.nr 556036-0793",
         "Momsreg.nr SE556036079301",
         "Moms 25 % på -9 500,00",
-        "Att få tillbaka -11 875,00 kr",
+        // Det kunden får tillbaka, utan minustecken.
+        "Att få tillbaka 11 875,00 kr",
     ] {
         assert!(innehåller(&text, uppgift), "{uppgift} saknas i {text}");
     }
