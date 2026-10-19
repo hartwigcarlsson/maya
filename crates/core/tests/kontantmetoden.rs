@@ -1207,3 +1207,112 @@ async fn en_bokförd_fordran_ändras_och_raderas_aldrig_och_kräver_en_bokförd_
     .unwrap_err();
     assert!(fel.to_string().contains("kräver en utfärdad"), "{fel}");
 }
+
+/// Räkenskapsårens start i företaget.
+async fn årens_start(db: &Databas, anna: &Aktör, id: FöretagsId) -> Vec<String> {
+    foretag::företaget(db, anna, id)
+        .await
+        .unwrap()
+        .räkenskapsår
+        .iter()
+        .map(|år| år.start.to_string())
+        .collect()
+}
+
+#[tokio::test]
+async fn en_faktura_i_året_efter_det_senaste_skapar_året_under_båda_metoderna() {
+    // Spärren saknat_rakenskapsar lovar att året direkt efter det senaste skapas när fakturan
+    // utfärdas eller registreras, också när inget verifikat bokförs (kontantmetoden).
+    use maya_domain::extern_kundfaktura::{NyExternFaktura, NyExternRad};
+    for (metod, bokförd) in METODER {
+        // Utfärda.
+        let db = Databas::tillfällig().await;
+        let (anna, id) = testhjalp::fakturaföretag_med_metod(&db, metod).await;
+        let f = testhjalp::utfärdad_kundfaktura(&db, &anna, id, "Kund AB", "2027-01-10").await;
+        assert_eq!(f.verifikat.is_some(), bokförd, "{metod}");
+        assert_eq!(
+            årens_start(&db, &anna, id).await,
+            ["2026-01-01", "2027-01-01"],
+            "utfärda, {metod}"
+        );
+        let historik = maya_core::behandlingshistorik::läs(&db, &anna, id)
+            .await
+            .unwrap();
+        assert!(
+            historik.iter().any(|p| p.typ == "räkenskapsår skapat"),
+            "{metod}"
+        );
+
+        // Registrera en leverantörsfaktura.
+        let db = Databas::tillfällig().await;
+        let (anna, id) = testhjalp::företag_med_metod(&db, metod).await;
+        let l = testhjalp::leverantör(&db, &anna, id, "Kontorsvaror AB").await;
+        let (_, r) = registrera(
+            &db,
+            &anna,
+            id,
+            NyLeverantörsfaktura {
+                leverantör: l.to_string(),
+                fakturanummer: "8812".into(),
+                fakturadatum: "2027-01-10".into(),
+                förfallodag: "2027-02-09".into(),
+                totalbelopp: "1 250".into(),
+                rader: vec![NyRad {
+                    konto: "5410".into(),
+                    netto: "1 000".into(),
+                    momssats: "25".into(),
+                    moms: String::new(),
+                }],
+                ..Default::default()
+            },
+        )
+        .await;
+        assert_eq!(r.verifikat.is_some(), bokförd, "{metod}");
+        assert_eq!(
+            årens_start(&db, &anna, id).await,
+            ["2026-01-01", "2027-01-01"],
+            "leverantörsfaktura, {metod}"
+        );
+
+        // Registrera en extern kundfaktura.
+        let db = Databas::tillfällig().await;
+        let (anna, id) = testhjalp::fakturaföretag_med_metod(&db, metod).await;
+        let kund = testhjalp::kund(&db, &anna, id, "Kund AB").await;
+        let (f, _) = extern_kundfaktura::ladda_upp(
+            &db,
+            &klocka(),
+            &anna,
+            id,
+            ("A-18.pdf", "application/pdf", b"%PDF-1.4 extern A-18"),
+        )
+        .await
+        .unwrap();
+        let r = extern_kundfaktura::registrera(
+            &db,
+            &klocka(),
+            &anna,
+            id,
+            f,
+            &NyExternFaktura {
+                kund: kund.to_string(),
+                fakturanummer: "A-18".into(),
+                fakturadatum: "2027-01-10".into(),
+                förfallodag: "2027-02-09".into(),
+                rader: vec![NyExternRad {
+                    momssats: "25".into(),
+                    konto: "3001".into(),
+                    belopp: "10 000".into(),
+                }],
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+        assert_eq!(r.verifikat.is_some(), bokförd, "{metod}");
+        assert_eq!(
+            årens_start(&db, &anna, id).await,
+            ["2026-01-01", "2027-01-01"],
+            "extern kundfaktura, {metod}"
+        );
+    }
+}

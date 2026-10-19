@@ -525,7 +525,10 @@ pub async fn registrera(
             )
             .await?,
         ),
-        None => None,
+        None => {
+            verifikat::skapa_året_i(&mut ärende, r.räkenskapsår).await?;
+            None
+        }
     };
     let (aktör_, nu) = (ärende.aktör, ärende.nu);
     sqlx::query(

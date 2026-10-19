@@ -463,7 +463,10 @@ pub async fn registrera(
             )
             .await?,
         ),
-        None => None,
+        None => {
+            verifikat::skapa_året_i(&mut ärende, r.räkenskapsår).await?;
+            None
+        }
     };
     let momsregistrerat = förutsättningar.momsregistrerat(r.fakturadatum);
     let (aktör_, nu) = (ärende.aktör, ärende.nu);

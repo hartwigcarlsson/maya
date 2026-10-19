@@ -939,8 +939,27 @@ pub(crate) async fn ta_bort_utkast_i(
     Ok(())
 }
 
+/// Skapar räkenskapsåret om det är nytt, som när ett verifikat bokförs i det: för en faktura
+/// som utfärdas eller registreras i året direkt efter det senaste utan att något bokförs
+/// (kontantmetoden, #149), så att fakturan hör till ett år som finns.
+pub(crate) async fn skapa_året_i(
+    ärende: &mut Ärende, årsval: Årsval
+) -> Result<(), VerifikatFel> {
+    räkenskapsår_id_av(ärende, årsval, "första fakturan dateras i året").await?;
+    Ok(())
+}
+
 /// Räkenskapsårets id, efter att året har skapats om det är nytt.
 async fn räkenskapsår_id(ärende: &mut Ärende, årsval: Årsval) -> Result<i64, VerifikatFel> {
+    räkenskapsår_id_av(ärende, årsval, "första verifikatet dateras i året").await
+}
+
+/// Som [`räkenskapsår_id`], med `skäl` i historiken när året skapas.
+async fn räkenskapsår_id_av(
+    ärende: &mut Ärende,
+    årsval: Årsval,
+    skäl: &str,
+) -> Result<i64, VerifikatFel> {
     let företag = ärende.företag;
     match årsval {
         Årsval::Befintligt(år) => Ok(sqlx::query_scalar(
@@ -967,7 +986,7 @@ async fn räkenskapsår_id(ärende: &mut Ärende, årsval: Årsval) -> Result<i6
                     serde_json::json!({
                         "start": start,
                         "slut": slut,
-                        "skäl": "första verifikatet dateras i året",
+                        "skäl": skäl,
                     }),
                 )
                 .await?;

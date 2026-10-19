@@ -633,7 +633,10 @@ pub async fn utfärda(
             )
             .await?,
         ),
-        None => None,
+        None => {
+            verifikat::skapa_året_i(&mut ärende, u.räkenskapsår).await?;
+            None
+        }
     };
 
     // Raderna får sitt netto innan fakturan låses.
