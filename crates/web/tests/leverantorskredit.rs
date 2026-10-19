@@ -259,6 +259,10 @@ async fn kredit_av_en_betald_faktura_ger_tillgodo_som_återbetalas_i_dokumentet(
     let dokument = hämta(&db, &session, &här).await;
     let dokument = efter(&dokument, "class=\"dokument\"");
     assert!(dokument.contains("badge-tillgodo"), "{dokument}");
+    assert!(
+        dokument.contains(r#"badge-tillgodo">Tillgodo<"#),
+        "{dokument}"
+    );
     assert!(dokument.contains("250,00 tillgodo"), "{dokument}");
     assert!(
         dokument.contains(&format!("{här}&amp;panel=aterbetala")),

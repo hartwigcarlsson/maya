@@ -2,6 +2,7 @@
 //! förfallodagen och dagens datum. Inget av det lagras.
 
 use jiff::civil::date;
+use maya_domain::betalning::Reskontra;
 use maya_domain::reskontra::{
     Grupp, Märke, förfallotext, grupp, kopieringschips, kundfakturans_märke, märke,
 };
@@ -159,6 +160,13 @@ fn en_krediterad_faktura_och_ett_tillgodohavande_får_egna_märken() {
     );
     assert_eq!(märke(10_000, -1, förfaller, idag), Märke::Tillgodo);
     assert_eq!(Märke::Tillgodo.namn(), "Tillgodo");
+    // Berättelse 71: kunden har tillgodo; hos leverantören heter det tillgodo.
+    assert_eq!(
+        Märke::Tillgodo.namn_i(Reskontra::Kund),
+        "Kunden har tillgodo"
+    );
+    assert_eq!(Märke::Tillgodo.namn_i(Reskontra::Leverantör), "Tillgodo");
+    assert_eq!(Märke::Betald.namn_i(Reskontra::Kund), "Betald");
     assert_eq!(Märke::Krediterad.kod(), "krediterad");
     assert_eq!(Märke::Kreditfaktura.namn(), "Kreditfaktura");
     // #140 och #141: en kundförlust på en delkrediterad faktura gäller det som återstod.

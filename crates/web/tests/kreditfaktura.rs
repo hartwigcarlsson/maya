@@ -321,6 +321,11 @@ async fn kredit_av_en_betald_faktura_ger_ett_tillgodohavande_som_återbetalas_i_
 
     let dokument = hämta(&db, &session, &här).await;
     assert!(dokument.contains("badge-tillgodo"), "{dokument}");
+    // Berättelse 71: märket säger att kunden har tillgodo.
+    assert!(
+        dokument.contains(r#"badge-tillgodo">Kunden har tillgodo<"#),
+        "{dokument}"
+    );
     assert!(dokument.contains("Kunden har tillgodo 4 750,00 kr"));
     assert!(dokument.contains(&i_html(&format!("{här}&panel=aterbetala"))));
     let sida = hämta(&db, &session, &format!("{bas}/kunder?k={kund}")).await;

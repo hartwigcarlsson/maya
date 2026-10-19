@@ -576,7 +576,13 @@ pub(crate) mod server {
                         (_, Some(d)) => Some(märke_för(&f, d, idag)),
                         _ => None,
                     }
-                    .map(|m| (m.kod().to_string(), m.namn().to_string())),
+                    .map(|m| {
+                        (
+                            m.kod().to_string(),
+                            m.namn_i(maya_domain::betalning::Reskontra::Kund)
+                                .to_string(),
+                        )
+                    }),
                     grupp: Some(match utfärdad {
                         Some(d) => maya_domain::reskontra::grupp(f.återstår, d, idag),
                         None => Grupp::Utkast,

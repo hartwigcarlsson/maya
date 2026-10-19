@@ -664,7 +664,14 @@ pub(crate) mod server {
             idag,
         );
         let mut vy = ReskontraVy {
-            märke: (m.kod().into(), m.namn().into()),
+            märke: (
+                m.kod().into(),
+                m.namn_i(match faktura {
+                    Faktura::Kund(_) => maya_domain::betalning::Reskontra::Kund,
+                    Faktura::Leverantör(_) => maya_domain::betalning::Reskontra::Leverantör,
+                })
+                .into(),
+            ),
             återstår: kr(post.återstår),
             återstår_öre: post.återstår,
             betalningar: post

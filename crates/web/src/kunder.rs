@@ -235,7 +235,10 @@ pub(crate) mod server {
                     märke: match (f.status, f.förfallodag) {
                         (Status::Utfärdad | Status::Registrerad, Some(d)) => {
                             let m = crate::kundfakturor::server::märke_för(f, d, idag);
-                            (m.kod().into(), m.namn().into())
+                            (
+                                m.kod().into(),
+                                m.namn_i(maya_domain::betalning::Reskontra::Kund).into(),
+                            )
                         }
                         (Status::Upplåst, _) => ("upplast".into(), "Upplåst".into()),
                         _ => ("utkast".into(), "Utkast".into()),
