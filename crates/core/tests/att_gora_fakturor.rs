@@ -387,3 +387,81 @@ async fn kreditfakturor_räknas_av_mot_originalet_och_syns_inte_själva_i_att_g�
         .unwrap();
     assert_eq!(antal.get(&id), Some(&1));
 }
+
+// #148 Kreditfaktura från leverantör och Rätta avskrift
+
+/// Registrerar en kreditfaktura på `total` kr (netto `netto` kr, 25 %) som krediterar `original`.
+async fn leverantörskredit(
+    db: &Databas,
+    anna: &Aktör,
+    id: FöretagsId,
+    original: LeverantörsfakturaId,
+    total: &str,
+    netto: &str,
+) {
+    let o = leverantorsfaktura::fakturan(db, anna, id, original)
+        .await
+        .unwrap()
+        .unwrap();
+    let (k, _) = leverantorsfaktura::ladda_upp(
+        db,
+        &i_dag(),
+        anna,
+        id,
+        ("kredit.pdf", "application/pdf", b"%PDF-1.4 kredit"),
+    )
+    .await
+    .unwrap();
+    leverantorsfaktura::registrera(
+        db,
+        &i_dag(),
+        anna,
+        id,
+        k,
+        &NyLeverantörsfaktura {
+            leverantör: o.leverantör.unwrap().to_string(),
+            fakturanummer: format!("K-{}", o.formulär.fakturanummer),
+            fakturadatum: "2026-09-25".into(),
+            förfallodag: "2026-10-25".into(),
+            totalbelopp: total.into(),
+            krediterar: original.to_string(),
+            rader: vec![NyRad {
+                konto: String::new(),
+                netto: netto.into(),
+                momssats: "25".into(),
+                moms: String::new(),
+            }],
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
+}
+
+#[tokio::test]
+async fn leverantörens_kreditfakturor_minskar_det_som_ska_betalas_och_en_upplåst_faktura_väntar() {
+    let db = Databas::tillfällig().await;
+    let (anna, id) = testhjalp::företag(&db).await;
+    let delvis = leverantörsfaktura(&db, &anna, id, "Delvis AB", "2026-10-10", "").await;
+    leverantörskredit(&db, &anna, id, delvis, "-250", "-200").await;
+    let hel = leverantörsfaktura(&db, &anna, id, "Hel AB", "2026-10-11", "").await;
+    leverantörskredit(&db, &anna, id, hel, "-1250", "-1000").await;
+    let upplåst = leverantörsfaktura(&db, &anna, id, "Upplåst AB", "2026-10-12", "").await;
+    leverantorsfaktura::rätta_avskrift(&db, &i_dag(), &anna, id, upplåst, "")
+        .await
+        .unwrap();
+
+    let a = att_gora::att_göra(&db, &i_dag(), &testhjalp::config(), &anna, id)
+        .await
+        .unwrap();
+    let f = fakturorna(&a.saker);
+    let ordning: Vec<Reskontrafaktura> = f.iter().map(|f| f.faktura).collect();
+    assert_eq!(ordning, [Reskontrafaktura::Leverantör(delvis)]);
+    assert_eq!(f[0].återstår, 100_000);
+
+    testhjalp::backup(&db, &i_dag()).await;
+    let antal = att_gora::antal(&db, &i_dag(), &testhjalp::config(), &anna)
+        .await
+        .unwrap();
+    assert_eq!(antal.get(&id), Some(&1));
+}

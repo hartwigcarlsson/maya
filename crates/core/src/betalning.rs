@@ -17,6 +17,12 @@
 //! leverantörsfaktura (#147). På en leverantörsfaktura med originalvaluta kan en avvikelse stängas
 //! mot kursdifferens (3960/7960) i samma verifikat; den står i `betalning.kursdifferens` och
 //! räknas som betald.
+//!
+//! Det som återstår av en leverantörsfaktura (#148) räknas i vyn `leverantorsfaktura_i_reskontran`:
+//! totalen minus de registrerade kreditfakturorna och betalningarna. Är det negativt har företaget
+//! ett tillgodohavande, och en betalning är då en *återbetalning* åt andra hållet (betalkontot mot
+//! 2440), loggad som `återbetalning`. En kreditfaktura med hänvisning räknas av mot originalet och
+//! betalas inte själv, och en upplåst faktura tar inte emot betalningar förrän den registrerats om.
 
 use std::fmt;
 use std::str::FromStr;
@@ -189,7 +195,8 @@ pub struct Betalningspost {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Reskontrapost {
     pub total: i64,
-    /// Det som utfärdade kreditfakturor har krediterat, i öre och positivt (#140).
+    /// Det som utfärdade eller registrerade kreditfakturor har krediterat, i öre och positivt
+    /// (#140, #148).
     pub krediterat: i64,
     pub återstår: i64,
     pub förfallodag: Date,
@@ -208,6 +215,9 @@ struct Fakturan {
     förfallodag: Date,
     /// Leverantörsfakturans originalvaluta i fritext; tom för en kundfaktura.
     originalvaluta: String,
+    /// Fakturan tar emot betalningar: en registrerad leverantörsfaktura som inte är en
+    /// kreditfaktura med hänvisning (#148). Alltid för en utfärdad kundfaktura.
+    betalbar: bool,
 }
 
 impl Fakturan {
@@ -228,12 +238,13 @@ async fn läs_fakturan(
     företag: FöretagsId,
     faktura: Faktura,
 ) -> Result<Fakturan, BetalningFel> {
-    let rad: Option<(String, String, i64, String, String)> =
+    let rad: Option<(String, String, i64, String, String, bool)> =
         match faktura {
             Faktura::Kund(id) => sqlx::query_as(
-                // #143: en extern faktura har det andra systemets nummer.
+                // #143: en extern faktura har det andra systemets nummer, och en upplåst
+                // betalas inte förrän den är registrerad igen.
                 "SELECT coalesce(CAST(nummer AS TEXT), fakturanummer), kunduppgifter ->> '$.namn',
-                        total, forfallodag, ''
+                        total, forfallodag, '', status IN ('utfardad', 'registrerad')
                  FROM kundfaktura
                  WHERE id = ? AND foretag_id = ? AND status <> 'utkast' AND krediterar IS NULL",
             )
@@ -244,7 +255,8 @@ async fn läs_fakturan(
             // #147: en registrerad faktura har leverantör, total och förfallodag (tabellens CHECK).
             Faktura::Leverantör(id) => {
                 sqlx::query_as(
-                    "SELECT f.fakturanummer, l.namn, f.total, f.forfallodag, f.originalvaluta
+                    "SELECT f.fakturanummer, l.namn, f.total, f.forfallodag, f.originalvaluta,
+                        f.status = 'registrerad' AND f.krediterar IS NULL
                  FROM leverantorsfaktura f JOIN leverantor l ON l.id = f.leverantor_id
                  WHERE f.id = ? AND f.foretag_id = ? AND f.status <> 'utkast'",
                 )
@@ -254,7 +266,7 @@ async fn läs_fakturan(
                 .await?
             }
         };
-    let (nummer, motpart, total, förfallodag, originalvaluta) =
+    let (nummer, motpart, total, förfallodag, originalvaluta, betalbar) =
         rad.ok_or(BetalningFel::FinnsInte)?;
     Ok(Fakturan {
         nummer,
@@ -262,6 +274,7 @@ async fn läs_fakturan(
         total,
         förfallodag: datum(&förfallodag)?,
         originalvaluta,
+        betalbar,
     })
 }
 
@@ -278,30 +291,43 @@ async fn betalt_i(conn: &mut SqliteConnection, faktura: Faktura) -> Result<i64, 
     .await
 }
 
-/// Det som krediterats av fakturan, i öre och positivt (#140).
+/// Det som krediterats av fakturan, i öre och positivt: kundens utfärdade kreditfakturor (#140)
+/// och leverantörens registrerade kreditfakturor som hänvisar till fakturan (#148).
 async fn krediterat_i(conn: &mut SqliteConnection, faktura: Faktura) -> Result<i64, sqlx::Error> {
     match faktura {
         Faktura::Kund(id) => crate::kundfaktura::krediterat_i(conn, id).await,
-        // Leverantörens kreditfakturor kommer med #148.
-        Faktura::Leverantör(_) => Ok(0),
+        Faktura::Leverantör(id) => sqlx::query_scalar(
+            "SELECT coalesce((SELECT krediterat FROM leverantorsfaktura_i_reskontran WHERE id = ?), 0)",
+        )
+        .bind(id.0)
+        .fetch_one(conn)
+        .await,
     }
 }
 
 /// Det som återstår av fakturan med `total` öre: totalen minus krediteringarna (#140),
 /// betalningarna i reskontran och det som en gällande kundförlust har skrivit bort (#141).
-/// Negativt är ett tillgodohavande.
+/// Negativt är ett tillgodohavande. För en leverantörsfaktura är det vyn
+/// `leverantorsfaktura_i_reskontran` (#148), där en kreditfaktura med hänvisning har 0 kvar.
 pub(crate) async fn återstår_i(
     conn: &mut SqliteConnection,
     faktura: Faktura,
     total: i64,
 ) -> Result<i64, sqlx::Error> {
-    let krediterat = krediterat_i(&mut *conn, faktura).await?;
-    let betalt = betalt_i(&mut *conn, faktura).await?;
-    let förlorat = match faktura {
-        Faktura::Kund(id) => crate::kundforlust::förlorat_i(&mut *conn, id).await?,
-        Faktura::Leverantör(_) => 0,
-    };
-    Ok(total - krediterat - betalt - förlorat)
+    match faktura {
+        Faktura::Kund(id) => {
+            let krediterat = krediterat_i(&mut *conn, faktura).await?;
+            let betalt = betalt_i(&mut *conn, faktura).await?;
+            let förlorat = crate::kundforlust::förlorat_i(&mut *conn, id).await?;
+            Ok(total - krediterat - betalt - förlorat)
+        }
+        Faktura::Leverantör(id) => sqlx::query_scalar(
+            "SELECT coalesce((SELECT aterstar FROM leverantorsfaktura_i_reskontran WHERE id = ?), 0)",
+        )
+        .bind(id.0)
+        .fetch_one(conn)
+        .await,
+    }
 }
 
 /// Det som betalningspanelen prövas mot: fakturans reskontra, det som återstår, kontona och
@@ -348,21 +374,26 @@ pub async fn registrera(
     let mut ärende =
         Ärende::börja(db, klocka, aktör, företag, Handling::RegistreraBetalning).await?;
     let fakturan = läs_fakturan(ärende.conn(), företag, faktura).await?;
-    // #143: en upplåst extern faktura tar inte emot betalningar förrän den registreras om.
-    if let Faktura::Kund(id) = faktura {
-        let upplåst: bool = sqlx::query_scalar(
-            "SELECT EXISTS (SELECT 1 FROM kundfaktura WHERE id = ? AND status = 'upplast')",
+    // #148: en upplåst leverantörsfaktura betalas när den har registrerats om. En kreditfaktura
+    // med hänvisning har inget kvar, och spärrarna säger det.
+    let upplåst: bool = match faktura {
+        Faktura::Leverantör(id) => sqlx::query_scalar(
+            "SELECT EXISTS (SELECT 1 FROM leverantorsfaktura WHERE id = ? AND status = 'upplast')",
         )
         .bind(id.0)
         .fetch_one(ärende.conn())
-        .await?;
-        if upplåst {
-            return Err(BetalningFel::FinnsInte);
-        }
+        .await?,
+        Faktura::Kund(_) => false,
+    };
+    if upplåst {
+        return Err(BetalningFel::FinnsInte);
     }
     let f = läs_förutsättningar(ärende.conn(), företag, faktura).await?;
     let b = formulär.kontrollera(&f).map_err(BetalningFel::Spärrat)?;
-    // En betalning åt andra hållet återbetalar ett tillgodohavande (#140).
+    if !fakturan.betalbar {
+        return Err(BetalningFel::FinnsInte);
+    }
+    // En betalning åt andra hållet återbetalar ett tillgodohavande (#140, #148).
     let (text, händelse) = if b.belopp < 0 {
         (
             återbetalningens_beskrivning(&fakturan.referens(faktura)),
@@ -671,8 +702,8 @@ pub(crate) async fn fakturan_för_verifikat(
         return Ok(Some((Flöde::Kundfaktura, id, text)));
     }
     // #147 Leverantörsfakturor
-    let rad: Option<(i64, String, String)> = sqlx::query_as(
-        "SELECT f.id, f.fakturanummer, l.namn
+    let rad: Option<(i64, String, String, bool)> = sqlx::query_as(
+        "SELECT f.id, f.fakturanummer, l.namn, b.belopp < 0
          FROM betalning b JOIN leverantorsfaktura f ON f.id = b.leverantorsfaktura_id
          JOIN leverantor l ON l.id = f.leverantor_id
          WHERE b.verifikat_id = ?1
@@ -681,11 +712,13 @@ pub(crate) async fn fakturan_för_verifikat(
     .bind(verifikat.0)
     .fetch_optional(conn)
     .await?;
-    Ok(rad.map(|(id, nummer, leverantör)| {
-        (
-            Flöde::Leverantörsfaktura,
-            id,
-            format!("betalningen av leverantörsfaktura {nummer} från {leverantör}"),
-        )
+    Ok(rad.map(|(id, nummer, leverantör, återbetalning)| {
+        let text = if återbetalning {
+            // #148
+            format!("återbetalningen på leverantörsfaktura {nummer} från {leverantör}")
+        } else {
+            format!("betalningen av leverantörsfaktura {nummer} från {leverantör}")
+        };
+        (Flöde::Leverantörsfaktura, id, text)
     }))
 }

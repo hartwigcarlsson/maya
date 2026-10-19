@@ -111,9 +111,11 @@ händelser! {
     // #140 Kreditfakturor
     KreditfakturaUtfärdad => "kreditfaktura utfärdad",
     Återbetalning => "återbetalning",
-    // #143 Externa kundfakturor
-    ExternKundfakturaRegistrerad => "extern kundfaktura registrerad",
+    // #148 Kreditfaktura från leverantör och Rätta avskrift
     KreditfakturaRegistrerad => "kreditfaktura registrerad",
+    AvskriftRättad => "avskrift rättad",
+    // #143 Externa kundfakturor (KreditfakturaRegistrerad ovan gäller också externa)
+    ExternKundfakturaRegistrerad => "extern kundfaktura registrerad",
     RegistreringRättad => "registrering rättad",
 }
 
@@ -803,25 +805,8 @@ impl Post {
                 s(&b["verifikat"]["nummer"]),
                 kronor(&b["återstår_öre"])
             ),
-            // #143 Externa kundfakturor
-            Händelse::ExternKundfakturaRegistrerad => {
-                let mut text = format!(
-                    "Extern faktura {} till ”{}” daterad {}, förfaller {}, {} kr",
-                    f("fakturanummer"),
-                    f("kundnamn"),
-                    f("fakturadatum"),
-                    f("förfallodag"),
-                    kronor(&b["summa_öre"])
-                );
-                if b["verifikat"].is_object() {
-                    text.push_str(&format!(", bokförd som {}", s(&b["verifikat"]["nummer"])));
-                }
-                if b["omregistrerad"].as_bool() == Some(true) {
-                    text.push_str(", registrerad om");
-                }
-                text
-            }
-            // Gemensam för externa kreditfakturor (#143) och leverantörens (#148).
+            // #148 Kreditfaktura från leverantör och Rätta avskrift
+            // Gemensam för leverantörens kreditfakturor (#148) och externa (#143).
             Händelse::KreditfakturaRegistrerad => {
                 let (riktning, motpart) = match b["leverantörsnamn"].as_str() {
                     Some(namn) => ("från", namn.to_string()),
@@ -846,10 +831,46 @@ impl Post {
                         ", bokförd som {}",
                         s(v.get("nummer").unwrap_or(&Value::Null))
                     )),
-                    _ if !f("nummer").is_empty() => {
-                        text.push_str(&format!(", bokförd som {}", f("nummer")))
-                    }
-                    _ => {}
+                    _ => text.push_str(&format!(", bokförd som {}", f("nummer"))),
+                }
+                text
+            }
+            Händelse::AvskriftRättad => {
+                let mut text = format!(
+                    "Avskriften av faktura {} från ”{}”",
+                    f("fakturanummer"),
+                    f("leverantörsnamn")
+                );
+                if b["rättelse"].is_object() {
+                    text.push_str(&format!(
+                        " rättad med {} av {}",
+                        s(&b["rättelse"]["nummer"]),
+                        s(&b["verifikat"]["nummer"])
+                    ));
+                } else {
+                    text.push_str(" rättad");
+                }
+                if !f("orsak").is_empty() {
+                    text.push_str(&format!(", {}", f("orsak")));
+                }
+                text.push_str(", fakturan är upplåst");
+                text
+            }
+            // #143 Externa kundfakturor
+            Händelse::ExternKundfakturaRegistrerad => {
+                let mut text = format!(
+                    "Extern faktura {} till ”{}” daterad {}, förfaller {}, {} kr",
+                    f("fakturanummer"),
+                    f("kundnamn"),
+                    f("fakturadatum"),
+                    f("förfallodag"),
+                    kronor(&b["summa_öre"])
+                );
+                if b["verifikat"].is_object() {
+                    text.push_str(&format!(", bokförd som {}", s(&b["verifikat"]["nummer"])));
+                }
+                if b["omregistrerad"].as_bool() == Some(true) {
+                    text.push_str(", registrerad om");
                 }
                 text
             }

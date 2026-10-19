@@ -17,17 +17,30 @@
 //! Omvänd skattskyldighet (#146) sparas i utkastet när användaren väljer den; annars föreslås
 //! leverantörens förval. Registreringen sparar det som bokfördes, och bokför den fiktiva momsen
 //! enligt `maya_domain::leverantorsfaktura`.
+//!
+//! **Kreditfaktura från leverantören** (#148) registreras som en faktura, med negativt
+//! totalbelopp och en frivillig hänvisning (`krediterar`) till originalet. Verifikatet är
+//! registreringens med omvänt tecken, och historiken får "kreditfaktura registrerad". Det som
+//! återstår av en leverantörsfaktura räknas i vyn `leverantorsfaktura_i_reskontran`: totalen minus
+//! de registrerade kreditfakturorna som hänvisar till den och betalningarna.
+//!
+//! **Rätta avskrift…** (#148) vänder registreringens verifikat med en rättelse daterad i dag
+//! (R1), låser upp fakturan (status `upplast`) och behåller betalningarna; orsaken är valfri.
+//! En upplåst faktura skrivs av och sparas som ett utkast, men raderas inte och tar inte emot
+//! betalningar. Den registreras om med samma regler och ett nytt verifikat, och totalen får inte
+//! bli mindre än det som redan har betalats.
 
 use std::fmt;
 use std::str::FromStr;
 
 use jiff::civil::Date;
-use maya_domain::belopp::Belopp;
+use maya_domain::belopp::Saldo;
 use maya_domain::foretag::{Bokföringsmetod, gäller};
 use maya_domain::kontoplan::Kontonummer;
 use maya_domain::leverantor::OmvändSkattskyldighet;
 use maya_domain::leverantorsfaktura::{
-    Förutsättningar, Leverantörsval, NY, NyLeverantörsfaktura, NyRad, Registrerad, Spärr,
+    Förutsättningar, Krediterbar, Leverantörsval, NY, NyLeverantörsfaktura, NyRad, Rad,
+    Registrerad, Spärr,
 };
 use maya_domain::verifikat::{NyRad as NyVerifikatrad, NyttVerifikat};
 use serde_json::json;
@@ -39,7 +52,9 @@ use crate::behandlingshistorik::{self, Händelse, Post};
 use crate::foretag::{self, FöretagsId, datum};
 use crate::leverantor::{self, LeverantörsId};
 use crate::underlag::{self, UnderlagFel, UnderlagId, Uppladdat};
-use crate::verifikat::{self, Bokfört, Signatur, VerifikatFel, VerifikatId, Verifikationsnummer};
+use crate::verifikat::{
+    self, Bokfört, Länk, Signatur, VerifikatFel, VerifikatId, Verifikationsnummer,
+};
 use crate::{Databas, DatabasFel, Klocka};
 
 /// En leverantörsfakturas id i installationen. Vem som helst kan skriva ett id; `core` avgör om
@@ -65,6 +80,8 @@ impl FromStr for LeverantörsfakturaId {
 pub enum Status {
     Utkast,
     Registrerad,
+    /// Registreringen är vänd med Rätta avskrift, och fakturan registreras om (#148).
+    Upplåst,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -81,6 +98,12 @@ pub enum FakturaFel {
     /// Registrering under kontantmetoden kommer i #149.
     #[error("fakturadatumet har kontantmetoden, som leverantörsfakturorna inte stöder än")]
     Kontantmetoden,
+    /// Rätta avskrift gäller en registrerad faktura i företaget (#148).
+    #[error("fakturan är inte registrerad")]
+    InteRegistrerad,
+    /// Registreringens verifikat kunde inte rättas (#148), t.ex. i ett räkenskapsår som inte finns.
+    #[error(transparent)]
+    Rättelse(VerifikatFel),
     #[error(transparent)]
     Underlag(UnderlagFel),
     #[error(transparent)]
@@ -135,13 +158,39 @@ pub struct Leverantörsfaktura {
     pub formulär: NyLeverantörsfaktura,
     pub fakturadatum: Option<Date>,
     pub förfallodag: Option<Date>,
-    pub total: Option<Belopp>,
-    /// Registreringens verifikat.
+    /// I öre; negativt för en kreditfaktura.
+    pub total: Option<i64>,
+    /// Registreringens verifikat; efter Rätta avskrift den senaste registreringens.
     pub verifikat: Option<(VerifikatId, Verifikationsnummer)>,
     pub skapad: Signatur,
     pub registrerad: Option<Signatur>,
     /// Posterna i behandlingshistoriken som rör fakturan, i ordning.
     pub historik: Vec<Post>,
+    /// Originalet som kreditfakturan hänvisar till (#148).
+    pub krediterar: Option<Kreditlänk>,
+    /// De kreditfakturor som hänvisar till fakturan (#148).
+    pub krediteras_av: Vec<Kreditlänk>,
+    /// Rätta avskrift, i ordning (#148).
+    pub avskrifter: Vec<Avskriftsrättelse>,
+}
+
+/// En faktura i en hänvisning mellan en kreditfaktura och dess original.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Kreditlänk {
+    pub id: LeverantörsfakturaId,
+    pub fakturanummer: String,
+    /// I öre.
+    pub total: i64,
+    pub status: Status,
+}
+
+/// En upplåsning med Rätta avskrift: registreringens verifikat och rättelsen som vände det.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Avskriftsrättelse {
+    pub verifikat: Option<Länk>,
+    pub rättelse: Option<Länk>,
+    pub orsak: String,
+    pub rättad: Signatur,
 }
 
 /// En faktura i listan.
@@ -154,10 +203,16 @@ pub struct Fakturarad {
     pub fakturanummer: String,
     pub fakturadatum: Option<Date>,
     pub förfallodag: Option<Date>,
-    pub total: Option<Belopp>,
-    /// Det som återstår att betala i öre (#147): totalen minus betalningarna i reskontran; för
-    /// ett utkast totalen, eller 0 utan total.
+    /// I öre; negativt för en kreditfaktura.
+    pub total: Option<i64>,
+    /// Det som återstår att betala i öre (#147): totalen minus kreditfakturorna och
+    /// betalningarna i reskontran (#148); negativt är ett tillgodohavande. För ett utkast
+    /// totalen, eller 0 utan total.
     pub återstår: i64,
+    /// Det som registrerade kreditfakturor har krediterat, i öre och positivt (#148).
+    pub krediterat: i64,
+    /// Fakturan är en kreditfaktura som hänvisar till ett original och räknas av mot det.
+    pub kreditfaktura: bool,
 }
 
 /// Skapar ett utkast med det okopplade underlaget `underlag` som original.
@@ -253,8 +308,23 @@ async fn spara_i(
     formulär: &NyLeverantörsfaktura,
 ) -> Result<(), FakturaFel> {
     let företag = ärende.företag;
-    let nuvarande = kräv_utkast(ärende, id).await?;
+    let (nuvarande, _) = kräv_avskrift(ärende, id).await?;
     let u = formulär.som_utkast().map_err(FakturaFel::Spärrat)?;
+    // Hänvisningen sparas när den pekar på en annan faktura i företaget; spärrarna vid
+    // registreringen prövar resten.
+    let krediterar = match u.krediterar {
+        Some(k) => {
+            sqlx::query_scalar::<_, i64>(
+                "SELECT id FROM leverantorsfaktura WHERE id = ? AND foretag_id = ? AND id <> ?",
+            )
+            .bind(k)
+            .bind(företag.0)
+            .bind(id.0)
+            .fetch_optional(ärende.conn())
+            .await?
+        }
+        None => None,
+    };
     let leverantör = match formulär.leverantör.trim() {
         NY if !formulär.ny_leverantör.namn.trim().is_empty() => {
             let konton = läs_konton(ärende.conn(), företag).await?;
@@ -286,17 +356,18 @@ async fn spara_i(
     sqlx::query(
         "UPDATE leverantorsfaktura SET leverantor_id = ?, fakturanummer = ?, fakturadatum = ?,
              forfallodag = ?, referens = ?, total = ?, originalvaluta = ?,
-             omvand_skattskyldighet = ?
-         WHERE id = ? AND status = 'utkast'",
+             omvand_skattskyldighet = ?, krediterar = ?
+         WHERE id = ? AND status IN ('utkast', 'upplast')",
     )
     .bind(leverantör.map(|l| l.0))
     .bind(&u.fakturanummer)
     .bind(u.fakturadatum.map(|d| d.to_string()))
     .bind(u.förfallodag.map(|d| d.to_string()))
     .bind(&u.referens)
-    .bind(u.total.map(Belopp::öre))
+    .bind(u.total)
     .bind(&u.originalvaluta)
     .bind(u.omvänd_skattskyldighet.map(|o| o.kod()))
+    .bind(krediterar)
     .bind(id.0)
     .execute(ärende.conn())
     .await?;
@@ -312,9 +383,9 @@ async fn spara_i(
         .bind(id.0)
         .bind(i as i64 + 1)
         .bind(r.konto.map(Kontonummer::get))
-        .bind(r.netto.map(Belopp::öre))
+        .bind(r.netto)
         .bind(i64::from(r.momssats))
-        .bind(r.moms.map(Belopp::öre))
+        .bind(r.moms)
         .execute(ärende.conn())
         .await?;
     }
@@ -339,7 +410,7 @@ pub async fn registrera(
     formulär: &NyLeverantörsfaktura,
 ) -> Result<Registrerat, FakturaFel> {
     let mut ärende = Ärende::börja(db, klocka, aktör, företag, Handling::RegistreraFaktura).await?;
-    kräv_utkast(&mut ärende, id).await?;
+    let (_, status) = kräv_avskrift(&mut ärende, id).await?;
     let förutsättningar = läs_förutsättningar(ärende.conn(), företag, Some(id)).await?;
     let r = formulär
         .kontrollera(&förutsättningar)
@@ -380,7 +451,7 @@ pub async fn registrera(
     for (i, rad) in r.rader.iter().enumerate() {
         sqlx::query("UPDATE leverantorsfakturarad SET konto = ?, moms = ? WHERE faktura_id = ? AND radnr = ?")
             .bind(rad.konto.get())
-            .bind(rad.moms.öre())
+            .bind(rad.moms)
             .bind(id.0)
             .bind(i as i64 + 1)
             .execute(ärende.conn())
@@ -395,7 +466,15 @@ pub async fn registrera(
     );
     let verifikatformulär = NyttVerifikat {
         datum: r.fakturadatum.to_string(),
-        beskrivning: format!("Leverantörsfaktura {}, {leverantörsnamn}", r.fakturanummer),
+        beskrivning: format!(
+            "{} {}, {leverantörsnamn}",
+            if r.total < 0 {
+                "Kreditfaktura"
+            } else {
+                "Leverantörsfaktura"
+            },
+            r.fakturanummer
+        ),
         rader: r
             .kontering()
             .iter()
@@ -412,7 +491,7 @@ pub async fn registrera(
     sqlx::query(
         "UPDATE leverantorsfaktura SET status = 'registrerad', verifikat_id = ?, registrerad = ?,
              registrerad_kanal = ?, registrerad_av = ?, omvand_skattskyldighet = ?
-         WHERE id = ? AND status = 'utkast'",
+         WHERE id = ? AND status IN ('utkast', 'upplast')",
     )
     .bind(bokfört.id.0)
     .bind(nu.to_string())
@@ -427,9 +506,26 @@ pub async fn registrera(
             .bind(underlag.0)
             .fetch_one(ärende.conn())
             .await?;
+    // #148: hänvisningen till originalet, och om fakturan registrerades om efter Rätta avskrift.
+    let krediterar = match &r.krediterar {
+        Some(k) => {
+            let nummer: String =
+                sqlx::query_scalar("SELECT fakturanummer FROM leverantorsfaktura WHERE id = ?")
+                    .bind(k.parse::<i64>().unwrap_or_default())
+                    .fetch_one(ärende.conn())
+                    .await?;
+            json!({ "id": k.parse::<i64>().unwrap_or_default(), "fakturanummer": nummer })
+        }
+        None => serde_json::Value::Null,
+    };
+    let händelse = if r.total < 0 {
+        Händelse::KreditfakturaRegistrerad
+    } else {
+        Händelse::LeverantörsfakturaRegistrerad
+    };
     ärende
         .logga(
-            Händelse::LeverantörsfakturaRegistrerad,
+            händelse,
             &format!("{} {leverantörsnamn}", r.fakturanummer),
             json!({
                 "leverantörsfaktura": id.0,
@@ -441,7 +537,9 @@ pub async fn registrera(
                 "referens": r.referens,
                 "originalvaluta": r.originalvaluta,
                 "omvänd_skattskyldighet": r.omvänd_skattskyldighet.kod(),
-                "summa_öre": r.total.öre(),
+                "summa_öre": r.total,
+                "krediterar": krediterar,
+                "omregistrerad": status == Status::Upplåst,
                 "verifikat": bokfört.id.0,
                 "nummer": bokfört.nummer.to_string(),
                 "underlag": { "underlag": underlag.0, "filnamn": filnamn.0, "sha256": filnamn.1 },
@@ -492,7 +590,7 @@ pub async fn radera_utkast(
                 "leverantörsnamn": f.leverantörsnamn,
                 "fakturanummer": f.formulär.fakturanummer,
                 "fakturadatum": f.fakturadatum.map(|d| d.to_string()),
-                "summa_öre": f.total.map(Belopp::öre),
+                "summa_öre": f.total,
                 "antal_rader": antal,
                 "underlag": { "underlag": f.underlag.0, "filnamn": f.filnamn },
             }),
@@ -532,12 +630,71 @@ async fn läs_förutsättningar(
     .await?;
     let registrerade: Vec<(i64, i64, String, String, i64)> = sqlx::query_as(
         "SELECT id, leverantor_id, fakturanummer, fakturadatum, total FROM leverantorsfaktura
-         WHERE foretag_id = ? AND status <> 'utkast' AND id IS NOT ?",
+         WHERE foretag_id = ? AND status <> 'utkast' AND id IS NOT ?
+           AND leverantor_id IS NOT NULL AND fakturadatum IS NOT NULL AND total IS NOT NULL",
     )
     .bind(företag.0)
     .bind(utkast.map(|u| u.0))
     .fetch_all(&mut *conn)
     .await?;
+    // #148: fakturorna som en kreditfaktura kan hänvisa till, med raderna som registrerades.
+    let originalen: Vec<(i64, i64, String, i64, Option<String>)> = sqlx::query_as(
+        "SELECT id, leverantor_id, fakturanummer, total, omvand_skattskyldighet
+         FROM leverantorsfaktura
+         WHERE foretag_id = ? AND status = 'registrerad' AND krediterar IS NULL AND total > 0
+           AND id IS NOT ?
+         ORDER BY fakturadatum DESC, id DESC",
+    )
+    .bind(företag.0)
+    .bind(utkast.map(|u| u.0))
+    .fetch_all(&mut *conn)
+    .await?;
+    let mut krediterbara = Vec::new();
+    for (id, leverantör, nummer, total, omvänd) in originalen {
+        let rader: Vec<(i64, i64, i64, i64)> = sqlx::query_as(
+            "SELECT konto, netto, momssats, moms FROM leverantorsfakturarad
+             WHERE faktura_id = ? ORDER BY radnr",
+        )
+        .bind(id)
+        .fetch_all(&mut *conn)
+        .await?;
+        krediterbara.push(Krediterbar {
+            id: id.to_string(),
+            leverantör: leverantör.to_string(),
+            fakturanummer: nummer,
+            total,
+            omvänd_skattskyldighet: omvänd
+                .as_deref()
+                .and_then(OmvändSkattskyldighet::från_kod)
+                .unwrap_or_default(),
+            rader: rader
+                .into_iter()
+                .map(|(konto, netto, sats, moms)| {
+                    Ok(Rad {
+                        konto: u16::try_from(konto)
+                            .ok()
+                            .and_then(Kontonummer::new)
+                            .ok_or_else(|| {
+                                DatabasFel::Korrupt("leverantorsfakturarad.konto".into())
+                            })?,
+                        netto,
+                        momssats: u8::try_from(sats).unwrap_or(25),
+                        moms,
+                    })
+                })
+                .collect::<Result<_, DatabasFel>>()?,
+        });
+    }
+    // #148: det som redan har betalats av en upplåst faktura.
+    let betalt: i64 = match utkast {
+        Some(u) => sqlx::query_scalar(
+            "SELECT coalesce((SELECT betalt FROM leverantorsfaktura_i_reskontran WHERE id = ?), 0)",
+        )
+        .bind(u.0)
+        .fetch_one(&mut *conn)
+        .await?,
+        None => 0,
+    };
     Ok(Förutsättningar {
         konton: v.konton,
         räkenskapsår: v.räkenskapsår,
@@ -565,10 +722,12 @@ async fn läs_förutsättningar(
                     leverantör: leverantör.to_string(),
                     fakturanummer: nummer,
                     fakturadatum: datum(&d)?,
-                    total: Belopp::från_öre(total),
+                    total,
                 })
             })
             .collect::<Result<_, DatabasFel>>()?,
+        krediterbara,
+        betalt,
     })
 }
 
@@ -580,27 +739,27 @@ pub async fn lista(
 ) -> Result<Vec<Fakturarad>, ÅtkomstFel> {
     let mut tx = db.pool().begin().await?;
     atkomst::kräv(&mut tx, aktör, företag, Handling::LäsaFöretag).await?;
-    type Rad = (
-        i64,
-        String,
-        Option<String>,
-        Option<String>,
-        String,
-        Option<String>,
-        Option<String>,
-        Option<i64>,
-        i64,
-    );
-    // Det som återstår: totalen minus betalningarna i reskontran, med öresutjämning och
-    // kursdifferens (#147), samma regel som `betalning::betalt_i`.
-    let rader: Vec<Rad> = sqlx::query_as(
-        "SELECT f.id, f.status, l.namn, l.status, f.fakturanummer, f.fakturadatum,
-                f.forfallodag, f.total,
-                coalesce(f.total, 0) - coalesce((SELECT sum(b.belopp + b.oresutjamning
-                                                            + b.kursdifferens)
-                                                 FROM betalning_i_reskontran b
-                                                 WHERE b.leverantorsfaktura_id = f.id), 0)
+    #[derive(sqlx::FromRow)]
+    struct Listrad {
+        id: i64,
+        status: String,
+        namn: Option<String>,
+        lstatus: Option<String>,
+        fakturanummer: String,
+        fakturadatum: Option<String>,
+        forfallodag: Option<String>,
+        total: Option<i64>,
+        krediterar: Option<i64>,
+        krediterat: Option<i64>,
+        aterstar: Option<i64>,
+    }
+    // Det som återstår räknas i vyn `leverantorsfaktura_i_reskontran` (#148), samma som för
+    // betalningarna; ett utkast har sin total kvar.
+    let rader: Vec<Listrad> = sqlx::query_as(
+        "SELECT f.id, f.status, l.namn, l.status AS lstatus, f.fakturanummer, f.fakturadatum,
+                f.forfallodag, f.total, f.krediterar, r.krediterat, r.aterstar
          FROM leverantorsfaktura f LEFT JOIN leverantor l ON l.id = f.leverantor_id
+         LEFT JOIN leverantorsfaktura_i_reskontran r ON r.id = f.id
          WHERE f.foretag_id = ?
          ORDER BY f.status <> 'utkast', f.forfallodag, f.id",
     )
@@ -609,21 +768,21 @@ pub async fn lista(
     .await?;
     Ok(rader
         .into_iter()
-        .map(
-            |(id, status, namn, lstatus, nummer, fd, ff, total, återstår)| {
-                Ok(Fakturarad {
-                    id: LeverantörsfakturaId(id),
-                    status: status_(&status)?,
-                    leverantörsnamn: namn.unwrap_or_default(),
-                    ny_leverantör: lstatus.as_deref() == Some("ny"),
-                    fakturanummer: nummer,
-                    fakturadatum: fd.as_deref().map(datum).transpose()?,
-                    förfallodag: ff.as_deref().map(datum).transpose()?,
-                    total: total.map(Belopp::från_öre),
-                    återstår,
-                })
-            },
-        )
+        .map(|r| {
+            Ok(Fakturarad {
+                id: LeverantörsfakturaId(r.id),
+                status: status_(&r.status)?,
+                leverantörsnamn: r.namn.unwrap_or_default(),
+                ny_leverantör: r.lstatus.as_deref() == Some("ny"),
+                fakturanummer: r.fakturanummer,
+                fakturadatum: r.fakturadatum.as_deref().map(datum).transpose()?,
+                förfallodag: r.forfallodag.as_deref().map(datum).transpose()?,
+                total: r.total,
+                återstår: r.aterstar.unwrap_or(r.total.unwrap_or_default()),
+                krediterat: r.krediterat.unwrap_or_default(),
+                kreditfaktura: r.krediterar.is_some() && r.status != "utkast",
+            })
+        })
         .collect::<Result<_, DatabasFel>>()?)
 }
 
@@ -643,6 +802,7 @@ fn status_(kod: &str) -> Result<Status, DatabasFel> {
     match kod {
         "utkast" => Ok(Status::Utkast),
         "registrerad" => Ok(Status::Registrerad),
+        "upplast" => Ok(Status::Upplåst),
         _ => Err(DatabasFel::Korrupt("leverantorsfaktura.status".into())),
     }
 }
@@ -663,6 +823,7 @@ struct FakturaRad {
     total: Option<i64>,
     originalvaluta: String,
     omvand_skattskyldighet: Option<String>,
+    krediterar: Option<i64>,
     verifikat_id: Option<i64>,
     verifikatnummer: Option<i64>,
     skapad: String,
@@ -684,7 +845,7 @@ async fn läs(
         "SELECT f.id, f.status, f.underlag_id, u.filnamn, f.leverantor_id,
                 l.namn AS leverantorsnamn, l.status AS leverantorsstatus, f.fakturanummer,
                 f.fakturadatum, f.forfallodag, f.referens, f.total, f.originalvaluta,
-                f.omvand_skattskyldighet,
+                f.omvand_skattskyldighet, f.krediterar,
                 f.verifikat_id, v.nummer AS verifikatnummer,
                 f.skapad, f.skapad_kanal, f.skapad_av, s.visningsnamn AS skapad_namn,
                 f.registrerad, f.registrerad_kanal, f.registrerad_av,
@@ -721,7 +882,7 @@ async fn läs(
         _ => Default::default(),
     };
     let belopp = |öre: Option<i64>| {
-        öre.map(|ö| Belopp::från_öre(ö).to_string())
+        öre.map(|ö| Saldo::från_öre(ö).to_string())
             .unwrap_or_default()
     };
     let formulär = NyLeverantörsfaktura {
@@ -743,6 +904,7 @@ async fn läs(
             (None, _) => OmvändSkattskyldighet::Ingen.kod().into(),
         },
         originalvaluta: f.originalvaluta,
+        krediterar: f.krediterar.map(|k| k.to_string()).unwrap_or_default(),
         rader: rader
             .into_iter()
             .map(|(konto, netto, momssats, moms)| NyRad {
@@ -764,6 +926,26 @@ async fn läs(
         )?),
         _ => None,
     };
+    // #148: hänvisningarna åt båda hållen och upplåsningarna.
+    let krediterar = match f.krediterar {
+        Some(k) => kreditlänkar(
+            &mut *conn,
+            "SELECT id, fakturanummer, total, status FROM leverantorsfaktura WHERE id = ?",
+            k,
+        )
+        .await?
+        .into_iter()
+        .next(),
+        None => None,
+    };
+    let krediteras_av = kreditlänkar(
+        &mut *conn,
+        "SELECT id, fakturanummer, total, status FROM leverantorsfaktura
+         WHERE krediterar = ? AND status <> 'utkast' ORDER BY fakturadatum, id",
+        f.id,
+    )
+    .await?;
+    let avskrifter = avskrifter(&mut *conn, f.id).await?;
     Ok(Some(Leverantörsfaktura {
         id: LeverantörsfakturaId(f.id),
         status: status_(&f.status)?,
@@ -774,7 +956,7 @@ async fn läs(
         ny_leverantör: ny,
         fakturadatum: f.fakturadatum.as_deref().map(datum).transpose()?,
         förfallodag: f.forfallodag.as_deref().map(datum).transpose()?,
-        total: f.total.map(Belopp::från_öre),
+        total: f.total,
         formulär,
         verifikat: match (f.verifikat_id, f.verifikatnummer) {
             (Some(v), Some(n)) => Some((VerifikatId(v), verifikat::verifikationsnummer(n)?)),
@@ -783,7 +965,182 @@ async fn läs(
         skapad: verifikat::signatur(&f.skapad, &f.skapad_kanal, f.skapad_av, f.skapad_namn)?,
         registrerad,
         historik,
+        krediterar,
+        krediteras_av,
+        avskrifter,
     }))
+}
+
+/// Fakturorna i en hänvisning: id, nummer, total och status ur frågan `sql` med `id`.
+async fn kreditlänkar(
+    conn: &mut SqliteConnection,
+    sql: &'static str,
+    id: i64,
+) -> Result<Vec<Kreditlänk>, DatabasFel> {
+    let rader: Vec<(i64, String, Option<i64>, String)> =
+        sqlx::query_as(sql).bind(id).fetch_all(&mut *conn).await?;
+    rader
+        .into_iter()
+        .map(|(id, fakturanummer, total, status)| {
+            Ok(Kreditlänk {
+                id: LeverantörsfakturaId(id),
+                fakturanummer,
+                total: total.unwrap_or_default(),
+                status: status_(&status)?,
+            })
+        })
+        .collect()
+}
+
+async fn avskrifter(
+    conn: &mut SqliteConnection,
+    faktura: i64,
+) -> Result<Vec<Avskriftsrättelse>, DatabasFel> {
+    type Avskriftsrad = (
+        Option<i64>,
+        Option<i64>,
+        String,
+        String,
+        String,
+        Option<i64>,
+        Option<String>,
+    );
+    let rader: Vec<Avskriftsrad> = sqlx::query_as(
+        "SELECT a.verifikat_id, a.rattelse_id, a.orsak, a.rattad, a.rattad_kanal, a.rattad_av,
+                u.visningsnamn
+         FROM leverantorsfaktura_avskrift a LEFT JOIN anvandare u ON u.id = a.rattad_av
+         WHERE a.faktura_id = ? ORDER BY a.id",
+    )
+    .bind(faktura)
+    .fetch_all(&mut *conn)
+    .await?;
+    let mut ut = Vec::new();
+    for (v, r, orsak, tid, kanal, av, namn) in rader {
+        ut.push(Avskriftsrättelse {
+            verifikat: verifikat::länk(&mut *conn, v).await?,
+            rättelse: verifikat::länk(&mut *conn, r).await?,
+            orsak,
+            rättad: verifikat::signatur(&tid, &kanal, av, namn)?,
+        });
+    }
+    Ok(ut)
+}
+
+/// Rätta avskrift (#148).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AvskriftRättad {
+    /// Rättelsen av registreringens verifikat; `None` när skulden inte var bokförd.
+    pub rättelse: Option<Bokfört>,
+}
+
+/// Rätta avskrift… (#148): vänder registreringens verifikat med en rättelse daterad i dag (R1),
+/// låser upp fakturan och loggar det, i en transaktion. Betalningarna ligger kvar; fakturan
+/// skrivs av och registreras om med samma regler. Orsaken är valfri.
+pub async fn rätta_avskrift(
+    db: &Databas,
+    klocka: &Klocka,
+    aktör: &Aktör,
+    företag: FöretagsId,
+    id: LeverantörsfakturaId,
+    orsak: &str,
+) -> Result<AvskriftRättad, FakturaFel> {
+    let mut ärende = Ärende::börja(db, klocka, aktör, företag, Handling::RättaFlöde).await?;
+    type Fakturan = (Option<i64>, String, String, Option<String>, Option<i64>);
+    let rad: Option<Fakturan> = sqlx::query_as(
+        "SELECT f.verifikat_id, f.registrerad, f.fakturanummer, l.namn, f.total
+         FROM leverantorsfaktura f LEFT JOIN leverantor l ON l.id = f.leverantor_id
+         WHERE f.id = ? AND f.foretag_id = ? AND f.status = 'registrerad'",
+    )
+    .bind(id.0)
+    .bind(företag.0)
+    .fetch_optional(ärende.conn())
+    .await?;
+    let (verifikat_id, registrering, fakturanummer, leverantörsnamn, total) =
+        rad.ok_or(FakturaFel::InteRegistrerad)?;
+    let idag = maya_domain::tid::datum(ärende.nu);
+    let rättelse = match verifikat_id {
+        Some(v) => Some(
+            verifikat::rätta_i(&mut ärende, VerifikatId(v), idag, orsak)
+                .await
+                .map_err(|e| match e {
+                    VerifikatFel::Åtkomst(e) => FakturaFel::Åtkomst(e),
+                    e => FakturaFel::Rättelse(e),
+                })?,
+        ),
+        None => None,
+    };
+    let (nu, kanal, av) = (
+        ärende.nu.to_string(),
+        ärende.aktör.kanal.namn(),
+        ärende.aktör.användare.map(|a| a.0),
+    );
+    sqlx::query(
+        "INSERT INTO leverantorsfaktura_avskrift
+             (foretag_id, faktura_id, registrering, verifikat_id, rattelse_id, orsak, rattad,
+              rattad_kanal, rattad_av)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    )
+    .bind(företag.0)
+    .bind(id.0)
+    .bind(&registrering)
+    .bind(verifikat_id)
+    .bind(rättelse.map(|r| r.id.0))
+    .bind(orsak.trim())
+    .bind(nu)
+    .bind(kanal)
+    .bind(av)
+    .execute(ärende.conn())
+    .await?;
+    sqlx::query(
+        "UPDATE leverantorsfaktura SET status = 'upplast' WHERE id = ? AND status = 'registrerad'",
+    )
+    .bind(id.0)
+    .execute(ärende.conn())
+    .await?;
+    let verifikatnummer = verifikat::länk(ärende.conn(), verifikat_id)
+        .await?
+        .and_then(|l| l.nummer)
+        .map(|n| n.to_string());
+    let leverantörsnamn = leverantörsnamn.unwrap_or_default();
+    ärende
+        .logga(
+            Händelse::AvskriftRättad,
+            &format!("{fakturanummer} {leverantörsnamn}"),
+            json!({
+                "leverantörsfaktura": id.0,
+                "fakturanummer": fakturanummer,
+                "leverantörsnamn": leverantörsnamn,
+                "summa_öre": total,
+                "orsak": orsak.trim(),
+                "verifikat": verifikat_id.map(|v| json!({ "id": v, "nummer": verifikatnummer })),
+                "rättelse": rättelse.map(|r| json!({ "id": r.id.0, "nummer": r.nummer.to_string() })),
+                "datum": idag.to_string(),
+            }),
+        )
+        .await?;
+    ärende.slutför().await?;
+    Ok(AvskriftRättad { rättelse })
+}
+
+/// Att `id` är ett utkast eller en upplåst faktura i ärendets företag, som skrivs av; ger dess
+/// leverantör och status.
+async fn kräv_avskrift(
+    ärende: &mut Ärende,
+    id: LeverantörsfakturaId,
+) -> Result<(Option<LeverantörsId>, Status), FakturaFel> {
+    let företag = ärende.företag;
+    let rad: Option<(Option<i64>, String)> = sqlx::query_as(
+        "SELECT leverantor_id, status FROM leverantorsfaktura
+         WHERE id = ? AND foretag_id = ? AND status IN ('utkast', 'upplast')",
+    )
+    .bind(id.0)
+    .bind(företag.0)
+    .fetch_optional(ärende.conn())
+    .await?;
+    match rad {
+        Some((l, status)) => Ok((l.map(LeverantörsId), status_(&status)?)),
+        None => Err(FakturaFel::IngetUtkast),
+    }
 }
 
 /// Att `id` är ett utkast i ärendets företag; ger dess leverantör.

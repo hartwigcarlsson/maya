@@ -1180,8 +1180,12 @@ async fn flödeslänk(
 ) -> Result<Option<Flödeslänk>, DatabasFel> {
     // #145 Leverantörsfakturor
     let leverantörsfaktura: Option<(i64, String, String)> = sqlx::query_as(
+        // #148: också en registrering som Rätta avskrift har vänt, och rättelsen av den.
         "SELECT f.id, f.fakturanummer, l.namn FROM leverantorsfaktura f
-         JOIN leverantor l ON l.id = f.leverantor_id WHERE f.verifikat_id = ?",
+         JOIN leverantor l ON l.id = f.leverantor_id
+         WHERE f.verifikat_id = ?1
+            OR f.id IN (SELECT faktura_id FROM leverantorsfaktura_avskrift
+                        WHERE verifikat_id = ?1 OR rattelse_id = ?1)",
     )
     .bind(id.0)
     .fetch_optional(&mut *conn)

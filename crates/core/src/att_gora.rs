@@ -252,10 +252,9 @@ pub async fn antal(
          GROUP BY u.foretag_id
          UNION ALL
          SELECT f.foretag_id, count(*) FROM leverantorsfaktura f
-         WHERE f.status <> 'utkast' AND f.forfallodag <= date(?1, '+7 days')
-           AND f.total > coalesce((SELECT sum(b.belopp + b.oresutjamning + b.kursdifferens)
-                                   FROM betalning_i_reskontran b
-                                   WHERE b.leverantorsfaktura_id = f.id), 0)
+         JOIN leverantorsfaktura_i_reskontran r ON r.id = f.id
+         WHERE f.status = 'registrerad' AND f.forfallodag <= date(?1, '+7 days')
+           AND r.aterstar > 0
          GROUP BY f.foretag_id",
     )
     .bind(klocka.idag().to_string())
@@ -467,8 +466,9 @@ async fn fakturor(
             kontakt: kontakt.unwrap_or_default(),
         });
     }
-    // Det som återstår på en leverantörsfaktura: totalen minus betalningarna i reskontran med
-    // öresutjämning och kursdifferens (#147), samma regel som `betalning::betalt_i`.
+    // Det som återstår på en leverantörsfaktura: vyn `leverantorsfaktura_i_reskontran` (#148),
+    // totalen minus kreditfakturorna och betalningarna, samma som i `betalning`. En upplåst
+    // faktura betalas inte förrän den registrerats om.
     type Rad = (
         i64,
         String,
@@ -482,13 +482,11 @@ async fn fakturor(
         String,
     );
     let rader: Vec<Rad> = sqlx::query_as(
-        "SELECT f.id, f.fakturanummer, l.namn, f.total,
-                f.total - coalesce((SELECT sum(b.belopp + b.oresutjamning + b.kursdifferens)
-                                    FROM betalning_i_reskontran b
-                                    WHERE b.leverantorsfaktura_id = f.id), 0),
+        "SELECT f.id, f.fakturanummer, l.namn, f.total, r.aterstar,
                 f.forfallodag, l.bankgiro, l.plusgiro, l.iban, f.referens
          FROM leverantorsfaktura f JOIN leverantor l ON l.id = f.leverantor_id
-         WHERE f.foretag_id = ? AND f.status <> 'utkast'
+         JOIN leverantorsfaktura_i_reskontran r ON r.id = f.id
+         WHERE f.foretag_id = ? AND f.status = 'registrerad'
          ORDER BY f.forfallodag, f.id",
     )
     .bind(företag.0)

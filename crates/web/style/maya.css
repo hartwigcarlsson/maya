@@ -2857,15 +2857,20 @@ kbd {
   font-weight: 600;
 }
 
+/* Kreditfaktura från leverantör och Rätta avskrift (#148): märket upplåst, hänvisningen i
+   formuläret och panelen Rätta avskrift…. */
+.badge-upplast {
+  border: 1px dashed var(--primary);
+  color: var(--primary);
+}
+
+.hanvisning-val select {
+  max-width: 24em;
+}
+
 /* Externa kundfakturor (#143) */
 .badge-extern {
   background: transparent;
   color: var(--muted-foreground);
   border: 1px dashed var(--border);
-}
-
-.badge-upplast {
-  background: color-mix(in oklch, var(--primary) 12%, transparent);
-  color: var(--foreground);
-  border: 1px solid var(--primary);
 }

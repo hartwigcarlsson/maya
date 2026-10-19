@@ -1181,6 +1181,151 @@ fn fakturor_registreras_och_betalas_från_att_göra() {
     inga_sidfel(&tab);
 }
 
+/// #148 Kreditfaktura från leverantör och Rätta avskrift: kreditfakturans rader fylls ur
+/// originalet i webbläsaren och registreras, och originalets avskrift rättas så att fakturan
+/// låses upp.
+#[test]
+fn leverantorskredit_konteras_som_originalet_och_avskriften_rättas() {
+    if !stod::sajten_finns() {
+        return;
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let port = ledig_port();
+    let bas = format!("http://localhost:{port}");
+    std::fs::write(
+        dir.path().join(".env"),
+        format!(
+            "MAYA_PUBLIC_URL={bas}\nMAYA_LISTEN=127.0.0.1:{port}\nMAYA_BACKUP_DIR={backup}\n\
+             MAYA_DATA_DIR={data}\n",
+            backup = dir.path().display(),
+            data = dir.path().join("data").display(),
+        ),
+    )
+    .unwrap();
+    let _server = Server::starta(dir.path(), port);
+    let browser = Browser::new(
+        LaunchOptions::default_builder()
+            .sandbox(false)
+            .idle_browser_timeout(Duration::from_secs(120))
+            .build()
+            .unwrap(),
+    )
+    .expect("röktestet kräver Chrome eller Chromium; ange sökvägen i CHROME");
+    let tab = browser.new_tab().unwrap();
+    tab.call_method(Page::AddScriptToEvaluateOnNewDocument {
+        source: SAMLA_FEL.to_string(),
+        world_name: None,
+        include_command_line_api: None,
+        run_immediately: None,
+    })
+    .unwrap();
+    tab.call_method(WebAuthn::Enable {
+        enable_ui: Some(false),
+    })
+    .unwrap();
+    autentiserare(&tab);
+    tab.navigate_to(&skapa_användare(dir.path(), &bas)).unwrap();
+    vänta_på_shimmen(&tab);
+    tab.wait_for_element("#namn")
+        .unwrap()
+        .type_into("Virtuell nyckel")
+        .unwrap();
+    klicka(&tab, "form[data-passkey='registrera'] button");
+    vänta_på_text(&tab, "Lägg till en passkey till");
+
+    // Företaget, leverantören och originalet 8812 på 1 250 kr, registrerat.
+    let företaget = posta(
+        &tab,
+        "/foretag",
+        "orgnr=556036-0793&namn=Exempel+AB&start=2026-01-01&slut=2026-12-31\
+         &bokforingsmetod=faktura&momsperiod=kvartal",
+    );
+    let sökväg = företaget.strip_prefix(&bas).unwrap().to_string();
+    posta(
+        &tab,
+        &format!("{sökväg}/leverantorer"),
+        "namn=Kontorsvaror+AB&land=SE&bankgiro=5050-1055&standardkonto=5410",
+    );
+    let ladda_upp = |namn: &str| {
+        let fil = dir.path().join(namn);
+        std::fs::write(&fil, [KVITTO, namn.as_bytes()].concat()).unwrap();
+        tab.navigate_to(&format!("{företaget}/leverantorsfakturor/ny"))
+            .unwrap();
+        vänta_på_hydreringen(&tab);
+        tab.wait_for_element("form.uppladdning input[type='file']")
+            .unwrap()
+            .set_input_files(&[fil.to_str().unwrap()])
+            .unwrap();
+        klicka(&tab, "form.uppladdning button[type='submit']");
+        vänta_på_text(&tab, "Ett utkast skapades med originalet kopplat.");
+        tab.get_url()
+            .split("f=")
+            .nth(1)
+            .unwrap()
+            .split('&')
+            .next()
+            .unwrap()
+            .to_string()
+    };
+    let f = ladda_upp("faktura-8812.pdf");
+    posta(
+        &tab,
+        &format!("{sökväg}/leverantorsfakturor/{f}"),
+        "handling=registrera&leverantor=1&fakturanummer=8812&fakturadatum=2026-03-14\
+         &forfallodag=2026-04-13&referens=4455667788&totalbelopp=1250&originalvaluta=\
+         &konto_0=&netto_0=1000&momssats_0=25&moms_0=",
+    );
+
+    // Kreditfakturan: leverantören, hänvisningen och halva totalen med minus; Kontera som
+    // originalet fyller raden med netto och moms.
+    let k = ladda_upp("kredit-k17.pdf");
+    vänta_på_hydreringen(&tab);
+    välj(&tab, "#leverantor", "1");
+    tab.wait_for_element("#krediterar").unwrap();
+    välj(&tab, "#krediterar", &f);
+    fyll(&tab, "#fakturanummer", "K-17");
+    fyll(&tab, "#fakturadatum", "2026-03-20");
+    fyll(&tab, "#forfallodag", "2026-04-19");
+    fyll(&tab, "#totalbelopp", "-625");
+    vänta_på_text(&tab, "Kreditfaktura");
+    klicka(&tab, ".hanvisning-val button");
+    vänta_på_text(&tab, "Summerar till totalen");
+    let värde = |selektor: &str| {
+        tab.evaluate(
+            &format!("document.querySelector({selektor:?}).value"),
+            false,
+        )
+        .unwrap()
+        .value
+        .and_then(|v| v.as_str().map(str::to_string))
+        .unwrap_or_default()
+    };
+    assert_eq!(värde("input[name='netto_0']"), "-500");
+    assert_eq!(värde("input[name='moms_0']"), "-125");
+    klicka(&tab, "button[value='registrera']");
+    vänta_på_text(&tab, "Registrerad och bokförd som");
+    vänta_på_text(&tab, "Kreditfaktura K-17");
+    vänta_på_text(&tab, "Krediterar");
+    assert!(
+        tab.get_url().contains(&format!("f={k}")),
+        "{}",
+        tab.get_url()
+    );
+
+    // Originalet: 625 kr kvar. Rätta avskrift… låser upp det.
+    tab.navigate_to(&format!("{företaget}/leverantorsfakturor?f={f}"))
+        .unwrap();
+    vänta_på_hydreringen(&tab);
+    vänta_på_text(&tab, "625,00 kvar");
+    vänta_på_text(&tab, "Krediteras av");
+    klicka(&tab, "a[href$='panel=ratta-avskrift']");
+    vänta_på_text(&tab, "Bokförs som rättelse");
+    klicka(&tab, ".avskriftspanel button[type='submit']");
+    vänta_på_text(&tab, "Avskriften rättades");
+    vänta_på_text(&tab, "Upplåst");
+    inga_sidfel(&tab);
+}
+
 /// Väljer ett värde i en `<select>` som användaren skulle.
 fn välj(tab: &Tab, selektor: &str, värde: &str) {
     tab.wait_for_element(selektor)

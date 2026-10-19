@@ -117,6 +117,21 @@ pub fn kundfakturans_märke(
     }
 }
 
+// #148 Kreditfaktura från leverantör
+/// Märket för en registrerad leverantörsfaktura med `total` öre som kreditfakturor har
+/// krediterat `krediterat` öre av (positivt), varav `återstår` öre är obetalt: samma regler som
+/// [`kundfakturans_märke`] utan kundförlust. En kreditfaktura med hänvisning och en upplåst
+/// faktura får [`Märke::Kreditfaktura`] och [`Märke::Upplåst`] av anroparen.
+pub fn leverantörsfakturans_märke(
+    total: i64,
+    krediterat: i64,
+    återstår: i64,
+    förfallodag: Date,
+    idag: Date,
+) -> Märke {
+    kundfakturans_märke(total, krediterat, återstår, false, förfallodag, idag)
+}
+
 /// Grupperna i listan, i den ordning de visas.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum Grupp {
