@@ -7,6 +7,7 @@ pub mod atkomst;
 pub mod att_gora;
 pub mod backup;
 pub mod behandlingshistorik;
+pub mod betalning;
 pub mod bokforing;
 pub mod config;
 mod databas;

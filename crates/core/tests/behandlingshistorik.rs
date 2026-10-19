@@ -452,6 +452,26 @@ async fn fakturaändringar(db: &Databas, anna: &Aktör, id: FöretagsId, tid: &s
     kundfaktura::radera_utkast(db, &k, anna, id, utkast)
         .await
         .unwrap();
+    // #139 Betalningar
+    let betald = testhjalp::utfärdad_kundfaktura(db, anna, id, "Betalare AB", "2026-03-01").await;
+    let betalning = maya_core::betalning::registrera(
+        db,
+        &k,
+        anna,
+        id,
+        maya_core::betalning::Faktura::Kund(betald.id),
+        &maya_domain::betalning::NyBetalning {
+            betaldag: "2026-03-01".into(),
+            belopp: "100".into(),
+            konto: "1930".into(),
+            öresutjämning: false,
+        },
+    )
+    .await
+    .unwrap();
+    maya_core::betalning::rätta(db, &k, anna, id, betalning.id, "2026-03-01", "fel belopp")
+        .await
+        .unwrap();
 }
 
 #[tokio::test]

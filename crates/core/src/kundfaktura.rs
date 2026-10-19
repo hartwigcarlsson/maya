@@ -27,6 +27,7 @@ use crate::aktor::{Aktör, Handling};
 use crate::atkomst::{self, Ärende, ÅtkomstFel};
 use crate::behandlingshistorik::{self, Händelse};
 use crate::foretag::{self, FöretagsId, datum};
+use crate::kund::KundId;
 use crate::underlag::{self, UnderlagFel, UnderlagId};
 use crate::utskrift::Pdf;
 use crate::verifikat::{
@@ -150,6 +151,8 @@ pub struct Kundfakturarad {
     pub förfallodag: Option<Date>,
     /// Totalen i öre; för ett utkast summan av de rader som går att räkna.
     pub total: i64,
+    /// Det som återstår att betala i öre (#139); för ett utkast totalen.
+    pub återstår: i64,
 }
 
 /// Den arkiverade PDF:en, som aldrig skrivs om.
@@ -786,6 +789,26 @@ pub async fn lista(
 ) -> Result<Vec<Kundfakturarad>, ÅtkomstFel> {
     let mut tx = db.pool().begin().await?;
     atkomst::kräv(&mut tx, aktör, företag, Handling::LäsaFöretag).await?;
+    Ok(lista_i(&mut tx, företag, None).await?)
+}
+
+/// Kundens fakturor i företaget, i samma ordning som [`lista`], för kundens detalj (story 11).
+pub async fn kundens_fakturor(
+    db: &Databas,
+    aktör: &Aktör,
+    företag: FöretagsId,
+    kund: KundId,
+) -> Result<Vec<Kundfakturarad>, ÅtkomstFel> {
+    let mut tx = db.pool().begin().await?;
+    atkomst::kräv(&mut tx, aktör, företag, Handling::LäsaFöretag).await?;
+    Ok(lista_i(&mut tx, företag, Some(kund)).await?)
+}
+
+async fn lista_i(
+    conn: &mut SqliteConnection,
+    företag: FöretagsId,
+    kund: Option<KundId>,
+) -> Result<Vec<Kundfakturarad>, DatabasFel> {
     type Rad = (
         i64,
         String,
@@ -794,26 +817,33 @@ pub async fn lista(
         Option<String>,
         Option<String>,
         Option<i64>,
+        Option<i64>,
     );
+    // Det som återstår: totalen minus betalningarna i reskontran (#139), samma regel som
+    // `betalning::reskontrapost`.
     let rader: Vec<Rad> = sqlx::query_as(
         "SELECT f.id, f.status, f.nummer,
                 coalesce(f.kunduppgifter ->> '$.namn', k.namn),
-                f.fakturadatum, f.forfallodag, f.total
+                f.fakturadatum, f.forfallodag, f.total,
+                f.total - coalesce((SELECT sum(b.belopp + b.oresutjamning)
+                                    FROM betalning_i_reskontran b
+                                    WHERE b.kundfaktura_id = f.id), 0)
          FROM kundfaktura f LEFT JOIN kund k ON k.id = f.kund_id
-         WHERE f.foretag_id = ?
+         WHERE f.foretag_id = ?1 AND (?2 IS NULL OR f.kund_id = ?2)
          ORDER BY f.status = 'utkast' DESC, f.nummer DESC, f.id DESC",
     )
     .bind(företag.0)
-    .fetch_all(&mut *tx)
+    .bind(kund.map(|k| k.0))
+    .fetch_all(&mut *conn)
     .await?;
     let mut lista = Vec::new();
-    for (id, status, nummer, kund, fakturadatum, förfallodag, total) in rader {
+    for (id, status, nummer, kund, fakturadatum, förfallodag, total, återstår) in rader {
         let status = Status::från_kod(&status)
             .ok_or_else(|| DatabasFel::Korrupt("kundfaktura.status".into()))?;
         let total = match total {
             Some(total) => total,
             None => {
-                läs_utkast(&mut tx, KundfakturaId(id))
+                läs_utkast(&mut *conn, KundfakturaId(id))
                     .await?
                     .som_formulär()
                     .beräkna()
@@ -828,6 +858,7 @@ pub async fn lista(
             fakturadatum: fakturadatum.as_deref().map(datum).transpose()?,
             förfallodag: förfallodag.as_deref().map(datum).transpose()?,
             total,
+            återstår: återstår.unwrap_or(total),
         });
     }
     Ok(lista)

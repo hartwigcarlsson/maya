@@ -96,6 +96,9 @@ händelser! {
     // #135 Kundfakturor
     KundfakturaUtfärdad => "kundfaktura utfärdad",
     StartnummerÄndrat => "startnummer ändrat",
+    // #139 Betalningar
+    BetalningRegistrerad => "betalning registrerad",
+    BetalningRättad => "betalning rättad",
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -641,6 +644,43 @@ impl Post {
             }
             Händelse::StartnummerÄndrat => {
                 format!("Första fakturanummer: {} → {}", f("från"), f("till"))
+            }
+            // #139 Betalningar
+            Händelse::BetalningRegistrerad => {
+                let mut text = format!(
+                    "Betalning {} kr av faktura {} till ”{}” den {} på {}",
+                    kronor(&b["summa_öre"]),
+                    f("fakturanummer"),
+                    f("motpart"),
+                    f("betaldag"),
+                    f("konto")
+                );
+                if b["öresutjämning_öre"].as_i64().unwrap_or_default() != 0 {
+                    text.push_str(&format!(
+                        ", {} kr mot öresutjämning",
+                        kronor(&b["öresutjämning_öre"])
+                    ));
+                }
+                text.push_str(&format!(
+                    ", bokförd som {}, {} kr återstår",
+                    s(&b["verifikat"]["nummer"]),
+                    kronor(&b["återstår_öre"])
+                ));
+                text
+            }
+            Händelse::BetalningRättad => {
+                let mut text = format!(
+                    "Betalning {} kr av faktura {} ({}) rättad med {}",
+                    kronor(&b["summa_öre"]),
+                    f("fakturanummer"),
+                    s(&b["verifikat"]["nummer"]),
+                    s(&b["rättelse"]["nummer"])
+                );
+                if !f("orsak").is_empty() {
+                    text.push_str(&format!(", {}", f("orsak")));
+                }
+                text.push_str(&format!(", {} kr återstår", kronor(&b["återstår_öre"])));
+                text
             }
         }
     }

@@ -626,6 +626,10 @@ pub async fn radera(
         "DELETE FROM fakturauppgifter WHERE foretag_id = ?1",
         // #144 leverantörsregistret
         "DELETE FROM leverantor WHERE foretag_id = ?1",
+        // #139 Betalningar finns bara på utfärdade fakturor, som spärrar raderingen.
+        "DELETE FROM betalningsrattelse
+         WHERE betalning_id IN (SELECT id FROM betalning WHERE foretag_id = ?1)",
+        "DELETE FROM betalning WHERE foretag_id = ?1",
         // #135 Kundfakturor: bara utkast, eftersom en utfärdad faktura är
         // räkenskapsinformation.
         "DELETE FROM kundfakturarad

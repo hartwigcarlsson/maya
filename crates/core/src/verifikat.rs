@@ -539,25 +539,12 @@ pub async fn rätta(
     som_original
         .kan_rättas()
         .map_err(VerifikatFel::InteRättbart)?;
-    let förutsättningar = läs_förutsättningar(ärende.conn(), företag).await?;
-    let v = som_original
-        .rättelse(datum, orsak, &förutsättningar)
-        .map_err(VerifikatFel::Spärrat)?;
-
-    let år_id = räkenskapsår_id(&mut ärende, v.räkenskapsår).await?;
-    let innehåll = Innehåll {
-        källa: Källa::Rättelse,
-        rättar: Some(original),
-        ..Innehåll::bokförbart(år_id, &v)
-    };
-    let id = skapa(&mut ärende, &innehåll).await?;
-    let nummer = tilldela_nummer(&mut ärende, id, år_id).await?;
-    logga_bokfört(
+    let (Bokfört { id, nummer }, rättelsedatum) = bokför_rättelsen(
         &mut ärende,
-        id,
-        nummer,
-        &v,
-        Some((original, original_nummer)),
+        (original, original_nummer),
+        &som_original,
+        datum,
+        orsak,
     )
     .await?;
 
@@ -595,12 +582,12 @@ pub async fn rätta(
     ärende
         .logga(
             Händelse::VerifikatRättat,
-            &original_nummer.to_string(),
+            &som_original.nummer,
             serde_json::json!({
                 "verifikat": original.0,
-                "nummer": original_nummer.to_string(),
+                "nummer": som_original.nummer,
                 "rättelse": { "verifikat": id.0, "nummer": nummer.to_string() },
-                "datum": v.datum.to_string(),
+                "datum": rättelsedatum.to_string(),
                 "orsak": orsak.trim(),
                 "kopia": kopia.map(|k| k.0),
             }),
@@ -611,6 +598,74 @@ pub async fn rätta(
         rättelse: Bokfört { id, nummer },
         kopia,
     })
+}
+
+/// Bokför rättelsen av `original` i ärendet: vänder varje rad, prövar spärrarna, numrerar och
+/// loggar bokföringen. Förutsätter att originalet får rättas.
+async fn bokför_rättelsen(
+    ärende: &mut Ärende,
+    (original, original_nummer): (VerifikatId, Verifikationsnummer),
+    som_original: &Original,
+    datum: &str,
+    orsak: &str,
+) -> Result<(Bokfört, Date), VerifikatFel> {
+    let företag = ärende.företag;
+    let förutsättningar = läs_förutsättningar(ärende.conn(), företag).await?;
+    let v = som_original
+        .rättelse(datum, orsak, &förutsättningar)
+        .map_err(VerifikatFel::Spärrat)?;
+    let år_id = räkenskapsår_id(ärende, v.räkenskapsår).await?;
+    let innehåll = Innehåll {
+        källa: Källa::Rättelse,
+        rättar: Some(original),
+        ..Innehåll::bokförbart(år_id, &v)
+    };
+    let id = skapa(ärende, &innehåll).await?;
+    let nummer = tilldela_nummer(ärende, id, år_id).await?;
+    logga_bokfört(ärende, id, nummer, &v, Some((original, original_nummer))).await?;
+    Ok((Bokfört { id, nummer }, v.datum))
+}
+
+/// Rättar ett verifikat från ett av fakturaflödena inne i flödets ärende, utan att committa:
+/// som [`rätta`] med [`Rättelseval::BaraRättelse`], men flödet som verifikatet kommer från är
+/// den som rättar, så spärren `fran_flode` gäller inte. Rätta betalning (#139) och de andra
+/// rättelserna i fakturorna använder den. Loggar `verifikat bokfört` och `verifikat rättat`.
+pub(crate) async fn rätta_i(
+    ärende: &mut Ärende,
+    original: VerifikatId,
+    datum: &str,
+    orsak: &str,
+) -> Result<Bokfört, VerifikatFel> {
+    let företag = ärende.företag;
+    let o = läs_verifikat(ärende.conn(), företag, original)
+        .await?
+        .ok_or(VerifikatFel::IngetVerifikat)?;
+    let (Some(original_nummer), Some(som_original)) = (o.nummer, o.som_original()) else {
+        return Err(VerifikatFel::IngetVerifikat);
+    };
+    Original {
+        flöde: None,
+        ..som_original.clone()
+    }
+    .kan_rättas()
+    .map_err(VerifikatFel::InteRättbart)?;
+    let (bokfört, rättelsedatum) =
+        bokför_rättelsen(ärende, (original, original_nummer), &som_original, datum, orsak).await?;
+    ärende
+        .logga(
+            Händelse::VerifikatRättat,
+            &som_original.nummer,
+            serde_json::json!({
+                "verifikat": original.0,
+                "nummer": som_original.nummer,
+                "rättelse": { "verifikat": bokfört.id.0, "nummer": bokfört.nummer.to_string() },
+                "datum": rättelsedatum.to_string(),
+                "orsak": orsak.trim(),
+                "kopia": null,
+            }),
+        )
+        .await?;
+    Ok(bokfört)
 }
 
 /// Sparar formuläret som ett nytt utkast, eller som nytt innehåll i utkastet `utkast`. Ett
@@ -1145,6 +1200,10 @@ async fn flödeslänk(
             id,
             text: format!("leverantörsfaktura {nummer} från {namn}"),
         }));
+    }
+    // #139 Betalningar
+    if let Some((flöde, id, text)) = crate::betalning::fakturan_för_verifikat(conn, id).await? {
+        return Ok(Some(Flödeslänk { flöde, id, text }));
     }
     // #135 Kundfakturor
     Ok(crate::kundfaktura::fakturan_för_verifikat(conn, id)
