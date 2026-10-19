@@ -29,7 +29,7 @@ fn automatkonteringarna_återges_ordagrant_som_i_specen() {
             Tabellrad::Rubrik(r) => panic!("rubrik {r}"),
         })
         .collect();
-    assert_eq!(rader.len(), 3);
+    assert_eq!(rader.len(), 23);
     assert_eq!(rader[0][0], "Rättelse av ett bokfört verifikat");
     assert_eq!(
         rader[0][1],
@@ -42,6 +42,17 @@ fn automatkonteringarna_återges_ordagrant_som_i_specen() {
         "IB(k, n) = UB(k, n−1) för varje konto k i klass 1–2"
     );
     assert!(rader[2][3].starts_with("år n−1 finns i Maya och är inte stängt; därtill IB(2099, n)"));
+    assert_eq!(
+        rader[3],
+        [
+            "Utfärda eller registrera kundfaktura",
+            "1510 totalen",
+            "intäktskontot per rad netto; 2611/2621/2631 moms",
+            "fakturametoden; datum = fakturadatum; omvänd skattskyldighet och 0 % ger ingen \
+             momsrad",
+        ]
+    );
+    assert_eq!(rader[22][0], "T2-samlingsverifikat");
 
     // Fetstil och kursiv följer med.
     let Tabellrad::Rad(första) = &tabell.rader[0] else {
@@ -70,6 +81,12 @@ fn automatkonteringarna_återges_ordagrant_som_i_specen() {
         stycken
             .iter()
             .any(|s| s.contains("Saldo räknas med debet som positivt."))
+    );
+    assert!(
+        stycken
+            .iter()
+            .any(|s| s.contains("Utgående moms är 2611 (25 %), 2621 (12 %) och 2631 (6 %).")),
+        "{stycken:?}"
     );
 }
 

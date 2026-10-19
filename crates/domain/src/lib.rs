@@ -3,6 +3,7 @@
 
 pub mod arbetsdagar;
 pub mod att_gora;
+pub mod automatkontering;
 pub mod backup;
 pub mod belopp;
 pub mod betalning;

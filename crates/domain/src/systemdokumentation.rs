@@ -5,12 +5,13 @@
 //! [`Systemdokumentation`] som sida och `maya-pdf` skriver den som PDF. Reglerna står här som
 //! text bredvid konstanterna de beskriver, så att texten följer med när en regel ändras.
 //!
-//! Tabellen över automatkonteringar läses ur `data/regler/automatkonteringar.md`, som är
-//! avsnittet "Automatkonteringar" i specen ordagrant. Ändras tabellen ändras den där.
+//! Tabellen över automatkonteringar byggs i [`crate::automatkontering`] ur kontona som flödena
+//! konterar med och återges ordagrant som i specen.
 
 use serde::{Deserialize, Serialize};
 
 use crate::att_gora::VARNING_EFTER_DAGAR;
+use crate::automatkontering;
 use crate::ingaende_balans::PRELIMINÄRT_RESULTAT;
 use crate::kontoplan::flödenas_konton;
 use crate::verifikat::SPÄRRAR;
@@ -147,49 +148,27 @@ impl From<String> for Text {
     }
 }
 
-const AUTOMATKONTERINGAR: &str = include_str!("../data/regler/automatkonteringar.md");
-
-/// Tabellen över automatkonteringar med styckena runt den, ordagrant ur specen.
+/// Tabellen över automatkonteringar med styckena runt den, ordagrant som i specen. Den byggs ur
+/// [`crate::automatkontering`], alltså ur kontona som flödena konterar med.
 pub fn automatkonteringar() -> Vec<Block> {
-    let mut block = Vec::new();
-    let mut tabell: Option<Tabell> = None;
-    for rad in AUTOMATKONTERINGAR.lines().map(str::trim) {
-        if let Some(innehåll) = rad.strip_prefix('|') {
-            let celler: Vec<&str> = innehåll
-                .strip_suffix('|')
-                .unwrap_or(innehåll)
-                .split('|')
-                .map(str::trim)
-                .collect();
-            if celler
-                .iter()
-                .all(|c| c.chars().all(|t| t == '-' || t == ':'))
-            {
-                continue;
-            }
-            match &mut tabell {
-                None => {
-                    tabell = Some(Tabell {
-                        kolumner: celler.iter().map(|c| c.to_string()).collect(),
-                        rader: Vec::new(),
-                    })
-                }
-                Some(t) => t.rader.push(Tabellrad::Rad(
-                    celler.into_iter().map(Text::markdown).collect(),
-                )),
-            }
-            continue;
-        }
-        if let Some(t) = tabell.take() {
-            block.push(Block::Tabell(t));
-        }
-        if !rad.is_empty() {
-            block.push(Block::Stycke(Text::markdown(rad)));
-        }
-    }
-    if let Some(t) = tabell {
-        block.push(Block::Tabell(t));
-    }
+    let mut block: Vec<Block> = automatkontering::inledning()
+        .iter()
+        .map(|s| Block::Stycke(Text::markdown(s)))
+        .collect();
+    block.push(Block::Tabell(Tabell {
+        kolumner: automatkontering::KOLUMNER.map(String::from).into(),
+        rader: automatkontering::tabell()
+            .iter()
+            .map(|r| {
+                Tabellrad::Rad(
+                    [&r.namn, &r.debet, &r.kredit, &r.villkor]
+                        .map(|ruta| Text::markdown(&ruta.markdown()))
+                        .into(),
+                )
+            })
+            .collect(),
+    }));
+    block.push(Block::Stycke(Text::markdown(automatkontering::AVSLUTNING)));
     block
 }
 
