@@ -2892,3 +2892,12 @@ kbd {
   box-shadow: none;
   padding: 0;
 }
+
+/* Sök: fakturor, kunder och leverantörer (#154) */
+.sok-traffar a > span:first-child {
+  flex: 1;
+}
+
+.sok-traffar a .badge {
+  flex: none;
+}
