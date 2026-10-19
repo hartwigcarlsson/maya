@@ -324,10 +324,14 @@ async fn ett_okänt_räkenskapsår_eller_ett_annat_företag_ger_ett_fel() {
 async fn ett_konto_med_ingående_balans_kan_inte_inaktiveras() {
     let db = Databas::tillfällig().await;
     let (anna, id) = testhjalp::företag(&db).await;
-    saldo::ändra_ingående_balans(&db, &klocka(), &anna, id, ÅR_2026, &startkapital())
+    // 1930 är fakturaflödenas konto och inaktiveras aldrig; kassan har en ingående balans.
+    let kassa = NyIngåendeBalans {
+        rader: vec![rad("1910", "1 000", ""), rad("2081", "", "1 000")],
+    };
+    saldo::ändra_ingående_balans(&db, &klocka(), &anna, id, ÅR_2026, &kassa)
         .await
         .unwrap();
-    // 2027 finns, och där har 1930 bara sin (preliminära) ingående balans.
+    // 2027 finns, och där har 1910 bara sin (preliminära) ingående balans.
     testhjalp::bokför(
         &db,
         &anna,
@@ -336,7 +340,7 @@ async fn ett_konto_med_ingående_balans_kan_inte_inaktiveras() {
         &[(1510, 7_000, 0), (3001, 0, 7_000)],
     )
     .await;
-    let bank = Kontonummer::new(1930).unwrap();
+    let bank = Kontonummer::new(1910).unwrap();
 
     let fel = kontoplan::inaktivera(&db, &klocka(), &anna, id, bank)
         .await

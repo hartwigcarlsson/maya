@@ -224,7 +224,8 @@ pub fn Toppmeny() -> impl IntoView {
                     <Antal n=valt.att_göra />
                 </a>
                 <a href=format!("{bas}/verifikat")>"Verifikat"</a>
-                // #145 Leverantörsfakturor (Kundfakturor kommer före, #135)
+                <a href=format!("{bas}/kundfakturor")>"Kundfakturor"</a>
+                // #145 Leverantörsfakturor
                 <a href=format!("{bas}/leverantorsfakturor")>"Leverantörsfakturor"</a>
                 <a href=format!("{bas}/rapporter")>
                     "Rapporter"
@@ -233,6 +234,10 @@ pub fn Toppmeny() -> impl IntoView {
             <details class="ny-meny">
                 <summary class="knapp knapp-diskret">"Ny"</summary>
                 <ul>
+                    // #135
+                    <li>
+                        <a href=format!("{bas}/kundfakturor/ny")>"Kundfaktura"</a>
+                    </li>
                     // #145
                     <li>
                         <a href=format!("{bas}/leverantorsfakturor/ny")>"Leverantörsfaktura"</a>

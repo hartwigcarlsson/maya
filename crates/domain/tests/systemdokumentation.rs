@@ -166,3 +166,21 @@ fn ändringsloggen_har_den_här_versionen() {
     );
     assert!(logg.iter().all(|r| !r.ändringar.is_empty()));
 }
+
+#[test]
+fn behandlingsreglerna_har_spärrarna_vid_utfärdande_av_kundfaktura() {
+    let blocken = maya_domain::systemdokumentation::behandlingsregler();
+    let i = blocken
+        .iter()
+        .position(
+            |b| matches!(b, Block::Underrubrik(t) if t == "Spärrar vid utfärdande av kundfaktura"),
+        )
+        .expect("underrubriken");
+    let Some(Block::Tabell(tabell)) = blocken.get(i + 2) else {
+        panic!("en tabell efter stycket");
+    };
+    assert_eq!(
+        tabell.rader.len(),
+        maya_domain::kundfaktura::UTFÄRDANDESPÄRRAR.len()
+    );
+}
