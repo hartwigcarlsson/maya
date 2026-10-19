@@ -155,6 +155,9 @@ pub struct Fakturarad {
     pub fakturadatum: Option<Date>,
     pub förfallodag: Option<Date>,
     pub total: Option<Belopp>,
+    /// Det som återstår att betala i öre (#147): totalen minus betalningarna i reskontran; för
+    /// ett utkast totalen, eller 0 utan total.
+    pub återstår: i64,
 }
 
 /// Skapar ett utkast med det okopplade underlaget `underlag` som original.
@@ -585,10 +588,17 @@ pub async fn lista(
         Option<String>,
         Option<String>,
         Option<i64>,
+        i64,
     );
+    // Det som återstår: totalen minus betalningarna i reskontran, med öresutjämning och
+    // kursdifferens (#147), samma regel som `betalning::betalt_i`.
     let rader: Vec<Rad> = sqlx::query_as(
         "SELECT f.id, f.status, l.namn, l.status, f.fakturanummer, f.fakturadatum,
-                f.forfallodag, f.total
+                f.forfallodag, f.total,
+                coalesce(f.total, 0) - coalesce((SELECT sum(b.belopp + b.oresutjamning
+                                                            + b.kursdifferens)
+                                                 FROM betalning_i_reskontran b
+                                                 WHERE b.leverantorsfaktura_id = f.id), 0)
          FROM leverantorsfaktura f LEFT JOIN leverantor l ON l.id = f.leverantor_id
          WHERE f.foretag_id = ?
          ORDER BY f.status <> 'utkast', f.forfallodag, f.id",
@@ -598,18 +608,21 @@ pub async fn lista(
     .await?;
     Ok(rader
         .into_iter()
-        .map(|(id, status, namn, lstatus, nummer, fd, ff, total)| {
-            Ok(Fakturarad {
-                id: LeverantörsfakturaId(id),
-                status: status_(&status)?,
-                leverantörsnamn: namn.unwrap_or_default(),
-                ny_leverantör: lstatus.as_deref() == Some("ny"),
-                fakturanummer: nummer,
-                fakturadatum: fd.as_deref().map(datum).transpose()?,
-                förfallodag: ff.as_deref().map(datum).transpose()?,
-                total: total.map(Belopp::från_öre),
-            })
-        })
+        .map(
+            |(id, status, namn, lstatus, nummer, fd, ff, total, återstår)| {
+                Ok(Fakturarad {
+                    id: LeverantörsfakturaId(id),
+                    status: status_(&status)?,
+                    leverantörsnamn: namn.unwrap_or_default(),
+                    ny_leverantör: lstatus.as_deref() == Some("ny"),
+                    fakturanummer: nummer,
+                    fakturadatum: fd.as_deref().map(datum).transpose()?,
+                    förfallodag: ff.as_deref().map(datum).transpose()?,
+                    total: total.map(Belopp::från_öre),
+                    återstår,
+                })
+            },
+        )
         .collect::<Result<_, DatabasFel>>()?)
 }
 

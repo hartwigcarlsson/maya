@@ -2748,6 +2748,16 @@ kbd {
   font-weight: 600;
 }
 
+/* Betalning av leverantörsfaktura (#147): leverantörsskulderna i listans rubrik och
+   betaluppgifterna i dokumentet, markerade med ett klick så att de kan kopieras till banken. */
+.leverantorsskulder {
+  margin: 0;
+}
+
+.betaluppgifter code {
+  user-select: all;
+}
+
 /* Kreditfakturor (#140): märkena krediterad, tillgodo och kreditfaktura, panelen Kreditfaktura…
    och hänvisningen på kreditutkastet. */
 .badge-krediterad {

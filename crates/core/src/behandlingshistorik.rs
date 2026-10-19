@@ -711,6 +711,15 @@ impl Post {
                         kronor(&b["öresutjämning_öre"])
                     ));
                 }
+                // #147 Kursdifferens: positiv vid vinst, negativ vid förlust.
+                match b["kursdifferens_öre"].as_i64().unwrap_or_default() {
+                    0 => {}
+                    k => text.push_str(&format!(
+                        ", {} kr {}",
+                        Saldo::från_öre(k.abs()),
+                        if k > 0 { "kursvinst" } else { "kursförlust" }
+                    )),
+                }
                 text.push_str(&format!(
                     ", bokförd som {}, {} kr återstår",
                     s(&b["verifikat"]["nummer"]),

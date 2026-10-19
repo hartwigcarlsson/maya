@@ -211,6 +211,10 @@ _Avoid_: Betalningsmetod, betalkanal
 Ett mejl med en utfärdad kundfaktura som Maya skickade eller försökte skicka, eller en markering att fakturan lämnades på annat sätt (post, personligen, kundens portal); det loggas med tid, mottagare, vem och resultat och är inget tillstånd på fakturan.
 _Avoid_: Leverans, distribution, skickad (som status)
 
+**Kursdifferens**:
+Skillnaden mellan det som återstår av en leverantörsfaktura i originalvaluta, registrerad i SEK, och det som betalades i SEK; den stängs i betalningens verifikat mot 3960 vid vinst och 7960 vid förlust, så att inget återstår.
+_Avoid_: Valutadifferens, kursavvikelse, valutajustering
+
 **Anställd**:
 En person som får lön eller styrelsearvode från ett företag, även en ägare; registreras per företag.
 _Avoid_: Personal, medarbetare, löntagare

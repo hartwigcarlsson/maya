@@ -432,6 +432,62 @@ impl crate::utskick::Epost for Brevlåda {
     }
 }
 
+// #147 Betalning av leverantörsfaktura
+/// En registrerad leverantörsfaktura `nummer` från `leverantör` på 1 250,00 kr (5410 netto
+/// 1 000 kr och 25 % moms), fakturerad 2026-03-14 och förfallen 2026-04-13. `originalvaluta` är
+/// fritext, t.ex. "EUR 109,50", eller tom.
+pub async fn registrerad_leverantörsfaktura(
+    db: &Databas,
+    aktör: &Aktör,
+    företag: FöretagsId,
+    leverantör: crate::leverantor::LeverantörsId,
+    nummer: &str,
+    originalvaluta: &str,
+) -> crate::leverantorsfaktura::LeverantörsfakturaId {
+    use crate::leverantorsfaktura;
+    let klocka = Klocka::system();
+    let innehåll = format!("%PDF-1.4 leverantörsfaktura {nummer}");
+    let (id, _) = leverantorsfaktura::ladda_upp(
+        db,
+        &klocka,
+        aktör,
+        företag,
+        (
+            &format!("faktura-{nummer}.pdf"),
+            "application/pdf",
+            innehåll.as_bytes(),
+        ),
+    )
+    .await
+    .expect("originalet laddas upp");
+    leverantorsfaktura::registrera(
+        db,
+        &klocka,
+        aktör,
+        företag,
+        id,
+        &maya_domain::leverantorsfaktura::NyLeverantörsfaktura {
+            leverantör: leverantör.to_string(),
+            fakturanummer: nummer.into(),
+            fakturadatum: "2026-03-14".into(),
+            förfallodag: "2026-04-13".into(),
+            referens: "4455667788".into(),
+            totalbelopp: "1 250,00".into(),
+            originalvaluta: originalvaluta.into(),
+            rader: vec![maya_domain::leverantorsfaktura::NyRad {
+                konto: "5410".into(),
+                netto: "1 000".into(),
+                momssats: "25".into(),
+                moms: String::new(),
+            }],
+            ..Default::default()
+        },
+    )
+    .await
+    .expect("fakturan registreras");
+    id
+}
+
 // #140 Kreditfakturor
 /// En utfärdad kreditfaktura som krediterar hela den utfärdade fakturan `original`.
 pub async fn utfärdad_kreditfaktura(

@@ -502,7 +502,7 @@ async fn fakturaändringar(db: &Databas, anna: &Aktör, id: FöretagsId, tid: &s
             betaldag: "2026-03-01".into(),
             belopp: "100".into(),
             konto: "1930".into(),
-            öresutjämning: false,
+            ..Default::default()
         },
     )
     .await
@@ -517,7 +517,7 @@ async fn fakturaändringar(db: &Databas, anna: &Aktör, id: FöretagsId, tid: &s
         betaldag: "2026-03-01".into(),
         belopp: belopp.into(),
         konto: "1930".into(),
-        öresutjämning: false,
+        ..Default::default()
     };
     let faktura = maya_core::betalning::Faktura::Kund(krediterad.id);
     maya_core::betalning::registrera(db, &k, anna, id, faktura, &betala("100"))
